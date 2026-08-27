@@ -144,7 +144,7 @@
     <section class="slide lead on">
       <p class="eyebrow">Build story · agent-orchestrated</p>
       <h1>GRANTED<br><span class="m">spec-driven,</span> agent-built</h1>
-      <p class="sub">A federal-funding tool built almost entirely by delegating to AI agents. The interesting part isn't the code — it's how much of a single <strong>8-hour build</strong> went to <em>not writing any.</em></p>
+      <p class="sub">A federal-funding tool built almost entirely by delegating to AI agents. The interesting part isn't the code. It's how much of a single <strong>8-hour build</strong> we spent <em>not writing any.</em></p>
     </section>
 
     <!-- 2 -->
@@ -152,7 +152,7 @@
       <p class="eyebrow">The premise</p>
       <h2>We didn't start with code. We started with a <span class="c">spec</span> and a <span class="m">north star</span>.</h2>
       <ul class="pts">
-        <li><b>A north star</b> for where the spec is silent: <em>"a personal government-funding intelligence analyst for every startup"</em> — anchored on the user's problem, not on finding uses for AI.</li>
+        <li><b>A north star</b> for where the spec is silent: <em>"a personal government-funding intelligence analyst for every startup."</em> It governs every call the spec doesn't make.</li>
         <li><b>An orchestrator contract</b> (<code>CLAUDE.md</code>): one agent plans and delegates; it never writes code itself.</li>
         <li><b>A 1,210-line specification</b> (the orchestrator prompt): requirements, shared contracts, ship order, acceptance criteria.</li>
       </ul>
@@ -163,10 +163,10 @@
       <p class="eyebrow">The north star · governs where the spec is silent</p>
       <h2>"A personal <span class="c">government-funding intelligence analyst</span> for every startup."</h2>
       <div class="grid2">
-        <div class="card"><div class="k">anchor</div><h3>the user's problem, not the AI</h3><p>Design around <b>helping startups secure funding</b> — never around finding uses for a model. Battle-tested workflows first; autonomous agents only after.</p></div>
-        <div class="card m"><div class="k">the canon</div><h3>messy gov data → trusted ground</h3><p>Turn scattered federal funding data into an <b>authoritative knowledge base</b>, then retrieve it to the exact moment of user friction — not a search box.</p></div>
+        <div class="card"><div class="k">anchor</div><h3>the founder's problem, not the AI</h3><p>Design around <b>helping startups secure funding</b>, never around finding a use for a model. Build battle-tested workflows first; add autonomous agents only after.</p></div>
+        <div class="card m"><div class="k">the canon</div><h3>messy gov data → trusted ground</h3><p>Turn scattered federal funding data into an <b>authoritative knowledge base</b>, then retrieve it to the exact moment of user friction, not a search box.</p></div>
         <div class="card"><div class="k">the triangle</div><h3>intelligence · cost · latency</h3><p>Route expensive models only to the hard analysis, cheap ones to everything else. Context + strict prompt templates over fine-tuning.</p></div>
-        <div class="card m"><div class="k">TACA</div><h3>trust is measured, not asserted</h3><p><b>T</b>ransparency · <b>A</b>ccuracy · <b>C</b>alibration · <b>A</b>lignment — eval sets plus expert vibe checks, so it never gives confident bad advice.</p></div>
+        <div class="card m"><div class="k">TACA</div><h3>trust is measured, not asserted</h3><p><b>T</b>ransparency · <b>A</b>ccuracy · <b>C</b>alibration · <b>A</b>lignment. Measured with eval sets and expert vibe checks, so it never gives confident bad advice.</p></div>
       </div>
     </section>
 
@@ -185,7 +185,7 @@
     ┌───────┴────────┐
     │     <span class="c">WORKER</span>     │  <span class="d">(opus/sonnet — builds in an isolated git worktree)</span>
     └────────────────┘</pre>
-      <p class="attn">Cheap dispatchers, expensive workers. Many run in parallel; each gets a clean context. One place — the orchestrator — controls what reaches <code>main</code>.</p>
+      <p class="attn">Cheap dispatchers, expensive workers. Many run in parallel; each gets a clean context. Only the orchestrator controls what reaches <code>main</code>.</p>
     </section>
 
     <!-- orchestrator internals -->
@@ -193,11 +193,11 @@
       <p class="eyebrow">Inside the 1,210-line orchestrator prompt</p>
       <h2>How the work gets <span class="c">delegated</span></h2>
       <ul class="pts">
-        <li><b>Recon before code</b> — first produce an <em>as-built</em> map of the real pipeline, then confirm or kill every <code>[HYPOTHESIS]</code>. Never assign work to fix a problem you haven't proven exists.</li>
-        <li><b>Contracts first</b> — shared schemas, flags, and the prompt registry ship <em>before</em> any feature code, or parallel teams produce unmergeable work.</li>
-        <li><b>Every task is a sealed contract</b> — Context · Files-in-scope · Definition-of-done · <b>Out-of-scope</b> · Test plan · Escalate-if. A task with no "out of scope" isn't ready to assign.</li>
-        <li><b>Route to ~12 specialist teams</b> along a dependency graph — Contracts, Canon, Eligibility, Pipeline, Perf, Intel, Apply, Evals… each owning a file boundary so no two workers touch the same code.</li>
-        <li><b>Ambiguity is named, never guessed</b> — log it to <code>open-questions.md</code>, take the lowest-regret default, and record that default in the task.</li>
+        <li><b>Recon before code.</b> First produce an <em>as-built</em> map of the real pipeline, then confirm or kill every <code>[HYPOTHESIS]</code>. Never assign work to fix a problem you haven't proven exists.</li>
+        <li><b>Contracts first.</b> Shared schemas, flags, and the prompt registry ship <em>before</em> any feature code, or parallel teams produce unmergeable work.</li>
+        <li><b>Every task is a sealed contract:</b> Context · Files-in-scope · Definition-of-done · <b>Out-of-scope</b> · Test plan · Escalate-if. A task with no "out of scope" isn't ready to assign.</li>
+        <li><b>Route to ~12 specialist teams</b> along a dependency graph: Contracts, Canon, Eligibility, Pipeline, Perf, Intel, Apply, Evals… each owning a file boundary so no two workers touch the same code.</li>
+        <li><b>Ambiguity is named, never guessed.</b> Log it to <code>open-questions.md</code>, take the lowest-regret default, and record that default in the task.</li>
       </ul>
     </section>
 
@@ -217,12 +217,12 @@
         <div class="card">
           <div class="k">the progress bar</div>
           <h3>wasn't the problem</h3>
-          <p>The search took three minutes. A beautiful bar over three minutes is still three minutes. The spec now requires a <b>per-call latency profile before any optimization</b> — intuition about what's slow is usually wrong. The bar was the mitigation; the waterfall was the fix.</p>
+          <p>The search took three minutes. A beautiful bar over three minutes is still three minutes. The spec now requires a <b>per-call latency profile before any optimization</b>. Intuition about what's slow is usually wrong. The bar was the mitigation; the waterfall was the fix.</p>
         </div>
         <div class="card m">
           <div class="k">"auto-apply"</div>
           <h3>became "assisted apply"</h3>
-          <p>Submitting a federal application is a <b>legally attested act</b> — a human certifies it's true. A product that clicks submit for you doesn't save time, it transfers liability to you. So: prepare, prefill, review-and-attest. <b>The human submits. Always.</b></p>
+          <p>Submitting a federal application is a <b>legally attested act</b>. A human certifies it's true. A product that clicks submit for you doesn't save time, it transfers liability to you. So: prepare, prefill, review-and-attest. <b>The human submits. Always.</b></p>
         </div>
       </div>
     </section>
@@ -235,7 +235,7 @@
         <div class="card">
           <div class="k">the correctness floor</div>
           <h3>eligibility, first</h3>
-          <p>Nothing in the original list checked whether a company was <b>eligible</b> for the grants we surfaced. Perfect ranking on a list you can't apply to is worse than no list — it costs a founder a week to find out. That became the floor the whole product sits on.</p>
+          <p>Nothing in the original list checked whether a company was <b>eligible</b> for the grants we surfaced. Perfect ranking on a list you can't apply to is worse than no list. It costs a founder a week to find out. That became the floor the whole product sits on.</p>
         </div>
         <div class="card m">
           <div class="k">assumptions → hypotheses</div>
@@ -250,7 +250,7 @@
       <p class="eyebrow">What the discipline produced</p>
       <h2>Six requirements became <span class="c">eleven</span>.</h2>
       <div class="stats" style="grid-template-columns: repeat(3,1fr)">
-        <div class="stat"><div class="v">6<span class="u"> → 11</span></div><div class="l">requirements — the spec grew as gaps surfaced</div></div>
+        <div class="stat"><div class="v">6<span class="u"> → 11</span></div><div class="l">requirements, grown as gaps surfaced</div></div>
         <div class="stat"><div class="v">16</div><div class="l">open decisions <b>named</b> instead of silently defaulted</div></div>
         <div class="stat"><div class="v">0</div><div class="l">features shipped before the spec was done</div></div>
       </div>
@@ -262,21 +262,21 @@
       <p class="eyebrow">The rules that made parallelism safe</p>
       <h2>How dozens of agents didn't <span class="m">collide</span></h2>
       <ul class="pts">
-        <li><b>Git worktree per task</b> — many agents edit the same repo without corrupting each other.</li>
-        <li><b>PR-per-task; the orchestrator merges centrally</b> — one place controls ordering, conflicts, and <code>main</code>.</li>
-        <li><b>Six gates on every change</b> — typecheck · test · build · hex · contrast · prompts. Green-or-it-doesn't-merge.</li>
-        <li><b>Feature flags default-OFF</b> — every capability ships dark; the flag-off path stays byte-identical.</li>
-        <li><b>Verify the diff, not the report</b> — agents can over-claim; <code>git</code> is the source of truth.</li>
+        <li><b>Git worktree per task.</b> Many agents edit the same repo without corrupting each other.</li>
+        <li><b>PR-per-task; the orchestrator merges centrally.</b> One place controls ordering, conflicts, and <code>main</code>.</li>
+        <li><b>Six gates on every change:</b> typecheck · test · build · hex · contrast · prompts. Green, or it doesn't merge.</li>
+        <li><b>Feature flags default-OFF.</b> Every capability ships dark; the flag-off path stays byte-identical.</li>
+        <li><b>Verify the diff, not the report.</b> Agents can over-claim; <code>git</code> is the source of truth.</li>
       </ul>
     </section>
 
     <!-- 9 -->
     <section class="slide">
-      <p class="eyebrow">The product's soul</p>
-      <h2>The <span class="c">honest "no,"</span> enforced in code — not just prompts.</h2>
-      <p class="body">The differentiator: most tools always return <em>something</em>. Granted has the integrity to return a calibrated, well-explained <strong>nothing</strong> — and to say <strong>"we don't recommend applying"</strong> when that's the truth.</p>
+      <p class="eyebrow">What makes it different</p>
+      <h2>The <span class="c">honest "no,"</span> enforced in code, not just prompts.</h2>
+      <p class="body">The differentiator: most tools always return <em>something</em>. Granted has the integrity to return a calibrated, well-explained <strong>nothing</strong>, and to say <strong>"we don't recommend applying"</strong> when that's the truth.</p>
       <ul class="pts" style="margin-top:22px">
-        <li><b>Anti-fabrication is a type-system guarantee</b> — a model-inferred exclusion literally <em>cannot render</em>; the schema throws rather than fabricate.</li>
+        <li><b>Anti-fabrication is a type-system guarantee.</b> A model-inferred exclusion literally <em>cannot render</em>; the schema throws rather than fabricate.</li>
         <li><b>Every match is grounded</b> in a real federal award record, with citations.</li>
       </ul>
     </section>
@@ -287,21 +287,21 @@
       <h2>v1 <span class="c">→</span> v2 <span class="c">→</span> discernment <span class="c">→</span> local <span class="c">→</span> clone-and-run</h2>
       <div class="grid2">
         <div class="card"><div class="k">v1 → v2</div><h3>breadth + honesty</h3><p>Corpus <b>476 → 968</b> across 4 keyless federal sources; a real eligibility engine; streaming results; a structured intake.</p></div>
-        <div class="card m"><div class="k">discernment</div><h3>the "don't apply"</h3><p>Per-match <b>recommend / verify / do-not-recommend</b> + a whole-map verdict + rubric-anchored scoring — validated on a real-money golden set.</p></div>
-        <div class="card"><div class="k">run anywhere</div><h3>your keys, or local</h3><p>Clone, <code>npm install</code>, bring your own key — or point it at a <b>local model (Gemma via Ollama)</b>. Nothing leaves your machine.</p></div>
-        <div class="card m"><div class="k">go-to-market</div><h3>ship + distribute</h3><p>Landing page, a free readiness tool, a validation-outreach kit — and the honest wedge: grounded &amp; non-sycophantic vs. a hallucinating chatbot.</p></div>
+        <div class="card m"><div class="k">discernment</div><h3>the "don't apply"</h3><p>Per-match <b>recommend / verify / do-not-recommend</b> + a whole-map verdict + rubric-anchored scoring, validated on a real-money golden set.</p></div>
+        <div class="card"><div class="k">run anywhere</div><h3>your keys, or local</h3><p>Clone, <code>npm install</code>, bring your own key, or point it at a <b>local model (Gemma via Ollama)</b>. Nothing leaves your machine.</p></div>
+        <div class="card m"><div class="k">go-to-market</div><h3>ship + distribute</h3><p>Landing page, a free readiness tool, a validation-outreach kit, plus the honest wedge: grounded &amp; non-sycophantic vs. a hallucinating chatbot.</p></div>
       </div>
     </section>
 
     <!-- assisted apply end result -->
     <section class="slide">
       <p class="eyebrow">The end result · "auto-apply," delivered honestly</p>
-      <h2>It gets you to <span class="c">one signature away</span> — then stops.</h2>
+      <h2>It gets you <span class="c">one signature away</span>, then stops.</h2>
       <div class="grid2">
         <div class="card"><div class="k">package builder</div><h3>the application, assembled</h3><p>For a real SBIR / Grants.gov opportunity: required forms enumerated, fields <b>prefilled from your enriched profile</b>, narrative sections drafted, an attachment checklist, deadlines tracked.</p></div>
-        <div class="card m"><div class="k">handoff</div><h3>Chrome autofill + fill guide</h3><p>Export in the portal's expected format, or a browser extension <b>fills the form field-by-field</b> — with the provenance of every value shown.</p></div>
-        <div class="card"><div class="k">the line we won't cross</div><h3>the human submits — always</h3><p>Submitting is a <b>legally attested act</b>. A review-and-attest screen shows every field and where it came from; the final click is the AOR's, never the tool's.</p></div>
-        <div class="card m"><div class="k">system-to-system</div><h3>gated on legal review</h3><p>The S2S API path (active SAM registration + UEI + authorized AOR) is scoped as a <b>research memo before any code</b> — what's possible, what it costs, what liability it creates.</p></div>
+        <div class="card m"><div class="k">handoff</div><h3>Chrome autofill + fill guide</h3><p>Export in the portal's expected format, or a browser extension <b>fills the form field-by-field</b>, with the provenance of every value shown.</p></div>
+        <div class="card"><div class="k">the line we won't cross</div><h3>the human submits, always</h3><p>Submitting is a <b>legally attested act</b>. A review-and-attest screen shows every field and where it came from; the final click is the AOR's, never the tool's.</p></div>
+        <div class="card m"><div class="k">system-to-system</div><h3>gated on legal review</h3><p>The S2S API path (active SAM registration + UEI + authorized AOR) is scoped as a <b>research memo before any code</b>: what's possible, what it costs, what liability it creates.</p></div>
       </div>
     </section>
 
@@ -309,8 +309,8 @@
     <section class="slide">
       <p class="eyebrow">Validation, on the live path</p>
       <h2>Your happy path can <span class="m">hide a broken product</span>.</h2>
-      <p class="body">A precomputed demo cache made the flagship look perfect — while a too-strict boundary check was failing <strong>~2 of every 3 real novel searches</strong> with "the search didn't complete."</p>
-      <p class="body" style="margin-top:16px">It surfaced only when we ran the <em>golden set live</em> — 31 real searches, real spend — which errored 21/31. <strong>Evaluate the live path, on breadth.</strong> The same run later validated the discernment layer end-to-end (30/31).</p>
+      <p class="body">A precomputed demo cache made the flagship look perfect. Underneath, a too-strict boundary check was failing <strong>~2 of every 3 real novel searches</strong> with "the search didn't complete."</p>
+      <p class="body" style="margin-top:16px">It surfaced only when we ran the <em>golden set live</em> (31 real searches, real spend), which errored 21/31. <strong>Evaluate the live path, on breadth.</strong> The same run later validated the discernment layer end-to-end (30/31).</p>
     </section>
 
     <!-- 12 -->
@@ -321,18 +321,18 @@
         <div class="card"><div class="k">Claude (hosted)</div><h3>~90 seconds</h3><p>strong_map · NIH SBIR grants scored 82 / 72 / 62 · 6 high-potential.</p></div>
         <div class="card m"><div class="k">gemma4 (local, no keys)</div><h3>~11 minutes</h3><p>strong_map ✓ · the right NIH neurotherapeutics grant at <b>92, recommend</b> · slower, spikier, but the same verdict.</p></div>
       </div>
-      <p class="attn">A provider seam speaks the Anthropic client's interface but routes to any OpenAI-compatible endpoint. The honest tradeoff — slower and rougher — is in the README, because that's on-brand.</p>
+      <p class="attn">A provider seam speaks the Anthropic client's interface but routes to any OpenAI-compatible endpoint. The honest tradeoff (slower and rougher) is in the README, because that's on-brand.</p>
     </section>
 
     <!-- 13 -->
     <section class="slide">
       <p class="eyebrow">The gotchas we paid for once</p>
-      <h2>What <span class="m">bit</span> — and what it taught</h2>
+      <h2>What <span class="m">bit</span>, and what it taught</h2>
       <ul class="pts">
-        <li><b>The dead-end masked by cache</b> — a strict schema turned completed searches into errors on the live path; only the golden-set run caught it.</li>
-        <li><b>Over-reported work</b> — an agent claimed to have built features that had <em>no code</em>. Trust, but verify the diff.</li>
-        <li><b>Credit exhaustion mid-run</b> — a heavy golden-set sweep drained the LLM account and 400'd halfway. Pace real-money runs.</li>
-        <li><b>A stale working dir</b> — subagents read an old commit and "saw" the wrong app. Always branch from <code>origin/main</code>.</li>
+        <li><b>The dead-end masked by cache.</b> A strict schema turned completed searches into errors on the live path; only the golden-set run caught it.</li>
+        <li><b>Over-reported work.</b> An agent claimed to have built features that had <em>no code</em>. Trust, but verify the diff.</li>
+        <li><b>Credit exhaustion mid-run.</b> A heavy golden-set sweep drained the LLM account and 400'd halfway. Pace real-money runs.</li>
+        <li><b>A stale working dir.</b> Subagents read an old commit and "saw" the wrong app. Always branch from <code>origin/main</code>.</li>
       </ul>
     </section>
 
@@ -344,7 +344,7 @@
         <div class="stat"><div class="v">968</div><div class="l">opportunities · 4 sources · 6 funding types</div></div>
         <div class="stat"><div class="v">850<span class="u">+</span></div><div class="l">tests · 0 failing · six gates green</div></div>
         <div class="stat"><div class="v">30<span class="u">/31</span></div><div class="l">golden set validated live, on real credits</div></div>
-        <div class="stat"><div class="v">$0</div><div class="l">to run — bring a key, or a local model</div></div>
+        <div class="stat"><div class="v">$0</div><div class="l">to run: bring a key, or a local model</div></div>
       </div>
       <div class="chips">
         <span class="chip">clone &amp; run in ~5 min</span>
@@ -358,14 +358,14 @@
     <section class="slide lead">
       <p class="eyebrow">The through-line</p>
       <h2 style="font-size:56px; max-width:22ch">The hard part was never building <span class="c">faster</span>.</h2>
-      <p class="sub" style="max-width:64ch">It was being willing to cut the features that didn't deserve to exist. Once you've done that — ruthlessly — handing the actual work to a system that runs itself is the easy part. <br><br><em>Spec first. Delegate second. Merge like a dictator. Encode integrity in the type system.</em></p>
+      <p class="sub" style="max-width:64ch">It was being willing to cut the features that didn't deserve to exist. Once you've done that, ruthlessly, handing the actual work to a system that runs itself is the easy part. <br><br><em>Spec first. Delegate second. Merge like a dictator. Encode integrity in the type system.</em></p>
     </section>
 
     <!-- 16 -->
     <section class="slide lead">
       <p class="eyebrow">Granted</p>
       <h1>the honest<br>funding <span class="m">analyst</span></h1>
-      <p class="sub">Built by a fleet of agents, under one north star — and honest enough to tell you when not to apply.</p>
+      <p class="sub">Built by a fleet of agents, under one north star, and honest enough to tell you when not to apply.</p>
     </section>
 
   </div>
