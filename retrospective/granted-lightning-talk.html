@@ -226,22 +226,28 @@
         <div class="card m">
           <div class="k">behind "auto-apply"</div>
           <h3>a legal attestation</h3>
-          <p>Submitting a federal grant is a legally attested act. A bot that clicks submit doesn't save time, it hands you the liability. So: prefill, review, <b>the human submits. Always.</b></p>
+          <p>While auto-apply sounded ideal, submitting a federal grant means a human certifies it's true, under penalty. A bot can't take on that liability — so: prefill, review, <b>the human submits.</b></p>
         </div>
       </div>
     </section>
 
-    <!-- 4 the mess -->
+    <!-- 4 guardrails -->
     <section class="slide">
-      <p class="eyebrow">Verify, don't trust</p>
-      <h2>An agent will tell you it's <span class="c">done</span>. The <span class="m">diff</span> tells you the truth.</h2>
-      <div class="stats" style="grid-template-columns: repeat(3,1fr)">
-        <div class="stat"><div class="v">80<span class="u">+</span></div><div class="l">parallel task branches, each in its own worktree</div></div>
-        <div class="stat"><div class="v">100<span class="u">+</span></div><div class="l">PRs, every one central-merged on green</div></div>
-        <div class="stat"><div class="v">6</div><div class="l">CI gates: green, or it doesn't merge</div></div>
+      <p class="eyebrow">The spec's guardrails</p>
+      <h2>The guardrails <span class="m">caught the hallucinations</span>.</h2>
+      <div class="grid2">
+        <div class="card">
+          <div class="k">automated · every change</div>
+          <h3>six CI gates</h3>
+          <p>Every PR must pass typecheck, tests, build, and three more before it can merge. A feature with no code fails its own tests. Red never merges.</p>
+        </div>
+        <div class="card m">
+          <div class="k">agentic · every PR</div>
+          <h3>review subagents in the loop</h3>
+          <p>A dedicated code-review agent reads every pull request before the orchestrator merges it. Review is a step in the workflow, not a human afterthought.</p>
+        </div>
       </div>
-      <blockquote style="margin-top:26px">An agent reported two features "done." The diff showed no code for either.</blockquote>
-      <p class="attn">Trust the diff, not the report. A heavy eval run also drained the LLM credits and 400'd mid-run; squash-merging a base branch auto-closed the PRs stacked on it. The swarm works only because the gates and the diff decide what merges, never the agents' word.</p>
+      <p class="attn">Across 100+ PRs, every one had to clear the gates and a review. When an agent reported two features "done" with no code, that is what caught it before it reached <code>main</code>. A hallucination that can't pass the tests and the review never ships.</p>
     </section>
 
     <!-- 5 how it didn't collide -->
