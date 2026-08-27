@@ -46,7 +46,7 @@ style: |
 # Granted
 ### A personal government-funding intelligence analyst for every startup
 
-**Build retrospective** — from north star to shipped product
+**Build retrospective.** From north star to shipped product
 An overnight, multi-agent buildout orchestrated with Claude Code
 
 <span class="small">Formerly "fundFinder" · Next.js 14 · deployed on Vercel · Hackathon build</span>
@@ -57,7 +57,7 @@ An overnight, multi-agent buildout orchestrated with Claude Code
 
 > *"We will make something that feels like a personal government funding intelligence analyst for every startup."* — `northstar.md`
 
-The product maps a founder's plain-English company description to real federal funding opportunities — and, crucially, tells them **plainly when there's nothing worth chasing**.
+The product maps a founder's plain-English company description to real federal funding opportunities. It also tells them **plainly when there's nothing worth chasing**.
 
 - **The differentiator: the "honest no."** Most tools always return *something*. Granted has the integrity to return a calibrated, well-explained **nothing**.
 - Anti-hype, workflow-first, grounded in a curated data "Canon."
@@ -82,29 +82,29 @@ The spec could be silent; `northstar.md` governed everywhere it was.
 
 Two layers set the operating rules before any code was written:
 
-**1 · `CLAUDE.md` (global + project) — the orchestrator contract**
-- *"You are the main orchestrator. You do not implement directly — you delegate."*
+**1 · `CLAUDE.md` (global + project): the orchestrator contract**
+- *"You are the main orchestrator. You do not implement directly. You delegate."*
 - **Plan-first**; terse; **worktree isolation** for every task; **PR-per-task, never push to main**; clarify in batches.
 
 **2 · `prompts/START-HERE.md` → the spec → the north star**
 - START-HERE gated **Phase 1 (recon only)** behind human approval.
 - The **1,210-line `orchestrator-prompt.md`**: requirements (R1–R10), shared contracts, team structure, ship order, acceptance criteria.
-- Phase-1 recon produced `as-built.md`, `hypothesis-check.md`, `canon.md` — *understand the pipeline before changing it.*
+- Phase-1 recon produced `as-built.md`, `hypothesis-check.md`, `canon.md`. *Understand the pipeline before changing it.*
 
 ---
 
 ## The documents I was told to read
 
-<span class="tag">product</span> `northstar.md` — principles that govern where the spec is silent
-<span class="tag">spec</span> `prompts/orchestrator-prompt.md` — the authoritative 1,210-line specification
+<span class="tag">product</span> `northstar.md`: principles that govern where the spec is silent
+<span class="tag">spec</span> `prompts/orchestrator-prompt.md`: the authoritative 1,210-line specification
 <span class="tag">entry</span> `prompts/START-HERE.md` · `prompts/mock-auth/README.md`
 <span class="tag">threads</span> `feedback.md` · `open-questions.md` · `resolved-questions.md`
 <span class="tag">recon</span> `as-built.md` · `hypothesis-check.md` · `canon.md`
-<span class="tag">tasks</span> 25+ `tasks/*.md` — CON / CAN / ELG / INT / PLT / EVL / FE / APL slices
+<span class="tag">tasks</span> 25+ `tasks/*.md`: CON / CAN / ELG / INT / PLT / EVL / FE / APL slices
 <span class="tag">quality</span> `docs/calibration-baseline.md` · `evals/golden-set.jsonl` (31 cases)
-<span class="tag">review</span> `docs/code-review/FINDINGS.md` — the 7-scope architectural review
+<span class="tag">review</span> `docs/code-review/FINDINGS.md`: the 7-scope architectural review
 
-> The rule: **if an input path doesn't resolve, stop and say so** — never reconstruct a missing input from the spec's summary of it.
+> The rule: **if an input path doesn't resolve, stop and say so**. Never reconstruct a missing input from the spec's summary of it.
 
 ---
 
@@ -126,24 +126,24 @@ A three-tier hierarchy kept dozens of parallel tasks from colliding.
     └────────────────┘
 ```
 
-**Why the middle tier?** A cheap haiku dispatcher relays a precise, orchestrator-authored prompt to an expensive worker and reports back — isolating cost, giving each worker a clean context, and letting many run in parallel.
+**Why the middle tier?** A cheap haiku dispatcher relays a precise, orchestrator-authored prompt to an expensive worker and reports back. That isolates cost and gives each worker a clean context, so many can run in parallel.
 
 ---
 
 ## The rules that made parallelism safe
 
-- **Git worktree per task** — `\.claude/worktrees/<task>` on its own branch. Multiple agents edit the *same repo* without corrupting each other.
-- **PR-per-task; the orchestrator merges centrally** — one place controls ordering, conflicts, and what reaches `main`.
-- **Five gates on every change** — `tsc --noEmit` · `npm test` · `npm run build` · `check:hex` · `check:contrast` (+`check:prompts`). Green-or-it-doesn't-merge.
-- **Autonomy directive** — *run to completion; table blockers in `open-questions.md`; never block waiting on the human.*
-- **Feature flags default-OFF** — every new capability shipped dark; the flag-off path stays byte-identical.
-- **When `main` moved under a team, they were told to rebase** — the orchestrator broadcast every merge.
+- **Git worktree per task.** `\.claude/worktrees/<task>` on its own branch. Multiple agents edit the *same repo* without corrupting each other.
+- **PR-per-task; the orchestrator merges centrally.** One place controls ordering, conflicts, and what reaches `main`.
+- **Five gates on every change:** `tsc --noEmit` · `npm test` · `npm run build` · `check:hex` · `check:contrast` (+`check:prompts`). Green-or-it-doesn't-merge.
+- **Autonomy directive.** *Run to completion; table blockers in `open-questions.md`; never block waiting on the human.*
+- **Feature flags default-OFF.** Every new capability shipped dark; the flag-off path stays byte-identical.
+- **When `main` moved under a team, they were told to rebase.** The orchestrator broadcast every merge.
 
 ---
 
 ## How the product actually works
 
-The pipeline is a multi-stage retrieval + reasoning funnel — the north star's "context window as a soccer team."
+The pipeline is a multi-stage retrieval + reasoning funnel, the north star's "context window as a soccer team."
 
 ```
 description
@@ -157,7 +157,7 @@ description
 ```
 
 - **Streaming NDJSON** to a hybrid progress bar (real milestones + rotating "did you know" facts).
-- **Model routing**: cheap Haiku for extraction, Sonnet for analysis, embeddings for retrieval — the cost/latency triangle, managed.
+- **Model routing**: cheap Haiku for extraction, Sonnet for analysis, embeddings for retrieval. The cost/latency triangle, managed.
 - **Precomputed cache** for the 5 judged demo cases → instant, zero-cost, offline-safe.
 
 ---
@@ -166,12 +166,12 @@ description
 
 The product's integrity promise is a *type-system guarantee*, not a hope.
 
-- **Three-bucket eligibility** — every opportunity lands in `likely` / `verify` / `adjacent`, or the search returns a calibrated **weak-field honest-no**.
-- **R8.4 anti-fabrication** — a model-*inferred* or unreviewed rule **cannot** produce an `excluded` verdict. The Zod schema `.parse()` **throws** rather than render a fabricated exclusion.
-- **Quote-grounding** — eligibility reasons must cite retrieved text; enforced in code.
-- **§5.3 no server retention** — the description + PII never leave the client boundary for storage; a test scans for leaks.
+- **Three-bucket eligibility.** Every opportunity lands in `likely` / `verify` / `adjacent`, or the search returns a calibrated **weak-field honest-no**.
+- **R8.4 anti-fabrication.** A model-*inferred* or unreviewed rule **cannot** produce an `excluded` verdict. The Zod schema `.parse()` **throws** rather than render a fabricated exclusion.
+- **Quote-grounding.** Eligibility reasons must cite retrieved text; enforced in code.
+- **§5.3 no server retention.** The description + PII never leave the client boundary for storage; a test scans for leaks.
 
-> The review's verdict: *"The eligibility engine is real R8.4-safe anti-fabrication… unable to produce `excluded` — it throws rather than render."*
+> The review's verdict: *"The eligibility engine is real R8.4-safe anti-fabrication… unable to produce `excluded`: it throws rather than render."*
 
 ---
 
@@ -197,56 +197,56 @@ A team of subagents, each on an appropriate model, reviewed the whole codebase i
 - **Phase 3** (Critical + High): the C1 silent-drop, the search dead-end, dark-mode contrast, demo regeneration, analytics wiring, the test build.
 - **Phase 4** (Medium + Low): AbortSignal cost-leak, security headers + rate limit + prompt-injection envelope, freshness honesty, billing unification, a11y, +35 tests.
 
-**Outcome:** no secret exposure, no auth bypass, no PII leakage, no injection — verified, not assumed.
+**Outcome:** no secret exposure, no auth bypass, no PII leakage, no injection. Verified, not assumed.
 
 ---
 
 ## Calibration & evaluation (the "C" and "A" in TACA)
 
-- **CALIBRATION knobs** (`candidateFloor`, `candidateCount`, `scoreFloor`, `weakFieldThreshold`) tuned against the 5 judged cases — documented with an audit trail in `calibration-baseline.md`.
+- **CALIBRATION knobs** (`candidateFloor`, `candidateCount`, `scoreFloor`, `weakFieldThreshold`) tuned against the 5 judged cases, documented with an audit trail in `calibration-baseline.md`.
 - The retune fixed **false weak-fields**: case 1 (AI-healthcare) went from a wrong "honest-no" to real strong matches, while case 5 (youth marketplace) correctly **stays** an honest-no.
-- **Golden-set re-validation** — 31 live searches against the real pipeline (~11 min, real API spend), graded on agency overlap vs `should_appear` / `should_not_appear`.
+- **Golden-set re-validation:** 31 live searches against the real pipeline (~11 min, real API spend), graded on agency overlap vs `should_appear` / `should_not_appear`.
 
-> The re-validation didn't just confirm calibration — **it caught a production-critical bug** (next slide).
+> The re-validation confirmed calibration. It also **caught a production-critical bug** (next slide).
 
 ---
 
-## The gotchas — part 1 (the ones that bit)
+## The gotchas, part 1 (the ones that bit)
 
 - **`:3000` is Grafana** → `next dev` binds **`:3001`**. Baked into a doc; scripts that hardcoded `:3000` hit Grafana and got 401s.
-- **NDJSON vs `res.json()`** — the streaming route broke every script that still buffered a single JSON body (`4-precompute`, `dev-calibrate`).
-- **C1 — `ruleGate()` silently dropped opps** *before* screening — a legacy regex excluded 40/476 opportunities with real false-positives. The three-bucket "honest" display was being fed a secretly-pruned set.
-- **The CRITICAL dead-end** — Phase-4's "validate the map at the boundary" turned a *too-strict schema* into `{type:"error"}` on the live path → **~2/3 of real novel searches returned "The search didn't complete."** The 5 cached demo cases bypassed it, so the demo looked perfect. **Surfaced only by the golden-set run (21/31 errored).** Fix: validation is observability-only — log the drift, always stream the map.
+- **NDJSON vs `res.json()`.** The streaming route broke every script that still buffered a single JSON body (`4-precompute`, `dev-calibrate`).
+- **C1: `ruleGate()` silently dropped opps** *before* screening. A legacy regex excluded 40/476 opportunities with real false-positives. The three-bucket "honest" display was being fed a secretly-pruned set.
+- **The CRITICAL dead-end.** Phase-4's "validate the map at the boundary" turned a *too-strict schema* into `{type:"error"}` on the live path → **~2/3 of real novel searches returned "The search didn't complete."** The 5 cached demo cases bypassed it, so the demo looked perfect. **Surfaced only by the golden-set run (21/31 errored).** Fix: validation is observability-only. Log the drift, always stream the map.
 
 ---
 
-## The gotchas — part 2 (infra, auth, data)
+## The gotchas, part 2 (infra, auth, data)
 
-- **SBIR.gov API returns 403** — award abstracts exist only as a 394 MB bulk CSV. It's why the corpus has amounts but no abstracts; the competitor feature routed around it via USAspending / NIH RePORTER / NSF.
-- **Supabase pooler** — must use `aws-0-us-west-2` (not us-west-1); IPv6 gotcha on direct connect.
-- **Vercel API with an empty project id** — a blank `$VERCEL_PROJECT_ID` silently returned *other* deployments; querying by **project name** fixed it.
-- **Real-auth "callback → localhost"** — the app was correct (runtime `origin` everywhere); Supabase's **Site URL** was `localhost:3001`, so it used that as the fallback redirect. Config fix, not code.
-- **OAuth consent screen "Testing" mode** — only added test users can sign in; a live-demo trap.
+- **SBIR.gov API returns 403.** Award abstracts exist only as a 394 MB bulk CSV. It's why the corpus has amounts but no abstracts; the competitor feature routed around it via USAspending / NIH RePORTER / NSF.
+- **Supabase pooler.** Must use `aws-0-us-west-2` (not us-west-1); IPv6 gotcha on direct connect.
+- **Vercel API with an empty project id.** A blank `$VERCEL_PROJECT_ID` silently returned *other* deployments; querying by **project name** fixed it.
+- **Real-auth "callback → localhost".** The app was correct (runtime `origin` everywhere); Supabase's **Site URL** was `localhost:3001`, so it used that as the fallback redirect. Config fix, not code.
+- **OAuth consent screen "Testing" mode.** Only added test users can sign in; a live-demo trap.
 
 ---
 
-## The gotchas — part 3 (agents, UI, process)
+## The gotchas, part 3 (agents, UI, process)
 
-- **Dispatchers "waiting" on background work** stalled — resolved by taking over finalization centrally and broadcasting rebases.
-- **Over-reported work** — a dispatcher claimed to have launched H3 (two-pass) and the hairline-border token; the review found **no code existed** for either. *Trust, but verify the diff.*
-- **A merge race** — `gh pr merge #54` won a race against the human closing it, landing an after-cutoff change; cleanly **reverted via PR** to honor the 2 PM boundary.
-- **Design gotchas** — cream-vs-transparent logos (added a `dark:brightness-0 dark:invert` filter); a collapsed-sidebar "peek" that was too big + showed a duplicate icon (reverted to icon-only).
-- **Consent didn't actually gate analytics** — the opt-in was decorative; fixed so emission requires *flag AND consent*, private by default.
+- **Dispatchers "waiting" on background work** stalled. We took over finalization centrally and broadcast rebases.
+- **Over-reported work.** A dispatcher claimed to have launched H3 (two-pass) and the hairline-border token; the review found **no code existed** for either. *Trust, but verify the diff.*
+- **A merge race.** `gh pr merge #54` won a race against the human closing it, landing an after-cutoff change; cleanly **reverted via PR** to honor the 2 PM boundary.
+- **Design gotchas.** Cream-vs-transparent logos (added a `dark:brightness-0 dark:invert` filter); a collapsed-sidebar "peek" that was too big + showed a duplicate icon (reverted to icon-only).
+- **Consent didn't actually gate analytics.** The opt-in was decorative; fixed so emission requires *flag AND consent*, private by default.
 
 ---
 
 ## The security & honesty posture (what the review confirmed)
 
-- **No secrets client-side** — only the Supabase *anon/publishable* key is public; service-role & LLM keys are server-only.
-- **Auth/billing/entitlements are honest client-only stubs** — they gate *nothing* server-side (no false security claims).
+- **No secrets client-side.** Only the Supabase *anon/publishable* key is public; service-role & LLM keys are server-only.
+- **Auth/billing/entitlements are honest client-only stubs.** They gate *nothing* server-side (no false security claims).
 - **No PII leaves the client** for retention (§5.3); **no injection surface** (LLM output is JSON-parsed + React-escaped; no `dangerouslySetInnerHTML`/`eval`).
 - **CSP + security headers**, per-IP rate limit, description length caps, an untrusted-content envelope, and a server-side score clamp were added in Phase 4.
-- **The competitor feature** is grounded to real public federal award data with **citations** and a Zod validator that throws on any un-retrieved claim — same anti-fabrication pattern as eligibility.
+- **The competitor feature** is grounded to real public federal award data with **citations** and a Zod validator that throws on any un-retrieved claim. Same anti-fabrication pattern as eligibility.
 
 ---
 
@@ -267,18 +267,18 @@ A team of subagents, each on an appropriate model, reviewed the whole codebase i
 
 ## Lessons learned
 
-- **Encode integrity in the type system.** The "honest no" survives because a fabricated exclusion literally cannot render — not because a prompt asked nicely.
+- **Encode integrity in the type system.** The "honest no" survives because a fabricated exclusion literally cannot render, not because a prompt asked nicely.
 - **Your happy path can hide a broken product.** A precomputed demo cache masked a bug that failed 2/3 of *real* searches. Evaluate the *live* path, on breadth.
 - **Parallel agents need a merge dictator.** Worktrees prevent collisions; a single central merger prevents chaos.
 - **Cheap dispatchers, expensive workers.** Route model spend to where the reasoning is.
 - **Verify the diff, not the report.** Agents can over-claim; `git` is the source of truth.
-- **The north star earns its keep at the edges** — every "should we?" the 1,210-line spec didn't cover was answered by *"personal analyst; honest; grounded."*
+- **The north star earns its keep at the edges.** Every "should we?" the 1,210-line spec didn't cover was answered by *"personal analyst; honest; grounded."*
 
 ---
 
 <!-- _class: lead -->
 
-## Appendix — the prompt arc
+## Appendix: the prompt arc
 
 A condensed, chronological trace of the human prompts that steered the build.
 *(Speaker notes hold the finer-grained list.)*
@@ -290,14 +290,14 @@ Session B: portal the auto-apply modal (opens halfway down the page) · welcome 
 -->
 
 - **Cadence**: from single fixes ("where is my loading bar") to fleet operations ("divide & conquer, parallel subagent teams, merge as they pass CI").
-- **Voice**: product-obsessed and integrity-driven — *"tell them plainly when there's nothing worth chasing."*
+- **Voice**: product-obsessed and integrity-driven. The refrain: *"tell them plainly when there's nothing worth chasing."*
 
 ---
 
 <!-- _class: lead -->
 
 # Thank you
-### Granted — the honest funding analyst
+### Granted: the honest funding analyst
 
 **Built overnight, by a fleet of agents, under one north star.**
 
