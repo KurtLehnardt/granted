@@ -186,22 +186,10 @@
       <p class="eyebrow">The premise</p>
       <h2>We didn't start with code. We started with a <span class="c">spec</span> and a <span class="m">north star</span>.</h2>
       <ul class="pts">
-        <li><b>A north star</b> for where the spec is silent: <em>"a personal government-funding intelligence analyst for every startup."</em> It governs every call the spec doesn't make.</li>
+        <li><b>A north star</b> for where the spec is silent: <em>"a personal government-funding intelligence analyst for every startup."</em> It anchors every call on the founder's problem, not on finding uses for AI.</li>
         <li><b>An orchestrator contract</b> (<code>CLAUDE.md</code>): one agent plans and delegates; it never writes code itself.</li>
         <li><b>A 1,210-line specification</b> (the orchestrator prompt): requirements, shared contracts, ship order, acceptance criteria.</li>
       </ul>
-    </section>
-
-    <!-- north star -->
-    <section class="slide">
-      <p class="eyebrow">The north star · governs where the spec is silent</p>
-      <h2>"A personal <span class="c">government-funding intelligence analyst</span> for every startup."</h2>
-      <div class="grid2">
-        <div class="card"><div class="k">anchor</div><h3>the founder's problem, not the AI</h3><p>Design around <b>helping startups secure funding</b>, never around finding a use for a model. Build battle-tested workflows first; add autonomous agents only after.</p></div>
-        <div class="card m"><div class="k">the canon</div><h3>messy gov data → trusted ground</h3><p>Turn scattered federal funding data into an <b>authoritative knowledge base</b>, then retrieve it to the exact moment of user friction, not a search box.</p></div>
-        <div class="card"><div class="k">the triangle</div><h3>intelligence · cost · latency</h3><p>Route expensive models only to the hard analysis, cheap ones to everything else. Context + strict prompt templates over fine-tuning.</p></div>
-        <div class="card m"><div class="k">TACA</div><h3>trust is measured, not asserted</h3><p><b>T</b>ransparency · <b>A</b>ccuracy · <b>C</b>alibration · <b>A</b>lignment. Measured with eval sets and expert vibe checks, so it never gives confident bad advice.</p></div>
-      </div>
     </section>
 
     <!-- 3 -->
@@ -314,21 +302,9 @@
       </div>
     </section>
 
-    <!-- 7 -->
-    <section class="slide">
-      <p class="eyebrow">What the discipline produced</p>
-      <h2>Six requirements became <span class="c">eleven</span>.</h2>
-      <div class="stats" style="grid-template-columns: repeat(3,1fr)">
-        <div class="stat"><div class="v">6<span class="u"> → 11</span></div><div class="l">requirements, grown as gaps surfaced</div></div>
-        <div class="stat"><div class="v">16</div><div class="l">open decisions <b>named</b> instead of silently defaulted</div></div>
-        <div class="stat"><div class="v">0</div><div class="l">features shipped before the spec was done</div></div>
-      </div>
-      <blockquote style="margin-top:34px">Best hours of the project so far.</blockquote>
-    </section>
-
     <!-- six to eleven -->
     <section class="slide">
-      <p class="eyebrow">Why six became eleven</p>
+      <p class="eyebrow">What the discipline produced · six became eleven</p>
       <h2>The <span class="c">asks</span> came with strings <span class="m">attached</span>.</h2>
       <div class="grid2">
         <div class="card">
@@ -378,30 +354,6 @@
         <li><b>Anti-fabrication is a type-system guarantee.</b> A model-inferred exclusion literally <em>cannot render</em>; the schema throws rather than fabricate.</li>
         <li><b>Every match is grounded</b> in a real federal award record, with citations.</li>
       </ul>
-    </section>
-
-    <!-- 10 -->
-    <section class="slide">
-      <p class="eyebrow">The progression · what shipped</p>
-      <h2>v1 <span class="c">→</span> v2 <span class="c">→</span> discernment <span class="c">→</span> local <span class="c">→</span> clone-and-run</h2>
-      <div class="grid2">
-        <div class="card"><div class="k">v1 → v2</div><h3>breadth + honesty</h3><p>Corpus <b>476 → 968</b> across 4 keyless federal sources; a real eligibility engine; streaming results; a structured intake.</p></div>
-        <div class="card m"><div class="k">discernment</div><h3>the "don't apply"</h3><p>Per-match <b>recommend / verify / do-not-recommend</b> + a whole-map verdict + rubric-anchored scoring, validated on real-money standardized test data.</p></div>
-        <div class="card"><div class="k">run anywhere</div><h3>your keys, or local</h3><p>Clone, <code>npm install</code>, bring your own key, or point it at a <b>local model (Gemma via Ollama)</b>. Nothing leaves your machine.</p></div>
-        <div class="card m"><div class="k">go-to-market</div><h3>ship + distribute</h3><p>Landing page, a free readiness tool, a validation-outreach kit, plus the honest wedge: grounded &amp; non-sycophantic vs. a hallucinating chatbot.</p></div>
-      </div>
-    </section>
-
-    <!-- assisted apply end result -->
-    <section class="slide">
-      <p class="eyebrow">The end result · "auto-apply," delivered honestly</p>
-      <h2>It gets you <span class="c">one signature away</span>, then stops.</h2>
-      <div class="grid2">
-        <div class="card"><div class="k">package builder</div><h3>the application, assembled</h3><p>For a real SBIR / Grants.gov opportunity: required forms enumerated, fields <b>prefilled from your enriched profile</b>, narrative sections drafted, an attachment checklist, deadlines tracked.</p></div>
-        <div class="card m"><div class="k">handoff</div><h3>Chrome autofill + fill guide</h3><p>Export in the portal's expected format, or a browser extension <b>fills the form field-by-field</b>, with the provenance of every value shown.</p></div>
-        <div class="card"><div class="k">the line we won't cross</div><h3>the human submits, always</h3><p>Submitting is a <b>legally attested act</b>. A review-and-attest screen shows every field and where it came from; the final click is the AOR's, never the tool's.</p></div>
-        <div class="card m"><div class="k">system-to-system</div><h3>gated on legal review</h3><p>The S2S API path (active SAM registration + UEI + authorized AOR) is scoped as a <b>research memo before any code</b>: what's possible, what it costs, what liability it creates.</p></div>
-      </div>
     </section>
 
     <!-- 11 -->
