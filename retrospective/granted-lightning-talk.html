@@ -177,8 +177,21 @@
     <!-- 1 hook -->
     <section class="slide lead on">
       <p class="eyebrow">Lightning talk · spec-driven development</p>
-      <h1>8 HOURS.<br><span class="m">~0 lines</span> by hand.</h1>
-      <p class="sub">I built a real federal-funding tool almost entirely by delegating to AI agents. The most valuable hour was the first one, when nobody wrote code and we fought with a spec instead. That turned out to be the whole game.</p>
+      <h1>Refine the spec.<br>Then let it run <span class="m">all night.</span></h1>
+      <p class="sub">I built a real federal-funding tool by delegating to AI agents, writing almost none of the code by hand. The point isn't that agents wrote it. It's that once the spec was refined thoroughly, the orchestrator ran unattended, decomposing and delegating and merging, with no input from me. That autonomy is the payoff of spec-driven development.</p>
+    </section>
+
+    <!-- 1b what the spec contained -->
+    <section class="slide">
+      <p class="eyebrow">What was in the 1,210 lines</p>
+      <h2>Every decision, made <span class="c">up front</span>.</h2>
+      <ul class="pts">
+        <li><b>Features, as 11 requirements.</b> Each with a priority, a scope, and an explicit "out of scope."</li>
+        <li><b>A definition of done for every task.</b> A testable checklist plus a test plan; nothing merges until it passes.</li>
+        <li><b>Instructions for the agents.</b> Recon the real system first, confirm every assumption, delegate, gate every merge.</li>
+        <li><b>12 typed data contracts.</b> The shared schemas every agent builds against, locked before any feature code.</li>
+        <li><b>Guardrails.</b> Cost ceilings, a privacy policy, and a list of non-goals we deliberately would not build.</li>
+      </ul>
     </section>
 
     <!-- 2 conversation to spec -->
@@ -220,8 +233,8 @@
 
     <!-- 4 the mess -->
     <section class="slide">
-      <p class="eyebrow">The part nobody shows</p>
-      <h2>A swarm is <span class="m">messy</span>. Here's the mess.</h2>
+      <p class="eyebrow">Verify, don't trust</p>
+      <h2>An agent will tell you it's <span class="c">done</span>. The <span class="m">diff</span> tells you the truth.</h2>
       <div class="stats" style="grid-template-columns: repeat(3,1fr)">
         <div class="stat"><div class="v">80<span class="u">+</span></div><div class="l">parallel task branches, each in its own worktree</div></div>
         <div class="stat"><div class="v">100<span class="u">+</span></div><div class="l">PRs, every one central-merged on green</div></div>
@@ -233,20 +246,20 @@
 
     <!-- 5 how it didn't collide -->
     <section class="slide">
-      <p class="eyebrow">Why it didn't fall apart</p>
-      <h2>How dozens of agents didn't <span class="m">collide</span>.</h2>
+      <p class="eyebrow">Why it didn't need me</p>
+      <h2>How it ran <span class="m">unattended</span>.</h2>
       <ul class="pts">
-        <li><b>Git worktree per task.</b> Every agent edits an isolated copy of the repo; parallel work never corrupts a shared tree.</li>
-        <li><b>PR-per-task; the orchestrator merges centrally, only on green.</b> One place controls what reaches <code>main</code>.</li>
-        <li><b>Feature flags default-OFF.</b> Every capability ships dark; the flag-off path stays byte-identical to today.</li>
+        <li><b>Isolated by construction.</b> A git worktree and a declared file boundary per task, so parallel agents never touch the same code.</li>
+        <li><b>Integration without a human.</b> PR-per-task; the orchestrator merges centrally, only when the six CI gates are green.</li>
+        <li><b>Never block on the human.</b> An open question gets a lowest-regret default and goes to a questions file. Nothing stops to wait for me. That is what let it run all night.</li>
       </ul>
     </section>
 
     <!-- 6 close -->
     <section class="slide lead">
       <p class="eyebrow">The one thing</p>
-      <h2 style="font-size:52px; max-width:24ch">A spec makes you <span class="c">kill the features that don't deserve to exist</span>, before any agent writes code.</h2>
-      <p class="sub" style="max-width:60ch">Turn-based building lets you build the wrong thing fast. Spec first, define "done," then let the swarm run.<br><br><b>github.com/KurtLehnardt/granted</b></p>
+      <h2 style="font-size:50px; max-width:26ch">Refine the spec until every decision is made. Then the orchestrator runs <span class="c">all night</span>, no input needed.</h2>
+      <p class="sub" style="max-width:60ch">Turn-based building keeps you in the loop for every step. A thorough spec takes you out of it: define "done," table the blockers, and let the swarm run.<br><br><b>github.com/KurtLehnardt/granted</b></p>
     </section>
 
     </div>
