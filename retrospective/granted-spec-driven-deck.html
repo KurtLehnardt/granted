@@ -1,0 +1,389 @@
+<title>Granted — Spec-Driven Development</title>
+<style>
+  @import url("https://api.fontshare.com/v2/css?f[]=clash-display@600,700&f[]=satoshi@400,500,700&display=swap");
+
+  :root {
+    --navy: #0a0f1c;
+    --navy-2: #0e1526;
+    --panel: #111a30;
+    --panel-2: #0c1526;
+    --cyan: #00ffcc;
+    --magenta: #ff00aa;
+    --ink: #eaf2ff;
+    --muted: #8ea3c9;
+    --faint: #55688f;
+    --line: rgba(0, 255, 204, .16);
+    --line-m: rgba(255, 0, 170, .22);
+    --disp: "Clash Display", system-ui, "Segoe UI", sans-serif;
+    --body: "Satoshi", system-ui, "Segoe UI", Roboto, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--navy);
+    color: var(--ink);
+    font-family: var(--body);
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Stage: a fixed 16:9 deck, scaled to fit the viewport, centered. */
+  #stage {
+    position: fixed; inset: 0; display: grid; place-items: center;
+    background:
+      radial-gradient(900px 600px at 12% -10%, rgba(0,255,204,.10), transparent 60%),
+      radial-gradient(900px 600px at 100% 110%, rgba(255,0,170,.12), transparent 60%),
+      var(--navy);
+  }
+  #deck {
+    position: relative;
+    width: 1280px; height: 720px;
+    background:
+      linear-gradient(0deg, rgba(255,255,255,.012), rgba(255,255,255,.012)),
+      linear-gradient(160deg, var(--navy-2), var(--navy));
+    overflow: hidden;
+    box-shadow: 0 40px 120px rgba(0,0,0,.6), 0 0 0 1px rgba(0,255,204,.12) inset;
+  }
+  /* faint tech grid + particle glows */
+  #deck::before {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background-image:
+      linear-gradient(rgba(0,255,204,.045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,255,204,.045) 1px, transparent 1px);
+    background-size: 48px 48px; mask-image: radial-gradient(120% 120% at 50% 40%, #000 40%, transparent 85%);
+  }
+  .p { position: absolute; border-radius: 50%; filter: blur(1px); opacity: .5; pointer-events: none; }
+
+  .slide {
+    position: absolute; inset: 0; padding: 64px 76px;
+    display: none; flex-direction: column; justify-content: center;
+    opacity: 0; transition: opacity .35s ease;
+  }
+  .slide.on { display: flex; opacity: 1; }
+  .slide.lead { justify-content: center; }
+
+  .eyebrow {
+    font-family: var(--mono); font-size: 13px; letter-spacing: .32em; text-transform: uppercase;
+    color: var(--cyan); margin-bottom: 20px; display: flex; align-items: center; gap: 12px;
+  }
+  .eyebrow::before { content: ""; width: 26px; height: 2px; background: var(--cyan); box-shadow: 0 0 12px var(--cyan); }
+  h1 {
+    font-family: var(--disp); font-weight: 700; font-size: 84px; line-height: .98; letter-spacing: -.02em;
+    color: #fff; text-wrap: balance;
+    text-shadow: 0 0 28px rgba(0,255,204,.45);
+  }
+  h1 .m { color: var(--magenta); text-shadow: 0 0 28px rgba(255,0,170,.5); }
+  h2 {
+    font-family: var(--disp); font-weight: 700; font-size: 48px; line-height: 1.02; letter-spacing: -.01em;
+    color: #fff; margin-bottom: 22px; text-wrap: balance;
+  }
+  h2 .c { color: var(--cyan); }
+  h2 .m { color: var(--magenta); }
+  .sub { font-size: 22px; color: var(--muted); max-width: 60ch; line-height: 1.45; }
+  .lead .sub { font-size: 24px; margin-top: 26px; }
+  p.body { font-size: 20px; color: var(--muted); line-height: 1.5; max-width: 68ch; }
+  strong { color: var(--ink); font-weight: 700; }
+  em { color: var(--cyan); font-style: normal; }
+
+  ul.pts { list-style: none; display: grid; gap: 16px; margin-top: 8px; }
+  ul.pts li { font-size: 20px; color: var(--muted); line-height: 1.4; padding-left: 26px; position: relative; max-width: 74ch; }
+  ul.pts li::before { content: "›"; position: absolute; left: 2px; color: var(--cyan); font-family: var(--mono); }
+  ul.pts li b { color: var(--ink); }
+
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 6px; }
+  .card {
+    background: linear-gradient(180deg, rgba(0,255,204,.05), rgba(255,255,255,.015));
+    border: 1px solid var(--line); border-radius: 14px; padding: 22px 24px;
+  }
+  .card.m { background: linear-gradient(180deg, rgba(255,0,170,.06), rgba(255,255,255,.015)); border-color: var(--line-m); }
+  .card .k { font-family: var(--mono); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--cyan); }
+  .card.m .k { color: var(--magenta); }
+  .card h3 { font-family: var(--disp); font-weight: 600; font-size: 21px; color: #fff; margin: 8px 0 8px; }
+  .card p { font-size: 16px; color: var(--muted); line-height: 1.45; }
+
+  pre {
+    font-family: var(--mono); font-size: 15px; line-height: 1.5; color: #b8f5e6;
+    background: #060a14; border: 1px solid var(--line); border-radius: 12px; padding: 20px 22px;
+    overflow: auto; margin-top: 8px;
+  }
+  pre .c { color: var(--cyan); } pre .m { color: var(--magenta); } pre .d { color: var(--faint); }
+
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 10px; }
+  .stat { border: 1px solid var(--line); border-radius: 14px; padding: 20px; background: rgba(0,255,204,.03); }
+  .stat .v { font-family: var(--disp); font-weight: 700; font-size: 46px; color: #fff; line-height: 1; text-shadow: 0 0 20px rgba(0,255,204,.35); font-variant-numeric: tabular-nums; }
+  .stat .v .u { font-size: 20px; color: var(--cyan); }
+  .stat .l { font-size: 13.5px; color: var(--muted); margin-top: 8px; line-height: 1.35; }
+
+  blockquote {
+    border-left: 3px solid var(--magenta); padding: 6px 0 6px 24px; margin-top: 8px;
+    font-family: var(--disp); font-weight: 600; font-size: 30px; line-height: 1.25; color: #fff; max-width: 26ch;
+  }
+  .attn { color: var(--muted); font-size: 17px; font-family: var(--body); font-weight: 400; margin-top: 14px; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+  .chip { font-family: var(--mono); font-size: 12.5px; color: var(--cyan); border: 1px solid var(--line); border-radius: 999px; padding: 5px 13px; background: rgba(0,255,204,.05); }
+  .chip.m { color: var(--magenta); border-color: var(--line-m); background: rgba(255,0,170,.05); }
+
+  /* chrome: progress, counter, hint */
+  #bar { position: absolute; left: 0; top: 0; height: 3px; background: linear-gradient(90deg, var(--cyan), var(--magenta)); box-shadow: 0 0 12px var(--cyan); transition: width .35s ease; z-index: 5; }
+  #counter { position: absolute; right: 30px; bottom: 22px; font-family: var(--mono); font-size: 13px; color: var(--faint); z-index: 5; }
+  #brand { position: absolute; left: 30px; bottom: 22px; font-family: var(--mono); font-size: 13px; letter-spacing: .1em; color: var(--faint); z-index: 5; }
+  #brand b { color: var(--cyan); }
+  #hint { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); font-family: var(--mono); font-size: 12px; color: #46597e; opacity: .8; }
+  @media (max-width: 700px){ #hint{ display:none } }
+</style>
+
+<div id="stage">
+  <div id="deck">
+    <div id="bar"></div>
+    <div id="brand"><b>granted</b> · spec-driven</div>
+    <div id="counter"></div>
+
+    <!-- 1 -->
+    <section class="slide lead on">
+      <p class="eyebrow">Build story · agent-orchestrated</p>
+      <h1>GRANTED<br><span class="m">spec-driven,</span> agent-built</h1>
+      <p class="sub">A federal-funding tool built almost entirely by delegating to AI agents. The interesting part isn't the code. It's the week we spent <em>not writing any.</em></p>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide">
+      <p class="eyebrow">The premise</p>
+      <h2>We didn't start with code. We started with a <span class="c">spec</span> and a <span class="m">north star</span>.</h2>
+      <ul class="pts">
+        <li><b>A north star</b> for where the spec is silent: <em>"a personal government-funding intelligence analyst for every startup"</em> — anchored on the user's problem, not on finding uses for AI.</li>
+        <li><b>An orchestrator contract</b> (<code>CLAUDE.md</code>): one agent plans and delegates; it never writes code itself.</li>
+        <li><b>A 1,210-line specification</b> (the orchestrator prompt): requirements, shared contracts, ship order, acceptance criteria.</li>
+      </ul>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide">
+      <p class="eyebrow">The operating model</p>
+      <h2>Orchestrator <span class="c">→</span> dispatcher <span class="c">→</span> worker</h2>
+      <pre><span class="d">        YOU (human) — prompts, approvals, course-corrections</span>
+            │
+    ┌───────▼────────┐
+    │  <span class="c">ORCHESTRATOR</span>  │  decompose · plan · route · synthesize · <span class="m">MERGE centrally</span>
+    └───────┬────────┘
+      ┌─────┴──────┐
+      │ DISPATCHER │  <span class="d">(haiku — thin: relays the prompt, collects results)</span>
+      └─────┬──────┘
+    ┌───────┴────────┐
+    │     <span class="c">WORKER</span>     │  <span class="d">(opus/sonnet — builds in an isolated git worktree)</span>
+    └────────────────┘</pre>
+      <p class="attn">Cheap dispatchers, expensive workers. Many run in parallel; each gets a clean context. One place — the orchestrator — controls what reaches <code>main</code>.</p>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide">
+      <p class="eyebrow">The heart of it</p>
+      <h2>We spent the week <span class="m">not writing code.</span></h2>
+      <p class="body">We had a reasonable feature list: ask better questions, add a progress bar, competitor analysis, auto-apply. We could have started building any of them Monday.</p>
+      <p class="body" style="margin-top:16px">Instead we turned the list into a specification, then <em>attacked</em> the specification. Four rounds. Here's what that surfaced.</p>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide">
+      <p class="eyebrow">What the spec surfaced · 1 & 2</p>
+      <h2>The ask was rarely the <span class="c">problem</span>.</h2>
+      <div class="grid2">
+        <div class="card">
+          <div class="k">the progress bar</div>
+          <h3>wasn't the problem</h3>
+          <p>The search took three minutes. A beautiful bar over three minutes is still three minutes. The spec now requires a <b>per-call latency profile before any optimization</b> — intuition about what's slow is usually wrong. The bar was the mitigation; the waterfall was the fix.</p>
+        </div>
+        <div class="card m">
+          <div class="k">"auto-apply"</div>
+          <h3>became "assisted apply"</h3>
+          <p>Submitting a federal application is a <b>legally attested act</b> — a human certifies it's true. A product that clicks submit for you doesn't save time, it transfers liability to you. So: prepare, prefill, review-and-attest. <b>The human submits. Always.</b></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide">
+      <p class="eyebrow">What the spec surfaced · 3 & 4</p>
+      <h2>The gap that would have <span class="m">sunk it</span>.</h2>
+      <div class="grid2">
+        <div class="card">
+          <div class="k">the correctness floor</div>
+          <h3>eligibility, first</h3>
+          <p>Nothing in the original list checked whether a company was <b>eligible</b> for the grants we surfaced. Perfect ranking on a list you can't apply to is worse than no list — it costs a founder a week to find out. That became the floor the whole product sits on.</p>
+        </div>
+        <div class="card m">
+          <div class="k">assumptions → hypotheses</div>
+          <h3>confirm before acting</h3>
+          <p>We labeled every assumption about our own codebase as an <b>explicit hypothesis to confirm</b> before anyone acted on it. The fastest way to waste a sprint is to fix a problem you never verified exists.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide">
+      <p class="eyebrow">What the discipline produced</p>
+      <h2>Six requirements became <span class="c">eleven</span>.</h2>
+      <div class="stats" style="grid-template-columns: repeat(3,1fr)">
+        <div class="stat"><div class="v">6<span class="u"> → 11</span></div><div class="l">requirements — the spec grew as gaps surfaced</div></div>
+        <div class="stat"><div class="v">16</div><div class="l">open decisions <b>named</b> instead of silently defaulted</div></div>
+        <div class="stat"><div class="v">0</div><div class="l">features shipped that week</div></div>
+      </div>
+      <blockquote style="margin-top:34px">Best week of the project so far.</blockquote>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide">
+      <p class="eyebrow">The rules that made parallelism safe</p>
+      <h2>How dozens of agents didn't <span class="m">collide</span></h2>
+      <ul class="pts">
+        <li><b>Git worktree per task</b> — many agents edit the same repo without corrupting each other.</li>
+        <li><b>PR-per-task; the orchestrator merges centrally</b> — one place controls ordering, conflicts, and <code>main</code>.</li>
+        <li><b>Six gates on every change</b> — typecheck · test · build · hex · contrast · prompts. Green-or-it-doesn't-merge.</li>
+        <li><b>Feature flags default-OFF</b> — every capability ships dark; the flag-off path stays byte-identical.</li>
+        <li><b>Verify the diff, not the report</b> — agents can over-claim; <code>git</code> is the source of truth.</li>
+      </ul>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide">
+      <p class="eyebrow">The product's soul</p>
+      <h2>The <span class="c">honest "no,"</span> enforced in code — not just prompts.</h2>
+      <p class="body">The differentiator: most tools always return <em>something</em>. Granted has the integrity to return a calibrated, well-explained <strong>nothing</strong> — and to say <strong>"we don't recommend applying"</strong> when that's the truth.</p>
+      <ul class="pts" style="margin-top:22px">
+        <li><b>Anti-fabrication is a type-system guarantee</b> — a model-inferred exclusion literally <em>cannot render</em>; the schema throws rather than fabricate.</li>
+        <li><b>Every match is grounded</b> in a real federal award record, with citations.</li>
+      </ul>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide">
+      <p class="eyebrow">The progression · what shipped</p>
+      <h2>v1 <span class="c">→</span> v2 <span class="c">→</span> discernment <span class="c">→</span> local <span class="c">→</span> clone-and-run</h2>
+      <div class="grid2">
+        <div class="card"><div class="k">v1 → v2</div><h3>breadth + honesty</h3><p>Corpus <b>476 → 968</b> across 4 keyless federal sources; a real eligibility engine; streaming results; a structured intake.</p></div>
+        <div class="card m"><div class="k">discernment</div><h3>the "don't apply"</h3><p>Per-match <b>recommend / verify / do-not-recommend</b> + a whole-map verdict + rubric-anchored scoring — validated on a real-money golden set.</p></div>
+        <div class="card"><div class="k">run anywhere</div><h3>your keys, or local</h3><p>Clone, <code>npm install</code>, bring your own key — or point it at a <b>local model (Gemma via Ollama)</b>. Nothing leaves your machine.</p></div>
+        <div class="card m"><div class="k">go-to-market</div><h3>ship + distribute</h3><p>Landing page, a free readiness tool, a validation-outreach kit — and the honest wedge: grounded &amp; non-sycophantic vs. a hallucinating chatbot.</p></div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide">
+      <p class="eyebrow">Validation, on the live path</p>
+      <h2>Your happy path can <span class="m">hide a broken product</span>.</h2>
+      <p class="body">A precomputed demo cache made the flagship look perfect — while a too-strict boundary check was failing <strong>~2 of every 3 real novel searches</strong> with "the search didn't complete."</p>
+      <p class="body" style="margin-top:16px">It surfaced only when we ran the <em>golden set live</em> — 31 real searches, real spend — which errored 21/31. <strong>Evaluate the live path, on breadth.</strong> The same run later validated the discernment layer end-to-end (30/31).</p>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide">
+      <p class="eyebrow">Run it on a local model</p>
+      <h2>Verified: <span class="c">gemma4</span> reached the same headline as hosted Claude.</h2>
+      <div class="grid2">
+        <div class="card"><div class="k">Claude (hosted)</div><h3>~90 seconds</h3><p>strong_map · NIH SBIR grants scored 82 / 72 / 62 · 6 high-potential.</p></div>
+        <div class="card m"><div class="k">gemma4 (local, no keys)</div><h3>~11 minutes</h3><p>strong_map ✓ · the right NIH neurotherapeutics grant at <b>92, recommend</b> · slower, spikier, but the same verdict.</p></div>
+      </div>
+      <p class="attn">A provider seam speaks the Anthropic client's interface but routes to any OpenAI-compatible endpoint. The honest tradeoff — slower and rougher — is in the README, because that's on-brand.</p>
+    </section>
+
+    <!-- 13 -->
+    <section class="slide">
+      <p class="eyebrow">The gotchas we paid for once</p>
+      <h2>What <span class="m">bit</span> — and what it taught</h2>
+      <ul class="pts">
+        <li><b>The dead-end masked by cache</b> — a strict schema turned completed searches into errors on the live path; only the golden-set run caught it.</li>
+        <li><b>Over-reported work</b> — an agent claimed to have built features that had <em>no code</em>. Trust, but verify the diff.</li>
+        <li><b>Credit exhaustion mid-run</b> — a heavy golden-set sweep drained the LLM account and 400'd halfway. Pace real-money runs.</li>
+        <li><b>A stale working dir</b> — subagents read an old commit and "saw" the wrong app. Always branch from <code>origin/main</code>.</li>
+      </ul>
+    </section>
+
+    <!-- 14 -->
+    <section class="slide">
+      <p class="eyebrow">By the numbers</p>
+      <h2>Where it <span class="c">landed</span></h2>
+      <div class="stats">
+        <div class="stat"><div class="v">968</div><div class="l">opportunities · 4 sources · 6 funding types</div></div>
+        <div class="stat"><div class="v">850<span class="u">+</span></div><div class="l">tests · 0 failing · six gates green</div></div>
+        <div class="stat"><div class="v">30<span class="u">/31</span></div><div class="l">golden set validated live, on real credits</div></div>
+        <div class="stat"><div class="v">$0</div><div class="l">to run — bring a key, or a local model</div></div>
+      </div>
+      <div class="chips">
+        <span class="chip">clone &amp; run in ~5 min</span>
+        <span class="chip m">grounded · never fabricated</span>
+        <span class="chip">every feature flag-gated</span>
+        <span class="chip m">100+ PRs, central-merged</span>
+      </div>
+    </section>
+
+    <!-- 15 -->
+    <section class="slide lead">
+      <p class="eyebrow">The through-line</p>
+      <h2 style="font-size:56px; max-width:22ch">The hard part was never building <span class="c">faster</span>.</h2>
+      <p class="sub" style="max-width:64ch">It was being willing to cut the features that didn't deserve to exist. Once you've done that — ruthlessly — handing the actual work to a system that runs itself is the easy part. <br><br><em>Spec first. Delegate second. Merge like a dictator. Encode integrity in the type system.</em></p>
+    </section>
+
+    <!-- 16 -->
+    <section class="slide lead">
+      <p class="eyebrow">Granted</p>
+      <h1>the honest<br>funding <span class="m">analyst</span></h1>
+      <p class="sub">Built by a fleet of agents, under one north star — and honest enough to tell you when not to apply.</p>
+    </section>
+
+  </div>
+</div>
+<div id="hint">← → or click to navigate · F for fullscreen</div>
+
+<script>
+  const slides = Array.from(document.querySelectorAll(".slide"));
+  const bar = document.getElementById("bar");
+  const counter = document.getElementById("counter");
+  let i = 0;
+
+  // scatter a few neon particles
+  const deck = document.getElementById("deck");
+  for (let n = 0; n < 14; n++) {
+    const p = document.createElement("span");
+    p.className = "p";
+    const s = 2 + Math.random() * 5;
+    p.style.width = p.style.height = s + "px";
+    p.style.left = Math.random() * 100 + "%";
+    p.style.top = Math.random() * 100 + "%";
+    const cyan = Math.random() > .5;
+    p.style.background = cyan ? "#00ffcc" : "#ff00aa";
+    p.style.boxShadow = `0 0 ${6 + s}px ${cyan ? "#00ffcc" : "#ff00aa"}`;
+    deck.appendChild(p);
+  }
+
+  function show(n) {
+    i = Math.max(0, Math.min(slides.length - 1, n));
+    slides.forEach((s, k) => s.classList.toggle("on", k === i));
+    bar.style.width = ((i + 1) / slides.length * 100) + "%";
+    counter.textContent = String(i + 1).padStart(2, "0") + " / " + String(slides.length).padStart(2, "0");
+  }
+  function next() { show(i + 1); }
+  function prev() { show(i - 1); }
+
+  document.addEventListener("keydown", (e) => {
+    if (["ArrowRight", "ArrowDown", " ", "PageDown"].includes(e.key)) { e.preventDefault(); next(); }
+    else if (["ArrowLeft", "ArrowUp", "PageUp"].includes(e.key)) { e.preventDefault(); prev(); }
+    else if (e.key === "Home") show(0);
+    else if (e.key === "End") show(slides.length - 1);
+    else if (e.key.toLowerCase() === "f") { if (!document.fullscreenElement) document.documentElement.requestFullscreen?.(); else document.exitFullscreen?.(); }
+  });
+  document.getElementById("stage").addEventListener("click", (e) => {
+    // click right half → next, left third → prev
+    const x = e.clientX / window.innerWidth;
+    if (x < 0.28) prev(); else next();
+  });
+
+  // scale the fixed 1280×720 deck to fit any viewport
+  function fit() {
+    const scale = Math.min(window.innerWidth / 1280, window.innerHeight / 720);
+    deck.style.transform = `scale(${scale})`;
+    deck.style.transformOrigin = "center center";
+  }
+  window.addEventListener("resize", fit);
+  fit(); show(0);
+</script>
