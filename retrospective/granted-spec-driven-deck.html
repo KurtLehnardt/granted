@@ -188,6 +188,22 @@
       <p class="attn">Cheap dispatchers, expensive workers. Many run in parallel; each gets a clean context. Only the orchestrator controls what reaches <code>main</code>.</p>
     </section>
 
+    <!-- what the spec contained -->
+    <section class="slide">
+      <p class="eyebrow">What the spec contained · ~an hour to refine</p>
+      <h2>What was in the <span class="c">1,210 lines</span>.</h2>
+      <ul class="pts">
+        <li><b>How to work:</b> recon the real system first, decompose it into tasks, assign them, then gate every merge.</li>
+        <li><b>The problem in the owner's words:</b> three minutes of dead air, refining questions asked too late, no check that you're even eligible.</li>
+        <li><b>11 requirements (R1–R10):</b> each with a priority, a scope, and an explicit "out of scope."</li>
+        <li><b>12 shared data contracts:</b> typed schemas every team builds against, defined before any feature code, each fact tagged with where it came from.</li>
+        <li><b>The Canon:</b> the trusted data foundation, and how government sources are ingested, kept fresh, and retrieved.</li>
+        <li><b>Guardrails &amp; budgets:</b> input limits, a per-search cost ceiling, a strict privacy policy, and rules for untrusted web and form text.</li>
+        <li><b>Teams, ship order &amp; working agreements:</b> a file boundary per team, the dependency graph, flags default-off, and the six CI gates.</li>
+        <li><b>Acceptance criteria &amp; non-goals:</b> the pass/fail checklist per requirement, a required human review, and what we deliberately would not build.</li>
+      </ul>
+    </section>
+
     <!-- orchestrator internals -->
     <section class="slide">
       <p class="eyebrow">Inside the 1,210-line orchestrator prompt</p>
