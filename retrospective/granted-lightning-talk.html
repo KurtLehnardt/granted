@@ -181,6 +181,25 @@
       <p class="sub">I built a real federal-funding tool by delegating to AI agents, writing almost none of the code by hand. The point isn't that agents wrote it. It's that once the spec was refined thoroughly, the orchestrator ran unattended, decomposing and delegating and merging, with no input from me. That autonomy is the payoff of spec-driven development.</p>
     </section>
 
+    <!-- 2 conversation to spec -->
+    <section class="slide">
+      <p class="eyebrow">Turn-based &#8594; spec-driven</p>
+      <h2>From a <span class="c">conversation</span> to a <span class="m">spec</span>.</h2>
+      <div class="grid2">
+        <div class="card">
+          <div class="k">v1 &middot; the hackathon MVP</div>
+          <h3>a role + a conversation</h3>
+          <p>One rule (<em>"you delegate, you never implement yourself"</em>) plus a stream of asks: <em>"where's my loading bar,"</em> <em>"add an auto-apply button."</em> Improvised, one prompt at a time.</p>
+        </div>
+        <div class="card m">
+          <div class="k">v2 &middot; the rebuild</div>
+          <h3>a 1,210-line spec</h3>
+          <p>The what and why in writing first: requirements, typed contracts, and a definition of done for every task. Recon before code, a human sign-off, then build.</p>
+        </div>
+      </div>
+      <p class="attn">Same agents both times. v1 discovered the product mid-conversation; v2 decided it on paper before anyone wrote code.</p>
+    </section>
+
     <!-- 1b what the spec contained -->
     <section class="slide">
       <p class="eyebrow">What was in the 1,210 lines</p>
@@ -205,25 +224,6 @@
         <li style="font-size:17px; color:var(--muted); line-height:1.35; padding-left:30px; position:relative;"><span style="position:absolute; left:0; color:var(--cyan); font-family:var(--mono); font-weight:700;">4</span> <b>Refine against the live brief.</b> Loop until it met every acceptance criterion and the stretch goals.</li>
         <li style="font-size:17px; color:var(--muted); line-height:1.35; padding-left:30px; position:relative;"><span style="position:absolute; left:0; color:var(--magenta); font-family:var(--mono); font-weight:700;">5</span> <b>Result: a 1,210-line spec.</b> R1&#8211;R10, 12 typed contracts, the Canon, guardrails, teams, acceptance criteria. Every decision made on paper.</li>
       </ul>
-    </section>
-
-    <!-- 2 conversation to spec -->
-    <section class="slide">
-      <p class="eyebrow">Turn-based &#8594; spec-driven</p>
-      <h2>From a <span class="c">conversation</span> to a <span class="m">spec</span>.</h2>
-      <div class="grid2">
-        <div class="card">
-          <div class="k">v1 &middot; the hackathon MVP</div>
-          <h3>a role + a conversation</h3>
-          <p>One rule (<em>"you delegate, you never implement yourself"</em>) plus a stream of asks: <em>"where's my loading bar,"</em> <em>"add an auto-apply button."</em> Improvised, one prompt at a time.</p>
-        </div>
-        <div class="card m">
-          <div class="k">v2 &middot; the rebuild</div>
-          <h3>a 1,210-line spec</h3>
-          <p>The what and why in writing first: requirements, typed contracts, and a definition of done for every task. Recon before code, a human sign-off, then build.</p>
-        </div>
-      </div>
-      <p class="attn">Same agents both times. v1 discovered the product mid-conversation; v2 decided it on paper before anyone wrote code.</p>
     </section>
 
     <!-- 4 guardrails -->
