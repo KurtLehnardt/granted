@@ -210,25 +210,9 @@
       <p class="attn">Cheap dispatchers, expensive workers. Many run in parallel; each gets a clean context. Only the orchestrator controls what reaches <code>main</code>.</p>
     </section>
 
-    <!-- what the spec contained -->
-    <section class="slide">
-      <p class="eyebrow">What the spec contained · ~an hour to refine</p>
-      <h2>What was in the <span class="c">1,210 lines</span>.</h2>
-      <ul class="pts">
-        <li><b>How to work:</b> recon the real system first, decompose it into tasks, assign them, then gate every merge.</li>
-        <li><b>The problem in the owner's words:</b> three minutes of dead air, refining questions asked too late, no check that you're even eligible.</li>
-        <li><b>11 requirements (R1–R10):</b> each with a priority, a scope, and an explicit "out of scope."</li>
-        <li><b>12 shared data contracts:</b> typed schemas every team builds against, defined before any feature code, each fact tagged with where it came from.</li>
-        <li><b>The Canon:</b> the trusted data foundation, and how government sources are ingested, kept fresh, and retrieved.</li>
-        <li><b>Guardrails &amp; budgets:</b> input limits, a per-search cost ceiling, a strict privacy policy, and rules for untrusted web and form text.</li>
-        <li><b>Teams, ship order &amp; working agreements:</b> a file boundary per team, the dependency graph, flags default-off, and the six CI gates.</li>
-        <li><b>Acceptance criteria &amp; non-goals:</b> the pass/fail checklist per requirement, a required human review, and what we deliberately would not build.</li>
-      </ul>
-    </section>
-
     <!-- orchestrator internals -->
     <section class="slide">
-      <p class="eyebrow">Inside the 1,210-line orchestrator prompt</p>
+      <p class="eyebrow">Principle · define "done" before you delegate</p>
       <h2>How the work gets <span class="c">delegated</span></h2>
       <ul class="pts">
         <li><b>Recon before code.</b> First produce an <em>as-built</em> map of the real pipeline, then confirm or kill every <code>[HYPOTHESIS]</code>. Never assign work to fix a problem you haven't proven exists.</li>
@@ -241,7 +225,7 @@
 
     <!-- v1 vs v2 -->
     <section class="slide">
-      <p class="eyebrow">v1 vs v2 · the shift</p>
+      <p class="eyebrow">Turn-based vs spec-driven · the shift</p>
       <h2>From <span class="c">conversation</span> to <span class="m">specification</span>.</h2>
       <div class="grid2">
         <div class="card">
@@ -260,7 +244,7 @@
 
     <!-- 4 -->
     <section class="slide">
-      <p class="eyebrow">The heart of it</p>
+      <p class="eyebrow">Principle · spend the time on the spec</p>
       <h2>Hours in — still <span class="m">not writing code.</span></h2>
       <p class="body">We had a reasonable feature list: ask better questions, add a progress bar, competitor analysis, auto-apply. We could have started building any of them in the first ten minutes.</p>
       <p class="body" style="margin-top:16px">Instead we turned the list into a specification, then <em>attacked</em> the specification. Four rounds. Here's what that surfaced.</p>
@@ -268,7 +252,7 @@
 
     <!-- 5 -->
     <section class="slide">
-      <p class="eyebrow">What the spec surfaced · 1 & 2</p>
+      <p class="eyebrow">Principle · the spec surfaces the real problem</p>
       <h2>The ask was rarely the <span class="c">problem</span>.</h2>
       <div class="grid2">
         <div class="card">
@@ -284,27 +268,9 @@
       </div>
     </section>
 
-    <!-- 6 -->
-    <section class="slide">
-      <p class="eyebrow">What the spec surfaced · 3 & 4</p>
-      <h2>The gap that would have <span class="m">sunk it</span>.</h2>
-      <div class="grid2">
-        <div class="card">
-          <div class="k">the correctness floor</div>
-          <h3>eligibility, first</h3>
-          <p>Nothing in the original list checked whether a company was <b>eligible</b> for the grants we surfaced. Perfect ranking on a list you can't apply to is worse than no list. It costs a founder a week to find out. That became the floor the whole product sits on.</p>
-        </div>
-        <div class="card m">
-          <div class="k">assumptions → hypotheses</div>
-          <h3>confirm before acting</h3>
-          <p>We labeled every assumption about our own codebase as an <b>explicit hypothesis to confirm</b> before anyone acted on it. The fastest way to waste time and tokens is to fix a problem that wasn't verified.</p>
-        </div>
-      </div>
-    </section>
-
     <!-- six to eleven -->
     <section class="slide">
-      <p class="eyebrow">What the discipline produced · six became eleven</p>
+      <p class="eyebrow">The dividend · the spec grows and names its unknowns</p>
       <h2>The <span class="c">asks</span> came with strings <span class="m">attached</span>.</h2>
       <div class="grid2">
         <div class="card">
@@ -334,7 +300,7 @@
 
     <!-- 8 -->
     <section class="slide">
-      <p class="eyebrow">The rules that made parallelism safe</p>
+      <p class="eyebrow">Principle · gates and flags are the guideposts</p>
       <h2>How dozens of agents didn't <span class="m">collide</span></h2>
       <ul class="pts">
         <li><b>Git worktree per task.</b> Many agents edit the same repo without corrupting each other.</li>
@@ -345,76 +311,12 @@
       </ul>
     </section>
 
-    <!-- 9 -->
-    <section class="slide">
-      <p class="eyebrow">What makes it different</p>
-      <h2>The <span class="c">honest "no,"</span> enforced in code, not just prompts.</h2>
-      <p class="body">The differentiator: most tools always return <em>something</em>. Granted has the integrity to return a calibrated, well-explained <strong>nothing</strong>, and to say <strong>"we don't recommend applying"</strong> when that's the truth.</p>
-      <ul class="pts" style="margin-top:22px">
-        <li><b>Anti-fabrication is a type-system guarantee.</b> A model-inferred exclusion literally <em>cannot render</em>; the schema throws rather than fabricate.</li>
-        <li><b>Every match is grounded</b> in a real federal award record, with citations.</li>
-      </ul>
-    </section>
-
     <!-- 11 -->
     <section class="slide">
-      <p class="eyebrow">Validation, on the live path</p>
+      <p class="eyebrow">Principle · tests have to hit the real path</p>
       <h2>Your happy path can <span class="m">hide a broken product</span>.</h2>
       <p class="body">A precomputed demo cache made the flagship look perfect. Underneath, a too-strict boundary check was failing <strong>~2 of every 3 real novel searches</strong> with "the search didn't complete."</p>
       <p class="body" style="margin-top:16px">It surfaced only when we ran the <em>standardized test data live</em> (31 real searches, real spend), which errored 21/31. <strong>Evaluate the live path, on breadth.</strong> The same run later validated the discernment layer end-to-end (30/31).</p>
-    </section>
-
-    <!-- 12 -->
-    <section class="slide">
-      <p class="eyebrow">Run it on a local model</p>
-      <h2>Verified: <span class="c">gemma4</span> reached the same headline as hosted Claude.</h2>
-      <div class="grid2">
-        <div class="card"><div class="k">Claude (hosted)</div><h3>~90 seconds</h3><p>strong_map · NIH SBIR grants scored 82 / 72 / 62 · 6 high-potential.</p></div>
-        <div class="card m"><div class="k">gemma4 (local, no keys)</div><h3>~11 minutes</h3><p>strong_map ✓ · the right NIH neurotherapeutics grant at <b>92, recommend</b> · slower, spikier, but the same verdict.</p></div>
-      </div>
-      <p class="attn">A provider seam speaks the Anthropic client's interface but routes to any OpenAI-compatible endpoint. The honest tradeoff (slower and rougher) is in the README, because that's on-brand.</p>
-    </section>
-
-    <!-- why local matters -->
-    <section class="slide">
-      <p class="eyebrow">Why this matters · researchers &amp; sensitive work</p>
-      <h2>For sensitive research, <span class="c">nothing leaves your machine</span>.</h2>
-      <ul class="pts">
-        <li><b>Nothing is sent to a cloud provider.</b> Personal data (PII), anything under an NDA, and unpublished or proprietary research all stay on your own computer. The reasoning runs on your hardware, not someone else's server.</li>
-        <li><b>Free to run.</b> No API key, no account, no per-search cost. Once the model is downloaded, every search costs $0.</li>
-        <li><b>Built for people who can't use a cloud chatbot.</b> University labs, researchers, and founders whose pitch <em>is</em> the sensitive IP: the people who aren't allowed to paste their work into a hosted tool.</li>
-      </ul>
-      <p class="attn">The only tradeoff is speed: a few minutes instead of ~90 seconds. When confidentiality is the requirement, that's an easy trade.</p>
-    </section>
-
-    <!-- 13 -->
-    <section class="slide">
-      <p class="eyebrow">The gotchas we paid for once</p>
-      <h2>What <span class="m">bit</span>, and what it taught</h2>
-      <ul class="pts">
-        <li><b>The dead-end masked by cache.</b> A strict schema turned completed searches into errors on the live path; only running the standardized test data caught it.</li>
-        <li><b>Over-reported work.</b> An agent claimed to have built features that had <em>no code</em>. Trust, but verify the diff.</li>
-        <li><b>Credit exhaustion mid-run.</b> A heavy run over the standardized test data drained the LLM account and 400'd halfway. Pace real-money runs.</li>
-        <li><b>A stale working dir.</b> Subagents read an old commit and "saw" the wrong app. Always branch from <code>origin/main</code>.</li>
-      </ul>
-    </section>
-
-    <!-- 14 -->
-    <section class="slide">
-      <p class="eyebrow">By the numbers</p>
-      <h2>Where it <span class="c">landed</span></h2>
-      <div class="stats">
-        <div class="stat"><div class="v">968</div><div class="l">opportunities · 4 sources · 6 funding types</div></div>
-        <div class="stat"><div class="v">850<span class="u">+</span></div><div class="l">tests · 0 failing · six gates green</div></div>
-        <div class="stat"><div class="v">30<span class="u">/31</span></div><div class="l">standardized test data, validated live on real credits</div></div>
-        <div class="stat"><div class="v">$0</div><div class="l">to run: bring a key, or a local model</div></div>
-      </div>
-      <div class="chips">
-        <span class="chip">clone &amp; run in ~5 min</span>
-        <span class="chip m">grounded · never fabricated</span>
-        <span class="chip">every feature flag-gated</span>
-        <span class="chip m">100+ PRs, central-merged</span>
-      </div>
     </section>
 
     <!-- 15 -->
