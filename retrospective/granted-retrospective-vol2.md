@@ -42,7 +42,7 @@ style: |
 
 <!-- _class: lead -->
 
-# Granted — Retrospective
+# Granted: Retrospective
 ## Volume 2 · From "it works" to "it's honest, and it ships"
 
 <span class="small">Orchestrator → dispatcher → worker subagents · PR-per-task · central merge · everything grounded or gated</span>
@@ -55,9 +55,9 @@ style: |
 - Then we re-read the **hackathon brief** and found real gaps:
   - Corpus was **grants-only** (476 opportunities). No R&D, procurement, loans, assistance, scholarships.
   - No **structured questionnaire**; no *"why should I care about this?"*
-  - Matching felt **over-generous** — a wall of amber "verify" maybes.
+  - Matching felt **over-generous**: a wall of amber "verify" maybes.
   - No path to actually **fill out** a high-matching grant.
-- Volume 2 is closing those gaps — **without ever compromising the honesty contract.**
+- Volume 2 is closing those gaps, **without ever compromising the honesty contract.**
 
 ---
 
@@ -65,7 +65,7 @@ style: |
 
 1. **Author** the gap-closure plan as *opus · extra-high effort*.
 2. **Critique** it with a *second opus · xhigh* subagent.
-3. **Refine** against the live brief between every cycle — until it met all criteria + stretch goals.
+3. **Refine** against the live brief between every cycle, until it met all criteria + stretch goals.
 4. Break it into **team-digestible workstreams** (WS-A … WS-G) → fan out to dispatcher/worker teams → PRs.
 
 <span class="small">The same orchestrator→dispatcher→worker pattern that built the app also planned it.</span>
@@ -96,13 +96,13 @@ A read-only review (15 live searches) found the matcher was **discerning on weak
 
 1. Ignored *stated* eligibility disqualifiers (foreign-owned, oversized).
 2. Let unfocused pitches pile up cross-type "verify" cards.
-3. Counted "high potential" as any score ≥ 33 — and the raw score swung **±18** run-to-run.
+3. Counted "high potential" as any score ≥ 33, and the raw score swung **±18** run-to-run.
 
 ---
 
 ## The discernment layer
 
-A new, **pure** advisory verdict on every match — `lib/recommend.ts`:
+A new, **pure** advisory verdict on every match (`lib/recommend.ts`):
 
 | Verdict | When | Founder sees |
 |---|---|---|
@@ -110,7 +110,7 @@ A new, **pure** advisory verdict on every match — `lib/recommend.ts`:
 | `verify` | the honest middle | **Marginal — verify first** |
 | `do_not_recommend` | score < 40, weak criteria, or a *stated* mismatch | **Not a fit — we don't recommend applying** |
 
-- **"High potential" now counts `recommend` only** — the single biggest anti-inflation lever.
+- **"High potential" now counts `recommend` only.** The single biggest anti-inflation lever.
 - A whole-map verdict: `thin_map` = *"even our best is a stretch."*
 - **R8.4-safe:** advisory only; a "don't apply" from eligibility fires **only on a fact the founder stated**, never a model guess.
 
@@ -118,7 +118,7 @@ A new, **pure** advisory verdict on every match — `lib/recommend.ts`:
 
 ## Anchoring the score (killing the variance)
 
-The root cause of the ±18 swing: the 0–100 scale had **no anchors**. The fix — a new prompt version, flag-gated:
+The root cause of the ±18 swing: the 0–100 scale had **no anchors**. The fix was a new prompt version, flag-gated:
 
 ```
 SCORING SCALE — decide the BAND first, then the exact number:
@@ -129,7 +129,7 @@ SCORING SCALE — decide the BAND first, then the exact number:
   75-100 Exceptional — textbook fit; reserve for unambiguous cases.
 ```
 
-<span class="small">Selected by <code>scorerPrompt()</code> only when the flag is on — flag-off scoring is byte-identical. New version, shipped prompts + baseline hashes untouched.</span>
+<span class="small">Selected by <code>scorerPrompt()</code> only when the flag is on. Flag-off scoring is byte-identical. New version, shipped prompts + baseline hashes untouched.</span>
 
 ---
 
@@ -155,29 +155,29 @@ The deep-analysis run takes ~50s. It used to show a frozen spinner the whole tim
 Now the route streams **NDJSON**: progress + the *grounded evidence* (real awards, real competitor names) appear at **~5 seconds**, and the synthesized brief lands when it's validated.
 
 - The model's brief still only renders **after** grounding + schema validation.
-- The early evidence event carries **retrieval data only** — never a synthesized claim.
+- The early evidence event carries **retrieval data only**, never a synthesized claim.
 - Total compute unchanged; *perceived* wait transformed.
 
-<span class="small">Same NDJSON idiom as the match route — one streaming pattern, reused.</span>
+<span class="small">Same NDJSON idiom as the match route. One streaming pattern, reused.</span>
 
 ---
 
 ## The processes that made it safe
 
-- **Worktree isolation** — every subagent gets its own git worktree. Parallel agents never collide.
-- **PR-per-task, central merge** — workers open PRs; the orchestrator reviews and merges. Workers never merge.
-- **Default-off flags** — every risky feature (`e3_two_pass`, `discernment_layer`, `r5_deep_analysis` …) ships dark. Flag-off is always byte-identical to today.
-- **Six gates, green before merge** — typecheck · test · build · check:hex · check:contrast · check:prompts.
-- **Grounding as code** — validators *throw* on ungrounded claims; the honest-no is a first-class output.
+- **Worktree isolation.** Every subagent gets its own git worktree. Parallel agents never collide.
+- **PR-per-task, central merge.** Workers open PRs; the orchestrator reviews and merges. Workers never merge.
+- **Default-off flags.** Every risky feature (`e3_two_pass`, `discernment_layer`, `r5_deep_analysis` …) ships dark. Flag-off is always byte-identical to today.
+- **Six gates, green before merge:** typecheck · test · build · check:hex · check:contrast · check:prompts.
+- **Grounding as code.** Validators *throw* on ungrounded claims; the honest-no is a first-class output.
 
 ---
 
 ## The prompts (a pattern, not just text)
 
 - **Scoring** (`explainMatches` / anchored v3): "*Be willing to say no.* Consumer marketplaces, local services, and no-R&D companies frequently have no strong federal match — say so plainly."
-- **Discernment** is *not* a prompt — it's deterministic logic over the model's own met-criteria flags. The model scores; the code decides recommend/verify/don't-apply.
+- **Discernment** is *not* a prompt. It's deterministic logic over the model's own met-criteria flags. The model scores; the code decides recommend/verify/don't-apply.
 - **Competitor synthesis**: "Reference ONLY the supplied award records, by exact id. Never invent a company, amount, or URL."
-- **Dispatcher prompts**: *Goal · Inputs · Output format · Constraints* — every subagent gets a scoped, testable contract.
+- **Dispatcher prompts**: *Goal · Inputs · Output format · Constraints*. Every subagent gets a scoped, testable contract.
 
 <span class="small">Full prompts live in <code>prompts/</code> and <code>scaffold/lib/prompts/registry.ts</code> (content-hash-locked).</span>
 
@@ -185,11 +185,11 @@ Now the route streams **NDJSON**: progress + the *grounded evidence* (real award
 
 ## Gotchas we paid for once
 
-- **Anthropic credit exhaustion** — a full 31-search golden-set run drains ~$8–10 and 400s mid-run. Pace it; expect a top-up.
-- **The masked-key that wasn't** — a `${VAR:-MISSING}` shell bug echoed two API keys into a transcript. Rotate on exposure; use `${VAR:+present}` only.
-- **Stacked-PR de-stacking** — squash-merging a base branch auto-closes the PR stacked on it. Cherry-pick the tip onto fresh main; resolve flag-registry conflicts keep-both.
-- **`~/.zshrc` is interactive-only** — non-interactive tool shells don't see the app's API keys. Source them explicitly.
-- **Never dead-end a completed search** — schema drift is logged (observability), never turned into an error. (The H1 lesson, re-learned.)
+- **Anthropic credit exhaustion.** A full 31-search golden-set run drains ~$8–10 and 400s mid-run. Pace it; expect a top-up.
+- **The masked-key that wasn't.** A `${VAR:-MISSING}` shell bug echoed two API keys into a transcript. Rotate on exposure; use `${VAR:+present}` only.
+- **Stacked-PR de-stacking.** Squash-merging a base branch auto-closes the PR stacked on it. Cherry-pick the tip onto fresh main; resolve flag-registry conflicts keep-both.
+- **`~/.zshrc` is interactive-only.** Non-interactive tool shells don't see the app's API keys. Source them explicitly.
+- **Never dead-end a completed search.** Schema drift is logged (observability), never turned into an error. (The H1 lesson, re-learned.)
 
 ---
 
@@ -207,7 +207,7 @@ Now the route streams **NDJSON**: progress + the *grounded evidence* (real award
 
 <br>
 
-**Architecture diagram:** the full seven-stage pipeline + adjacent engines + the build process — see `retrospective/granted-architecture.html`.
+**Architecture diagram:** the full seven-stage pipeline + adjacent engines + the build process. See `retrospective/granted-architecture.html`.
 
 ---
 
@@ -217,7 +217,7 @@ Now the route streams **NDJSON**: progress + the *grounded evidence* (real award
 
 **Honest > comprehensive.**
 
-A calibrated *"we don't recommend applying"* is not a failure of the product —
-it's the most valuable thing it can say.
+A calibrated *"we don't recommend applying"* is not a failure of the product.
+It's the most valuable thing it can say.
 
 <span class="small">Volume 2 · orchestrated end-to-end with Claude Code.</span>
