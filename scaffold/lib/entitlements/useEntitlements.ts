@@ -57,15 +57,15 @@ export interface EntitlementsView {
   /**
    * FE-07 additive fields — the locally-selected MOCK billing tier and the
    * feature bundle it advertises. These drive the sidebar's live padlock
-   * framing (Auto Apply / competitor analysis). Unlike the legacy `tier`
+   * framing (Auto Fill / competitor analysis). Unlike the legacy `tier`
    * field (2-tier CON-01 contract), `billingTier` carries the true 3-tier
    * mock value, so "max" is distinguishable from "pro" here. Still framing
    * only — gates nothing, charges nothing.
    */
   billingTier: BillingTier;
-  autoApplyEnabled: boolean;
+  autoFillEnabled: boolean;
   competitorEnabled: boolean;
-  autoApplyLimitPerMonth: number | null;
+  autoFillLimitPerMonth: number | null;
 }
 
 /** Project an `Entitlements` record down to the framing-only view. */
@@ -79,9 +79,9 @@ export function toEntitlementsView(ent: Entitlements): EntitlementsView {
     features: ent.features,
     assistedApplication: ent.features.assisted_application,
     billingTier,
-    autoApplyEnabled: ent.features.assisted_application,
+    autoFillEnabled: ent.features.assisted_application,
     competitorEnabled: ent.features.competitor_intelligence,
-    autoApplyLimitPerMonth: ent.features.assisted_application ? null : 0,
+    autoFillLimitPerMonth: ent.features.assisted_application ? null : 0,
   };
 }
 
@@ -113,8 +113,8 @@ export function useEntitlements(tier: BillingTier = getBillingTier()): Entitleme
     features: ent.features,
     assistedApplication: ent.features.assisted_application,
     billingTier,
-    autoApplyEnabled: feats.autoApply,
+    autoFillEnabled: feats.autoFill,
     competitorEnabled: feats.competitor,
-    autoApplyLimitPerMonth: feats.autoApplyLimitPerMonth,
+    autoFillLimitPerMonth: feats.autoFillLimitPerMonth,
   };
 }

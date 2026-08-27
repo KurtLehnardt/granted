@@ -1,16 +1,16 @@
 import type { StartupProfile } from "../contracts";
 import type { CompanyProfile } from "../contracts/companyProfile";
-import type { AutoApplyRequirements } from "../mockAuth";
-import { EMPTY_AUTO_APPLY_REQUIREMENTS } from "../mockAuth";
+import type { AutoFillRequirements } from "../mockAuth";
+import { EMPTY_AUTO_FILL_REQUIREMENTS } from "../mockAuth";
 import type { Opportunity } from "../contracts/opportunity";
 
 // Re-exported so the SERVER route (`app/api/apply/package/route.ts`) can obtain
-// the AutoApplyRequirements shape + defaults WITHOUT importing `@/lib/mockAuth`
+// the AutoFillRequirements shape + defaults WITHOUT importing `@/lib/mockAuth`
 // directly — the R9.0 server-retention guard (lib/__tests__/noServerRetention)
 // forbids the string "mockAuth" anywhere under app/api/**. mockAuth remains a
 // client-only store; these are just its inert type + empty-default constant.
-export type { AutoApplyRequirements } from "../mockAuth";
-export { EMPTY_AUTO_APPLY_REQUIREMENTS } from "../mockAuth";
+export type { AutoFillRequirements } from "../mockAuth";
+export { EMPTY_AUTO_FILL_REQUIREMENTS } from "../mockAuth";
 import { FOUNDER_TODO_PATTERN } from "../contracts/applicationDraft";
 import type { ApplicationDraft, DraftSection } from "../contracts/applicationDraft";
 import type { PrefilledForms } from "../contracts/applicationForms";
@@ -203,15 +203,15 @@ export function assemblePackage(input: AssembleInput): AssembledPackage {
 }
 
 // ---------------------------------------------------------------------------
-// Registration-satisfied derivation (mirrors AutoApplyFlow's `satisfied` map)
+// Registration-satisfied derivation (mirrors AutoFillFlow's `satisfied` map)
 // ---------------------------------------------------------------------------
 
 /**
  * Are all four SAM.gov / UEI / AOR / E-Biz registration facts on file? Same
- * derivation AutoApplyFlow renders its checklist from — kept here so the route
+ * derivation AutoFillFlow renders its checklist from — kept here so the route
  * and the checklist never disagree about what's satisfied.
  */
-export function allRegistrationsSatisfied(reqs: AutoApplyRequirements): boolean {
+export function allRegistrationsSatisfied(reqs: AutoFillRequirements): boolean {
   const sam = reqs.samRegistered === true;
   const uei = reqs.uei.trim().length > 0;
   const aor = reqs.aorOnFile || reqs.aorName.trim().length > 0;
@@ -241,7 +241,7 @@ export function allRegistrationsSatisfied(reqs: AutoApplyRequirements): boolean 
  */
 export function startupProfileToCompanyProfile(
   sp: StartupProfile | undefined,
-  reqs?: AutoApplyRequirements,
+  reqs?: AutoFillRequirements,
 ): CompanyProfile {
   const inferredStr = (v: string) => ({ value: v, provenance: "model_inferred" as const, confidence: 0.5 });
 
@@ -291,7 +291,7 @@ export function packageProgramTitle(opp: Opportunity): string {
 // ---------------------------------------------------------------------------
 
 /**
- * The honest hand-off copy, consistent with `components/AutoApplyFlow.tsx`: the
+ * The honest hand-off copy, consistent with `components/AutoFillFlow.tsx`: the
  * tool drafted a submission-READY package, nothing was submitted, no application
  * was filed, and final legal submission is the founder's authorized AOR's,
  * through the program's official portal. Every string here is deliberately clear

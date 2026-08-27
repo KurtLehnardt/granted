@@ -12,7 +12,7 @@ import { defineConfig, devices } from "@playwright/test";
  * The critical journeys stub /api/match and /api/interview at the network layer
  * (page.route) so they are deterministic and spend zero model credits.
  *
- * Flag-gated journeys (interview, sidebar sections, buckets, auto-apply,
+ * Flag-gated journeys (interview, sidebar sections, buckets, auto-fill,
  * billing) depend on build-time NEXT_PUBLIC_* flags; run against a build with
  * the relevant flag on, or see the fixme notes in e2e/journeys.spec.ts.
  */

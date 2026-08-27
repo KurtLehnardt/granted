@@ -5,7 +5,7 @@ import { isFlagEnabled } from "@/lib/flags";
 import { useAuth } from "@/components/AuthProvider";
 import { useAnalytics } from "@/components/AnalyticsProvider";
 import { useSearchDraft } from "@/components/SearchDraftProvider";
-import { clearAllLocalData, getAutoApplyRequirements } from "@/lib/mockAuth";
+import { clearAllLocalData, getAutoFillRequirements } from "@/lib/mockAuth";
 import { BRAND } from "@/lib/brand";
 import Swal from "sweetalert2";
 import SearchProgress from "@/components/SearchProgress";
@@ -135,10 +135,10 @@ export default function IntakeForm({ onResult }: { onResult: (m: any) => void })
     searchStartRef.current = Date.now();
     analytics.searchStarted();
     // Arch review: feed the founder's OWN self-reported SAM/UEI (from the local
-    // Auto Apply form) into eligibility screening so a registered founder isn't
+    // Auto Fill form) into eligibility screening so a registered founder isn't
     // told to register. Empty when unfilled -> server no-ops it. Not analytics,
     // not the description; used transiently server-side for screening only.
-    const reqs = getAutoApplyRequirements();
+    const reqs = getAutoFillRequirements();
     const companyFacts = { samRegistered: reqs.samRegistered, uei: reqs.uei };
     try {
       const res = await fetch("/api/match", {

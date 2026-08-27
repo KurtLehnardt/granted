@@ -9,7 +9,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import ApplicationChecklist from "@/components/ApplicationChecklist";
 import type { Opportunity } from "@/lib/types";
 import type { CompanyProfile } from "@/lib/contracts/companyProfile";
-import type { AutoApplyRequirements } from "@/lib/mockAuth";
+import type { AutoFillRequirements } from "@/lib/mockAuth";
 import {
   AOR_HANDOFF,
   PACKAGE_INTRO,
@@ -31,7 +31,7 @@ import type { BudgetLineItem } from "@/lib/contracts/applicationBudget";
  * result. `<ApplicationPackageView/>` (named) is the PURE presentational split
  * so the honesty invariants can be tested with a static fixture and no network.
  *
- * HONESTY (R7.7, consistent with AutoApplyFlow.tsx): the tool drafted a
+ * HONESTY (R7.7, consistent with AutoFillFlow.tsx): the tool drafted a
  * submission-ready DRAFT — nothing was submitted, no application was filed, and
  * final legal submission is the founder's authorized AOR's. Every
  * `[founder to provide: …]` blank is highlighted for the founder to complete.
@@ -498,12 +498,12 @@ type FetchState =
 export default function ApplicationPackage({
   opportunity,
   profile,
-  autoApplyReqs,
+  autoFillReqs,
   onClose,
 }: {
   opportunity: Opportunity;
   profile: CompanyProfile;
-  autoApplyReqs: AutoApplyRequirements;
+  autoFillReqs: AutoFillRequirements;
   onClose?: () => void;
 }) {
   const [state, setState] = useState<FetchState>({ status: "loading" });
@@ -514,7 +514,7 @@ export default function ApplicationPackage({
       const res = await fetch("/api/apply/package", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ opportunity, profile, autoApplyReqs }),
+        body: JSON.stringify({ opportunity, profile, autoFillReqs }),
       });
       if (!res.ok) {
         setState({
@@ -532,7 +532,7 @@ export default function ApplicationPackage({
     } catch {
       setState({ status: "error", message: "We couldn't reach the assembly service. Please try again." });
     }
-  }, [opportunity, profile, autoApplyReqs]);
+  }, [opportunity, profile, autoFillReqs]);
 
   useEffect(() => {
     assemble();

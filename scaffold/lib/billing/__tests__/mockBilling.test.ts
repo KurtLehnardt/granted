@@ -15,18 +15,18 @@ import {
 describe("mockBilling", () => {
   test("billingFeatures maps each tier to the FE-07 table exactly", () => {
     assert.deepEqual(billingFeatures("free"), {
-      autoApply: false,
-      autoApplyLimitPerMonth: 0,
+      autoFill: false,
+      autoFillLimitPerMonth: 0,
       competitor: false,
     });
     assert.deepEqual(billingFeatures("pro"), {
-      autoApply: true,
-      autoApplyLimitPerMonth: 10,
+      autoFill: true,
+      autoFillLimitPerMonth: 10,
       competitor: false,
     });
     assert.deepEqual(billingFeatures("max"), {
-      autoApply: true,
-      autoApplyLimitPerMonth: null,
+      autoFill: true,
+      autoFillLimitPerMonth: null,
       competitor: true,
     });
   });

@@ -6,9 +6,9 @@ import SettingsForm from "@/components/SettingsForm";
 
 /**
  * FE-06 — Settings panel, reached via the hamburger menu (AppMenu.tsx) or the
- * Auto Apply modal's "Add these in Settings" link. Holds the "Auto-apply
+ * Auto Fill modal's "Add these in Settings" link. Holds the "Auto-fill
  * requirements" form: the same SAM.gov/UEI/AOR/E-Biz POC facts the (stubbed)
- * Auto Apply feature and R8.1 eligibility screening both care about.
+ * Auto Fill feature and R8.1 eligibility screening both care about.
  *
  * FE-07 — the form body itself now lives in the reusable <SettingsForm/>
  * (shared with the left-sidebar's Settings section). This dialog is unchanged:
@@ -55,12 +55,12 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
 
         <p className={eyebrowClass}>Settings</p>
         <h2 id="settings-panel-title" className={titleClass}>
-          Auto-apply requirements
+          Auto-fill requirements
         </h2>
         <p className={noteClass}>
           These values are stored on this device only (your browser's local storage) — never sent
-          to a server. Recording them here doesn't submit anything or turn Auto Apply on; it just
-          lets the Auto Apply preview show what's already in place.
+          to a server. Recording them here doesn't submit anything or turn Auto Fill on; it just
+          lets the Auto Fill preview show what's already in place.
         </p>
 
         <SettingsForm onClose={onClose} />

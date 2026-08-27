@@ -2,13 +2,13 @@
 
 import { useRef } from "react";
 import { createPortal } from "react-dom";
-import { getAutoApplyRequirements } from "@/lib/mockAuth";
+import { getAutoFillRequirements } from "@/lib/mockAuth";
 import { useDialogA11y } from "@/components/useDialogA11y";
 import { isFlagEnabled } from "@/lib/flags";
 
 /**
- * FE-06 — Pro-upsell stub shown when someone clicks the locked "Auto Apply"
- * button on an opportunity card. Auto Apply itself doesn't exist yet (it's
+ * FE-06 — Pro-upsell stub shown when someone clicks the locked "Auto Fill"
+ * button on an opportunity card. Auto Fill itself doesn't exist yet (it's
  * blocked on API keys from the grant sites); this is honest about that and
  * doesn't take payment, invent stats, or claim a guarantee/affiliation
  * (R7.7). It reads what's already on file from the local Settings form
@@ -41,7 +41,7 @@ const REQUIREMENTS: Array<{ key: RequirementKey; label: string; detail: string }
   },
 ];
 
-export default function AutoApplyModal({
+export default function AutoFillModal({
   onClose,
   onOpenSettings,
 }: {
@@ -55,7 +55,7 @@ export default function AutoApplyModal({
   useDialogA11y(dialogRef, onClose, closeBtnRef);
   const commercial = isFlagEnabled("commercial_ui"); // hide "Pro plan" framing when off
 
-  const reqs = getAutoApplyRequirements();
+  const reqs = getAutoFillRequirements();
   const satisfied: Record<RequirementKey, boolean> = {
     sam: reqs.samRegistered,
     uei: reqs.uei.trim().length > 0,
@@ -116,8 +116,8 @@ export default function AutoApplyModal({
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
-        aria-labelledby="auto-apply-modal-title"
-        aria-describedby="auto-apply-modal-desc"
+        aria-labelledby="auto-fill-modal-title"
+        aria-describedby="auto-fill-modal-desc"
         className={panelClass}
         onClick={(e) => e.stopPropagation()}
       >
@@ -130,12 +130,12 @@ export default function AutoApplyModal({
           <p className={eyebrowClass}>Pro feature &middot; not available yet</p>
         </div>
 
-        <h2 id="auto-apply-modal-title" className={titleClass}>
-          Auto Apply
+        <h2 id="auto-fill-modal-title" className={titleClass}>
+          Auto Fill
         </h2>
 
-        <p id="auto-apply-modal-desc" className={bodyClass}>
-          Auto Apply would fill out and submit federal applications for you automatically. We're
+        <p id="auto-fill-modal-desc" className={bodyClass}>
+          Auto Fill would fill out and submit federal applications for you automatically. We're
           still finishing the integrations with each grant site, so it isn't live yet.
           {commercial ? " When it ships, it will be part of a Pro plan we're building toward." : ""} Nothing is
           submitted anywhere today.

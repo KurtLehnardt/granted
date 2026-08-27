@@ -3,8 +3,8 @@ import { useMemo, useState } from "react";
 import { TIER_LABEL, TIER_COLOR, type Match, type Opportunity, type StartupProfile } from "@/lib/types";
 import { startupProfileToCompanyProfile } from "@/lib/apply/package";
 import type { EligibilityBucket } from "@/lib/contracts/eligibilityDetermination";
-import AutoApplyModal from "@/components/AutoApplyModal";
-import AutoApplyFlow from "@/components/AutoApplyFlow";
+import AutoFillModal from "@/components/AutoFillModal";
+import AutoFillFlow from "@/components/AutoFillFlow";
 import CompetitorAnalysisModal from "@/components/CompetitorAnalysisModal";
 import { useSettingsPanel } from "@/components/AppMenu";
 import { useBilling } from "@/components/BillingProvider";
@@ -164,12 +164,12 @@ export default function OpportunityCard({
   // DEFAULT on this A/B branch (previously gated behind r7_design). v1 fallback
   // branches are retained but unreachable.
   const design = true;
-  // FE-06: locked "Auto Apply" stub — opens the Pro-upsell modal, never submits anything.
-  const [autoApplyOpen, setAutoApplyOpen] = useState(false);
-  // R6: when on, "Auto Apply" opens the assisted-apply DEMO stepper instead of
+  // FE-06: locked "Auto Fill" stub — opens the Pro-upsell modal, never submits anything.
+  const [autoFillOpen, setAutoFillOpen] = useState(false);
+  // R6: when on, "Auto Fill" opens the assisted-apply DEMO stepper instead of
   // the static upsell modal. Default OFF -> the FE-06 path below is unchanged.
   // Still a preview: it never submits anything and gates nothing server-side.
-  const assistedApplyFlow = isFlagEnabled("r6_auto_apply");
+  const assistedApplyFlow = isFlagEnabled("r6_auto_fill");
   // G5: bridge the founder's extracted v1 profile to a §3.1 CompanyProfile once,
   // so the assisted-apply flow can assemble a grounded package. Undefined when no
   // profile was threaded down (the flow then simply doesn't offer "Draft my
@@ -191,7 +191,7 @@ export default function OpportunityCard({
   // this only changes the lock glyph + hint copy, never what the buttons do.
   const sidebar = isFlagEnabled("left_sidebar");
   const { features } = useBilling();
-  const autoApplyUnlocked = sidebar && features.autoApply;
+  const autoFillUnlocked = sidebar && features.autoFill;
   const competitorUnlocked = sidebar && features.competitor;
   // Hide the paid framing (padlocks + "plan"/"Pro/Max" hint copy) unless
   // commercial_ui is on. The buttons + preview flows are unchanged.
@@ -266,7 +266,7 @@ export default function OpportunityCard({
 
   // F1 — availability badge per non-default kind. "forecasted" keeps the
   // pre-existing bg-info style byte-for-byte; "rolling" reuses the same
-  // bordered-chip token pairing as the Auto Apply button (structure-on-canvas
+  // bordered-chip token pairing as the Auto Fill button (structure-on-canvas
   // is documented AA-safe as small text/borders directly on canvas — see
   // lib/design/tokens.ts); "closed" reuses the same filled error chip as the
   // "Excluded" eligibility bucket (DETERMINATION_META.excluded, above).
@@ -353,25 +353,25 @@ export default function OpportunityCard({
     ? "w-full px-4 py-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-inset sm:px-6 sm:py-5"
     : "w-full px-4 py-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-federal focus-visible:ring-inset sm:px-6 sm:py-5";
 
-  // FE-06: the locked Auto Apply control is a secondary/structure affordance —
+  // FE-06: the locked Auto Fill control is a secondary/structure affordance —
   // never bg-action (reserved for the primary CTA). Sits in its own row, own
   // <button>, outside the header's full-width toggle button (see below).
-  const autoApplyRowClass = design
+  const autoFillRowClass = design
     ? "flex flex-wrap items-center gap-2 border-t border-structure-on-canvas px-4 py-3 sm:px-6"
     : "flex flex-wrap items-center gap-2 border-t border-rule px-4 py-3 sm:px-6";
 
   // Polish: real hover + a 40px min hit target (dense-desktop control), plus
   // optical padding (icon side 2px tighter than the text side).
-  const autoApplyBtnClass = design
+  const autoFillBtnClass = design
     ? "inline-flex min-h-[40px] items-center gap-1.5 rounded-sm border border-structure-on-canvas bg-canvas pl-2 pr-2.5 py-1.5 font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas transition hover:bg-structure hover:text-token-white active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2"
     : "inline-flex items-center gap-1.5 rounded-sm border border-rule bg-white px-2.5 py-1.5 font-mono text-[11px] uppercase tracking-eyebrow text-slate-550 transition hover:border-federal hover:text-federal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-federal focus-visible:ring-offset-2";
 
-  const autoApplyHintClass = design
+  const autoFillHintClass = design
     ? "font-mono text-[10px] text-foreground"
     : "font-mono text-[10px] text-slate-550";
 
   // PRO-01: locked "Analyze competing companies" control — same
-  // secondary/structure affordance as Auto Apply above, but lives inside
+  // secondary/structure affordance as Auto Fill above, but lives inside
   // the "Similar companies funded" history section rather than its own row.
   const competitorBtnClass = design
     ? "inline-flex items-center gap-1.5 rounded-sm border border-structure-on-canvas bg-canvas px-2.5 py-1.5 font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2"
@@ -493,21 +493,21 @@ export default function OpportunityCard({
         on every card regardless of expand state. Locked stub only: clicking
         it never submits anything, it just opens the Pro-upsell modal.
       */}
-      <div className={autoApplyRowClass}>
+      <div className={autoFillRowClass}>
         <button
           type="button"
-          onClick={() => setAutoApplyOpen(true)}
+          onClick={() => setAutoFillOpen(true)}
           aria-haspopup="dialog"
-          className={autoApplyBtnClass}
+          className={autoFillBtnClass}
         >
-          {!autoApplyUnlocked && commercial && <LockIcon className="h-3 w-3" />}
-          Auto Apply
+          {!autoFillUnlocked && commercial && <LockIcon className="h-3 w-3" />}
+          Auto Fill
         </button>
-        <span className={autoApplyHintClass}>
+        <span className={autoFillHintClass}>
           {!commercial ? (
             // Commercial framing hidden: describe the feature state, no plan/Pro.
             assistedApplyFlow ? "Preview" : "Not live yet"
-          ) : autoApplyUnlocked ? (
+          ) : autoFillUnlocked ? (
             // The hint must match what clicking actually opens: the walkable
             // preview (r6 on) vs. the "not live yet" modal (r6 off). Claiming
             // "included in your plan" while the modal says "not available yet"
@@ -519,22 +519,22 @@ export default function OpportunityCard({
         </span>
       </div>
 
-      {autoApplyOpen &&
+      {autoFillOpen &&
         (assistedApplyFlow ? (
           // R6 ON: the walkable assisted-apply demo stepper. G5: thread the
           // opportunity + bridged profile so "Draft my application" can assemble
           // the submission-ready package end-to-end.
-          <AutoApplyFlow
-            onClose={() => setAutoApplyOpen(false)}
+          <AutoFillFlow
+            onClose={() => setAutoFillOpen(false)}
             opportunity={o}
             profile={companyProfile}
           />
         ) : (
           // R6 OFF (default): the FE-06 static Pro-upsell modal, unchanged.
-          <AutoApplyModal
-            onClose={() => setAutoApplyOpen(false)}
+          <AutoFillModal
+            onClose={() => setAutoFillOpen(false)}
             onOpenSettings={() => {
-              setAutoApplyOpen(false);
+              setAutoFillOpen(false);
               openSettings();
             }}
           />
@@ -802,7 +802,7 @@ function DeterminationAuthority({
   );
 }
 
-/** FE-06: closed-padlock glyph for the locked Auto Apply control. No external asset. */
+/** FE-06: closed-padlock glyph for the locked Auto Fill control. No external asset. */
 function LockIcon({ className }: { className?: string }) {
   return (
     <svg

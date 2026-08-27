@@ -1,6 +1,6 @@
 import type { CompanyProfile } from "../contracts/companyProfile";
-import type { AutoApplyRequirements } from "../mockAuth";
-import { EMPTY_AUTO_APPLY_REQUIREMENTS } from "../mockAuth";
+import type { AutoFillRequirements } from "../mockAuth";
+import { EMPTY_AUTO_FILL_REQUIREMENTS } from "../mockAuth";
 import type { Opportunity } from "../contracts/opportunity";
 import type { NarrativeSection } from "../contracts/applicationRequirements";
 
@@ -76,7 +76,7 @@ export interface ApplicationGoldenCase {
   /** Short description of what this case is proving. */
   description: string;
   profile: CompanyProfile;
-  reqs: AutoApplyRequirements;
+  reqs: AutoFillRequirements;
   opportunity: Opportunity;
   /** The G1 `ApplicationRequirements.narrative_sections` a real extraction would have produced (all `specified: true`). */
   narrativeSections: NarrativeSection[];
@@ -200,7 +200,7 @@ export const SPARSE_CASE: ApplicationGoldenCase = {
     "narrative + forms + budget, and exercises both the caught (declared) and the known-finding " +
     "(undeclared) fabrication shapes.",
   profile: SPARSE_PROFILE,
-  reqs: { ...EMPTY_AUTO_APPLY_REQUIREMENTS },
+  reqs: { ...EMPTY_AUTO_FILL_REQUIREMENTS },
   opportunity: SPARSE_OPPORTUNITY,
   narrativeSections: SPARSE_NARRATIVE_SECTIONS,
   rawSections: [SPARSE_SECTION_SUMMARY, SPARSE_SECTION_TRACTION],
@@ -314,7 +314,7 @@ export const NO_TRACTION_CASE: ApplicationGoldenCase = {
     "Identity fields provided; no revenue, capital_raised, or employee_count. The draft must not " +
     "invent any number. Carries ONLY the declared-fabrication shape (isolates the primary defense).",
   profile: NO_TRACTION_PROFILE,
-  reqs: { ...EMPTY_AUTO_APPLY_REQUIREMENTS },
+  reqs: { ...EMPTY_AUTO_FILL_REQUIREMENTS },
   opportunity: NO_TRACTION_OPPORTUNITY,
   narrativeSections: NO_TRACTION_NARRATIVE_SECTIONS,
   rawSections: [NO_TRACTION_SECTION_SUMMARY, NO_TRACTION_SECTION_COMMERCIALIZATION],
@@ -502,7 +502,7 @@ export const BANNED_PHRASE_ATTEMPT_CASE: ApplicationGoldenCase = {
     "draft_text asserts eligibility ('you are eligible for this award'). enforceGrounding must throw " +
     "rather than ship it — there is no honest placeholder for a definitive eligibility/award claim.",
   profile: BANNED_PHRASE_PROFILE,
-  reqs: { ...EMPTY_AUTO_APPLY_REQUIREMENTS },
+  reqs: { ...EMPTY_AUTO_FILL_REQUIREMENTS },
   opportunity: BANNED_PHRASE_OPPORTUNITY,
   narrativeSections: BANNED_PHRASE_NARRATIVE_SECTIONS,
   rawSections: [BANNED_PHRASE_SECTION],

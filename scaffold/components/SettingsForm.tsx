@@ -2,18 +2,18 @@
 
 import { useId, useState } from "react";
 import {
-  getAutoApplyRequirements,
-  setAutoApplyRequirements,
-  type AutoApplyRequirements,
+  getAutoFillRequirements,
+  setAutoFillRequirements,
+  type AutoFillRequirements,
 } from "@/lib/mockAuth";
 
 /**
- * SettingsForm.tsx — the auto-apply requirements form body, extracted from
+ * SettingsForm.tsx — the auto-fill requirements form body, extracted from
  * SettingsPanel (FE-06) so it can be reused verbatim by BOTH the existing
  * Settings modal and the FE-07 left-sidebar's Settings section.
  *
  * Presentational + self-contained: it owns its own form state and persists to
- * localStorage via lib/mockAuth (getAutoApplyRequirements / setAutoApplyRequirements)
+ * localStorage via lib/mockAuth (getAutoFillRequirements / setAutoFillRequirements)
  * exactly as before — nothing here is sent anywhere, and "Delete my data"
  * clears it with everything else.
  *
@@ -26,7 +26,7 @@ import {
  * section omits it (there is nothing to close — it's an inline section).
  */
 export default function SettingsForm({ onClose }: { onClose?: () => void }) {
-  const [form, setForm] = useState<AutoApplyRequirements>(() => getAutoApplyRequirements());
+  const [form, setForm] = useState<AutoFillRequirements>(() => getAutoFillRequirements());
   const [savedAt, setSavedAt] = useState<number | null>(null);
   // Instance-unique ids / radio-group name (useId) so two mounted instances —
   // the drawer's inline Settings section and the SettingsPanel modal — never
@@ -39,11 +39,11 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
 
   function handleSave(e: React.FormEvent) {
     e.preventDefault();
-    setAutoApplyRequirements(form);
+    setAutoFillRequirements(form);
     setSavedAt(Date.now());
   }
 
-  function update<K extends keyof AutoApplyRequirements>(key: K, value: AutoApplyRequirements[K]) {
+  function update<K extends keyof AutoFillRequirements>(key: K, value: AutoFillRequirements[K]) {
     setSavedAt(null);
     setForm((prev) => ({ ...prev, [key]: value }));
   }

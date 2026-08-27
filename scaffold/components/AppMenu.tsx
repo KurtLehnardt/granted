@@ -25,7 +25,7 @@ import AppSidebar from "@/components/AppSidebar";
 
 // ---------------------------------------------------------------------------
 // Settings panel context — lets anything under the provider (not just this
-// component's own menu item, e.g. the Auto Apply modal's "Add these in
+// component's own menu item, e.g. the Auto Fill modal's "Add these in
 // Settings" button deep inside OpportunityCard) open the Settings panel
 // without prop-drilling through OpportunityMap.
 // ---------------------------------------------------------------------------
@@ -79,7 +79,7 @@ export default function AppMenu() {
 
   // Close on outside click and on Esc — this is a lightweight dropdown, not
   // a modal dialog, so it gets simple dismiss behavior rather than the full
-  // focus-trap treatment AutoApplyModal/SettingsPanel use.
+  // focus-trap treatment AutoFillModal/SettingsPanel use.
   useEffect(() => {
     // In sidebar mode the drawer (AppSidebar) supplies its own focus-trap/Esc
     // via useDialogA11y, so this dropdown-only dismiss handler is skipped.

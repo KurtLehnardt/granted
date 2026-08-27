@@ -16,7 +16,7 @@
  *
  * Everything here stays LOCAL-ONLY (localStorage) and gates/charges NOTHING. The
  * billing section is an explicitly-labeled MOCK with no real payment (§11); the
- * auto-apply / competitor previews it unlocks remain honest previews that submit
+ * auto-fill / competitor previews it unlocks remain honest previews that submit
  * nothing (§5.3 — no server retention).
  *
  * Token-styled throughout (CON-02 60/30/10, darkMode "media"), no raw hex. The
@@ -476,10 +476,10 @@ function SidebarSections() {
 
   return (
     <>
-      {/* 1 — Auto Apply Settings ------------------------------------------- */}
-      <Section id="settings" label="Auto Apply Settings">
+      {/* 1 — Auto Fill Settings ------------------------------------------- */}
+      <Section id="settings" label="Auto Fill Settings">
         <p className={noteClass}>
-          Auto-apply requirements — stored on this device only, never sent to a server.
+          Auto-fill requirements — stored on this device only, never sent to a server.
         </p>
         <SettingsForm />
 
