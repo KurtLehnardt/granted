@@ -186,9 +186,23 @@
       <p class="eyebrow">The premise</p>
       <h2>We didn't start with code. We started with a <span class="c">spec</span> and a <span class="m">north star</span>.</h2>
       <ul class="pts">
-        <li><b>A north star</b> for where the spec is silent: <em>"a personal government-funding intelligence analyst for every startup."</em> It anchors every call on the founder's problem, not on finding uses for AI.</li>
+        <li><b>A north star</b> for where the spec is silent: <em>"a personal government-funding intelligence analyst for every startup."</em> It governs every call the spec doesn't make.</li>
         <li><b>An orchestrator contract</b> (<code>CLAUDE.md</code>): one agent plans and delegates; it never writes code itself.</li>
         <li><b>A 1,210-line specification</b> (the orchestrator prompt): requirements, shared contracts, ship order, acceptance criteria.</li>
+      </ul>
+    </section>
+
+    <!-- north star from book -->
+    <section class="slide">
+      <p class="eyebrow">Where the north star came from</p>
+      <h2>The north star was built from a book: <span class="c">Architected Intelligence</span>.</h2>
+      <p class="attn" style="margin-top:0; margin-bottom:18px">Jacob Miller &amp; Jeremy Mumford · <em>Principles for Building AI-First Organizations and Technologies</em>. Five layers we mapped straight onto the product:</p>
+      <ul class="pts">
+        <li><b>Output:</b> anchor on the user's problem. Design around helping a founder secure funding, not around finding uses for AI.</li>
+        <li><b>Input:</b> curate the "Canon." Turn messy government data into a trusted knowledge base that grounds the model.</li>
+        <li><b>Model:</b> manage the triangle. Balance intelligence, cost, and latency; send expensive models only to the hard analysis.</li>
+        <li><b>Observability:</b> measure trust with TACA. Transparency, Accuracy, Calibration, Alignment, checked with evals and expert vibe checks.</li>
+        <li><b>Enablement:</b> focus on the build loop. Ship measurable value, watch real usage, iterate; skip the hype.</li>
       </ul>
     </section>
 
