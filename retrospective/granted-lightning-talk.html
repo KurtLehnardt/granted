@@ -215,14 +215,12 @@
 
     <!-- how the spec was made -->
     <section class="slide">
-      <p class="eyebrow">How the spec was made &#183; author &#8594; critique &#8594; refine</p>
-      <h2>The spec was itself an <span class="c">agent pipeline</span>.</h2>
-      <ul style="list-style:none; display:grid; gap:11px; margin-top:8px;">
-        <li style="font-size:17px; color:var(--muted); line-height:1.35; padding-left:30px; position:relative;"><span style="position:absolute; left:0; color:var(--cyan); font-family:var(--mono); font-weight:700;">1</span> <b>Start from the gaps.</b> After v1 shipped, re-read the brief: a grants-only corpus, over-generous matching, no real questionnaire, no path to apply.</li>
-        <li style="font-size:17px; color:var(--muted); line-height:1.35; padding-left:30px; position:relative;"><span style="position:absolute; left:0; color:var(--cyan); font-family:var(--mono); font-weight:700;">2</span> <b>Author it (opus, extra-high effort).</b> One instruction: <em>"plan it as opus on xhigh."</em> Out came a first gap-closure plan.</li>
-        <li style="font-size:17px; color:var(--muted); line-height:1.35; padding-left:30px; position:relative;"><span style="position:absolute; left:0; color:var(--magenta); font-family:var(--mono); font-weight:700;">3</span> <b>Critique it (a second opus, xhigh).</b> A separate agent tore it apart, and caught that the plan cited the wrong branch's code. Re-grounded against the real repo.</li>
-        <li style="font-size:17px; color:var(--muted); line-height:1.35; padding-left:30px; position:relative;"><span style="position:absolute; left:0; color:var(--cyan); font-family:var(--mono); font-weight:700;">4</span> <b>Refine against the live brief.</b> Loop until it met every acceptance criterion and the stretch goals.</li>
-        <li style="font-size:17px; color:var(--muted); line-height:1.35; padding-left:30px; position:relative;"><span style="position:absolute; left:0; color:var(--magenta); font-family:var(--mono); font-weight:700;">5</span> <b>Result: a 1,210-line spec.</b> R1&#8211;R10, 12 typed contracts, the Canon, guardrails, teams, acceptance criteria. Every decision made on paper.</li>
+      <p class="eyebrow">How it started &#183; a written directive</p>
+      <h2>It began with a <span class="c">crafted prompt</span>, not a chat.</h2>
+      <ul style="list-style:none; display:grid; gap:14px; margin-top:8px;">
+        <li style="font-size:18px; color:var(--muted); line-height:1.4; padding-left:32px; position:relative;"><span style="position:absolute; left:0; color:var(--cyan); font-family:var(--mono); font-weight:700;">1</span> <b>A written directive, not a chat.</b> The project opened from <code>scaffold/docs/handoff.md</code>: a crafted file setting the orchestrator's role, the operating model, and the tasks.</li>
+        <li style="font-size:18px; color:var(--muted); line-height:1.4; padding-left:32px; position:relative;"><span style="position:absolute; left:0; color:var(--magenta); font-family:var(--mono); font-weight:700;">2</span> <b>v2 ran on a 1,210-line spec.</b> A written, refined orchestrator prompt: R1&#8211;R10, 12 typed contracts, the Canon, guardrails, acceptance criteria. Every decision on paper before any agent ran.</li>
+        <li style="font-size:18px; color:var(--muted); line-height:1.4; padding-left:32px; position:relative;"><span style="position:absolute; left:0; color:var(--cyan); font-family:var(--mono); font-weight:700;">3</span> <b>The gap-closure plan got the agent treatment.</b> <em>"Plan it as opus on xhigh":</em> a plan for what v1 missed was drafted, critiqued by a separate opus/xhigh agent (which caught it citing the wrong branch), and refined until it met every criterion.</li>
       </ul>
     </section>
 
