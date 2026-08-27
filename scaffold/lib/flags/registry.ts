@@ -28,7 +28,7 @@ export type FlagName =
   | "r2_verify"
   | "r3_enhance"
   | "r4_progress"
-  | "r6_auto_apply"
+  | "r6_auto_fill"
   | "r6_export_autofill"
   | "r7_design"
   | "r8_eligibility"
@@ -89,13 +89,13 @@ export const FLAG_REGISTRY: Record<FlagName, FlagDefinition> = {
     description: "Event-driven streaming progress UI, replacing the fixed fake progress bar.",
     envVar: "NEXT_PUBLIC_FLAG_R4_PROGRESS",
   },
-  r6_auto_apply: {
-    name: "r6_auto_apply",
+  r6_auto_fill: {
+    name: "r6_auto_fill",
     requirement: "R6",
     description:
       "Assisted-apply demo: sign-in → requirements → admin-review-pending walkthrough " +
       "(preview only; never submits an application, gates nothing server-side).",
-    envVar: "NEXT_PUBLIC_FLAG_R6_AUTO_APPLY",
+    envVar: "NEXT_PUBLIC_FLAG_R6_AUTO_FILL",
   },
   r6_export_autofill: {
     name: "r6_export_autofill",
@@ -246,7 +246,7 @@ export const FLAG_REGISTRY: Record<FlagName, FlagDefinition> = {
     requirement: "COMM",
     description:
       "Commercial / demo scaffolding in the UI: the mock Billing section + plan tiers, the 'Maximum/Pro " +
-      "plan' framing and padlocks on the competitor & auto-apply surfaces, and the hackathon-judge demo " +
+      "plan' framing and padlocks on the competitor & auto-fill surfaces, and the hackathon-judge demo " +
       "sign-in toggle. Default OFF so a self-hosted / run-it-locally user is never shown a subscription " +
       "for something that is free to run; the underlying code stays in place. Flip ON to restore the paid framing.",
     envVar: "NEXT_PUBLIC_FLAG_COMMERCIAL_UI",

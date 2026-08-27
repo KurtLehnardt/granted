@@ -11,8 +11,8 @@ import {
   packageProgramTitle,
   // Re-exported by lib/apply/package so this server route never imports the
   // client-only mock-auth module directly (R9.0 server-retention guard).
-  EMPTY_AUTO_APPLY_REQUIREMENTS,
-  type AutoApplyRequirements,
+  EMPTY_AUTO_FILL_REQUIREMENTS,
+  type AutoFillRequirements,
   type DraftableSection,
   type NarrativeStatus,
 } from "@/lib/apply/package";
@@ -27,7 +27,7 @@ import type { ApplicationDraft } from "@/lib/contracts/applicationDraft";
  * Orchestrates the pipeline SERVER-SIDE so G1's + G2's server-only
  * `ANTHROPIC_API_KEY` never reaches the client bundle (same discipline as
  * `app/api/interview/route.ts` and `app/api/match/route.ts`). Receives
- * `{ opportunity, profile, autoApplyReqs }` and returns the assembled package:
+ * `{ opportunity, profile, autoFillReqs }` and returns the assembled package:
  *
  *   G1 extractApplicationRequirements(opp)         [model — timeout+retry]
  *   G2 draftApplication(profile, reqs, {sectionKeys:[first]})  [model — modest spend]
@@ -98,7 +98,7 @@ export async function POST(req: NextRequest) {
 
   let opportunity: Opportunity;
   let profile: CompanyProfile;
-  let autoApplyReqs: AutoApplyRequirements;
+  let autoFillReqs: AutoFillRequirements;
   try {
     const body = await req.json();
     const oppParsed = OpportunitySchema.safeParse(body?.opportunity);
@@ -107,11 +107,11 @@ export async function POST(req: NextRequest) {
     if (!profileParsed.success) return badRequest("A valid company profile is required to assemble a package.");
     opportunity = oppParsed.data;
     profile = profileParsed.data;
-    // AutoApplyRequirements is a plain client store; merge over the defaults so a
+    // AutoFillRequirements is a plain client store; merge over the defaults so a
     // partial/absent value never yields undefined fields (the SF-424 pre-fill
     // reads every field). Never trusted for anything gated — it only shapes the
     // honest, self-reported registration facts on the forms.
-    autoApplyReqs = { ...EMPTY_AUTO_APPLY_REQUIREMENTS, ...(body?.autoApplyReqs ?? {}) };
+    autoFillReqs = { ...EMPTY_AUTO_FILL_REQUIREMENTS, ...(body?.autoFillReqs ?? {}) };
   } catch {
     return badRequest("Invalid request body.");
   }
@@ -152,11 +152,11 @@ export async function POST(req: NextRequest) {
   }
 
   // --- Deterministic parts (never need a model) -----------------------------
-  const forms = prefillApplicationForms(profile, autoApplyReqs, opportunity);
+  const forms = prefillApplicationForms(profile, autoFillReqs, opportunity);
   // Budget is sharpened by G1's budget_rules when we got requirements; falls
   // back to the profile-only budget when the model step degraded.
   const budget = buildBudget(profile, requirements ?? undefined, opportunity);
-  const checklist = { allRegistrationsSatisfied: allRegistrationsSatisfied(autoApplyReqs) };
+  const checklist = { allRegistrationsSatisfied: allRegistrationsSatisfied(autoFillReqs) };
 
   const narrativeSections: DraftableSection[] = (requirements?.narrative_sections ?? [])
     .filter((s) => s.specified)

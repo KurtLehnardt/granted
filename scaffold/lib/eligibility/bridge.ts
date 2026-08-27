@@ -31,7 +31,7 @@ import type { ScreenableOpportunity } from "./screen";
 const INFERRED_CONFIDENCE = 0.5;
 
 /**
- * Facts the founder has told the app directly (via the Auto Apply / Settings
+ * Facts the founder has told the app directly (via the Auto Fill / Settings
  * form) — self-reported, so `user_stated`. Passed in from the client on the
  * match request so `screen()` reflects registrations the user has recorded
  * (arch review MEDIUM: a SAM-registered founder was still told to register).

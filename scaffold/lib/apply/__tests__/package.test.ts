@@ -6,8 +6,8 @@ import type { CompanyProfile } from "../../contracts/companyProfile";
 import { isFieldProvided } from "../../contracts/companyProfile";
 import type { Opportunity } from "../../contracts/opportunity";
 import type { StartupProfile } from "../../contracts";
-import type { AutoApplyRequirements } from "../../mockAuth";
-import { EMPTY_AUTO_APPLY_REQUIREMENTS } from "../../mockAuth";
+import type { AutoFillRequirements } from "../../mockAuth";
+import { EMPTY_AUTO_FILL_REQUIREMENTS } from "../../mockAuth";
 import { prefillApplicationForms } from "../forms";
 import { buildBudget } from "../budget";
 import {
@@ -84,7 +84,7 @@ function sampleDraft(): ApplicationDraft {
   };
 }
 
-const REQS: AutoApplyRequirements = { ...EMPTY_AUTO_APPLY_REQUIREMENTS };
+const REQS: AutoFillRequirements = { ...EMPTY_AUTO_FILL_REQUIREMENTS };
 
 // ---------------------------------------------------------------------------
 // collectAllGaps — the single gap-summary surface (test requirement 1)
@@ -260,8 +260,8 @@ describe("honest AOR hand-off + intro copy", () => {
 
 describe("allRegistrationsSatisfied", () => {
   test("true only when all four SAM/UEI/AOR/E-Biz facts are on file", () => {
-    assert.equal(allRegistrationsSatisfied(EMPTY_AUTO_APPLY_REQUIREMENTS), false);
-    const all: AutoApplyRequirements = {
+    assert.equal(allRegistrationsSatisfied(EMPTY_AUTO_FILL_REQUIREMENTS), false);
+    const all: AutoFillRequirements = {
       samRegistered: true,
       samRegisteredDate: "",
       uei: "ABC123",

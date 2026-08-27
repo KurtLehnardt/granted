@@ -5,7 +5,7 @@ import { stubBackend, FIXTURE_PROGRAM } from "./fixtures";
  * The remaining named critical journeys. Sample-pick is wired + passing on the
  * default build. The rest are SCRIPTED skeletons marked `test.fixme` because
  * they depend on build-time NEXT_PUBLIC_* flags (r1_interview, r9_0_mockauth,
- * r6_auto_apply, left_sidebar, billing) that the default build has off — run
+ * r6_auto_fill, left_sidebar, billing) that the default build has off — run
  * against a build with the relevant flag on, then promote them to `test(...)`.
  */
 
@@ -59,8 +59,8 @@ test.fixme("sign-in/demo: entering demo mode shows the Hackathon Judge identity"
   await expect(page.getByText(/judge/i)).toBeVisible();
 });
 
-// Journey 6 — Auto-apply flow (needs r6_auto_apply / left_sidebar).
-test.fixme("auto-apply: opening Auto Apply while signed out gates on sign-in", async ({ page }) => {
+// Journey 6 — Auto-fill flow (needs r6_auto_fill / left_sidebar).
+test.fixme("auto-fill: opening Auto Fill while signed out gates on sign-in", async ({ page }) => {
   await stubBackend(page);
   await page.goto("/");
   await page.getByLabel(/tell us about your company/i).fill(
@@ -68,7 +68,7 @@ test.fixme("auto-apply: opening Auto Apply while signed out gates on sign-in", a
   );
   await page.getByRole("button", { name: /find opportunities/i }).click();
   await expect(page.getByText(FIXTURE_PROGRAM)).toBeVisible();
-  await page.getByRole("button", { name: /auto apply/i }).first().click();
+  await page.getByRole("button", { name: /auto fill/i }).first().click();
   await expect(page.getByText(/sign in/i)).toBeVisible();
 });
 
@@ -77,6 +77,6 @@ test.fixme("billing: switching to a paid tier unlocks padlocked features live", 
   await page.goto("/");
   await page.getByRole("button", { name: /open menu/i }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
-  // On Free, Auto Apply / Competitor Analysis show locked/upsell framing; after
+  // On Free, Auto Fill / Competitor Analysis show locked/upsell framing; after
   // switching to Max via the billing selector they unlock without a reload.
 });

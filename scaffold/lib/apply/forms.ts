@@ -4,7 +4,7 @@ import {
   type CompanyProfile,
   type EntityType,
 } from "../contracts/companyProfile";
-import type { AutoApplyRequirements } from "../mockAuth";
+import type { AutoFillRequirements } from "../mockAuth";
 import type { Opportunity } from "../contracts/opportunity";
 import {
   PrefilledFormsSchema,
@@ -15,8 +15,8 @@ import {
 /**
  * WS-G / G3 — deterministic SF-424 federal form pre-fill.
  *
- * `prefillApplicationForms(profile, autoApplyReqs, opp)` maps the founder's
- * `CompanyProfile` + the mock SAM/UEI settings (`AutoApplyRequirements`) + the
+ * `prefillApplicationForms(profile, autoFillReqs, opp)` maps the founder's
+ * `CompanyProfile` + the mock SAM/UEI settings (`AutoFillRequirements`) + the
  * matched `Opportunity` into a schema-validated `PrefilledForms` object for the
  * SF-424 family.
  *
@@ -32,8 +32,8 @@ import {
  * (defense-in-depth — the analogue of G1's `ApplicationRequirementsSchema.parse`
  * and G2's `ApplicationDraftSchema.parse`).
  *
- * The caller passes `autoApplyReqs` IN. This function never reads localStorage
- * (`getAutoApplyRequirements` does that in the React layer) so it stays pure and
+ * The caller passes `autoFillReqs` IN. This function never reads localStorage
+ * (`getAutoFillRequirements` does that in the React layer) so it stays pure and
  * testable with static fixtures.
  */
 
@@ -92,7 +92,7 @@ function capitalRangeLabel(bucket: string): string {
 // ---------------------------------------------------------------------------
 
 /** UEI — the mock SAM settings are authoritative; the profile self-report is the fallback. */
-function ueiField(profile: CompanyProfile, reqs: AutoApplyRequirements): PrefilledField {
+function ueiField(profile: CompanyProfile, reqs: AutoFillRequirements): PrefilledField {
   const label = "Unique Entity Identifier (UEI)";
   const fromSam = reqs.uei.trim();
   if (fromSam.length > 0) return grounded("uei", label, fromSam, "sam.uei");
@@ -108,7 +108,7 @@ function ueiField(profile: CompanyProfile, reqs: AutoApplyRequirements): Prefill
  * from the SAM settings. Never a gap: the founder's SAM settings always carry a
  * concrete boolean.
  */
-function samStatusField(profile: CompanyProfile, reqs: AutoApplyRequirements): PrefilledField {
+function samStatusField(profile: CompanyProfile, reqs: AutoFillRequirements): PrefilledField {
   const key = "sam_registration_status";
   const label = "SAM.gov registration status";
   if (reqs.samRegistered) {
@@ -146,7 +146,7 @@ function naicsField(profile: CompanyProfile): PrefilledField {
 }
 
 /** Authorized representative (AOR) name — grounded from the mock SAM settings when named. */
-function aorField(reqs: AutoApplyRequirements): PrefilledField {
+function aorField(reqs: AutoFillRequirements): PrefilledField {
   const label = "Authorized representative (AOR) name";
   const name = reqs.aorName.trim();
   if (name.length > 0) return grounded("authorized_representative_name", label, name, "sam.aorName");
@@ -199,7 +199,7 @@ function programTitle(opp: Opportunity): string {
  */
 export function prefillApplicationForms(
   profile: CompanyProfile,
-  autoApplyReqs: AutoApplyRequirements,
+  autoFillReqs: AutoFillRequirements,
   opp: Opportunity,
 ): PrefilledForms {
   const applicantLocation: PrefilledField = isFieldProvided(profile, "location")
@@ -224,8 +224,8 @@ export function prefillApplicationForms(
     gap("organization_name", "Organization legal name", "organization legal name"),
 
     // --- Registration facts (grounded from SAM settings / profile) ---
-    ueiField(profile, autoApplyReqs),
-    samStatusField(profile, autoApplyReqs),
+    ueiField(profile, autoFillReqs),
+    samStatusField(profile, autoFillReqs),
     entityTypeField(profile),
 
     // --- Address. `profile.location` is COARSE (e.g. "Boise, Idaho"): expose it
@@ -239,7 +239,7 @@ export function prefillApplicationForms(
     gap("applicant_congressional_district", "Applicant congressional district", "applicant congressional district"),
 
     naicsField(profile),
-    aorField(autoApplyReqs),
+    aorField(autoFillReqs),
 
     // --- Amounts. `capital_requirement` is a coarse RANGE bucket, not the exact
     //     SF-424 figure: the exact amounts are gaps. The founder's stated range

@@ -9,7 +9,7 @@ import type { Opportunity } from "@/lib/types";
 /**
  * D6 — Application Assistant checklist (honest, per-opportunity).
  *
- * This is the on-ramp to WS-G's real auto-apply work, not auto-apply itself.
+ * This is the on-ramp to WS-G's real auto-fill work, not auto-fill itself.
  * It NEVER submits anything, NEVER claims a submission happened or a program
  * was "won," and NEVER fabricates founder facts or an eligibility verdict
  * (R7.7 / §11). Everything below is either:

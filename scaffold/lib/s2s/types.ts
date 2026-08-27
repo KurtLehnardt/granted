@@ -51,7 +51,7 @@ export type TransportKind = "mock" | "sandbox" | "live";
  *
  * This holds NO credentials — no password, no session token, no SAM.gov /
  * Grants.gov secret of any kind (NG-3, memo §7 E2). It is analogous to
- * `AutoApplyRequirements.aorOnFile`, but scoped to one opportunity and
+ * `AutoFillRequirements.aorOnFile`, but scoped to one opportunity and
  * timestamped.
  *
  *   - `attested` is `z.literal(true)`: an UNCHECKED box is the absence of an

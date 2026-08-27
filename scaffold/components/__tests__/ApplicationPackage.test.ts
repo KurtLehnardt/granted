@@ -7,7 +7,7 @@ import { ApplicationPackageView } from "../ApplicationPackage";
 import type { Opportunity } from "../../lib/types";
 import type { CompanyProfile } from "../../lib/contracts/companyProfile";
 import type { ApplicationDraft } from "../../lib/contracts/applicationDraft";
-import { EMPTY_AUTO_APPLY_REQUIREMENTS } from "../../lib/mockAuth";
+import { EMPTY_AUTO_FILL_REQUIREMENTS } from "../../lib/mockAuth";
 import { prefillApplicationForms } from "../../lib/apply/forms";
 import { buildBudget } from "../../lib/apply/budget";
 import { assemblePackage, type AssembledPackage } from "../../lib/apply/package";
@@ -78,7 +78,7 @@ function fullPackage(): AssembledPackage {
   return assemblePackage({
     opportunity_id: OPP.id,
     program_title: OPP.title!,
-    forms: prefillApplicationForms(profile, EMPTY_AUTO_APPLY_REQUIREMENTS, OPP),
+    forms: prefillApplicationForms(profile, EMPTY_AUTO_FILL_REQUIREMENTS, OPP),
     budget: buildBudget(profile, undefined, OPP),
     checklist: { allRegistrationsSatisfied: false },
     narrativeSections: [{ key: "project_summary", title: "Project Summary", prompt: "Summarize your project." }],
@@ -93,7 +93,7 @@ function degradedPackage(): AssembledPackage {
   return assemblePackage({
     opportunity_id: OPP.id,
     program_title: OPP.title!,
-    forms: prefillApplicationForms(profile, EMPTY_AUTO_APPLY_REQUIREMENTS, OPP),
+    forms: prefillApplicationForms(profile, EMPTY_AUTO_FILL_REQUIREMENTS, OPP),
     budget: buildBudget(profile, undefined, OPP),
     checklist: { allRegistrationsSatisfied: false },
     narrativeSections: [],

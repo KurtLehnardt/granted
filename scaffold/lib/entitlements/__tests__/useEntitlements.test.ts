@@ -43,13 +43,13 @@ describe("useEntitlements (client-only stub)", () => {
   // [ADDED] FE-07 injectable billingTier param — tier -> gating mapping
   // ---------------------------------------------------------------------
 
-  test("[added] useEntitlements('pro') — legacy tier collapses to pro, autoApply on, competitor off, limit 10", () => {
+  test("[added] useEntitlements('pro') — legacy tier collapses to pro, autoFill on, competitor off, limit 10", () => {
     const view = useEntitlements("pro");
     assert.equal(view.tier, "pro");
     assert.equal(view.billingTier, "pro");
-    assert.equal(view.autoApplyEnabled, true);
+    assert.equal(view.autoFillEnabled, true);
     assert.equal(view.competitorEnabled, false);
-    assert.equal(view.autoApplyLimitPerMonth, 10);
+    assert.equal(view.autoFillLimitPerMonth, 10);
   });
 
   test("[added] useEntitlements('max') — legacy tier still collapses to pro, but billingTier stays max (unlimited + competitor)", () => {
@@ -57,12 +57,12 @@ describe("useEntitlements (client-only stub)", () => {
     assert.equal(view.tier, "pro"); // legacy 2-tier contract has no "max"
     assert.equal(view.billingTier, "max"); // FE-07 field carries the true tier
     assert.equal(view.competitorEnabled, true);
-    assert.equal(view.autoApplyLimitPerMonth, null);
+    assert.equal(view.autoFillLimitPerMonth, null);
   });
 
-  test("[added] toEntitlementsView(readEntitlements('pro')) — autoApplyLimitPerMonth is null when assisted_application is entitled", () => {
+  test("[added] toEntitlementsView(readEntitlements('pro')) — autoFillLimitPerMonth is null when assisted_application is entitled", () => {
     const view = toEntitlementsView(readEntitlements("pro"));
     assert.equal(view.features.assisted_application, true);
-    assert.equal(view.autoApplyLimitPerMonth, null);
+    assert.equal(view.autoFillLimitPerMonth, null);
   });
 });

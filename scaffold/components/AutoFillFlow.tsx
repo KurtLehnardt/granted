@@ -3,9 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
-  getAutoApplyRequirements,
-  setAutoApplyRequirements,
-  type AutoApplyRequirements,
+  getAutoFillRequirements,
+  setAutoFillRequirements,
+  type AutoFillRequirements,
 } from "@/lib/mockAuth";
 import { useAuth } from "@/components/AuthProvider";
 import { useBilling } from "@/components/BillingProvider";
@@ -18,7 +18,7 @@ import type { CompanyProfile } from "@/lib/contracts/companyProfile";
 
 /**
  * R6 / D6 — assisted-apply Application Assistant (behind the default-off
- * `r6_auto_apply` flag).
+ * `r6_auto_fill` flag).
  *
  * A single, walkable modal stepper that shows founders what pre-approval for
  * assisted application actually requires, plus (D6) an honest, per-opportunity
@@ -59,17 +59,17 @@ import type { CompanyProfile } from "@/lib/contracts/companyProfile";
  * backdrop; mounting it inside this dialog would put two simultaneous focus
  * traps and two `aria-modal` dialogs over the same document (Esc/Tab handlers
  * would fight, and Esc in Settings would tear down the whole flow). The app
- * never stacks two dialogs — AutoApplyModal closes itself before opening
+ * never stacks two dialogs — AutoFillModal closes itself before opening
  * Settings. So per the task's sanctioned escape hatch we keep ONE dialog and
- * one focus trap, reading/writing the same `getAutoApplyRequirements` /
- * `setAutoApplyRequirements` from lib/mockAuth.ts that SettingsPanel uses.
+ * one focus trap, reading/writing the same `getAutoFillRequirements` /
+ * `setAutoFillRequirements` from lib/mockAuth.ts that SettingsPanel uses.
  */
 
 type Step = "signin" | "requirements" | "review";
 
 const STEP_ORDER: Step[] = ["signin", "requirements", "review"];
 
-export default function AutoApplyFlow({
+export default function AutoFillFlow({
   onClose,
   opportunity,
   profile,
@@ -100,7 +100,7 @@ export default function AutoApplyFlow({
 
   // Already-signed-in users skip straight to the requirements step.
   const [step, setStep] = useState<Step>(user ? "requirements" : "signin");
-  const [form, setForm] = useState<AutoApplyRequirements>(() => getAutoApplyRequirements());
+  const [form, setForm] = useState<AutoFillRequirements>(() => getAutoFillRequirements());
   const [saved, setSaved] = useState(false);
 
   // G5: "Draft my application" is offered only when we have BOTH the selected
@@ -127,7 +127,7 @@ export default function AutoApplyFlow({
   };
   const allSatisfied = satisfied.sam && satisfied.uei && satisfied.aor && satisfied.ebiz;
 
-  function update<K extends keyof AutoApplyRequirements>(key: K, value: AutoApplyRequirements[K]) {
+  function update<K extends keyof AutoFillRequirements>(key: K, value: AutoFillRequirements[K]) {
     setSaved(false);
     setForm((prev) => ({ ...prev, [key]: value }));
   }
@@ -135,20 +135,20 @@ export default function AutoApplyFlow({
   function handleSaveRequirements(e: React.FormEvent) {
     e.preventDefault();
     // Device-local only (lib/mockAuth.ts) — never sent to a server.
-    setAutoApplyRequirements(form);
+    setAutoFillRequirements(form);
     setSaved(true);
   }
 
   function handleSubmitForApproval() {
     // Persist the self-reported facts locally, then show the honest "pending"
     // screen. This DOES NOT submit an application anywhere.
-    setAutoApplyRequirements(form);
+    setAutoFillRequirements(form);
     setStep("review");
   }
 
   const stepIndex = STEP_ORDER.indexOf(step);
 
-  /* ---- Shared dual-className tokens (mirrors AutoApplyModal / SettingsPanel) ---- */
+  /* ---- Shared dual-className tokens (mirrors AutoFillModal / SettingsPanel) ---- */
 
   const panelClass = design
     ? "relative max-h-[85vh] w-full max-w-lg overflow-y-auto border border-structure-on-canvas bg-canvas p-6 text-foreground"
@@ -238,8 +238,8 @@ export default function AutoApplyFlow({
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
-        aria-labelledby="auto-apply-flow-title"
-        aria-describedby="auto-apply-flow-desc"
+        aria-labelledby="auto-fill-flow-title"
+        aria-describedby="auto-fill-flow-desc"
         className={panelClass}
         onClick={(e) => e.stopPropagation()}
       >
@@ -254,7 +254,7 @@ export default function AutoApplyFlow({
           </p>
         </div>
 
-        <h2 id="auto-apply-flow-title" className={titleClass}>
+        <h2 id="auto-fill-flow-title" className={titleClass}>
           Assisted application
         </h2>
 
@@ -294,7 +294,7 @@ export default function AutoApplyFlow({
             <ApplicationPackage
               opportunity={opportunity}
               profile={profile}
-              autoApplyReqs={form}
+              autoFillReqs={form}
               onClose={() => setShowPackage(false)}
             />
           </div>
@@ -302,7 +302,7 @@ export default function AutoApplyFlow({
 
         {!showPackage && step === "signin" && (
           <div>
-            <p id="auto-apply-flow-desc" className={bodyClass}>
+            <p id="auto-fill-flow-desc" className={bodyClass}>
               Assisted application is a Pro feature we&rsquo;re building toward. This is a preview so
               you can see what it would need before it could act on your behalf — starting with
               signing in. Nothing is submitted anywhere, and no payment is collected.
@@ -320,7 +320,7 @@ export default function AutoApplyFlow({
 
         {!showPackage && step === "requirements" && (
           <div>
-            <p id="auto-apply-flow-desc" className={bodyClass}>
+            <p id="auto-fill-flow-desc" className={bodyClass}>
               Here&rsquo;s what assisted application would need on file before it could act for you.
               Record what&rsquo;s true below (stored on this device only) — everything has to be in
               place before you can submit for approval. Nothing here submits an application.
@@ -496,9 +496,9 @@ export default function AutoApplyFlow({
         {!showPackage && step === "review" && (
           <div>
             <p className={`mt-4 font-display text-[18px] font-bold leading-snug ${design ? "text-foreground" : "text-ink"}`}>
-              Admin review required prior to granting auto-apply approval.
+              Admin review required prior to granting auto-fill approval.
             </p>
-            <p id="auto-apply-flow-desc" className={bodyClass}>
+            <p id="auto-fill-flow-desc" className={bodyClass}>
               That&rsquo;s the end of this preview. To be clear about what just happened: nothing was
               submitted to SAM.gov or any grant portal, no application was filed, and no payment was
               taken. Your answers stayed on this device. Assisted application isn&rsquo;t live yet —

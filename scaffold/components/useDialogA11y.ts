@@ -3,7 +3,7 @@
 import { useEffect, useRef, type RefObject } from "react";
 
 /**
- * FE-06 — shared accessible-dialog behavior for AutoApplyModal and
+ * FE-06 — shared accessible-dialog behavior for AutoFillModal and
  * SettingsPanel (kept as a hook rather than duplicated in both so the
  * focus-trap logic only has to be gotten right once).
  *

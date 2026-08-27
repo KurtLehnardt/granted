@@ -12,9 +12,9 @@ import {
   exitDemoMode,
   getConsent,
   setConsent,
-  getAutoApplyRequirements,
-  EMPTY_AUTO_APPLY_REQUIREMENTS,
-  mapAutoApplyToCompanyProfileFields,
+  getAutoFillRequirements,
+  EMPTY_AUTO_FILL_REQUIREMENTS,
+  mapAutoFillToCompanyProfileFields,
   clearAllLocalData,
 } from "../mockAuth";
 
@@ -142,21 +142,21 @@ describe("consent", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Auto-apply requirements
+// Auto-fill requirements
 // ---------------------------------------------------------------------------
 
-describe("getAutoApplyRequirements", () => {
-  test("merges a partial stored record over EMPTY_AUTO_APPLY_REQUIREMENTS (no undefined fields)", () => {
-    mem.setItem(STORAGE_KEYS.autoApply, JSON.stringify({ samRegistered: true, uei: "X1" }));
-    const reqs = getAutoApplyRequirements();
+describe("getAutoFillRequirements", () => {
+  test("merges a partial stored record over EMPTY_AUTO_FILL_REQUIREMENTS (no undefined fields)", () => {
+    mem.setItem(STORAGE_KEYS.autoFill, JSON.stringify({ samRegistered: true, uei: "X1" }));
+    const reqs = getAutoFillRequirements();
     assert.equal(reqs.samRegistered, true);
     assert.equal(reqs.uei, "X1");
     // Every field absent from the partial stored record falls back to its
-    // EMPTY_AUTO_APPLY_REQUIREMENTS default, never undefined.
-    assert.equal(reqs.samRegisteredDate, EMPTY_AUTO_APPLY_REQUIREMENTS.samRegisteredDate);
-    assert.equal(reqs.aorName, EMPTY_AUTO_APPLY_REQUIREMENTS.aorName);
-    assert.equal(reqs.aorOnFile, EMPTY_AUTO_APPLY_REQUIREMENTS.aorOnFile);
-    assert.equal(reqs.eBizPocOnFile, EMPTY_AUTO_APPLY_REQUIREMENTS.eBizPocOnFile);
+    // EMPTY_AUTO_FILL_REQUIREMENTS default, never undefined.
+    assert.equal(reqs.samRegisteredDate, EMPTY_AUTO_FILL_REQUIREMENTS.samRegisteredDate);
+    assert.equal(reqs.aorName, EMPTY_AUTO_FILL_REQUIREMENTS.aorName);
+    assert.equal(reqs.aorOnFile, EMPTY_AUTO_FILL_REQUIREMENTS.aorOnFile);
+    assert.equal(reqs.eBizPocOnFile, EMPTY_AUTO_FILL_REQUIREMENTS.eBizPocOnFile);
     for (const [key, value] of Object.entries(reqs)) {
       assert.notEqual(value, undefined, `field ${key} must not be undefined`);
     }
@@ -164,13 +164,13 @@ describe("getAutoApplyRequirements", () => {
 });
 
 // ---------------------------------------------------------------------------
-// mapAutoApplyToCompanyProfileFields
+// mapAutoFillToCompanyProfileFields
 // ---------------------------------------------------------------------------
 
-describe("mapAutoApplyToCompanyProfileFields", () => {
+describe("mapAutoFillToCompanyProfileFields", () => {
   test("samRegistered:false, uei:'' -> {}", () => {
-    const out = mapAutoApplyToCompanyProfileFields({
-      ...EMPTY_AUTO_APPLY_REQUIREMENTS,
+    const out = mapAutoFillToCompanyProfileFields({
+      ...EMPTY_AUTO_FILL_REQUIREMENTS,
       samRegistered: false,
       uei: "",
     });
@@ -178,8 +178,8 @@ describe("mapAutoApplyToCompanyProfileFields", () => {
   });
 
   test("samRegistered:true -> sam_registered {value:true, provenance:'user_stated', confidence:1}", () => {
-    const out = mapAutoApplyToCompanyProfileFields({
-      ...EMPTY_AUTO_APPLY_REQUIREMENTS,
+    const out = mapAutoFillToCompanyProfileFields({
+      ...EMPTY_AUTO_FILL_REQUIREMENTS,
       samRegistered: true,
     });
     assert.deepEqual(out.sam_registered, { value: true, provenance: "user_stated", confidence: 1 });
@@ -187,8 +187,8 @@ describe("mapAutoApplyToCompanyProfileFields", () => {
   });
 
   test("uei '  X1  ' -> trimmed value, same provenance shape", () => {
-    const out = mapAutoApplyToCompanyProfileFields({
-      ...EMPTY_AUTO_APPLY_REQUIREMENTS,
+    const out = mapAutoFillToCompanyProfileFields({
+      ...EMPTY_AUTO_FILL_REQUIREMENTS,
       uei: "  X1  ",
     });
     assert.deepEqual(out.uei, { value: "X1", provenance: "user_stated", confidence: 1 });

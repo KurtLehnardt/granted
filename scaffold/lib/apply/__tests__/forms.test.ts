@@ -9,7 +9,7 @@ import {
 } from "../../contracts/applicationForms";
 import { FOUNDER_TODO_PATTERN } from "../../contracts/applicationDraft";
 import type { CompanyProfile } from "../../contracts/companyProfile";
-import type { AutoApplyRequirements } from "../../mockAuth";
+import type { AutoFillRequirements } from "../../mockAuth";
 import type { Opportunity } from "../../contracts/opportunity";
 import { prefillApplicationForms } from "../forms";
 
@@ -27,7 +27,7 @@ function cell<T>(value: T) {
 }
 
 /** The all-empty SAM/UEI settings (nothing on file). */
-const EMPTY_REQS: AutoApplyRequirements = {
+const EMPTY_REQS: AutoFillRequirements = {
   samRegistered: false,
   samRegisteredDate: "",
   uei: "",
@@ -76,7 +76,7 @@ function wellFilledProfile(): CompanyProfile {
 }
 
 test("a well-filled profile + SAM settings grounds UEI/NAICS/entity_type/SAM status with correct source", () => {
-  const reqs: AutoApplyRequirements = {
+  const reqs: AutoFillRequirements = {
     ...EMPTY_REQS,
     samRegistered: true,
     samRegisteredDate: "2025-01-15",

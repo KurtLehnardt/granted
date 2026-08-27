@@ -4,7 +4,7 @@
  * THIS IS NOT BILLING. No payment is ever taken, no server is ever called, and
  * nothing here is an authorization decision (§11: honest, no fake charges). It
  * is a purely local, localStorage-backed switch the demo uses to show how the
- * padlocked Pro affordances (Auto Apply / competitor analysis) would light up
+ * padlocked Pro affordances (Auto Fill / competitor analysis) would light up
  * per tier. Selecting a tier charges nothing and syncs nowhere.
  *
  * Kept SEPARATE from the CON-01 `SubscriptionTier`/`DEFAULT_ENTITLEMENTS`
@@ -24,10 +24,10 @@ export type BillingTier = 'free' | 'pro' | 'max';
 
 /** The feature bundle a tier unlocks. The single source of tier -> feature truth. */
 export interface BillingFeatures {
-  /** R6 assisted "Auto Apply" preview is presented as available. */
-  autoApply: boolean;
+  /** R6 assisted "Auto Fill" preview is presented as available. */
+  autoFill: boolean;
   /** How many auto-applies/month the tier advertises; null = unlimited. */
-  autoApplyLimitPerMonth: number | null;
+  autoFillLimitPerMonth: number | null;
   /** PRO-01 "Analyze competing companies" is presented as available. */
   competitor: boolean;
 }
@@ -50,22 +50,22 @@ export const BILLING_TIERS: readonly BillingTierMeta[] = [
     id: 'free',
     label: 'Free',
     priceLabel: '$0',
-    blurb: 'Search and read matches. No auto-apply; competitor analysis stays locked.',
-    features: { autoApply: false, autoApplyLimitPerMonth: 0, competitor: false },
+    blurb: 'Search and read matches. No auto-fill; competitor analysis stays locked.',
+    features: { autoFill: false, autoFillLimitPerMonth: 0, competitor: false },
   },
   {
     id: 'pro',
     label: 'Pro',
     priceLabel: '$20/mo',
-    blurb: 'Preview Auto Apply, up to 10 a month. Competitor analysis still locked.',
-    features: { autoApply: true, autoApplyLimitPerMonth: 10, competitor: false },
+    blurb: 'Preview Auto Fill, up to 10 a month. Competitor analysis still locked.',
+    features: { autoFill: true, autoFillLimitPerMonth: 10, competitor: false },
   },
   {
     id: 'max',
     label: 'Max',
     priceLabel: '$100/mo',
-    blurb: 'Unlimited Auto Apply previews plus competitor analysis.',
-    features: { autoApply: true, autoApplyLimitPerMonth: null, competitor: true },
+    blurb: 'Unlimited Auto Fill previews plus competitor analysis.',
+    features: { autoFill: true, autoFillLimitPerMonth: null, competitor: true },
   },
 ] as const;
 

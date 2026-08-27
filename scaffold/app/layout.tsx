@@ -33,8 +33,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
           SettingsPanelProvider (FE-06) is the same kind of always-on, no-UI-
           of-its-own context: it just makes the device-local Settings panel
-          (Auto Apply requirements) reachable from anywhere in the tree —
-          the hamburger menu (AppMenu) and the Auto Apply modal deep inside
+          (Auto Fill requirements) reachable from anywhere in the tree —
+          the hamburger menu (AppMenu) and the Auto Fill modal deep inside
           each OpportunityCard both open the same panel through it, without
           prop-drilling through OpportunityMap.
         */}
