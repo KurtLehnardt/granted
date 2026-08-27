@@ -1,16 +1,16 @@
-# Granted — Government Opportunity Finder
+# Granted: government opportunity finder
 
-**Granted** turns a founder's plain-English company description into a map of real **federal funding opportunities** — grants, SBIR/STTR R&D, procurement, loans, assistance, scholarships — scored for fit, screened for eligibility, and calibrated to do the thing no other tool will: **tell you honestly when *not* to apply.**
+**Granted** turns a founder's plain-English company description into a map of real **federal funding opportunities**: grants, SBIR/STTR R&D, procurement, loans, assistance, scholarships. Each match is scored for fit, screened for eligibility, and calibrated to do the thing no other tool will: **tell you honestly when *not* to apply.**
 
-Nothing is fabricated — every match traces to a real award record, and a schema layer *throws* on any invented program, amount, or citation.
+Nothing is fabricated. Every match traces to a real award record, and a schema layer *throws* on any invented program, amount, or citation.
 
 **Live demo:** [fund-finder-blush.vercel.app](https://fund-finder-blush.vercel.app)
 
-> Originally built for the GOED bounty at AI Builder Day (Aug 2026). It's a working prototype, not enterprise software — but it's fully runnable on your own keys and deployable to your own Vercel + Supabase in ~15 minutes. This README is the guide.
+> Originally built for the GOED bounty at AI Builder Day (Aug 2026). It's a working prototype, not enterprise software. But you can run the whole thing on your own keys and deploy it to your own Vercel + Supabase in ~15 minutes. This README is the guide.
 
 ## Why this matters
 
-Calibration is the product. Any system can return five matches for any input. The differentiator is the willingness to say *"there probably isn't a strong match, and here's why"* — a designed screen, not an error. If your system fabricates matches for a company that doesn't align with federal grant mechanics, it fails the people using it.
+Calibration is the product. Any system can return five matches for any input. The differentiator is the willingness to say *"there probably isn't a strong match, and here's why"*. That's a designed screen, not an error. If your system fabricates matches for a company that doesn't align with federal grant mechanics, it fails the people using it.
 
 ---
 
@@ -18,7 +18,7 @@ Calibration is the product. Any system can return five matches for any input. Th
 
 ## Quick start (≈ 5 minutes)
 
-You need [Node 20 LTS](https://nodejs.org) (18.17+ works) and two API keys (OpenAI + Anthropic). That's it — the 968-opportunity corpus ships committed, so there's no data pipeline to run before you can start.
+You need [Node 20 LTS](https://nodejs.org) (18.17+ works) and two API keys (OpenAI + Anthropic). That's it. The 968-opportunity corpus ships committed, so there's no data pipeline to run before you can start.
 
 ```bash
 git clone https://github.com/KurtLehnardt/granted.git
@@ -34,13 +34,13 @@ npm run dev        # → http://localhost:3000
 | Thing | Required? | Where | Notes |
 |---|---|---|---|
 | **OpenAI API key** | ✅ Yes | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) | Embeddings (`text-embedding-3-small`). Pennies per search. |
-| **Anthropic API key** | ✅ Yes | [console.anthropic.com](https://console.anthropic.com/settings/keys) | Claude — scoring + explanations. A novel search runs ~$0.05–0.33. |
+| **Anthropic API key** | ✅ Yes | [console.anthropic.com](https://console.anthropic.com/settings/keys) | Claude: scoring + explanations. A novel search runs ~$0.05–0.33. |
 | **Exa API key** | Optional | [dashboard.exa.ai](https://dashboard.exa.ai) | Only for the deep competitor analysis' *live web* results. Without it, that feature degrades honestly to federal awardees only. |
 | **Supabase project** | Optional | [supabase.com](https://supabase.com) | Only for **real Google sign-in**. The core app runs fine without any auth. |
 | **Google OAuth credentials** | Optional | [Google Cloud Console](https://console.cloud.google.com) | Only if you enable real sign-in (see below). |
 | **Vercel account** | Optional | [vercel.com](https://vercel.com) | Only to deploy. Local dev needs none of it. |
 
-> **Cost:** every search spends real OpenAI + Anthropic credits. Keep an eye on your Anthropic balance — a heavy batch (e.g. re-running the 31-case golden set) can burn several dollars and will 400 with *"credit balance too low"* if you run dry.
+> **Cost:** every search spends real OpenAI + Anthropic credits. Keep an eye on your Anthropic balance. A heavy batch (e.g. re-running the 31-case golden set) can burn several dollars and will 400 with *"credit balance too low"* if you run dry.
 
 ## Manual setup (instead of the script)
 
@@ -59,7 +59,7 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 Everything else in `.env.example` is optional and documented inline. Start with `npm run dev`.
 
-## Run on a local model (Ollama — no API keys, can be fully offline)
+## Run on a local model (Ollama: no API keys, can be fully offline)
 
 Don't want to pay for or send data to a hosted model? Point the reasoning at a local LLM. The scoring, explanations, and honest verdicts then run entirely on your machine.
 
@@ -73,7 +73,7 @@ Don't want to pay for or send data to a hosted model? Point the reasoning at a l
    LOCAL_LLM_MODEL=gemma4:latest
    # ANTHROPIC_API_KEY is no longer needed.
    ```
-3. `npm run dev`. Every scoring/explanation call now routes to Ollama's OpenAI-compatible endpoint, with grammar-constrained JSON so a local model stays parseable. Any OpenAI-compatible server works (LM Studio, vLLM, llama.cpp) — set `LLM_BASE_URL` to its `/v1` URL.
+3. `npm run dev`. Every scoring/explanation call now routes to Ollama's OpenAI-compatible endpoint, with grammar-constrained JSON so a local model stays parseable. Any OpenAI-compatible server works (LM Studio, vLLM, llama.cpp). Set `LLM_BASE_URL` to its `/v1` URL.
 
 ### Fully offline
 By default the tiny query embedding still uses OpenAI (the corpus ships pre-embedded at 512 dims; it costs fractions of a cent). To remove that last hosted call, run embeddings locally and re-embed the corpus once:
@@ -87,11 +87,11 @@ npm run data:embed        # re-embeds the 968-opportunity corpus locally (~1–2
 Now nothing leaves your machine.
 
 ### The honest tradeoff
-Hosted Claude is faster and more reliable at the strict, structured JSON this pipeline asks for, and its scoring is better calibrated. A capable local model handles it — in testing, gemma4 ran the full pipeline end to end and reached the *same headline verdict* as hosted Claude on the same input (a genuine strong fit, with the right NIH SBIR grant as its top recommendation) — but:
+Hosted Claude is faster and more reliable at the strict, structured JSON this pipeline asks for, and its scoring is better calibrated. A capable local model still handles it. In testing, gemma4 ran the full pipeline end to end and reached the *same headline verdict* as hosted Claude on the same input (a genuine strong fit, with the right NIH SBIR grant as its top recommendation). Two caveats:
 - **It's much slower.** A single local GPU serves the scoring batches one at a time, so a full 24-candidate search can take several minutes (vs. ~90s hosted). Batches run serially and smaller when local (`LLM_BATCH_SIZE`, default 3) to stay under the per-call timeout; raise `ANTHROPIC_TIMEOUT_MS` if a big model needs longer.
 - **Quality is rougher.** Smaller or older models score less consistently and occasionally emit JSON even the repair layer can't recover. Use a strong instruction-following model, and expect a coarser result than the hosted default.
 
-It's a real option for privacy or zero-cost runs — just not the fast path.
+It's a real option for privacy or zero-cost runs, just not the fast path.
 
 ## Feature flags (turn on the good stuff)
 
@@ -99,7 +99,7 @@ Everything risky ships **default-OFF** so a fresh clone is safe and boring. Flip
 
 | Flag | What it turns on |
 |---|---|
-| `NEXT_PUBLIC_FLAG_DISCERNMENT_LAYER=true` | The **honest "don't apply"** layer — per-match recommend / verify / do-not-recommend verdicts, a whole-map verdict, and rubric-anchored scoring. This is the headline feature. |
+| `NEXT_PUBLIC_FLAG_DISCERNMENT_LAYER=true` | The **honest "don't apply"** layer: per-match recommend / verify / do-not-recommend verdicts, a whole-map verdict, and rubric-anchored scoring. This is the headline feature. |
 | `NEXT_PUBLIC_FLAG_R5_DEEP_ANALYSIS=true` | The live **competitor & market-analysis** brief (`/api/competitors`). Add `EXA_API_KEY` for web competitors. |
 | `NEXT_PUBLIC_MOCK_AUTH=true` | A localStorage-only **mock** sign-in, to demo the login loop without real OAuth. |
 | `NEXT_PUBLIC_FLAG_R9_SUPABASE_AUTH=true` | **Real** Google sign-in via Supabase (see next section). Wins over mock auth if both are on. |
@@ -108,7 +108,7 @@ The full flag list lives in `scaffold/lib/flags/registry.ts`.
 
 ## Real Google sign-in (Supabase + OAuth)
 
-Optional — the app works without it. When you want real accounts:
+Optional. The app works without it. When you want real accounts:
 
 1. **Create a Supabase project** at [supabase.com](https://supabase.com) → New project.
 2. **Copy your keys:** Supabase Dashboard → *Project Settings → API* → copy the **Project URL** and the **anon / publishable** key into `scaffold/.env.local`:
@@ -118,13 +118,13 @@ Optional — the app works without it. When you want real accounts:
    NEXT_PUBLIC_FLAG_R9_SUPABASE_AUTH=true
    ```
 3. **Create Google OAuth credentials:** [Google Cloud Console](https://console.cloud.google.com) → *APIs & Services → Credentials → Create credentials → OAuth client ID → Web application*.
-   - Under **Authorized redirect URIs**, add the callback Supabase gives you — it looks like `https://YOUR-PROJECT-REF.supabase.co/auth/v1/callback`. (Supabase shows the exact URL in step 4.) *This is the Supabase callback, not your app URL — that's why changing your app domain later does **not** require touching Google.*
+   - Under **Authorized redirect URIs**, add the callback Supabase gives you. It looks like `https://YOUR-PROJECT-REF.supabase.co/auth/v1/callback`. (Supabase shows the exact URL in step 4.) *This is the Supabase callback, not your app URL. That's why changing your app domain later does **not** require touching Google.*
    - Save, then copy the **Client ID** and **Client secret**.
 4. **Enable Google in Supabase:** Dashboard → *Authentication → Providers → Google* → toggle on, paste the Client ID + secret from step 3, save.
 5. **Set your app URLs in Supabase:** Dashboard → *Authentication → URL Configuration*:
-   - **Site URL:** `http://localhost:3000` (for local) — change to your Vercel URL for production.
+   - **Site URL:** `http://localhost:3000` (for local). Change to your Vercel URL for production.
    - **Redirect URLs:** add `http://localhost:3000/**` (local) and, once deployed, `https://YOUR-APP.vercel.app/auth/callback`.
-6. Restart `npm run dev` and sign in. The app requests OAuth with `redirectTo = <origin>/auth/callback`, so it adapts to whatever domain it's served from — you only ever update the **Supabase** redirect allowlist, never Google.
+6. Restart `npm run dev` and sign in. The app requests OAuth with `redirectTo = <origin>/auth/callback`, so it adapts to whatever domain it's served from. You only ever update the **Supabase** redirect allowlist, never Google.
 
 > **Common gotcha:** if sign-in bounces to the wrong URL, it's almost always Supabase's *Site URL / Redirect URLs* pointing at the old domain. Update them there.
 
@@ -132,7 +132,7 @@ Optional — the app works without it. When you want real accounts:
 
 1. **Push the repo to your own GitHub** (fork or your own remote).
 2. **Vercel → Add New… → Project → import the repo.**
-3. **Set the Root Directory to `scaffold`.** ⚠️ This is the one non-obvious step — the Next.js app lives in `scaffold/`, not the repo root. Vercel will fail to build if you skip it.
+3. **Set the Root Directory to `scaffold`.** ⚠️ This is the one non-obvious step. The Next.js app lives in `scaffold/`, not the repo root. Vercel will fail to build if you skip it.
 4. **Add environment variables** (Vercel → Project → Settings → Environment Variables): `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and any optional ones you use (`EXA_API_KEY`, the `NEXT_PUBLIC_FLAG_*` flags, `NEXT_PUBLIC_SUPABASE_URL`/`ANON_KEY`). `NEXT_PUBLIC_*` vars are inlined at build time, so **redeploy after changing them.**
 5. **Deploy.** The corpus is committed and read-only at runtime, so there's no data step and no live government-API dependency.
 6. **If you enabled real auth:** add your Vercel production URL to Supabase's *Site URL* + *Redirect URLs* (see step 5 above).
@@ -141,7 +141,7 @@ Vercel Pro is recommended (the deep-analysis + novel-search routes can run up to
 
 ## Optional: assisted-apply identifiers (UEI, grants.gov, ORCID, NSF)
 
-The **experimental** application-assistance pieces — the grants.gov S2S integration (mock/sandbox only) and the Chrome autofill extension — can use your real federal identifiers to *pre-fill* forms. These are **entirely optional**, off by default, and **the tool never submits anything on your behalf** — a human always files.
+The **experimental** application-assistance pieces, the grants.gov S2S integration (mock/sandbox only) and the Chrome autofill extension, can use your real federal identifiers to *pre-fill* forms. These are **entirely optional**, off by default, and **the tool never submits anything on your behalf**. A human always files.
 
 If you want to experiment, set them as shell environment variables (not in `.env.local`), e.g.:
 
@@ -153,11 +153,11 @@ export ORCID='0000-0000-0000-0000'
 export NSF_ID='...'
 ```
 
-> A **UEI alone is not enough** to apply — grant portals reject it until your **SAM.gov registration is Active** (which can take ~2 weeks). See `scaffold/components/ApplicationChecklist.tsx`.
+> A **UEI alone is not enough** to apply: grant portals reject it until your **SAM.gov registration is Active** (which can take ~2 weeks). See `scaffold/components/ApplicationChecklist.tsx`.
 
-## Chrome extension (assisted fill) — experimental
+## Chrome extension (assisted fill, experimental)
 
-An optional companion extension (`extension/`, "Granted Assisted Fill") can pre-fill a grant portal's application form **in your own authenticated browser session**, from a package the app generates. Think of it like a password manager for grant forms: it fills what it can ground, flags what it can't, and lets you step through the portal's own sections. **It never submits, signs, certifies, or files anything** — your organization's Authorized Organization Representative (AOR) reviews everything and clicks the portal's own submit button.
+An optional companion extension (`extension/`, "Granted Assisted Fill") can pre-fill a grant portal's application form **in your own authenticated browser session**, from a package the app generates. Think of it like a password manager for grant forms: it fills what it can ground, flags what it can't, and lets you step through the portal's own sections. **It never submits, signs, certifies, or files anything**. Your organization's Authorized Organization Representative (AOR) reviews everything and clicks the portal's own submit button.
 
 **Load it into Chrome:**
 ```bash
@@ -168,12 +168,12 @@ npm run build            # emits a loadable extension into extension/dist/
 Then in Chrome (or any Chromium browser): open `chrome://extensions` → turn on **Developer mode** (top-right) → **Load unpacked** → select `extension/dist/`. The "Granted Assisted Fill" icon appears in the toolbar. After code changes, re-run `npm run build` and hit reload on the extension's card.
 
 **What it needs to actually fill a form:**
-- A completed application **package exported from the Granted app** — that's the set of fields and grounded values to fill.
-- Your **federal identifiers on file** (UEI, ORCID, NSF ID, grants.gov login) — the values that go into the form.
-- **Real field selectors captured for the specific portal** (see the caveat below — they do not ship).
+- A completed application **package exported from the Granted app**. That's the set of fields and grounded values to fill.
+- Your **federal identifiers on file** (UEI, ORCID, NSF ID, grants.gov login): the values that go into the form.
+- **Real field selectors captured for the specific portal** (see the caveat below; they do not ship).
 - An **Active SAM.gov registration**, so you can actually log into the portal the extension is filling.
 
-**Honest state — it is not a working auto-filler yet.** Every portal field selector in `extension/src/config/portals/*.ts` ships as a `TODO:` placeholder, because the initial recon couldn't reach the four target portals (grants.gov, NIH ASSIST, Research.gov, SBIR.gov) — they sit behind login and an **Active SAM.gov registration**. So out of the box the extension loads but fills nothing (and `nih_assist` has no steps at all). To make it actually fill, you capture the real selectors from a live portal session — `extension/README.md` documents that step-by-step procedure — and to reach those portals you first need your SAM.gov registration Active (which can take ~2 weeks).
+**Honest state: it is not a working auto-filler yet.** Every portal field selector in `extension/src/config/portals/*.ts` ships as a `TODO:` placeholder, because the initial recon couldn't reach the four target portals (grants.gov, NIH ASSIST, Research.gov, SBIR.gov). They sit behind login and an **Active SAM.gov registration**. So out of the box the extension loads but fills nothing (and `nih_assist` has no steps at all). To make it actually fill, you capture the real selectors from a live portal session (`extension/README.md` documents that step-by-step procedure), and to reach those portals you first need your SAM.gov registration Active (which can take ~2 weeks).
 
 By design it is an assistive form-filler, not a submission service: a human always files.
 
@@ -188,20 +188,20 @@ npm run data:embed      # embed everything (~1 min, <$1 of OpenAI)
 npm run data:precompute # (optional) freeze the demo test cases for instant renders
 ```
 
-All sources are keyless. There is a Supabase-backed corpus store (`supabase/migrations/00001_*.sql`) for a future dynamic pipeline, but the app reads the static JSON by default — you can ignore it.
+All sources are keyless. There is a Supabase-backed corpus store (`supabase/migrations/00001_*.sql`) for a future dynamic pipeline, but the app reads the static JSON by default, so you can ignore it.
 
 ---
 
 ## How it works
 
-1. **Intake** — describe your company in natural language; Claude extracts a structured profile + expands it into government vocabulary.
-2. **Retrieval** — OpenAI embeddings + in-memory cosine similarity over the 968-opportunity corpus (no vector DB); per-type quotas keep every instrument reachable.
-3. **Scoring** — Claude scores each candidate 0–100 on the criteria a program officer would apply, with a met/unmet checklist and plain-language explanations.
-4. **Eligibility screen** — a rules layer buckets eligibility from *stated* facts; it never turns a model guess into an exclusion.
-5. **Discernment** *(flag)* — recommend / verify / **don't-recommend** per match, plus a whole-map verdict, so a weak idea gets an honest "don't apply" instead of a wall of maybes.
-6. **The honest no** — when nothing fits, that's a first-class finding with real redirects, not an empty screen.
+1. **Intake.** Describe your company in natural language; Claude extracts a structured profile + expands it into government vocabulary.
+2. **Retrieval.** OpenAI embeddings + in-memory cosine similarity over the 968-opportunity corpus (no vector DB); per-type quotas keep every instrument reachable.
+3. **Scoring.** Claude scores each candidate 0–100 on the criteria a program officer would apply, with a met/unmet checklist and plain-language explanations.
+4. **Eligibility screen.** A rules layer buckets eligibility from *stated* facts; it never turns a model guess into an exclusion.
+5. **Discernment** *(flag)*. Recommend / verify / **don't-recommend** per match, plus a whole-map verdict, so a weak idea gets an honest "don't apply" instead of a wall of maybes.
+6. **The honest no.** When nothing fits, that's a first-class finding with real redirects, not an empty screen.
 
-Results **stream** — progress and grounded evidence appear in seconds rather than behind a frozen spinner.
+Results **stream**. Progress and grounded evidence appear in seconds rather than behind a frozen spinner.
 
 ## Design philosophy
 
