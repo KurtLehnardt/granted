@@ -30,7 +30,9 @@
     "canon:seed": "node --import tsx scripts/canon/seed-from-v1.mjs",
     "canon:ingest": "node --import tsx scripts/canon/ingest-grants.mjs",
     "canon:extract-rules": "node --import tsx scripts/canon/extract-rules.mjs",
-    "cost:measure": "node --import tsx scripts/cost-measure.mjs"
+    "cost:measure": "node --import tsx scripts/cost-measure.mjs",
+    "eval:precomputed": "node --import tsx scripts/eval-precomputed.mjs",
+    "eval:quality": "node --import tsx scripts/eval-run.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.33.1",
