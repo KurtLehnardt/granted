@@ -14,30 +14,59 @@ hallucinating one — and test case 5 is designed to catch teams that can't. The
 path here can return near-empty and explain why, and that path is a designed screen
 (`weakFieldFinding`), not an error state.
 
-## Setup
+## Quickstart
 
 ```bash
 npm install
-cp .env.example .env.local     # OPENAI_API_KEY is already in your ~/.zshrc
+npm run dev     # http://localhost:3000
 ```
 
-Two keys are needed:
-- `OPENAI_API_KEY` — embeddings (`text-embedding-3-small`), build time and runtime
-- `ANTHROPIC_API_KEY` — extraction and explanation (`claude-sonnet-4-6`)
+The opportunity corpus is **committed** (prebuilt), so there's nothing to build to try it: the
+five sample companies render instantly from a precomputed cache — no API keys, no model needed.
+To run your **own** company description, pick a backend:
 
-## Build the data (run once, on your laptop)
+### Option A — hosted models (fast)
+```bash
+cp .env.example .env.local     # then paste your two keys
+```
+- `OPENAI_API_KEY` — embeddings (`text-embedding-3-small`, 512-dim; matches the committed corpus)
+- `ANTHROPIC_API_KEY` — extraction + scoring/explanations (`claude-sonnet-4-6`)
+
+Restart `npm run dev`. That's it.
+
+### Option B — local model (free, offline, no keys, nothing leaves your machine)
+With [Ollama](https://ollama.com):
+```bash
+ollama pull gemma4:latest        # or qwen2.5 / llama3.1 / any capable chat model
+ollama pull nomic-embed-text     # a local embedder
+```
+Put this in `.env.local` (full block in `.env.example`):
+```
+LLM_PROVIDER=ollama
+LOCAL_LLM_MODEL=gemma4:latest
+EMBEDDINGS_BASE_URL=http://localhost:11434/v1
+EMBEDDINGS_MODEL=nomic-embed-text
+LLM_CANDIDATE_COUNT=12           # optional: fewer candidates = faster local scoring
+```
+The committed corpus is embedded with OpenAI (512-dim), so **re-embed it once** with your local
+embedder — otherwise query and corpus vectors aren't comparable:
+```bash
+npm run data:embed               # re-embeds data/opportunities.json in place (~1–2 min)
+npm run dev
+```
+Heads-up: local inference is much slower than hosted (minutes per novel search on a laptop). The
+five sample cases stay instant either way (they're cached).
+
+## Rebuild / refresh the corpus (optional)
+
+The committed corpus is a point-in-time snapshot; grant deadlines age. To rebuild from the live
+government APIs (respects the same backend env as above):
 
 ```bash
 npm run data:fetch       # ~3 min. Government APIs. Slow and occasionally flaky.
 npm run data:normalize   # collapses every source into one schema
-npm run data:embed       # ~1 min, well under $1
-npm run dev
-```
-
-Then, once matching looks right:
-
-```bash
-npm run data:precompute  # freeze the five judged test cases
+npm run data:embed       # embeds with whichever model your env selects
+npm run data:precompute  # re-freeze the sample cases (needs `npm run dev` running)
 ```
 
 ## Architecture

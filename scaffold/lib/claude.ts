@@ -147,10 +147,16 @@ function parseJson<T>(raw: string): T {
  */
 function recordUsage(meter: CostMeter | undefined, stage: string, usage: Anthropic.Messages.Usage, latencyMs: number, model: string = MODEL): void {
   if (!meter) return;
+  // On a local backend every stage runs on the one local model, at $0 — record
+  // that honestly rather than mislabeling the call as the hosted Anthropic model
+  // (which would report a fictitious cost for a free, offline run).
+  const local = isLocalLlm();
   meter.record({
     stage,
-    provider: "anthropic",
-    model,
+    // Local runs go through the OpenAI-compatible shim at $0; record the real
+    // local model name (not the hosted Anthropic model) so the cost log is honest.
+    provider: local ? "openai" : "anthropic",
+    model: local ? (process.env.LOCAL_LLM_MODEL || "local") : model,
     inputTokens: usage?.input_tokens ?? 0,
     outputTokens: usage?.output_tokens ?? 0,
     cacheCreationInputTokens: usage?.cache_creation_input_tokens ?? undefined,
