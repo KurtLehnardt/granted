@@ -32,7 +32,7 @@ export const CALIBRATION = {
   /** Below this cosine similarity a program is never a candidate. */
   candidateFloor: 0.22,
   /** How many candidates go to Claude for scoring. */
-  candidateCount: 24,
+  candidateCount: Number(process.env.LLM_CANDIDATE_COUNT) || 24,
   /** Verify/adjacent boundary. E1 re-derivation on the 968-opp MIXED corpus
    *  RAISED this 30 -> 33 to keep case-5's core GRANT fit honestly weak. The C1a
    *  per-type quota (NOT a low floor) is what makes non-grants REACHABLE; once
