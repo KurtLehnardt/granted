@@ -12,6 +12,7 @@ import { isFlagEnabled } from "@/lib/flags";
 import {
   opportunityAvailability,
   isClosingSoon,
+  isDeadlinePassed,
   type OpportunityAvailabilityKind,
 } from "@/lib/ui/opportunitySummary";
 
@@ -214,6 +215,13 @@ export default function OpportunityCard({
   // Evergreen-safe (F1): never true for a rolling/continuous/standing or
   // closed program, even if a stray deadline value is present on the record.
   const closingSoon = isClosingSoon(o);
+  // Data-freshness: the committed corpus is a point-in-time snapshot, so a
+  // deadline that parses to a date strictly BEFORE now is stale — badge it
+  // honestly ("verify," never assert) instead of rendering it as if current.
+  // Evergreen-safe (never true for rolling/continuous/standing or forecasted),
+  // and mutually exclusive with `closingSoon` above (which requires a FUTURE
+  // deadline), so the two badges can never both show.
+  const deadlinePassed = isDeadlinePassed(o);
 
   // AUTHORITY: the deterministic screening determination is the source of truth
   // for eligibility on this card (§1 #5). It may be absent (screening omitted /
@@ -310,6 +318,15 @@ export default function OpportunityCard({
   // never a bare border/inline-text use of the token (lib/design/tokens.ts).
   const closingSoonClass = design
     ? "rounded-sm bg-warning px-1.5 py-0.5 text-[10px] uppercase tracking-eyebrow text-on-semantic"
+    : "rounded-sm border border-rule px-1.5 py-0.5 text-[10px] uppercase tracking-eyebrow text-slate-550";
+
+  // Data-freshness — "Deadline passed" badge. Same filled-error chip as the
+  // "Closed" availability badge / "Excluded" bucket (an AA-safe filled pairing,
+  // never a bare border/inline-text use of the token). The copy says "verify,"
+  // never asserts the program is gone: a self-hoster's stale snapshot may lag
+  // the official source, so we flag honestly and send them to check.
+  const deadlinePassedClass = design
+    ? "rounded-sm bg-error px-1.5 py-0.5 text-[10px] uppercase tracking-eyebrow text-token-white"
     : "rounded-sm border border-rule px-1.5 py-0.5 text-[10px] uppercase tracking-eyebrow text-slate-550";
 
   const detailsClass = design
@@ -469,6 +486,13 @@ export default function OpportunityCard({
           {/* F1 — evergreen-safe closing-soon flag; never renders for a
               rolling/continuous/standing or closed program (isClosingSoon). */}
           {closingSoon && <span className={closingSoonClass}>Closing soon</span>}
+          {/* Data-freshness — the committed corpus is a point-in-time snapshot;
+              a deadline now in the past is flagged honestly rather than shown
+              as if current. Evergreen-safe, and mutually exclusive with the
+              "closing soon" chip above (that requires a future deadline). */}
+          {deadlinePassed && (
+            <span className={deadlinePassedClass}>Deadline passed — verify current status</span>
+          )}
           <div>
             <dt className={dtClass}>Type </dt>
             <dd className="inline">{kindLabel}</dd>

@@ -73,5 +73,27 @@ for (let i = 0; i < opps.length; i += BATCH) {
 }
 
 await writeFile("data/opportunities.json", JSON.stringify(opps));
+
+// Data-freshness stamp: record WHEN this corpus was built so the app can
+// surface "Opportunities as of <date>" and never present a point-in-time
+// snapshot as if it were current (lib/corpus/meta.ts reads this). Embedding is
+// the corpus's final in-place write and always runs on a (re)build, so it's the
+// natural "built at" moment. `now` is the honest signal here — the corpus has
+// no per-record retrieved_at, and its newest deadline is a sentinel, not a
+// build time.
+const builtAt = new Date().toISOString();
+await writeFile(
+  "data/corpus-meta.json",
+  JSON.stringify(
+    {
+      builtAt,
+      note: "When this committed opportunity snapshot was built (written by scripts/3-embed.mjs on every data:embed). Read by lib/corpus/meta.ts to surface an honest 'Opportunities as of <date>' caveat.",
+    },
+    null,
+    2,
+  ) + "\n",
+);
+
 console.log(`\n→ ${done} programs embedded with ${MODEL} @ ${BASE_URL}`);
+console.log(`→ data/corpus-meta.json stamped builtAt=${builtAt}`);
 console.log("Next: npm run dev — then npm run data:precompute once it works");
