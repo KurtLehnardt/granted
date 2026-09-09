@@ -2,8 +2,8 @@
 
 _The goal of this week is **evidence, not growth**: get 10–20 real founders to use Granted and tell you whether the honest "don't apply" changes what they do. If 3–5 say "this saved me weeks," you have a wedge worth marketing. If they shrug, it's a nice utility, not a business. Everything below is built to run that test cheaply._
 
-**Live:** `https://fund-finder-blush.vercel.app` · free tool: `/readiness` · landing: `/welcome`
-**Before you post:** buy a real domain (a `granted.*` beats a `fund-finder-blush.vercel.app` for trust), and confirm the first search isn't gated behind Google sign-in (kills cold-visitor conversion).
+**Live:** `https://your-app.example.com` · free tool: `/readiness` · landing: `/welcome`
+**Before you post:** buy a real domain (a `granted.*` beats a `your-app.example.com` for trust), and confirm the first search isn't gated behind Google sign-in (kills cold-visitor conversion).
 
 ---
 

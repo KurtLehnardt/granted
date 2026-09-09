@@ -32,7 +32,7 @@ actual code, not the task file's claims:
 - Consent / "Delete my data" stay localStorage-backed in **both** modes (real auth does not move
   consent server-side) — matches §5.3.
 - One discrepancy worth flagging: the task spec said `.env.example` should ship the *real* project
-  URL (`https://zqvezuzdfwfwvfjjiein.supabase.co`) as a public value; the committed
+  URL (`https://YOUR_SUPABASE_REF.supabase.co`) as a public value; the committed
   `.env.example` instead has a generic `https://YOUR-PROJECT-REF.supabase.co` placeholder. Not a
   blocker, just confirm which Supabase project is actually canonical before go-live (see decision
   2 below).
@@ -46,7 +46,7 @@ blocked on the steps below.
    or Auth.js]` and nobody's decision is recorded in `resolved-questions.md` — Supabase was simply
    the one built. It's cheap to change now (flag is off, zero users on it) and expensive later.
    If you're fine with Supabase, say so explicitly so it's recorded; otherwise flag it now.
-2. **Which Supabase project is canonical.** The task doc names project `zqvezuzdfwfwvfjjiein`; the
+2. **Which Supabase project is canonical.** The task doc names project `YOUR_SUPABASE_REF`; the
    committed `.env.example` is genericized. Confirm that project ref is the one to actually use
    (or provide the real one), for both dev and prod.
 3. **Production domain(s)** for the redirect/site URL config below — the checklist only covers

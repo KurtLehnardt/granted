@@ -257,7 +257,7 @@ async function callModel(opp, sourceText, attempt = 0) {
 
 async function main() {
   if (!KEY) {
-    console.error("OPENAI_API_KEY is not set (it's in ~/.zshrc — `source ~/.zshrc`).");
+    console.error("OPENAI_API_KEY is not set (add it to .env.local).");
     process.exit(1);
   }
   const args = parseArgs(process.argv.slice(2));

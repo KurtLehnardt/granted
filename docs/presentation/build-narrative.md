@@ -6,7 +6,7 @@
 >
 > Project: **fundFinder** — a "government funding intelligence analyst" for founders.
 > Built for the **GOED bounty at AI Builder Day, Aug 15 2026**. Hackathon prototype.
-> Repo: `KurtLehnardt/fundFinder` · Live demo: https://fund-finder-blush.vercel.app
+> Repo: `KurtLehnardt/fundFinder` · Live demo: https://your-app.example.com
 
 ---
 
@@ -301,7 +301,7 @@ high-leverage director of an agent fleet:
 
 ## 14. Links
 
-- **Live demo:** https://fund-finder-blush.vercel.app
+- **Live demo:** https://your-app.example.com
 - **Repo:** https://github.com/KurtLehnardt/granted
 - **Orchestration spec:** https://github.com/KurtLehnardt/granted/blob/main/prompts/fundfinder-orchestrator-prompt.md
 - **Entry point:** https://github.com/KurtLehnardt/granted/blob/main/prompts/START-HERE.md

@@ -111,21 +111,25 @@ All the knobs are in `lib/match.ts`:
 weak-field finding; cases 1–4 must not. Getting case 5 right by breaking case 1 is the
 trap — check both directions after every change.
 
-## Demo-day insurance
+## Instant sample cases (precompute cache)
 
-`npm run data:precompute` freezes all five test cases into `data/precomputed.json`. The
-API route checks that cache first, so judges pasting a test case get an instant render
-regardless of venue wifi. Novel input still takes the live path.
+`npm run data:precompute` freezes the five sample cases into `data/precomputed.json`. The API
+route checks that cache first, so those exact inputs render instantly with **no backend call** —
+handy for a first look or a demo, and why the samples work even with zero config. Any other
+("novel") input takes the live path (your keys or your local model).
 
-## Deploy
+## Deploy (optional)
+
+It's a standard Next.js app — any Node host works. On Vercel:
 
 ```bash
 npx vercel
 ```
 
-Add `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` in the Vercel project settings — your
-`.zshrc` isn't visible to their build machines. `data/*.json` is committed and read-only
-at runtime, which is exactly what Vercel wants.
+Set your env vars in the host's project settings: a backend (`OPENAI_API_KEY` +
+`ANTHROPIC_API_KEY`, or the local-model vars), and `NEXT_PUBLIC_SITE_URL` = your deployment's
+own URL (used only for canonical/share metadata on the landing page). `data/*.json` is committed
+and read-only at runtime, which is exactly what a serverless host wants.
 
 ## Design notes
 

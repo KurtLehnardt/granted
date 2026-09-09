@@ -4,7 +4,7 @@
 
 Nothing is fabricated. Every match traces to a real award record, and a schema layer *throws* on any invented program, amount, or citation.
 
-**Live demo:** [fund-finder-blush.vercel.app](https://fund-finder-blush.vercel.app)
+**Run it yourself in ~5 minutes** — with your own API keys or a fully local model. See the Quick start below.
 
 > Originally built for the GOED bounty at AI Builder Day (Aug 2026). It's a working prototype, not enterprise software. But you can run the whole thing on your own keys and deploy it to your own Vercel + Supabase in ~15 minutes. This README is the guide.
 

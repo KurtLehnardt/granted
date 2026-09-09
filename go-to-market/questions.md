@@ -25,7 +25,7 @@ _Living artifact for the go-to-market effort. Tracks product context, decisions,
 
 **Tech stack.** Next.js 14 (App Router) · TypeScript · Tailwind · Vercel (Pro) · Supabase (auth) · Claude (Sonnet/Haiku) + OpenAI embeddings. Feature-flagged, six CI gates, 823 tests.
 
-**Current state.** Live at `fund-finder-blush.vercel.app`. No real users yet. Mock billing with a Max tier concept. No landing page (the app *is* the entry), no free lead-gen tool, no SEO/AEO surface, no analytics-driven funnel.
+**Current state.** Live at `your-app.example.com`. No real users yet. Mock billing with a Max tier concept. No landing page (the app *is* the entry), no free lead-gen tool, no SEO/AEO surface, no analytics-driven funnel.
 
 ## Decisions (from the user)
 

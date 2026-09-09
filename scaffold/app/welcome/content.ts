@@ -13,7 +13,9 @@ import type { Metadata } from "next";
 import { BRAND } from "@/lib/brand";
 
 /** Live URL today (Vercel subdomain). Swap for the real domain once purchased. */
-export const SITE_URL = "https://fund-finder-blush.vercel.app";
+// Set NEXT_PUBLIC_SITE_URL to your own deployment's URL; falls back to localhost
+// for local dev so the repo carries no specific deployment.
+export const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
 
 export const TITLE = "Granted — know if a federal grant is worth chasing";
 
