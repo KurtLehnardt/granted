@@ -26,7 +26,7 @@ const DIMENSIONS = process.env.EMBEDDINGS_DIMENSIONS
     : undefined;
 const KEY = process.env.EMBEDDINGS_API_KEY || process.env.OPENAI_API_KEY || "local";
 if (IS_OPENAI && !process.env.EMBEDDINGS_API_KEY && !process.env.OPENAI_API_KEY) {
-  console.error("OPENAI_API_KEY is not set. It's in your .zshrc (`source ~/.zshrc`), or set EMBEDDINGS_BASE_URL to a local embedder (e.g. http://localhost:11434/v1).");
+  console.error("OPENAI_API_KEY is not set. Add it to .env.local (or your environment), or set EMBEDDINGS_BASE_URL to a local embedder (e.g. http://localhost:11434/v1) to run fully local.");
   process.exit(1);
 }
 

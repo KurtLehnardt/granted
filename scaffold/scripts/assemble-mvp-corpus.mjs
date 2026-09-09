@@ -29,7 +29,7 @@ import { createHash } from "node:crypto";
 
 const KEY = process.env.OPENAI_API_KEY;
 if (!KEY) {
-  console.error("OPENAI_API_KEY is not set. It's in your .zshrc — open a new shell or `source ~/.zshrc`.");
+  console.error("OPENAI_API_KEY is not set. Add it to .env.local (or your environment).");
   process.exit(1);
 }
 

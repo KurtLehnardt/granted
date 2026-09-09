@@ -6,8 +6,8 @@ to `origin/main` for this recon. The spec's `[HYPOTHESIS]` markers were largely 
 from the *original* scaffold / deployed symptoms and do not match the current code — see
 `hypothesis-check.md`.
 
-Production URL in the spec (`fund-finder-blush.vercel.app`) does not match the actual
-deployment (`fund-finder-krlehnardt-6701s-projects.vercel.app`). Flag for the owner.
+The deployment URL is configurable via `NEXT_PUBLIC_SITE_URL` (defaults to
+`http://localhost:3000` for local dev); set it to your own deployment's URL.
 
 ## Stack (verified, not assumed)
 - **Next.js 14.2.15, App Router, TypeScript, React 18.** Tailwind 3.4. `@anthropic-ai/sdk`.

@@ -14,7 +14,7 @@
 ## 0. Your job as orchestrator
 
 You are the orchestrator for a feature buildout on **fundFinder**
-(`github.com/KurtLehnardt/granted`, deployed at `fund-finder-blush.vercel.app`). The repo is
+(`github.com/KurtLehnardt/granted`, deployed at `your-app.example.com`). The repo is
 early: a `scaffold/` directory plus planning docs (`northstar.md`, `feedback.md`,
 `open-questions.md`, `resolved-questions.md`). Assume the stack is Next.js on Vercel unless the
 scaffold says otherwise — **verify before assuming**.

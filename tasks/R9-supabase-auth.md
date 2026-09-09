@@ -16,7 +16,7 @@ does not change, so no surface needs to be rewritten. Flag ON → real Supabase;
 mock path, byte-for-byte unchanged. Consent + "Delete my data" (§5.3) stay localStorage-backed in
 both modes.
 
-Supabase project: `zqvezuzdfwfwvfjjiein` (URL `https://zqvezuzdfwfwvfjjiein.supabase.co`).
+Supabase project: `YOUR_SUPABASE_REF` (URL `https://YOUR_SUPABASE_REF.supabase.co`).
 
 ## Files in scope
 - `scaffold/lib/flags/registry.ts` — add the `r9_supabase_auth` flag
@@ -76,7 +76,7 @@ the unchanged context and must keep working as-is.
       `NEXT_PUBLIC_SUPABASE_*` env vars set, `npm run build` and SSR do not throw at import time
       (never construct the client at module top-level).
 - [ ] `.env.example` gains:
-      `NEXT_PUBLIC_SUPABASE_URL=https://zqvezuzdfwfwvfjjiein.supabase.co` (real — the project URL is
+      `NEXT_PUBLIC_SUPABASE_URL=https://YOUR_SUPABASE_REF.supabase.co` (real — the project URL is
       public), `NEXT_PUBLIC_SUPABASE_ANON_KEY=` (LEFT BLANK — see Out of scope), and
       `NEXT_PUBLIC_FLAG_R9_SUPABASE_AUTH=false`, each with a one-line comment.
 - [ ] Dependencies `@supabase/supabase-js` and `@supabase/ssr` added to `package.json`; run
@@ -113,7 +113,7 @@ the unchanged context and must keep working as-is.
 1. Supabase Dashboard → Authentication → Providers → **Google**: enable it, paste a Google Cloud
    OAuth **Client ID + Secret**.
 2. Google Cloud Console → the OAuth client → Authorized redirect URI:
-   `https://zqvezuzdfwfwvfjjiein.supabase.co/auth/v1/callback`.
+   `https://YOUR_SUPABASE_REF.supabase.co/auth/v1/callback`.
 3. Supabase Dashboard → Authentication → URL Configuration → **Site URL** and **Redirect URLs**:
    add `http://localhost:3001/auth/callback` (the user runs on :3001) and the production
    `/auth/callback` URL.

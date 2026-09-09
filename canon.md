@@ -68,7 +68,7 @@ Two storage concerns, deliberately separate (conflating them is a §5.3 bug):
   versioned store.** Public, identical across users, large, structured. **Never localStorage.**
 
 **Corpus store — DECIDED: Supabase Postgres + pgvector** (owner wired the Supabase MCP,
-`project_ref=zqvezuzdfwfwvfjjiein`, 2026-08-15). Holds normalized `Opportunity` records +
+`project_ref=YOUR_SUPABASE_REF`, 2026-08-15). Holds normalized `Opportunity` records +
 embeddings + structured cited eligibility rules in one place; supports hybrid keyword+semantic
 retrieval (§4.5) and snapshot versioning (R10.2); is the sink for the scheduled ingestion job.
 The v1 static-JSON-in-repo + in-memory cosine is the degenerate version being replaced. See

@@ -37,8 +37,9 @@ const DB_HOST =
 // for long-lived/admin scripts if ever needed.
 const DB_PORT = Number(process.env.FUNDFINDER_DB_PORT ?? 6543);
 const DB_NAME = process.env.FUNDFINDER_DB_NAME ?? "postgres";
-const DB_PROJECT_REF =
-  process.env.FUNDFINDER_DB_PROJECT_REF ?? "zqvezuzdfwfwvfjjiein";
+// No baked-in project ref — set FUNDFINDER_DB_PROJECT_REF in your own env if you
+// use the optional Canon corpus store (the default app ships a prebuilt corpus).
+const DB_PROJECT_REF = process.env.FUNDFINDER_DB_PROJECT_REF ?? "";
 const DB_USER = process.env.FUNDFINDER_DB_USER ?? `postgres.${DB_PROJECT_REF}`;
 
 let _sql: postgres.Sql | null = null;
@@ -47,11 +48,12 @@ let _sql: postgres.Sql | null = null;
 export function getSql(): postgres.Sql {
   if (_sql) return _sql;
   const password = process.env.FUNDFINDER_DB_PASSWORD;
-  if (!password) {
-    // Never echo the value — only the fact that it is missing.
+  if (!DB_PROJECT_REF || !password) {
+    // Never echo secret values — only the fact that config is missing.
     throw new Error(
-      "FUNDFINDER_DB_PASSWORD is not set. Export it (it is in ~/.zshrc / env) " +
-        "before using the Canon store.",
+      "The Canon store is not configured. Set FUNDFINDER_DB_PROJECT_REF and " +
+        "FUNDFINDER_DB_PASSWORD in your environment (see .env.example) before using it. " +
+        "The default app does not need this — the opportunity corpus ships prebuilt in data/.",
     );
   }
   _sql = postgres({

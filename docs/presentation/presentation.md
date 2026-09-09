@@ -13,7 +13,7 @@
 multi-agent system.*
 
 - GOED bounty · AI Builder Day · Aug 15, 2026
-- Live demo: **https://fund-finder-blush.vercel.app**
+- Live demo: **https://your-app.example.com**
 - Repo: **https://github.com/KurtLehnardt/granted**
 - Built by one orchestrator agent + specialized subagent teams — **21 merged PRs in ~8 hours**
 
@@ -222,7 +222,7 @@ multi-agent system.*
 - **21 merged PRs**; test counts climbed **33 → 62 → 70 → 88 → 95 → 122 → 177 → 185**, green at every merge
 - **476** opportunities embedded @512-dim · **946** cited eligibility rules · golden set **31** cases (v1.0)
 - Latency **~180s → ~98s** · **0 false exclusions** (24 checks + 160 determinations) · interview **4.1s** · **19/19** AA
-- **Live demo:** https://fund-finder-blush.vercel.app
+- **Live demo:** https://your-app.example.com
 - **Repo:** https://github.com/KurtLehnardt/granted
 - **Orchestration spec:** https://github.com/KurtLehnardt/granted/blob/main/prompts/fundfinder-orchestrator-prompt.md
 - **Recon docs:** [as-built](https://github.com/KurtLehnardt/granted/blob/main/as-built.md) ·
