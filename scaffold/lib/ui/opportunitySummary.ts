@@ -122,6 +122,9 @@ export function isDeadlinePassed(
   opts?: { now?: number },
 ): boolean {
   if (isEvergreen(o) || isForecasted(o)) return false;
+  // A program already surfaced as "Closed" shows that as its availability badge;
+  // don't also badge it "Deadline passed" (mirror of isClosingSoon's closed guard).
+  if (o.status === "closed") return false;
   if (!o.deadline) return false;
   const t = Date.parse(o.deadline);
   if (Number.isNaN(t)) return false;
