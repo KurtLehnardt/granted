@@ -1,0 +1,4 @@
+{
+  "builtAt": "2026-08-15T00:00:00.000Z",
+  "note": "When this committed opportunity snapshot was built. The data pipeline (scripts/3-embed.mjs, `npm run data:embed`) rewrites this with new Date().toISOString() every time the corpus is (re)embedded. The v1 corpus carries no per-record retrieved_at and its newest 'deadline' is a 2099 sentinel (not a build-time signal), so for the CURRENT committed corpus we stamp the date it was committed (2026-08-15, AI Builder Day) at date granularity — a point-in-time corpus is honestly 'as of' a day, and a UTC-midnight date renders unambiguously in every timezone."
+}

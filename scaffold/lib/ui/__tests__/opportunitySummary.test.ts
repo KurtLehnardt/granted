@@ -5,6 +5,8 @@ import {
   isEvergreen,
   opportunityAvailability,
   isClosingSoon,
+  isDeadlinePassed,
+  expiredCount,
   fundingCell,
   closingSoonCount,
   money,
@@ -140,6 +142,69 @@ describe("isClosingSoon", () => {
       isClosingSoon({ deadline: "2026-08-18T00:00:00.000Z" }, { now, windowDays: 3 }),
       true,
     );
+  });
+});
+
+describe("isDeadlinePassed", () => {
+  const now = Date.parse("2026-09-08T00:00:00.000Z");
+
+  test("true for a deadline strictly before now", () => {
+    assert.equal(isDeadlinePassed({ deadline: "2026-08-14T00:00:00.000Z" }, { now }), true);
+    // US MM/DD/YYYY form, as the committed corpus stores deadlines.
+    assert.equal(isDeadlinePassed({ deadline: "08/27/2026" }, { now }), true);
+  });
+
+  test("false for a future deadline", () => {
+    assert.equal(isDeadlinePassed({ deadline: "2026-10-09T00:00:00.000Z" }, { now }), false);
+    assert.equal(isDeadlinePassed({ deadline: "10/09/2026" }, { now }), false);
+  });
+
+  test("false with no deadline at all (missing data is not a passed deadline)", () => {
+    assert.equal(isDeadlinePassed({}, { now }), false);
+  });
+
+  test("false for an unparseable deadline string (guards Invalid Date)", () => {
+    assert.equal(isDeadlinePassed({ deadline: "not-a-date" }, { now }), false);
+  });
+
+  test("evergreen-safe: a rolling/continuous/standing program is never expired, even with a past deadline value", () => {
+    assert.equal(isDeadlinePassed({ status: "rolling", deadline: "2026-08-14T00:00:00.000Z" }, { now }), false);
+    assert.equal(isDeadlinePassed({ status: "continuous", deadline: "2026-08-14T00:00:00.000Z" }, { now }), false);
+    assert.equal(isDeadlinePassed({ status: "standing", deadline: "2026-08-14T00:00:00.000Z" }, { now }), false);
+  });
+
+  test("forecasted-safe: a not-yet-open program is never expired (its date is an estimate)", () => {
+    assert.equal(isDeadlinePassed({ forecasted: true, deadline: "2026-08-14T00:00:00.000Z" }, { now }), false);
+    assert.equal(isDeadlinePassed({ status: "forecasted", deadline: "2026-08-14T00:00:00.000Z" }, { now }), false);
+  });
+
+  test("mutually exclusive with isClosingSoon: no opportunity is ever both", () => {
+    const past = { deadline: "2026-08-14T00:00:00.000Z" };
+    const soon = { deadline: "2026-09-20T00:00:00.000Z" };
+    assert.equal(isDeadlinePassed(past, { now }) && isClosingSoon(past, { now }), false);
+    assert.equal(isDeadlinePassed(soon, { now }) && isClosingSoon(soon, { now }), false);
+    // The past one is expired-not-soon; the near one is soon-not-expired.
+    assert.equal(isDeadlinePassed(past, { now }), true);
+    assert.equal(isClosingSoon(soon, { now }), true);
+  });
+});
+
+describe("expiredCount", () => {
+  const now = Date.parse("2026-09-08T00:00:00.000Z");
+
+  test("counts only genuinely-dated, non-evergreen matches whose deadline has passed", () => {
+    const shown = [
+      { opportunity: { deadline: "2026-08-14T00:00:00.000Z" } }, // passed
+      { opportunity: { status: "continuous", deadline: "2026-08-14T00:00:00.000Z" } }, // evergreen guard
+      { opportunity: { forecasted: true, deadline: "2026-08-14T00:00:00.000Z" } }, // forecasted guard
+      { opportunity: { deadline: "2026-10-09T00:00:00.000Z" } }, // still open
+      { opportunity: {} }, // no deadline
+    ];
+    assert.equal(expiredCount(shown, { now }), 1);
+  });
+
+  test("handles a match with no opportunity", () => {
+    assert.equal(expiredCount([{}], { now }), 0);
   });
 });
 

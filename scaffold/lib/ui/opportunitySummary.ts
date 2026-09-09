@@ -99,6 +99,43 @@ export function isClosingSoon(
   return t >= now && t <= now + windowMs;
 }
 
+/**
+ * Has this opportunity's stated deadline already passed (data-freshness)? The
+ * committed corpus is a point-in-time snapshot, so a self-hoster who clones
+ * months later inherits opportunities whose deadlines are now in the past —
+ * currently rendered as if current. This is the deterministic, evergreen-safe
+ * "expired" read that badges them honestly.
+ *
+ * A program is EXPIRED iff its `deadline` parses to a date STRICTLY BEFORE
+ * `now`. It is NEVER expired when:
+ *   - it is evergreen (rolling / continuous / standing) or forecasted (not yet
+ *     open) — those never had a real closing clock in the first place (reuses
+ *     `isEvergreen` / `isForecasted`, the same guards behind `isClosingSoon`);
+ *   - its `deadline` is absent or unparseable (Invalid Date) — that's missing
+ *     data, not a passed deadline, so we never assert it expired.
+ *
+ * Mirror-image of `isClosingSoon` (which requires `t >= now`): the two are
+ * mutually exclusive, so an expired program can never also read "closing soon".
+ */
+export function isDeadlinePassed(
+  o: OpportunityAvailabilityLike,
+  opts?: { now?: number },
+): boolean {
+  if (isEvergreen(o) || isForecasted(o)) return false;
+  if (!o.deadline) return false;
+  const t = Date.parse(o.deadline);
+  if (Number.isNaN(t)) return false;
+  const now = opts?.now ?? Date.now();
+  return t < now;
+}
+
+/** How many of the shown matches have a passed deadline — drives the one-line
+ *  "N of these have passed deadlines" summary caveat. Evergreen-safe via
+ *  `isDeadlinePassed` above (a rolling/forecasted program is never counted). */
+export function expiredCount(shown: FundingMatchLike[], opts?: { now?: number }): number {
+  return shown.filter((m) => m.opportunity && isDeadlinePassed(m.opportunity, opts)).length;
+}
+
 // ---------------------------------------------------------------------------
 // Header stat-band money/funding formatting (moved from OpportunityMap.tsx so
 // it's covered by the same hermetic test suite as the rules above).

@@ -11,7 +11,8 @@ import OpportunityAlerts from "./OpportunityAlerts";
 import type { OpportunityMap as MapT, Match } from "@/lib/types";
 import { isFlagEnabled } from "@/lib/flags";
 import { aggregateSimilarCompanies } from "@/lib/similar/aggregate";
-import { fundingCell, closingSoonCount } from "@/lib/ui/opportunitySummary";
+import { fundingCell, closingSoonCount, expiredCount } from "@/lib/ui/opportunitySummary";
+import { corpusAsOf } from "@/lib/corpus/meta";
 
 /** Cards to render. We never wall the founder with the 20+ "none" rows. */
 const CARD_CAP = 8;
@@ -81,6 +82,15 @@ export default function OpportunityMap({ map }: { map: MapT }) {
   // record — see closingSoonCount/isClosingSoon in lib/ui/opportunitySummary.
   const closingSoon = closingSoonCount(shown);
   const funding = fundingCell(shown);
+  // Data-freshness: how many of the shown cards have a deadline now in the past
+  // (evergreen/forecasted-safe). The committed corpus is a point-in-time
+  // snapshot; when it has aged, say so plainly instead of presenting stale
+  // deadlines as current. Works on cached/precomputed maps too — it reads only
+  // `m.opportunity.deadline`, which every map shape carries.
+  const expired = expiredCount(shown);
+  // The corpus "as of" stamp (from data/corpus-meta.json). `null` when the
+  // stamp is absent/invalid — the footer then degrades to a date-free caveat.
+  const asOf = corpusAsOf();
 
   // R8 / ELG-04: map the REAL determinations attached by buildOpportunityMap
   // (screen() + freshness) into the FE-04 three-bucket display's item shape.
@@ -162,6 +172,25 @@ export default function OpportunityMap({ map }: { map: MapT }) {
             <Cell design={design} n={String(agencyIntelligence.length)} label="relevant agencies" />
             <Cell design={design} n={String(closingSoon)} label="closing within 90 days" />
           </div>
+        )}
+
+        {/* Data-freshness: when any shown match has a passed deadline, say so
+            once, plainly, up front — "verify," never "these are dead." The
+            committed corpus is a point-in-time snapshot, so a stale deadline is
+            expected on an aging clone; this caveat plus the per-card badge keep
+            it honest instead of letting it read as current. */}
+        {expired > 0 && (
+          <p
+            role="note"
+            className={
+              design
+                ? "mt-4 border-l-2 border-warning pl-3 font-body text-[13px] leading-relaxed text-foreground"
+                : "mt-4 border-l-2 border-fit-adjacent pl-3 font-body text-[13px] leading-relaxed text-slate-550"
+            }
+          >
+            {expired === 1 ? "1 of these has a passed deadline" : `${expired} of these have passed deadlines`} —
+            verify current status on the official source before applying.
+          </p>
         )}
 
         {/* The honest no. Deliberate, not an error state. */}
@@ -270,10 +299,22 @@ export default function OpportunityMap({ map }: { map: MapT }) {
             OFF behind d4_opportunity_graph; see components/OpportunityGraph.tsx. */}
         {isFlagEnabled("d4_opportunity_graph") && <OpportunityGraph map={map} />}
 
-        <p className={footerClass}>
-          These are assessments, not eligibility determinations. Confirm requirements with the
-          program officer before you invest time in an application.
-        </p>
+        <div className={footerClass}>
+          {/* Data-freshness "as of" surface: the corpus ships committed and is a
+              point-in-time snapshot, so we stamp WHEN it was built and always
+              route the founder to the official source for the live deadline —
+              never presenting the snapshot as if it were current. Safe fallback:
+              a date-free caveat when the corpus-meta stamp is absent/invalid. */}
+          <p>
+            {asOf
+              ? `Opportunities as of ${asOf.label} — always verify current deadlines on the official source.`
+              : "Always verify current deadlines on the official source — this opportunity data is a point-in-time snapshot."}
+          </p>
+          <p className="mt-2">
+            These are assessments, not eligibility determinations. Confirm requirements with the
+            program officer before you invest time in an application.
+          </p>
+        </div>
       </div>
     </Boundary>
   );
