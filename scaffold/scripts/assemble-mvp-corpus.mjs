@@ -24,6 +24,7 @@
  *
  * Run AFTER the three fetchers: `node scripts/assemble-mvp-corpus.mjs`
  */
+import "./_loadEnvLocal.mjs"; // honor scaffold/.env.local when run as plain `node`
 import { readFile, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 

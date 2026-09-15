@@ -3,6 +3,7 @@
  * Field names differ across APIs and change without notice; if a source
  * shape shifts, this is the only file you need to fix.
  */
+import "./_loadEnvLocal.mjs"; // honor scaffold/.env.local when run as plain `node`
 import { readFile, writeFile } from "node:fs/promises";
 
 const read = async (p, fallback = []) => {

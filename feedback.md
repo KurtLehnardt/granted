@@ -58,3 +58,18 @@ must be a maintainer call, not a quiet chore.
   **OUT OF SCOPE:** removing it from the working tree only shrinks new commits —
   reclaiming the clone size needs a **git history rewrite** (force-push), which
   is a maintainer decision.
+
+### Local-model runtime notes (LOW — observed during the local-path review)
+
+- **Noisy $0 metering log.** On local models, metering logs
+  `no PRICE_TABLE entry for <model> (e.g. gemma4:latest / nomic-embed-text) —
+  costUsd defaulting to 0` on every call. The `$0` is correct (local inference is
+  free); the line is just noise. LOW: add local model names to the price table as
+  explicit `0` entries, or suppress the warning when the provider is local.
+
+- **Local-model profile-extraction contract drift.** On a local model, profile
+  extraction sometimes returns `location` / `revenue` / `capitalRaised` as objects
+  rather than strings, which trips the `OpportunityMap` zod boundary. It's handled
+  gracefully today (the map still renders), but it's a real local-model
+  contract-drift signal worth hardening (coerce/normalize at the boundary) if
+  local models become a first-class path.

@@ -9,9 +9,15 @@
  *                          local models are fixed-size, so leave unset for them
  *   EMBEDDINGS_API_KEY     bearer token (falls back to OPENAI_API_KEY; Ollama ignores it)
  *
- * Fully-local example (Ollama nomic-embed-text, 768-dim):
- *   EMBEDDINGS_BASE_URL=http://localhost:11434/v1 EMBEDDINGS_MODEL=nomic-embed-text npm run data:embed
+ * These are read from the environment OR from scaffold/.env.local (see the import
+ * below), so the fully-local flow needs no inline env — just set the two vars in
+ * scaffold/.env.local and run `npm run data:embed`.
+ *
+ * Fully-local example (Ollama nomic-embed-text, 768-dim) — in scaffold/.env.local:
+ *   EMBEDDINGS_BASE_URL=http://localhost:11434/v1
+ *   EMBEDDINGS_MODEL=nomic-embed-text
  */
+import "./_loadEnvLocal.mjs"; // honor scaffold/.env.local when run as plain `node`
 import { readFile, writeFile } from "node:fs/promises";
 
 const BASE_URL = (process.env.EMBEDDINGS_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");

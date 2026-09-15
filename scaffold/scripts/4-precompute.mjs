@@ -7,6 +7,7 @@
  * Run this AFTER the app works, and re-run whenever matching logic changes.
  * Requires `npm run dev` in another terminal.
  */
+import "./_loadEnvLocal.mjs"; // honor scaffold/.env.local when run as plain `node`
 import { writeFile } from "node:fs/promises";
 
 const CASES = [

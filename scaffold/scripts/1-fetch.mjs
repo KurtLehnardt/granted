@@ -3,6 +3,7 @@
  * Run on your laptop; these hosts are the slow, flaky part of the whole build.
  * Nothing here runs at request time.
  */
+import "./_loadEnvLocal.mjs"; // honor scaffold/.env.local when run as plain `node`
 import { writeFile, mkdir } from "node:fs/promises";
 
 await mkdir("data/raw", { recursive: true });

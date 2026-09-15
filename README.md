@@ -81,9 +81,10 @@ Don't want to pay for or send data to a hosted model? Point the reasoning at a l
 By default the tiny query embedding still uses OpenAI (the corpus ships pre-embedded at 512 dims; it costs fractions of a cent). To remove that last hosted call, run embeddings locally and re-embed the corpus once:
 ```bash
 ollama pull nomic-embed-text
-# in .env.local:
+# add these two lines to scaffold/.env.local:
 EMBEDDINGS_BASE_URL=http://localhost:11434/v1
 EMBEDDINGS_MODEL=nomic-embed-text
+# then just run (data:embed reads scaffold/.env.local — no inline env needed):
 npm run data:embed        # re-embeds the 968-opportunity corpus locally (~1–2 min)
 ```
 Now nothing leaves your machine.
