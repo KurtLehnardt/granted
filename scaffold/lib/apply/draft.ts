@@ -16,6 +16,7 @@ import type {
 import {
   ApplicationDraftSchema,
   FOUNDER_TODO_PATTERN,
+  scanFounderTodos,
   type ApplicationDraft,
   type DraftSection,
   type DraftClaim,
@@ -156,19 +157,10 @@ function recordUsage(
 // Placeholder helpers — the `[founder to provide: …]` machinery
 // ---------------------------------------------------------------------------
 
-/**
- * Global, NON-anchored scanner for inline `[founder to provide: …]` occurrences
- * in `draft_text`. Deliberately built from the same literal shape as
- * `FOUNDER_TODO_PATTERN` (which is anchored, for validating a whole
- * `gap.placeholder`); `[^\]]+` isolates each occurrence so two adjacent
- * placeholders never merge into one match.
- */
-const FOUNDER_TODO_SCAN = /\[founder to provide: [^\]]+\]/g;
-
-/** Every distinct inline `[founder to provide: …]` string present in `text`. */
-function extractPlaceholders(text: string): string[] {
-  return text.match(FOUNDER_TODO_SCAN) ?? [];
-}
+// The inline `[founder to provide: …]` scanner (`scanFounderTodos`) is imported
+// from `contracts/applicationDraft.ts` — the ONE definition shared by every
+// WS-G surface, built from the same literal shape as the anchored
+// `FOUNDER_TODO_PATTERN`. Do not re-declare it here.
 
 /** Wrap a plain hint into the exact placeholder shape. */
 function toPlaceholder(hint: string): string {
@@ -305,7 +297,7 @@ export function validateDraftGrounding(
 
     // (c) placeholder <-> gap correspondence (no orphans, either direction).
     const gapPlaceholders = new Set(section.gaps.map((g) => g.placeholder));
-    for (const ph of extractPlaceholders(section.draft_text)) {
+    for (const ph of scanFounderTodos(section.draft_text)) {
       if (!gapPlaceholders.has(ph)) {
         issues.push(
           `${where}: inline placeholder ${JSON.stringify(ph)} in draft_text has no matching gap (orphan placeholder)`,
@@ -336,10 +328,97 @@ export function validateDraftGrounding(
 // ---------------------------------------------------------------------------
 
 /**
+ * FINDING-1 GUARD — undeclared-sentence anti-fabrication.
+ *
+ * `neutralizeSection` steps 1–4 only touch claims the model DECLARED. A
+ * factual sentence written straight into `draft_text` with NO matching `claims`
+ * entry (and no gap placeholder) would otherwise bypass grounding entirely —
+ * shipping an invented specific (a metric, a customer count, a dollar figure)
+ * with no `[founder to provide: …]` marker at all. This guard makes the check
+ * account for the ENTIRE `draft_text`, deterministically:
+ *
+ *   RULE — a sentence is left UNTOUCHED when it is already accounted for: it is
+ *   covered by a surviving grounded `claims[].text` span, or it is (part of) an
+ *   existing `[founder to provide: …]` placeholder. Any OTHER sentence is tested
+ *   for a leftover SPECIFIC QUANTITATIVE TOKEN — a digit run, which subsumes
+ *   counts, dollar figures, percentages and years — that is NOT inside a
+ *   declared-grounded span. Such a token is the signature of an undeclared
+ *   invented fact, so the whole sentence is WRAPPED into a
+ *   `[founder to provide: verify or remove …]` gap: it can no longer read as an
+ *   asserted fact, and it now surfaces in every gap-summary surface. A sentence
+ *   with no leftover quantitative specific — connective/framing/transition prose
+ *   like "This project will expand our reach…" — is DELIBERATELY left alone.
+ *
+ * We FLAG/WRAP, never silently delete, and never touch non-factual framing:
+ * conservative on purpose (over-flagging a quantitative claim the model forgot
+ * to declare is still honest; mangling legitimate connective prose is not).
+ * Existing placeholders are split out first so a wrapped sentence never nests
+ * one; grounded claim spans are removed before the digit test so a legitimately
+ * grounded number (e.g. "under $100K", declared as a revenue claim) is not
+ * re-flagged.
+ */
+const FOUNDER_TODO_SPLIT = /(\[founder to provide: [^\]]+\])/g;
+const HAS_SPECIFIC_QUANTITATIVE_TOKEN = /\d/;
+
+function guardPlainRun(
+  run: string,
+  groundedClaimTexts: string[],
+  registerGap: (placeholder: string) => void,
+): string {
+  if (run.trim().length === 0) return run;
+  // Preserve the run's own leading/trailing whitespace (it separates this run
+  // from adjacent placeholders); split the core into sentences at
+  // "sentence-ending punctuation + following whitespace" — so an intra-number
+  // period (a decimal like "3.5", no following space) never splits a number.
+  const leading = run.match(/^\s*/)![0];
+  const trailing = run.match(/\s*$/)![0];
+  const core = run.slice(leading.length, run.length - trailing.length);
+  const sentences = core.split(/(?<=[.!?])\s+/);
+
+  const guarded = sentences.map((sentence) => {
+    // Remove every grounded (surviving) claim span that appears verbatim — those
+    // specifics are DECLARED and allowed. What remains is undeclared prose.
+    let residual = sentence;
+    for (const claimText of groundedClaimTexts) {
+      if (claimText.length > 0 && residual.includes(claimText)) {
+        residual = residual.split(claimText).join(" ");
+      }
+    }
+    if (!HAS_SPECIFIC_QUANTITATIVE_TOKEN.test(residual)) return sentence;
+
+    // Undeclared specific factual assertion → wrap as a verify-or-remove gap
+    // (brackets stripped so the wrapper stays a single well-formed placeholder).
+    const cleaned = sentence.replace(/[[\]]/g, "").replace(/\s+/g, " ").trim();
+    const placeholder = `[founder to provide: verify or remove this unverified statement — "${cleaned}"]`;
+    registerGap(placeholder);
+    return placeholder;
+  });
+
+  return leading + guarded.join(" ") + trailing;
+}
+
+/**
+ * Apply the Finding-1 guard across an entire `draft_text`. Existing placeholders
+ * are preserved verbatim (the capturing split keeps them as their own segments:
+ * even indices are plain runs, odd indices are placeholders).
+ */
+function guardUndeclaredFactualSentences(
+  draftText: string,
+  groundedClaimTexts: string[],
+  registerGap: (placeholder: string) => void,
+): string {
+  return draftText
+    .split(FOUNDER_TODO_SPLIT)
+    .map((part, i) => (i % 2 === 1 ? part : guardPlainRun(part, groundedClaimTexts, registerGap)))
+    .join("");
+}
+
+/**
  * Neutralize one section so it satisfies the honesty contract: every ungrounded
- * claim is rewritten into a `[founder to provide: …]` gap, gap/placeholder
- * correspondence is repaired, and a banned eligibility/award phrase is refused.
- * Pure and model-free.
+ * claim is rewritten into a `[founder to provide: …]` gap, every undeclared
+ * factual sentence is wrapped into one, gap/placeholder correspondence is
+ * repaired, and a banned eligibility/award phrase is refused. Pure and
+ * model-free.
  */
 function neutralizeSection(section: DraftSection, profile: CompanyProfile): DraftSection {
   let draftText = section.draft_text;
@@ -387,15 +466,28 @@ function neutralizeSection(section: DraftSection, profile: CompanyProfile): Draf
   }
 
   // 3. Any inline placeholder still lacking a gap gets one (no orphan placeholders).
-  for (const ph of extractPlaceholders(draftText)) {
+  for (const ph of scanFounderTodos(draftText)) {
     if (!gapByPlaceholder.has(ph)) addGap(innerHint(ph), ph);
   }
 
   // 4. Every gap placeholder must appear inline (no orphan gaps).
   for (const g of gaps) appendInline(g.placeholder);
 
+  // 4.5 UNDECLARED-SENTENCE GUARD (Finding 1): account for the ENTIRE draft_text,
+  //     not just declared claims — wrap any sentence that asserts an undeclared
+  //     specific fact so no invented number can ship unmarked. The wrapped
+  //     sentence is already inline (it replaces the sentence in place); its gap
+  //     is registered here. See `guardUndeclaredFactualSentences` for the rule.
+  draftText = guardUndeclaredFactualSentences(
+    draftText,
+    keptClaims.map((c) => c.text),
+    (placeholder) => addGap(innerHint(placeholder), placeholder),
+  );
+
   // 5. Banned definitive-eligibility/award phrasing cannot be honestly turned
-  //    into a placeholder — refuse rather than ship a hedged guess.
+  //    into a placeholder — refuse rather than ship a hedged guess. Runs LAST,
+  //    on the fully-neutralized text, so a banned phrase inside a wrapped
+  //    sentence is still caught (findBannedPhrases is a plain substring scan).
   const banned = findBannedPhrases(draftText);
   if (banned.length > 0) {
     throw new DraftGroundingError(

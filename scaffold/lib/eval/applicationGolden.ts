@@ -31,11 +31,13 @@ import type { NarrativeSection } from "../contracts/applicationRequirements";
  * with NO corresponding `claims` entry at all. That second shape is not
  * hypothetical paranoia: the drafting prompt (`DRAFT_APPLICATION_SECTION_V1_TEMPLATE`
  * in `lib/prompts/registry.ts`) instructs the model to list every factual
- * sentence in `claims`, but nothing in `lib/apply/draft.ts` cross-checks
- * `draft_text` for factual-sounding sentences the model simply forgot (or
- * chose) not to declare. See the `// KNOWN FINDING:` comment on the
- * corresponding test in `applicationHonesty.test.ts` for the full writeup —
- * this fixture is what proves it.
+ * sentence in `claims`, but the model can forget (or be induced) to declare
+ * one. `lib/apply/draft.ts`'s undeclared-sentence guard now closes this — it
+ * accounts for the ENTIRE `draft_text` and wraps any undeclared specific
+ * factual sentence into a `[founder to provide: …]` marker. See the
+ * `FIXED (Finding 1)` test in `applicationHonesty.test.ts` (and
+ * resolved-questions.md §G7) for the full writeup — this fixture is what
+ * proves the guard bites.
  */
 
 /** A `user_stated` provenanced cell (the founder typed/selected it themselves). */
@@ -173,8 +175,9 @@ const SPARSE_SECTION_SUMMARY: GoldenRawSection = {
  *   2. An UNDECLARED fabrication — "Our platform now serves more than 3,000
  *      rural clinics nationwide." is a specific, invented metric with NO
  *      corresponding `claims` entry at all (the model simply never listed
- *      it). This is the KNOWN FINDING fixture — see the file header and the
- *      matching `// KNOWN FINDING:` test.
+ *      it). The undeclared-sentence guard now wraps it into a
+ *      `[founder to provide: verify or remove …]` marker — see the file header
+ *      and the matching `FIXED (Finding 1)` test.
  */
 const SPARSE_SECTION_TRACTION: GoldenRawSection = {
   key: "traction_and_impact",

@@ -21,12 +21,13 @@
 //   cd scaffold && node --import tsx ../evals/application-honesty-eval.mjs
 //
 // Exit code: 0 only if all four honesty invariants hold over every golden
-// case AND the two documented KNOWN FINDINGS (see README below / PR
-// description / open-questions.md) are still in their currently-documented
-// state — i.e. this script fails loudly if either finding silently regresses
-// (gets worse) OR silently resolves (gets fixed) without anyone updating the
-// documentation. A nonzero exit means either a genuine invariant violation
-// was found, or a known finding's state has drifted from what's documented.
+// case AND the two FORMERLY-known findings (draft.ts undeclared-sentence guard
+// + budget.ts justification gap-collection, fixed in PR fix/apply-grounding-gaps
+// — see resolved-questions.md §G7) still hold in their FIXED state. The two
+// `known-finding` records below now assert the corrected behavior, so this
+// script fails loudly if either fix is reverted or silently regresses. A
+// nonzero exit means either a genuine invariant violation was found, or one of
+// the two guarded fixes has drifted from its documented (fixed) state.
 // ============================================================================
 
 import {
@@ -148,17 +149,23 @@ for (const c of APPLICATION_GOLDEN_CASES) {
   record("fab-claims", `${c.id}: every surviving claim cites a provided field`, claimsOk);
 }
 
-// KNOWN FINDING #1 (lib/apply/draft.ts)
+// FIXED — Finding 1 (lib/apply/draft.ts): the undeclared-sentence guard wraps an
+// undeclared factual sentence into a [founder to provide: …] marker instead of
+// shipping it as a bare assertion, and surfaces it in pkg.gaps.
 {
   const enforced = enforcedDraft(SPARSE_CASE);
   const traction = enforced.sections.find((s) => s.key === "traction_and_impact");
-  const undeclaredSurvived = /Our platform now serves more than 3,000 rural clinics nationwide\./.test(traction.draft_text);
+  const withoutMarkers = traction.draft_text.replace(/\[founder to provide: [^\]]+\]/g, "");
+  const noLongerBareAssertion = !/Our platform now serves more than 3,000/.test(withoutMarkers);
+  const nowWrapped = /\[founder to provide: [^\]]*Our platform now serves more than 3,000 rural clinics nationwide[^\]]*\]/.test(traction.draft_text);
+  const pkg = assembleGoldenPackage(SPARSE_CASE);
+  const surfacedInGaps = pkg.gaps.some((g) => /Our platform now serves more than 3,000 rural clinics nationwide/.test(g));
   const check = validateDraftGrounding(enforced, SPARSE_CASE.profile);
   record(
     "known-finding",
-    "draft.ts: an UNDECLARED fabricated sentence (no claims entry) is invisible to enforceGrounding/validateDraftGrounding",
-    undeclaredSurvived && check.grounded === true,
-    "documented in open-questions.md + PR description; NOT fixed here (lib/apply/* read-only)",
+    "draft.ts (FIXED): an UNDECLARED factual sentence is wrapped into a [founder to provide] marker, surfaced in pkg.gaps, and the draft still validates as grounded",
+    noLongerBareAssertion && nowWrapped && surfacedInGaps && check.grounded === true,
+    "fixed in PR fix/apply-grounding-gaps; see resolved-questions.md §G7",
   );
 }
 
@@ -207,17 +214,20 @@ for (const c of APPLICATION_GOLDEN_CASES) {
   record("gap-surfacing", `${c.id}: pkg.gaps non-empty, well-formed, covers every inline narrative placeholder`, nonEmpty && wellFormed && inlineCovered);
 }
 
-// KNOWN FINDING #2 (lib/apply/budget.ts)
+// FIXED — Finding 2 (lib/apply/budget.ts): justification placeholders are now
+// collected into budget.gaps (and therefore into pkg.gaps).
 {
   const budget = buildBudget(SPARSE_CASE.profile, undefined, SPARSE_CASE.opportunity);
   const justificationText = budget.line_items.map((li) => li.justification).join(" | ");
   const rendered = scanFounderTodos(justificationText);
-  const allMissing = rendered.length > 0 && rendered.every((ph) => !budget.gaps.includes(ph));
+  const allCollected = rendered.length > 0 && rendered.every((ph) => budget.gaps.includes(ph));
+  const pkg = assembleGoldenPackage(SPARSE_CASE);
+  const allInPackage = rendered.every((ph) => pkg.gaps.includes(ph));
   record(
     "known-finding",
-    "budget.ts: template line-item justification placeholders (use_of_funds absent) are rendered but NOT collected into budget.gaps",
-    allMissing,
-    "documented in open-questions.md + PR description; NOT fixed here (lib/apply/* read-only)",
+    "budget.ts (FIXED): template line-item justification placeholders (use_of_funds absent) ARE collected into budget.gaps and surface in pkg.gaps",
+    allCollected && allInPackage,
+    "fixed in PR fix/apply-grounding-gaps; see resolved-questions.md §G7",
   );
 }
 

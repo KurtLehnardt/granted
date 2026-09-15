@@ -10,6 +10,7 @@ import {
   BUDGET_CATEGORY_LABELS,
   BUDGET_CATEGORY_ORDER,
   FOUNDER_TODO_PATTERN,
+  scanFounderTodos,
   type ApplicationBudget,
   type BudgetCategory,
   type BudgetConstraint,
@@ -297,7 +298,18 @@ export function buildBudget(
     lineItems.push(indirectItem);
   }
 
-  for (const li of lineItems) addGap(li.amount);
+  for (const li of lineItems) {
+    addGap(li.amount);
+    // FINDING 2: a line item's `justification` can itself embed inline
+    // `[founder to provide: …]` placeholders — the use_of_funds-absent template
+    // path (`buildTemplateLineItems`) writes one per category, genuinely
+    // rendered on the budget. Scan it with the SAME shared scanner
+    // `collectAllGaps` runs on narrative draft_text, so every visibly-rendered
+    // marker lands in `gaps` (the documented "every distinct placeholder
+    // appearing anywhere in the package" surface), not just the amount gap.
+    // `addGap` re-validates the shape and `gapSet` dedupes.
+    for (const ph of scanFounderTodos(li.justification)) addGap(ph);
+  }
 
   // --- Total ------------------------------------------------------------------
   const capitalRequirementProvided = isFieldProvided(profile, "capital_requirement");
