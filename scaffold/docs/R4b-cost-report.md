@@ -113,6 +113,6 @@ restored, `node --import tsx scripts/eval-run.mjs` will emit an updated aggregat
 - The measured search is the **novel** (uncached) path. The five judged demo cases are served from
   `data/precomputed.json` at ~$0 — so demo-day cost is negligible; only genuine founder traffic incurs
   the ~$0.22–0.25/search.
-- Reproduce: `source ~/.zshrc && cd scaffold && npm run cost:measure` (existing 3-case harness) or
+- Reproduce (with `ANTHROPIC_API_KEY` + `OPENAI_API_KEY` set — export them in your shell, or put them in `scaffold/.env.local`): `cd scaffold && npm run cost:measure` (existing 3-case harness) or
   `node --import tsx scripts/eval-run.mjs` (this task's 8-profile quality+cost harness). Both spend real
   credits.

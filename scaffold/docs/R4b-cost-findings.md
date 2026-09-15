@@ -76,7 +76,8 @@ searches' combined embedding cost was **$0.000018**, three orders of magnitude b
 ## How to reproduce
 
 ```
-source ~/.zshrc   # ANTHROPIC_API_KEY, OPENAI_API_KEY
+# Ensure ANTHROPIC_API_KEY + OPENAI_API_KEY are set (export them in your shell,
+# or put them in scaffold/.env.local)
 cd scaffold
 npm run cost:measure                          # 3 built-in novel cases
 npm run cost:measure -- "description 1" "description 2"   # custom cases

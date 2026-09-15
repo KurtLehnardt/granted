@@ -9,7 +9,7 @@
 R9.0: an interim, **client-side-only** mocked Google sign-in backed by `localStorage` — a UI state
 machine that **gates nothing** (no paid feature, private data, or API access conditioned on it),
 env-flagged so it can't silently reach production, removed at R9. **The implementation already
-exists** in `/Users/LenovoT440p/work/fundFinder/prompts/mock-auth-bundle.md` (5 files). **Move them
+exists** in `<repo-root>/prompts/mock-auth-bundle.md` (5 files). **Move them
 in per that bundle's README — do NOT re-implement from prose** (the code is more specific than R9.0's
 prose; re-implementing drifts).
 

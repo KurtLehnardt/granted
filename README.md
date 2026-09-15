@@ -18,7 +18,9 @@ Calibration is the product. Any system can return five matches for any input. Th
 
 ## Quick start (≈ 5 minutes)
 
-You need [Node 20 LTS](https://nodejs.org) (18.17+ works) and two API keys (OpenAI + Anthropic). That's it. The 968-opportunity corpus ships committed, so there's no data pipeline to run before you can start.
+**No keys? Still works.** `git clone` → `npm install` → `npm run dev` and you can immediately try the 5 built-in sample companies — their results are served from cache, so they need no API keys at all. You only need API keys (or a local model) to search your *own* company description.
+
+To search your own description you need [Node 20 LTS](https://nodejs.org) (18.17+ works) and two API keys (OpenAI + Anthropic). The 968-opportunity corpus ships committed, so there's no data pipeline to run before you can start.
 
 ```bash
 git clone https://github.com/KurtLehnardt/granted.git
@@ -33,14 +35,14 @@ npm run dev        # → http://localhost:3000
 
 | Thing | Required? | Where | Notes |
 |---|---|---|---|
-| **OpenAI API key** | ✅ Yes | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) | Embeddings (`text-embedding-3-small`). Pennies per search. |
-| **Anthropic API key** | ✅ Yes | [console.anthropic.com](https://console.anthropic.com/settings/keys) | Claude: scoring + explanations. A novel search runs ~$0.05–0.33. |
+| **OpenAI API key** | For your own searches (the 5 samples work without any keys) | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) | Embeddings (`text-embedding-3-small`). Pennies per search. |
+| **Anthropic API key** | For your own searches (the 5 samples work without any keys) | [console.anthropic.com](https://console.anthropic.com/settings/keys) | Claude: scoring + explanations. A novel search runs ~$0.05–0.33. |
 | **Exa API key** | Optional | [dashboard.exa.ai](https://dashboard.exa.ai) | Only for the deep competitor analysis' *live web* results. Without it, that feature degrades honestly to federal awardees only. |
 | **Supabase project** | Optional | [supabase.com](https://supabase.com) | Only for **real Google sign-in**. The core app runs fine without any auth. |
 | **Google OAuth credentials** | Optional | [Google Cloud Console](https://console.cloud.google.com) | Only if you enable real sign-in (see below). |
 | **Vercel account** | Optional | [vercel.com](https://vercel.com) | Only to deploy. Local dev needs none of it. |
 
-> **Cost:** every search spends real OpenAI + Anthropic credits. Keep an eye on your Anthropic balance. A heavy batch (e.g. re-running the 31-case golden set) can burn several dollars and will 400 with *"credit balance too low"* if you run dry.
+> **Cost:** every search spends real OpenAI + Anthropic credits. Keep an eye on your Anthropic balance. A heavy batch of searches can burn several dollars and will 400 with *"credit balance too low"* if you run dry.
 
 ## Manual setup (instead of the script)
 

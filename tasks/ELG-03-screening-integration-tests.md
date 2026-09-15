@@ -44,7 +44,7 @@ invariants to prove on real data (R8 / R8.4 / §11):
   forbidden files (`match.ts`, `route.ts`, `IntakeForm.tsx`, `SearchProgress.tsx`). Rule extraction (CAN-04).
 
 ## Test plan
-Run `npm test` with `FUNDFINDER_DB_PASSWORD` exported (from `~/.zshrc`) so the integration test actually
+Run `npm test` with `FUNDFINDER_DB_PASSWORD` exported (in your shell, or set in `scaffold/.env.local`) so the integration test actually
 hits the real corpus and reports the bucket distribution; then confirm it SKIPS cleanly when the var is
 unset. Verify with `npx tsc --noEmit` + `npm test`.
 
