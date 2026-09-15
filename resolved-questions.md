@@ -7,7 +7,8 @@ Surfaced 2026-08-16 while building the G7 anti-fabrication/honesty eval
 filed to `open-questions.md` and asserted as `// KNOWN FINDING:` tests (the eval
 gate asserting the *buggy* behavior) because G7's scope was read-only for
 `lib/apply/*`. **Both are now fixed** in PR `fix/apply-grounding-gaps`
-(2026-09-15); the two tests were flipped from "assert the bug survives" to real
+(2026-09-15, https://github.com/KurtLehnardt/granted/pull/152); the two tests
+were flipped from "assert the bug survives" to real
 regression guards asserting the corrected behavior, and the standalone harness
 `evals/application-honesty-eval.mjs` was updated to match.
 
