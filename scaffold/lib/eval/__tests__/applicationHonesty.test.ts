@@ -25,7 +25,7 @@ import {
   type AssembledPackage,
 } from "../../apply/package";
 import { ApplicationDraftSchema, FOUNDER_TODO_PATTERN, type ApplicationDraft } from "../../contracts/applicationDraft";
-import { isFieldProvided } from "../../contracts/companyProfile";
+import { isFieldProvided, type CompanyProfile } from "../../contracts/companyProfile";
 // Reuse the SAME check:prompts machinery — not a parallel/looser linter.
 import { findBannedPhrases } from "../../../scripts/banned-phrases.mjs";
 
@@ -43,11 +43,11 @@ import { findBannedPhrases } from "../../../scripts/banned-phrases.mjs";
  * — the deterministic assembly path the apply engine actually runs in
  * production, model call aside.
  *
- * Two real findings in the (read-only) apply engine surfaced while building
- * this eval are documented as `// KNOWN FINDING:` tests below, asserting the
- * CURRENT behavior (so this gate stays green) rather than being silently
- * dropped or "fixed" here — see PR description + open-questions.md for the
- * full writeup and suggested remediation, owned by the lib/apply/* team.
+ * Two real findings in the apply engine surfaced while building this eval were
+ * fixed in PR fix/apply-grounding-gaps (draft.ts undeclared-sentence guard +
+ * budget.ts justification gap-collection). The two `FIXED (Finding …)` tests
+ * below are now real REGRESSION GUARDS asserting the corrected behavior — see
+ * that PR + resolved-questions.md (§G7) for the full writeup.
  */
 
 // ---------------------------------------------------------------------------
@@ -203,40 +203,143 @@ describe("invariant 1: no fabrication — every claim is grounded or neutralized
   });
 
   // ---------------------------------------------------------------------------
-  // KNOWN FINDING (lib/apply/draft.ts): `enforceGrounding`/`validateDraftGrounding`
-  // only inspect the model's DECLARED `claims` array. A factual-sounding sentence
-  // written directly into `draft_text` with NO corresponding `claims` entry is
-  // invisible to both — it is neither traced to a provided field NOR neutralized
-  // into a `[founder to provide: …]` gap. The drafting prompt
-  // (`DRAFT_APPLICATION_SECTION_V1_TEMPLATE` in lib/prompts/registry.ts)
-  // instructs the model to declare every factual sentence as a claim, but
-  // nothing in the CODE cross-checks `draft_text` against that promise — the
-  // honesty guarantee currently rests entirely on the model following
-  // instructions for THIS one case (an "unclaimed" fact), even though the
-  // module's own header says the honesty contract is "enforced in code, not
-  // left to the model." A model that omits one `claims` entry (accidentally or
-  // adversarially) ships an invented, specific number with no visual gap marker
-  // at all. Filed to open-questions.md; NOT fixed here (lib/apply/* is
-  // read-only for this task). TODO(lib/apply owners): either (a) have
-  // `enforceGrounding` scan `draft_text` for sentences NOT covered by a claim
-  // or a gap placeholder and neutralize/flag them too, or (b) require the model
-  // to partition the ENTIRE `draft_text` into claims+gaps (no "free" prose) and
-  // reject any leftover span at parse time.
+  // FIXED — Finding 1 (lib/apply/draft.ts), PR fix/apply-grounding-gaps.
+  // `enforceGrounding` used to inspect only the model's DECLARED `claims` array,
+  // so a factual-sounding sentence written directly into `draft_text` with NO
+  // corresponding `claims` entry (and no gap) bypassed grounding entirely —
+  // shipping an invented specific with no `[founder to provide: …]` marker at
+  // all. The undeclared-sentence guard now makes the check account for the
+  // ENTIRE `draft_text`: a sentence carrying a HIGH-SIGNAL specific-quantitative
+  // token ($-amounts, N% percentages, comma-grouped counts like 3,000) whose
+  // number is NOT accounted for by a declared grounded claim is WRAPPED IN PLACE
+  // into a `[founder to provide: verify or remove …]` gap. It can no longer read
+  // as an asserted fact and now surfaces in every gap-summary surface. (Scope is
+  // deliberately narrow — bare integers, reference cites, and purely qualitative
+  // claims are NOT wrapped; see the `Finding-1 guard` robustness suite above.)
+  // This test is now a real REGRESSION GUARD on the fix.
   // ---------------------------------------------------------------------------
-  test("KNOWN FINDING: an UNDECLARED fabricated sentence (no claims entry, no gap) survives enforceGrounding unchanged", () => {
-    const raw = preEnforcementDraft(SPARSE_CASE);
-    const enforced = enforceGrounding(raw, SPARSE_CASE.profile);
+  test("FIXED (Finding 1): an UNDECLARED factual sentence (no claims entry) is wrapped into a founder-to-provide marker, never shipped as a bare assertion", () => {
+    const enforced = enforcedDraft(SPARSE_CASE);
     const traction = enforced.sections.find((s) => s.key === "traction_and_impact")!;
 
-    // CURRENT (undesired) behavior: the invented, specific metric ships verbatim.
+    // With every [founder to provide: …] marker stripped out, the invented
+    // "3,000 rural clinics" metric is gone from the bare narrative prose — it no
+    // longer ships as an asserted fact.
+    const withoutMarkers = traction.draft_text.replace(/\[founder to provide: [^\]]+\]/g, "");
+    assert.doesNotMatch(withoutMarkers, /Our platform now serves more than 3,000/);
+    assert.doesNotMatch(withoutMarkers, /3,000/);
+
+    // Instead the whole sentence is WRAPPED inside a founder-to-provide
+    // verify-or-remove marker (flagged for the founder, not silently deleted).
     assert.match(
       traction.draft_text,
-      /Our platform now serves more than 3,000 rural clinics nationwide\./,
-      "KNOWN FINDING regressed favorably? if this now fails, the engine may have started catching undeclared fabrications — re-check and consider closing the finding",
+      /\[founder to provide: [^\]]*Our platform now serves more than 3,000 rural clinics nationwide[^\]]*\]/,
     );
-    // The validator reports this section as fully grounded — a false negative.
+
+    // That marker is a real, well-formed gap the pipeline surfaces end-to-end:
+    // the section still validates as grounded, the schema still parses, and the
+    // marker appears in the assembled package's single gap-summary surface.
     const check = validateDraftGrounding(enforced, SPARSE_CASE.profile);
-    assert.equal(check.grounded, true, "expected the CURRENT false-negative: validator sees no issue here");
+    assert.equal(check.grounded, true, `post-fix issues: ${check.issues.join("; ")}`);
+    assert.doesNotThrow(() => ApplicationDraftSchema.parse(enforced));
+
+    const pkg = assembleGoldenPackage(SPARSE_CASE);
+    assert.ok(
+      pkg.gaps.some((g) => /Our platform now serves more than 3,000 rural clinics nationwide/.test(g)),
+      "expected the wrapped undeclared statement to surface in pkg.gaps",
+    );
+
+    // The purely non-factual framing sentence is deliberately left intact.
+    assert.match(traction.draft_text, /This project will expand our reach to underserved communities\./);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Finding-1 guard robustness — the guard runs on EVERY production draft, so it
+// must not over-wrap benign/reference numbers, must not fragment sentences at
+// abbreviations, must preserve whitespace/paragraphs when nothing is wrapped,
+// and must tolerate a grounded number's paraphrase — while STILL wrapping a
+// genuinely undeclared specific-quantitative sentence. Each fixture below is
+// run through the REAL `enforceGrounding`.
+// ---------------------------------------------------------------------------
+
+describe("Finding-1 guard: narrow, in-place, abbreviation-safe", () => {
+  const cell = <T,>(value: T) => ({ value, provenance: "user_stated" as const, confidence: 1 });
+  const EMPTY_PROFILE: CompanyProfile = {
+    id: "guard-empty",
+    raw_text: cell(""),
+    interview_answers: [],
+  };
+  const GROUNDED_CLINICS_PROFILE: CompanyProfile = {
+    id: "guard-grounded",
+    raw_text: cell(""),
+    target_customers: cell("rural community health clinics"),
+    interview_answers: [],
+  };
+
+  /** Run one section's `draft_text` through the real enforceGrounding, return the enforced draft_text. */
+  function runGuard(
+    draftText: string,
+    claims: { text: string; profile_field: string }[],
+    profile: CompanyProfile,
+  ): string {
+    const draft: ApplicationDraft = {
+      opportunity_id: "guard-fixture",
+      program_title: "Guard Fixture",
+      generated_at: new Date().toISOString(),
+      sections: [{ key: "s", title: "S", prompt: "p", draft_text: draftText, claims, gaps: [] }],
+    };
+    return enforceGrounding(draft, profile).sections[0].draft_text;
+  }
+
+  const stripMarkers = (text: string) => text.replace(/\[founder to provide: [^\]]+\]/g, "");
+
+  // MUST NOT be wrapped or fragmented — each returns byte-for-byte unchanged.
+  const MUST_NOT_WRAP: readonly string[] = [
+    "Our software complies with Section 508 accessibility standards.",
+    "Over the past 3 years, we have refined our approach to rural care.",
+    "We provide 24/7 support to every partner clinic.",
+    "We partner with the U.S. Government on 12 pilot sites.",
+  ];
+  for (const sentence of MUST_NOT_WRAP) {
+    test(`does NOT wrap or fragment: ${JSON.stringify(sentence)}`, () => {
+      const out = runGuard(sentence, [], EMPTY_PROFILE);
+      assert.equal(out, sentence, "benign/reference sentence must pass through unchanged");
+      assert.doesNotMatch(out, /\[founder to provide:/);
+    });
+  }
+
+  test("grounded-number tolerance: a declared '3,000 rural clinics' claim protects the paraphrase 'over 3,000 rural clinics'", () => {
+    const sentence = "We serve over 3,000 rural clinics.";
+    const out = runGuard(sentence, [{ text: "We serve 3,000 rural clinics", profile_field: "target_customers" }], GROUNDED_CLINICS_PROFILE);
+    assert.equal(out, sentence, "a number present in a declared grounded claim must not be re-wrapped");
+  });
+
+  test("multi-paragraph draft keeps its \\n\\n paragraph breaks when nothing is wrapped (no flattening)", () => {
+    const multi = "First paragraph about our mission and values.\n\nSecond paragraph about our team and vision.";
+    const out = runGuard(multi, [], EMPTY_PROFILE);
+    assert.equal(out, multi);
+    assert.match(out, /\n\n/);
+  });
+
+  test("STILL wraps an undeclared $-amount sentence (wrap, don't delete)", () => {
+    const sentence = "We closed $2,400,000 in new contracts last year.";
+    const out = runGuard(sentence, [], EMPTY_PROFILE);
+    // Wrapped into a founder-to-provide marker; the raw figure no longer reads as a bare assertion.
+    assert.match(out, /\[founder to provide: [^\]]*\$2,400,000[^\]]*\]/);
+    assert.doesNotMatch(stripMarkers(out), /\$2,400,000/);
+  });
+
+  test("abbreviation-safe WHILE wrapping: 'U.S.' does not fragment the sentence — the whole sentence is wrapped as one unit", () => {
+    const sentence = "We partner with the U.S. Government across 3,000 clinics.";
+    const out = runGuard(sentence, [], EMPTY_PROFILE);
+    // One marker wrapping the ENTIRE sentence (abbreviation kept inside, not split on).
+    assert.match(
+      out,
+      /\[founder to provide: verify or remove this unverified statement — "We partner with the U\.S\. Government across 3,000 clinics\."\]/,
+    );
+    // Nothing leaked outside the marker (no fragment like "...the U.S." left bare).
+    assert.equal(stripMarkers(out).trim(), "");
   });
 });
 
@@ -315,48 +418,43 @@ describe("invariant 3: every genuine gap surfaces a [founder to provide] marker"
   });
 
   // ---------------------------------------------------------------------------
-  // KNOWN FINDING (lib/apply/budget.ts): when `use_of_funds` is absent,
-  // `buildTemplateLineItems` embeds a `[founder to provide: how funds will be
-  // used for <category>]` placeholder INSIDE each line item's `justification`
-  // text (so it IS visibly rendered on the assembled package), but `buildBudget`
-  // only ever calls `addGap(li.amount)` — it never scans `li.justification` for
-  // the placeholder it just embedded. The result: `budget.gaps` (and therefore
-  // `collectAllGaps`/`AssembledPackage.gaps`, package.ts's own documented
-  // "single gap-summary surface") SILENTLY OMITS up to 8 genuine, visibly
-  // rendered founder-to-provide markers whenever use_of_funds is missing —
-  // directly contradicting `applicationBudget.ts`'s own doc comment: "`gaps` is
-  // the flat, deduplicated list of every distinct `[founder to provide: …]`
-  // placeholder appearing anywhere in the package." Filed to
-  // open-questions.md; NOT fixed here (lib/apply/* is read-only for this task).
-  // TODO(lib/apply owners): scan each line item's `justification` (and any
-  // future free-text field) for inline placeholders the same way
-  // `collectAllGaps` already scans narrative `draft_text`, and add every match
-  // to the `gaps` set in `buildBudget`.
+  // FIXED — Finding 2 (lib/apply/budget.ts), PR fix/apply-grounding-gaps.
+  // When `use_of_funds` is absent, `buildTemplateLineItems` embeds a
+  // `[founder to provide: how funds will be used for <category>]` placeholder
+  // INSIDE each line item's `justification` (genuinely rendered on the package).
+  // `buildBudget` used to call only `addGap(li.amount)`, so up to 8 of those
+  // visibly-rendered markers were silently missing from `budget.gaps` — and
+  // therefore from `collectAllGaps`/`AssembledPackage.gaps`, contradicting
+  // `applicationBudget.ts`'s own doc: "`gaps` is the flat, deduplicated list of
+  // every distinct `[founder to provide: …]` placeholder appearing anywhere in
+  // the package." `buildBudget` now also scans each `justification` with the
+  // SAME shared `scanFounderTodos` scanner `collectAllGaps` uses on narrative
+  // draft_text, adding every match to the gap set. This test is now a real
+  // REGRESSION GUARD on the fix.
   // ---------------------------------------------------------------------------
-  test("KNOWN FINDING: template line-item justification placeholders (use_of_funds absent) are rendered but NOT collected into budget.gaps", () => {
+  test("FIXED (Finding 2): template line-item justification placeholders (use_of_funds absent) ARE collected into budget.gaps", () => {
     // SPARSE_CASE's profile has no use_of_funds, so buildBudget falls back to
     // the full standard-category template (see budget.ts buildTemplateLineItems).
     const budget = buildBudget(SPARSE_CASE.profile, undefined, SPARSE_CASE.opportunity);
     const justificationText = budget.line_items.map((li) => li.justification).join(" | ");
     const renderedPlaceholders = scanFounderTodos(justificationText);
 
-    // CURRENT (undesired) behavior: these placeholders exist in the rendered
-    // budget but are absent from the budget's own `gaps` array.
+    // Fixed behavior: every placeholder embedded in a rendered justification is
+    // now present in the budget's own `gaps` array.
     assert.ok(renderedPlaceholders.length > 0, "expected the template path to embed justification placeholders");
     for (const ph of renderedPlaceholders) {
-      assert.equal(
+      assert.ok(
         budget.gaps.includes(ph),
-        false,
-        `KNOWN FINDING regressed favorably? ${ph} is now collected in budget.gaps — re-check and consider closing the finding`,
+        `expected justification placeholder ${ph} to be collected into budget.gaps`,
       );
     }
 
-    // Which means the ASSEMBLED PACKAGE's single gap-summary surface misses
-    // them too — a founder scanning `pkg.gaps` alone would not see them,
-    // even though they're printed right there in the budget line items.
+    // And therefore the ASSEMBLED PACKAGE's single gap-summary surface carries
+    // them too — a founder scanning `pkg.gaps` alone now sees every blank that
+    // is printed in the budget line items.
     const pkg = assembleGoldenPackage(SPARSE_CASE);
     for (const ph of renderedPlaceholders) {
-      assert.equal(pkg.gaps.includes(ph), false);
+      assert.ok(pkg.gaps.includes(ph), `expected justification placeholder ${ph} to surface in pkg.gaps`);
     }
   });
 });

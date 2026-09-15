@@ -23,7 +23,7 @@ import { FOUNDER_TODO_PATTERN } from "./applicationDraft";
  * drafts and this budget — shares exactly ONE gap-placeholder convention for
  * G5 to scan.
  */
-export { FOUNDER_TODO_PATTERN } from "./applicationDraft";
+export { FOUNDER_TODO_PATTERN, FOUNDER_TODO_SCAN, scanFounderTodos } from "./applicationDraft";
 
 /**
  * The standard federal (SF-424A-style) direct/indirect cost categories this

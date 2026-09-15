@@ -11,7 +11,7 @@ import type { Opportunity } from "../contracts/opportunity";
 // client-only store; these are just its inert type + empty-default constant.
 export type { AutoFillRequirements } from "../mockAuth";
 export { EMPTY_AUTO_FILL_REQUIREMENTS } from "../mockAuth";
-import { FOUNDER_TODO_PATTERN } from "../contracts/applicationDraft";
+import { FOUNDER_TODO_PATTERN, FOUNDER_TODO_SCAN, scanFounderTodos } from "../contracts/applicationDraft";
 import type { ApplicationDraft, DraftSection } from "../contracts/applicationDraft";
 import type { PrefilledForms } from "../contracts/applicationForms";
 import type { ApplicationBudget } from "../contracts/applicationBudget";
@@ -50,18 +50,13 @@ import type { ApplicationBudget } from "../contracts/applicationBudget";
 // ---------------------------------------------------------------------------
 
 /**
- * Global, NON-anchored scanner for inline `[founder to provide: …]` occurrences
- * in prose (mirrors G2's `FOUNDER_TODO_SCAN`). `[^\]]+` isolates each occurrence
- * so two adjacent placeholders never merge into one match. The anchored
- * `FOUNDER_TODO_PATTERN` validates a WHOLE placeholder string; this one FINDS
- * them inside a larger body of text.
+ * The inline `[founder to provide: …]` scanner is the ONE convention defined in
+ * `contracts/applicationDraft.ts` (next to `FOUNDER_TODO_PATTERN`) and shared by
+ * every WS-G surface — G2 drafts, the G4 budget, and this G5 assembler — so they
+ * can never drift apart. Re-exported here so existing importers
+ * (`components/ApplicationPackage.tsx`, the eval suites) keep their import site.
  */
-export const FOUNDER_TODO_SCAN = /\[founder to provide: [^\]]+\]/g;
-
-/** Every inline `[founder to provide: …]` string present in `text`, in order. */
-export function scanFounderTodos(text: string): string[] {
-  return text.match(FOUNDER_TODO_SCAN) ?? [];
-}
+export { FOUNDER_TODO_SCAN, scanFounderTodos };
 
 /**
  * The single gap-summary surface (test requirement 1). Collects every

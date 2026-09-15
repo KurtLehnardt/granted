@@ -33,6 +33,25 @@ import { z } from "zod";
 export const FOUNDER_TODO_PATTERN = /^\[founder to provide: .+\]$/;
 
 /**
+ * Global, NON-anchored companion to `FOUNDER_TODO_PATTERN`: FINDS every inline
+ * `[founder to provide: …]` occurrence inside a larger body of text (whereas the
+ * anchored pattern validates that a WHOLE string is a single placeholder).
+ * `[^\]]+` isolates each occurrence so two adjacent placeholders never merge into
+ * one match. Defined ONCE here — the single source of truth for the placeholder
+ * convention — and reused verbatim by every WS-G surface that scans prose for
+ * gaps (`lib/apply/draft.ts` grounding enforcement, `lib/apply/budget.ts`
+ * line-item justifications, `lib/apply/package.ts` gap collection) so they can
+ * never drift apart. Consumers that need statefully-executable matches (e.g. the
+ * renderer's `RegExp.exec` loop) build a fresh `RegExp` from `.source`.
+ */
+export const FOUNDER_TODO_SCAN = /\[founder to provide: [^\]]+\]/g;
+
+/** Every inline `[founder to provide: …]` string present in `text`, in order. */
+export function scanFounderTodos(text: string): string[] {
+  return text.match(FOUNDER_TODO_SCAN) ?? [];
+}
+
+/**
  * One grounded factual sentence and the profile field key it rests on. The
  * `profile_field` MUST be a key for which `isFieldProvided(profile, key)` is
  * true — a claim citing an absent field is a fabrication risk and is caught by
