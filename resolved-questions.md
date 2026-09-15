@@ -21,33 +21,44 @@ was invisible to both checks — so a model that forgot (or was induced) to
 declare one `claims` entry shipped a specific, invented fact (a metric, a
 customer count, a dollar figure) with no `[founder to provide: …]` marker at all.
 
-**Fix:** added a deterministic **undeclared-sentence guard** to
+**Fix:** added a deterministic **undeclared specific-quantitative guard** to
 `neutralizeSection` (runs as step 4.5, after declared-claim neutralization and
 before the banned-phrase refusal) that accounts for the ENTIRE `draft_text`, not
-just declared claims:
+just declared claims. The guard is deliberately NARROW and robust — it runs on
+every production draft, so it must never mangle legitimate prose:
 
-- Existing `[founder to provide: …]` placeholders are split out and preserved
-  verbatim (so a wrapped sentence never nests one).
-- Each remaining sentence has every surviving **grounded** `claims[].text` span
-  removed; whatever is left is undeclared prose.
-- **Rule:** if the residual still contains a specific quantitative token — a
-  digit run (which subsumes counts, dollar figures, percentages, and years) —
-  the whole sentence is an undeclared specific factual assertion and is
-  **wrapped** into a `[founder to provide: verify or remove this unverified
-  statement — "<sentence>"]` gap (registered in `gaps`, surfaced everywhere).
-  It can no longer read as an asserted fact.
-- Sentences with no leftover quantitative specific — connective/framing/
-  transition prose (e.g. "This project will expand our reach…") — are
-  **deliberately left untouched**. The guard **flags/wraps, never silently
-  deletes**, and never touches non-factual framing (conservative on purpose:
-  over-flagging a quantitative claim the model forgot to declare is still
-  honest; mangling legitimate connective prose is not). Banned
+- **Detector (high-signal only):** a sentence is wrapped only when it carries a
+  high-signal specific-quantitative token — a `$`-amount (with K/M/B, commas,
+  decimals), an `N%` percentage, or a comma-grouped number like `3,000`. Bare
+  integers, ratios/identifiers (`24/7`), reference cites (`Section 508`,
+  `No. 12`, `§`), and 4-digit years are explicitly EXCLUDED. A purely
+  QUALITATIVE undeclared claim ("we are the market leader") carries no
+  quantitative signal and is out of scope (documented in the module header, no
+  longer overclaimed).
+- **Grounded-number tolerance:** the sentence is left alone when every
+  quantitative token in it also appears — compared by NUMBER, not verbatim
+  substring — in some surviving grounded `claims[].text`. So a declared
+  "3,000 rural clinics" claim protects the paraphrase "over 3,000 rural clinics".
+- **Wrap in place:** only the offending sentence's own character span is replaced
+  by `[founder to provide: verify or remove this unverified statement —
+  "<sentence>"]` (registered in `gaps`, surfaced everywhere); all other prose and
+  ALL whitespace/newlines are preserved byte-for-byte, and when nothing is
+  wrapped the draft is returned unchanged (no paragraph flattening).
+- **Abbreviation-safe boundaries:** sentence splitting does not break inside
+  common abbreviations (`U.S.`, `e.g.`, `i.e.`, `Inc.`, `St.`, …), so a
+  legitimate sentence is never fragmented mid-abbreviation; existing
+  `[founder to provide: …]` placeholders are skipped so a wrapped sentence never
+  nests one.
+- The guard **flags/wraps, never silently deletes**. Banned
   definitive-eligibility phrasing still throws (`findBannedPhrases` is a plain
   substring scan, so it fires even inside a wrapped sentence).
 
 The repro (`SPARSE_SECTION_TRACTION.draft_text` — "Our platform now serves more
 than 3,000 rural clinics nationwide." with no `claims` entry) is now wrapped and
-surfaced in `pkg.gaps` rather than shipped bare.
+surfaced in `pkg.gaps` rather than shipped bare. A `Finding-1 guard` robustness
+test suite (in `applicationHonesty.test.ts`) locks in the must-NOT-wrap fixtures
+(Section 508, "3 years", 24/7, "U.S. Government on 12 pilot sites", grounded
+paraphrase, multi-paragraph whitespace) alongside the must-wrap cases.
 
 ### Finding 2 — `lib/apply/budget.ts`: template line-item gap placeholders were rendered but never collected into `budget.gaps`
 
@@ -75,7 +86,7 @@ the single source of truth for the placeholder convention) and is now reused by
 importers — the `ApplicationPackage` component and the eval suites). Behavior is
 identical to the three previously-duplicated local copies.
 
-**Gates:** typecheck, `npm test` (866 pass / 0 fail / 1 pre-existing skip),
+**Gates:** typecheck, `npm test` (874 pass / 0 fail / 1 pre-existing skip),
 `npm run check:prompts`, `npm run build`, and the standalone
 `evals/application-honesty-eval.mjs` (OVERALL: PASS, 0 known-finding drift) all
 green.

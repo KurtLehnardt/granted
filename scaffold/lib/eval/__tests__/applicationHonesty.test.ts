@@ -25,7 +25,7 @@ import {
   type AssembledPackage,
 } from "../../apply/package";
 import { ApplicationDraftSchema, FOUNDER_TODO_PATTERN, type ApplicationDraft } from "../../contracts/applicationDraft";
-import { isFieldProvided } from "../../contracts/companyProfile";
+import { isFieldProvided, type CompanyProfile } from "../../contracts/companyProfile";
 // Reuse the SAME check:prompts machinery — not a parallel/looser linter.
 import { findBannedPhrases } from "../../../scripts/banned-phrases.mjs";
 
@@ -209,12 +209,13 @@ describe("invariant 1: no fabrication — every claim is grounded or neutralized
   // corresponding `claims` entry (and no gap) bypassed grounding entirely —
   // shipping an invented specific with no `[founder to provide: …]` marker at
   // all. The undeclared-sentence guard now makes the check account for the
-  // ENTIRE `draft_text`: any sentence carrying a leftover specific quantitative
-  // token (a digit — count/dollar figure/percentage/year) that is NOT inside a
-  // declared-grounded claim span is WRAPPED into a `[founder to provide: verify
-  // or remove …]` gap, so it can no longer read as an asserted fact and it now
-  // surfaces in every gap-summary surface. Non-quantitative connective/framing
-  // prose is deliberately left untouched (flag/wrap, never silently delete).
+  // ENTIRE `draft_text`: a sentence carrying a HIGH-SIGNAL specific-quantitative
+  // token ($-amounts, N% percentages, comma-grouped counts like 3,000) whose
+  // number is NOT accounted for by a declared grounded claim is WRAPPED IN PLACE
+  // into a `[founder to provide: verify or remove …]` gap. It can no longer read
+  // as an asserted fact and now surfaces in every gap-summary surface. (Scope is
+  // deliberately narrow — bare integers, reference cites, and purely qualitative
+  // claims are NOT wrapped; see the `Finding-1 guard` robustness suite above.)
   // This test is now a real REGRESSION GUARD on the fix.
   // ---------------------------------------------------------------------------
   test("FIXED (Finding 1): an UNDECLARED factual sentence (no claims entry) is wrapped into a founder-to-provide marker, never shipped as a bare assertion", () => {
@@ -250,6 +251,95 @@ describe("invariant 1: no fabrication — every claim is grounded or neutralized
 
     // The purely non-factual framing sentence is deliberately left intact.
     assert.match(traction.draft_text, /This project will expand our reach to underserved communities\./);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Finding-1 guard robustness — the guard runs on EVERY production draft, so it
+// must not over-wrap benign/reference numbers, must not fragment sentences at
+// abbreviations, must preserve whitespace/paragraphs when nothing is wrapped,
+// and must tolerate a grounded number's paraphrase — while STILL wrapping a
+// genuinely undeclared specific-quantitative sentence. Each fixture below is
+// run through the REAL `enforceGrounding`.
+// ---------------------------------------------------------------------------
+
+describe("Finding-1 guard: narrow, in-place, abbreviation-safe", () => {
+  const cell = <T,>(value: T) => ({ value, provenance: "user_stated" as const, confidence: 1 });
+  const EMPTY_PROFILE: CompanyProfile = {
+    id: "guard-empty",
+    raw_text: cell(""),
+    interview_answers: [],
+  };
+  const GROUNDED_CLINICS_PROFILE: CompanyProfile = {
+    id: "guard-grounded",
+    raw_text: cell(""),
+    target_customers: cell("rural community health clinics"),
+    interview_answers: [],
+  };
+
+  /** Run one section's `draft_text` through the real enforceGrounding, return the enforced draft_text. */
+  function runGuard(
+    draftText: string,
+    claims: { text: string; profile_field: string }[],
+    profile: CompanyProfile,
+  ): string {
+    const draft: ApplicationDraft = {
+      opportunity_id: "guard-fixture",
+      program_title: "Guard Fixture",
+      generated_at: new Date().toISOString(),
+      sections: [{ key: "s", title: "S", prompt: "p", draft_text: draftText, claims, gaps: [] }],
+    };
+    return enforceGrounding(draft, profile).sections[0].draft_text;
+  }
+
+  const stripMarkers = (text: string) => text.replace(/\[founder to provide: [^\]]+\]/g, "");
+
+  // MUST NOT be wrapped or fragmented — each returns byte-for-byte unchanged.
+  const MUST_NOT_WRAP: readonly string[] = [
+    "Our software complies with Section 508 accessibility standards.",
+    "Over the past 3 years, we have refined our approach to rural care.",
+    "We provide 24/7 support to every partner clinic.",
+    "We partner with the U.S. Government on 12 pilot sites.",
+  ];
+  for (const sentence of MUST_NOT_WRAP) {
+    test(`does NOT wrap or fragment: ${JSON.stringify(sentence)}`, () => {
+      const out = runGuard(sentence, [], EMPTY_PROFILE);
+      assert.equal(out, sentence, "benign/reference sentence must pass through unchanged");
+      assert.doesNotMatch(out, /\[founder to provide:/);
+    });
+  }
+
+  test("grounded-number tolerance: a declared '3,000 rural clinics' claim protects the paraphrase 'over 3,000 rural clinics'", () => {
+    const sentence = "We serve over 3,000 rural clinics.";
+    const out = runGuard(sentence, [{ text: "We serve 3,000 rural clinics", profile_field: "target_customers" }], GROUNDED_CLINICS_PROFILE);
+    assert.equal(out, sentence, "a number present in a declared grounded claim must not be re-wrapped");
+  });
+
+  test("multi-paragraph draft keeps its \\n\\n paragraph breaks when nothing is wrapped (no flattening)", () => {
+    const multi = "First paragraph about our mission and values.\n\nSecond paragraph about our team and vision.";
+    const out = runGuard(multi, [], EMPTY_PROFILE);
+    assert.equal(out, multi);
+    assert.match(out, /\n\n/);
+  });
+
+  test("STILL wraps an undeclared $-amount sentence (wrap, don't delete)", () => {
+    const sentence = "We closed $2,400,000 in new contracts last year.";
+    const out = runGuard(sentence, [], EMPTY_PROFILE);
+    // Wrapped into a founder-to-provide marker; the raw figure no longer reads as a bare assertion.
+    assert.match(out, /\[founder to provide: [^\]]*\$2,400,000[^\]]*\]/);
+    assert.doesNotMatch(stripMarkers(out), /\$2,400,000/);
+  });
+
+  test("abbreviation-safe WHILE wrapping: 'U.S.' does not fragment the sentence — the whole sentence is wrapped as one unit", () => {
+    const sentence = "We partner with the U.S. Government across 3,000 clinics.";
+    const out = runGuard(sentence, [], EMPTY_PROFILE);
+    // One marker wrapping the ENTIRE sentence (abbreviation kept inside, not split on).
+    assert.match(
+      out,
+      /\[founder to provide: verify or remove this unverified statement — "We partner with the U\.S\. Government across 3,000 clinics\."\]/,
+    );
+    // Nothing leaked outside the marker (no fragment like "...the U.S." left bare).
+    assert.equal(stripMarkers(out).trim(), "");
   });
 });
 

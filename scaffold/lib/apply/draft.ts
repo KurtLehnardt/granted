@@ -16,6 +16,7 @@ import type {
 import {
   ApplicationDraftSchema,
   FOUNDER_TODO_PATTERN,
+  FOUNDER_TODO_SCAN,
   scanFounderTodos,
   type ApplicationDraft,
   type DraftSection,
@@ -40,10 +41,17 @@ import { findBannedPhrases } from "../../scripts/banned-phrases.mjs";
  * its grounded `claims` (sentence → profile field) and its `[founder to
  * provide: …]` `gaps`.
  *
- * THE HONESTY CONTRACT (R7.7) IS ENFORCED IN CODE, NOT LEFT TO THE MODEL. Every
- * factual sentence either cites a profile field that is actually provided, or is
- * a `[founder to provide: …]` placeholder — no invented specifics. This is the
- * analogue of G1's `annotateGrounding` and `screen()`'s schema re-validation:
+ * THE HONESTY CONTRACT (R7.7) IS ENFORCED IN CODE, NOT LEFT TO THE MODEL, for
+ * two shapes of invented specific: (i) a DECLARED claim citing a profile field
+ * the founder never provided, and (ii) an UNDECLARED sentence asserting a
+ * specific QUANTITATIVE fact (a dollar figure, a percentage, a comma-grouped
+ * count) with no matching claim. Both are neutralized to a `[founder to provide:
+ * …]` marker in code. SCOPE LIMIT, stated plainly so this contract is not
+ * overclaimed: a purely QUALITATIVE undeclared claim (e.g. "we are the market
+ * leader") carries no quantitative signal, so the code guard does not catch it —
+ * that shape still relies on the model following the drafting prompt's
+ * instruction to declare every factual sentence. This is the analogue of G1's
+ * `annotateGrounding` and `screen()`'s schema re-validation:
  *
  *   1. The model is handed ONLY the founder's PROVIDED profile fields, so it has
  *      nothing to fabricate a specific from in the first place.
@@ -52,7 +60,9 @@ import { findBannedPhrases } from "../../scripts/banned-phrases.mjs";
  *      rewritten to an honest `[founder to provide: …]` gap. Neutralize-to-
  *      placeholder (not throw) is preferred so the honest path always yields
  *      output — a profile missing revenue produces `[founder to provide: annual
- *      revenue]`, never a made-up number. The ONE thing that DOES throw is a
+ *      revenue]`, never a made-up number. It ALSO wraps an undeclared
+ *      specific-quantitative sentence into the same marker (the Finding-1 guard,
+ *      see `guardUndeclaredFactualSentences`). The ONE thing that DOES throw is a
  *      banned definitive-eligibility/award phrase in the draft: there is no
  *      honest placeholder for an eligibility assertion, so it is refused.
  *   3. `validateDraftGrounding` re-checks the neutralized package and
@@ -328,89 +338,194 @@ export function validateDraftGrounding(
 // ---------------------------------------------------------------------------
 
 /**
- * FINDING-1 GUARD — undeclared-sentence anti-fabrication.
+ * FINDING-1 GUARD — undeclared **specific-quantitative** anti-fabrication.
  *
- * `neutralizeSection` steps 1–4 only touch claims the model DECLARED. A
- * factual sentence written straight into `draft_text` with NO matching `claims`
- * entry (and no gap placeholder) would otherwise bypass grounding entirely —
- * shipping an invented specific (a metric, a customer count, a dollar figure)
- * with no `[founder to provide: …]` marker at all. This guard makes the check
- * account for the ENTIRE `draft_text`, deterministically:
+ * `neutralizeSection` steps 1–4 only touch claims the model DECLARED. A sentence
+ * written straight into `draft_text` with NO matching `claims` entry (and no gap
+ * placeholder) would otherwise bypass grounding entirely. This guard makes the
+ * check account for the ENTIRE `draft_text` and neutralizes the highest-risk
+ * shape of that leak: an undeclared assertion carrying a SPECIFIC QUANTITATIVE
+ * fact (a dollar figure, a percentage, or a comma-grouped count).
  *
- *   RULE — a sentence is left UNTOUCHED when it is already accounted for: it is
- *   covered by a surviving grounded `claims[].text` span, or it is (part of) an
- *   existing `[founder to provide: …]` placeholder. Any OTHER sentence is tested
- *   for a leftover SPECIFIC QUANTITATIVE TOKEN — a digit run, which subsumes
- *   counts, dollar figures, percentages and years — that is NOT inside a
- *   declared-grounded span. Such a token is the signature of an undeclared
- *   invented fact, so the whole sentence is WRAPPED into a
- *   `[founder to provide: verify or remove …]` gap: it can no longer read as an
- *   asserted fact, and it now surfaces in every gap-summary surface. A sentence
- *   with no leftover quantitative specific — connective/framing/transition prose
- *   like "This project will expand our reach…" — is DELIBERATELY left alone.
+ * SCOPE — DELIBERATELY NARROW, stated honestly so this file's own claims match
+ * its behavior. The guard fires ONLY on a high-signal quantitative token
+ * (`QUANT_SPECIFIC`): `$`-amounts, `N%` percentages, and comma-grouped numbers
+ * like `3,000`. It does NOT fire on bare small integers, ratios/identifiers
+ * (`24/7`), reference cites (`Section 508`), or 4-digit years — see
+ * `hasUndeclaredQuantitativeSpecific`'s exclusions. It therefore does NOT catch
+ * a purely QUALITATIVE undeclared claim ("we are the market leader") — that
+ * shape carries no quantitative signal and still rests on the model following
+ * the drafting prompt's instruction to declare every factual sentence. Wrapping
+ * a would-be numeric fabrication (the vector that ships an invented metric) is
+ * the guarantee this code adds; qualitative claims are explicitly out of scope.
  *
- * We FLAG/WRAP, never silently delete, and never touch non-factual framing:
- * conservative on purpose (over-flagging a quantitative claim the model forgot
- * to declare is still honest; mangling legitimate connective prose is not).
- * Existing placeholders are split out first so a wrapped sentence never nests
- * one; grounded claim spans are removed before the digit test so a legitimately
- * grounded number (e.g. "under $100K", declared as a revenue claim) is not
- * re-flagged.
+ * MECHANISM:
+ *   - Only the PLAIN regions of `draft_text` are inspected (existing
+ *     `[founder to provide: …]` placeholders are skipped so a wrapped sentence
+ *     never nests one), and each offending sentence is replaced IN PLACE by
+ *     index — every other character, including all whitespace and paragraph
+ *     breaks, is preserved byte-for-byte. When nothing is wrapped the original
+ *     string is returned unchanged.
+ *   - Sentence boundaries are ABBREVIATION-SAFE (`SENTENCE_ABBREVIATIONS`): a
+ *     period after "U.S.", "e.g.", "Inc.", … does not end a sentence, so a
+ *     legitimate sentence is never fragmented mid-abbreviation.
+ *   - GROUNDED-NUMBER TOLERANCE: a sentence is left alone when every quantitative
+ *     token in it also appears — compared by NUMBER, not verbatim substring — in
+ *     some surviving grounded `claims[].text`. So a declared "3,000 rural
+ *     clinics" claim protects the paraphrase "over 3,000 rural clinics".
+ *
+ * We FLAG/WRAP (into `[founder to provide: verify or remove …]`), never silently
+ * delete; the wrapped sentence surfaces in every gap-summary surface, and the
+ * banned-phrase scan still runs through it (step 5).
  */
-const FOUNDER_TODO_SPLIT = /(\[founder to provide: [^\]]+\])/g;
-const HAS_SPECIFIC_QUANTITATIVE_TOKEN = /\d/;
 
-function guardPlainRun(
-  run: string,
-  groundedClaimTexts: string[],
-  registerGap: (placeholder: string) => void,
-): string {
-  if (run.trim().length === 0) return run;
-  // Preserve the run's own leading/trailing whitespace (it separates this run
-  // from adjacent placeholders); split the core into sentences at
-  // "sentence-ending punctuation + following whitespace" — so an intra-number
-  // period (a decimal like "3.5", no following space) never splits a number.
-  const leading = run.match(/^\s*/)![0];
-  const trailing = run.match(/\s*$/)![0];
-  const core = run.slice(leading.length, run.length - trailing.length);
-  const sentences = core.split(/(?<=[.!?])\s+/);
+/** Abbreviations whose trailing "." must NOT be treated as a sentence end. */
+const SENTENCE_ABBREVIATIONS = new Set([
+  "u.s.", "u.k.", "e.g.", "i.e.", "dr.", "mr.", "mrs.", "ms.", "no.", "fig.",
+  "vs.", "etc.", "inc.", "st.", "sec.", "dept.", "co.", "ltd.", "approx.", "al.",
+]);
 
-  const guarded = sentences.map((sentence) => {
-    // Remove every grounded (surviving) claim span that appears verbatim — those
-    // specifics are DECLARED and allowed. What remains is undeclared prose.
-    let residual = sentence;
-    for (const claimText of groundedClaimTexts) {
-      if (claimText.length > 0 && residual.includes(claimText)) {
-        residual = residual.split(claimText).join(" ");
-      }
-    }
-    if (!HAS_SPECIFIC_QUANTITATIVE_TOKEN.test(residual)) return sentence;
+/**
+ * High-signal specific-quantitative tokens: `$`-amounts (with K/M/B, commas,
+ * decimals), `N%` percentages, and comma-grouped numbers (`3,000`). Bare
+ * integers are intentionally NOT matched — they are too often benign
+ * (references, small counts, years) to wrap safely.
+ */
+const QUANT_SPECIFIC =
+  /\$\s?\d[\d,]*(?:\.\d+)?\s?(?:[KkMmBb]|thousand|million|billion)?|\d[\d,]*(?:\.\d+)?\s?%|\b\d{1,3}(?:,\d{3})+\b/g;
 
-    // Undeclared specific factual assertion → wrap as a verify-or-remove gap
-    // (brackets stripped so the wrapper stays a single well-formed placeholder).
-    const cleaned = sentence.replace(/[[\]]/g, "").replace(/\s+/g, " ").trim();
-    const placeholder = `[founder to provide: verify or remove this unverified statement — "${cleaned}"]`;
-    registerGap(placeholder);
-    return placeholder;
-  });
+/** Reference/identifier lead-ins that make a following number a cite, not a fact. */
+const REFERENCE_LEADIN = /(?:section|sec\.|§|no\.|chapter|part|clause|article|figure|fig\.|table|cfr|u\.s\.c\.?)\s*$/i;
 
-  return leading + guarded.join(" ") + trailing;
+/** All numeric values in `text`, normalized to a bare digit string (commas/symbols stripped). */
+function extractNumbers(text: string): string[] {
+  return (text.match(/\d[\d,]*(?:\.\d+)?/g) ?? []).map((n) => n.replace(/[^0-9]/g, "")).filter((n) => n.length > 0);
 }
 
 /**
- * Apply the Finding-1 guard across an entire `draft_text`. Existing placeholders
- * are preserved verbatim (the capturing split keeps them as their own segments:
- * even indices are plain runs, odd indices are placeholders).
+ * Does `sentence` assert a specific quantitative fact NOT accounted for by a
+ * grounded claim? Excludes reference cites, ratios (`24/7`), and 4-digit years;
+ * applies grounded-number tolerance last.
+ */
+function hasUndeclaredQuantitativeSpecific(sentence: string, groundedNums: Set<string>): boolean {
+  const specifics: string[] = [];
+  const re = new RegExp(QUANT_SPECIFIC.source, "g");
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(sentence)) !== null) {
+    const raw = m[0];
+    const start = m.index;
+    const end = start + raw.length;
+    if (raw.length === 0) {
+      re.lastIndex++;
+      continue;
+    }
+    // Exclude a number introduced by a reference/identifier lead-in ("Section 508").
+    if (REFERENCE_LEADIN.test(sentence.slice(Math.max(0, start - 16), start))) continue;
+    // Exclude a ratio/identifier like 24/7 (a digit-slash-digit around the token).
+    if (sentence[start - 1] === "/" || sentence[end] === "/") continue;
+    // Exclude a bare 4-digit year (1900–2099) used as a date (no $, no %, no comma group).
+    if (!/[$,%]/.test(raw) && /^\d{4}$/.test(raw) && Number(raw) >= 1900 && Number(raw) <= 2099) continue;
+    specifics.push(raw.replace(/[^0-9]/g, ""));
+  }
+  if (specifics.length === 0) return false;
+  // Grounded-number tolerance: wrap only if at least one specific is NOT grounded.
+  return specifics.some((n) => n.length > 0 && !groundedNums.has(n));
+}
+
+/** True iff the "." at `punctIdx` is the tail of a known abbreviation (so it does NOT end a sentence). */
+function endsWithAbbreviation(text: string, punctIdx: number): boolean {
+  let k = punctIdx;
+  while (k - 1 >= 0 && /[A-Za-z.]/.test(text[k - 1])) k--;
+  return SENTENCE_ABBREVIATIONS.has(text.slice(k, punctIdx + 1).toLowerCase());
+}
+
+/** The PLAIN (non-placeholder) `[start,end)` spans of `text`. */
+function plainRegions(text: string): { start: number; end: number }[] {
+  const regions: { start: number; end: number }[] = [];
+  const re = new RegExp(FOUNDER_TODO_SCAN.source, "g");
+  let cursor = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > cursor) regions.push({ start: cursor, end: m.index });
+    cursor = m.index + m[0].length;
+  }
+  if (cursor < text.length) regions.push({ start: cursor, end: text.length });
+  return regions;
+}
+
+/**
+ * Sentence content spans within one plain region, as absolute `[start,end)`
+ * indices that EXCLUDE surrounding whitespace (so wrapping a span leaves the
+ * inter-sentence whitespace/newlines untouched). Boundaries are
+ * abbreviation-safe and never split inside a decimal (a "." with no following
+ * whitespace is not a boundary).
+ */
+function sentenceSpans(text: string, region: { start: number; end: number }): { start: number; end: number }[] {
+  const spans: { start: number; end: number }[] = [];
+  let contentStart = -1;
+  let i = region.start;
+  const isTerminal = (c: string) => c === "." || c === "!" || c === "?";
+  while (i < region.end) {
+    if (contentStart === -1) {
+      if (!/\s/.test(text[i])) contentStart = i;
+      i++;
+      continue;
+    }
+    if (isTerminal(text[i])) {
+      let j = i;
+      while (j + 1 < region.end && isTerminal(text[j + 1])) j++; // absorb "?!" / "..."
+      const followedByBreak = j + 1 >= region.end || /\s/.test(text[j + 1]);
+      if (followedByBreak && !endsWithAbbreviation(text, i)) {
+        spans.push({ start: contentStart, end: j + 1 });
+        contentStart = -1;
+      }
+      i = j + 1;
+      continue;
+    }
+    i++;
+  }
+  if (contentStart !== -1) {
+    let end = region.end;
+    while (end > contentStart && /\s/.test(text[end - 1])) end--;
+    if (end > contentStart) spans.push({ start: contentStart, end });
+  }
+  return spans;
+}
+
+/**
+ * Apply the Finding-1 guard across an entire `draft_text`. Offending sentences
+ * are wrapped IN PLACE (index splice) so all other prose and whitespace is
+ * preserved exactly; nothing is changed when no sentence is wrapped.
  */
 function guardUndeclaredFactualSentences(
   draftText: string,
   groundedClaimTexts: string[],
   registerGap: (placeholder: string) => void,
 ): string {
-  return draftText
-    .split(FOUNDER_TODO_SPLIT)
-    .map((part, i) => (i % 2 === 1 ? part : guardPlainRun(part, groundedClaimTexts, registerGap)))
-    .join("");
+  const groundedNums = new Set<string>();
+  for (const t of groundedClaimTexts) for (const n of extractNumbers(t)) groundedNums.add(n);
+
+  const replacements: { start: number; end: number; placeholder: string }[] = [];
+  for (const region of plainRegions(draftText)) {
+    for (const span of sentenceSpans(draftText, region)) {
+      const sentence = draftText.slice(span.start, span.end);
+      if (!hasUndeclaredQuantitativeSpecific(sentence, groundedNums)) continue;
+      const cleaned = sentence.replace(/[[\]]/g, "").replace(/\s+/g, " ").trim();
+      const placeholder = `[founder to provide: verify or remove this unverified statement — "${cleaned}"]`;
+      registerGap(placeholder);
+      replacements.push({ start: span.start, end: span.end, placeholder });
+    }
+  }
+  if (replacements.length === 0) return draftText; // preserve the original EXACTLY
+
+  replacements.sort((a, b) => a.start - b.start);
+  let out = "";
+  let cursor = 0;
+  for (const r of replacements) {
+    out += draftText.slice(cursor, r.start) + r.placeholder;
+    cursor = r.end;
+  }
+  return out + draftText.slice(cursor);
 }
 
 /**
@@ -475,9 +590,10 @@ function neutralizeSection(section: DraftSection, profile: CompanyProfile): Draf
 
   // 4.5 UNDECLARED-SENTENCE GUARD (Finding 1): account for the ENTIRE draft_text,
   //     not just declared claims — wrap any sentence that asserts an undeclared
-  //     specific fact so no invented number can ship unmarked. The wrapped
-  //     sentence is already inline (it replaces the sentence in place); its gap
-  //     is registered here. See `guardUndeclaredFactualSentences` for the rule.
+  //     SPECIFIC QUANTITATIVE fact (a $-amount, N%, or comma-grouped count) so no
+  //     invented number can ship unmarked. Wrapped in place (whitespace/newlines
+  //     preserved); the gap is registered here. Purely qualitative undeclared
+  //     claims are out of scope — see `guardUndeclaredFactualSentences`.
   draftText = guardUndeclaredFactualSentences(
     draftText,
     keptClaims.map((c) => c.text),
