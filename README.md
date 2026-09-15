@@ -20,6 +20,8 @@ Calibration is the product. Any system can return five matches for any input. Th
 
 **No keys? Still works.** `git clone` → `npm install` → `npm run dev` and you can immediately try the 5 built-in sample companies — their results are served from cache, so they need no API keys at all. You only need API keys (or a local model) to search your *own* company description.
 
+**Even faster: no input at all.** Visit `/demo` for a static, pre-baked sample opportunity map (and `/demo/eligibility` for the eligibility view) — no keys, no form, loads instantly.
+
 To search your own description you need [Node 20 LTS](https://nodejs.org) (18.17+ works) and two API keys (OpenAI + Anthropic). The 968-opportunity corpus ships committed, so there's no data pipeline to run before you can start.
 
 ```bash
