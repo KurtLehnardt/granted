@@ -8,9 +8,9 @@
 This spec makes concrete the R6 memo's §7 recommendation — *"the thin assisted-apply slice: package builder, human review-and-attest screen, human logs in and submits themselves, in their own session, with their own credentials."* The extension is the **browser-side "fill it out on their behalf" path**: an assistive form-filler (like a password manager) that runs in the founder's **own authenticated portal session**, fills the visible form fields from the Granted app's generated package, navigates between sections, and **stops dead before any submit/sign control**. A human — the organization's Authorized Organization Representative (AOR) — reviews everything and clicks the final SUBMIT.
 
 Inputs this spec is built on (absolute paths):
-- Field map / Phase-1 recon: `/Users/LenovoT440p/work/fundFinder/.claude/worktrees/ext-docs/docs/grant-portal-field-map.md`
-- Product vision: `/Users/LenovoT440p/work/fundFinder/northstar.md`
-- Legal / honesty boundary + S2S path: `/Users/LenovoT440p/work/fundFinder/.claude/worktrees/ext-docs/docs/R6-s2s-feasibility-memo.md`
+- Field map / Phase-1 recon: `<repo-root>/.claude/worktrees/ext-docs/docs/grant-portal-field-map.md`
+- Product vision: `<repo-root>/northstar.md`
+- Legal / honesty boundary + S2S path: `<repo-root>/.claude/worktrees/ext-docs/docs/R6-s2s-feasibility-memo.md`
 - App→extension contract (source of truth for payload shapes):
   - `scaffold/lib/contracts/applicationForms.ts`
   - `scaffold/lib/apply/forms.ts`
@@ -123,7 +123,7 @@ The service worker and content scripts perform **zero** network I/O (**INV-7**).
 
 ### 1.3 Host-permission tradeoff (least-privilege vs. unknown Workspace host)
 
-The field map (`/Users/LenovoT440p/work/fundFinder/.claude/worktrees/ext-docs/docs/grant-portal-field-map.md`) could not reach the authenticated Grants.gov Workspace, so the **exact Workspace host is unconfirmed**. Two options:
+The field map (`<repo-root>/.claude/worktrees/ext-docs/docs/grant-portal-field-map.md`) could not reach the authenticated Grants.gov Workspace, so the **exact Workspace host is unconfirmed**. Two options:
 - **Enumerate specific hosts** (chosen): tightest least-privilege, but risks missing the real Workspace host until the in-session capture pass pins it. We include the known `apply07.grants.gov` as the current best guess, explicitly flagged `CONFIRM`.
 - **`https://*.grants.gov/*` wildcard** (rejected as the default): covers host uncertainty but broadens the grant. Allowed **only** as an interim during the in-session capture pass, and must be narrowed to specific hosts before any store submission. Documented so a worker does not silently ship the wildcard.
 
@@ -566,7 +566,7 @@ Host permissions are the extension's blast radius. They are enumerated to exactl
 
 ## 8. Consistency with the S2S enterprise path
 
-The R6 memo (`/Users/LenovoT440p/work/fundFinder/.claude/worktrees/ext-docs/docs/R6-s2s-feasibility-memo.md`) describes **two** apply paths. This extension is exclusively the **browser-side, human-submits** one:
+The R6 memo (`<repo-root>/.claude/worktrees/ext-docs/docs/R6-s2s-feasibility-memo.md`) describes **two** apply paths. This extension is exclusively the **browser-side, human-submits** one:
 
 - **This extension (browser-side assisted apply):** the §7 "thin assisted-apply slice" made concrete on the client. Runs in the founder's own authenticated session, fills + navigates, and stops before submit. **No credentials, no network, no submission calls, no PMO Third-Party-Submitter designation.** Low-liability, honest, shippable now.
 - **S2S enterprise path (R6 §2.3):** the gatekept SOAP `Authenticate AOR` + `Submit Application As Third Party` integration. It is an **escalation-flagged future decision** (E1/E2) that fundFinder does **not** pursue without a separate legal-review gate. The extension must **never drift toward it** — no credential handling, no submission web-service calls, no headless automation.
@@ -580,7 +580,7 @@ The R6 memo (`/Users/LenovoT440p/work/fundFinder/.claude/worktrees/ext-docs/docs
 ### 9.1 Location
 
 New directory, sibling to `scaffold/`:
-`/Users/LenovoT440p/work/fundFinder/extension/`
+`<repo-root>/extension/`
 
 ### 9.2 Toolchain (recommended)
 
@@ -593,7 +593,7 @@ New directory, sibling to `scaffold/`:
 ### 9.3 Directory structure
 
 ```
-/Users/LenovoT440p/work/fundFinder/extension/
+<repo-root>/extension/
   package.json            # scripts: dev · build · lint · test · typecheck
   vite.config.ts          # @crxjs/vite-plugin
   manifest.config.ts      # typed MV3 manifest (emits manifest.json per §1)

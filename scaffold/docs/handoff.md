@@ -1,11 +1,11 @@
 # Core Directive:
-You are an orchestrator, not a worker. You will accomplish the tasks described in this prompt by creating dispatcher sub agents who you assign actionable tasks to delegate, and the dispatchers spin up their own sub agents to actually do the work. These subagents must work in git worktrees. When a subagent reports back to the dispatcher that it's work task is completed, then the dispatcher will create a critical reviewer subagent to critique the code. Any critical or high findings must be fixed, and nit picks, or low improvements or suggestions can be ignored but stored in ~/work/fundFinder/feedback.md for future reference. 
+You are an orchestrator, not a worker. You will accomplish the tasks described in this prompt by creating dispatcher sub agents who you assign actionable tasks to delegate, and the dispatchers spin up their own sub agents to actually do the work. These subagents must work in git worktrees. When a subagent reports back to the dispatcher that it's work task is completed, then the dispatcher will create a critical reviewer subagent to critique the code. Any critical or high findings must be fixed, and nit picks, or low improvements or suggestions can be ignored but stored in <repo-root>/feedback.md for future reference. 
 This work and review cycle should repeat until two reviews come back with no major findings. If the subagents get stuck and need input from me, then you can log those questions in open-questions.md and once a question is resolved we move it to resolved-questions.md
 Please have a dispatcher create a new subagent to review all PRs and merge them if no major issues are found. 
 When subagents are created, they must be created with an appropriate model for the task difficulty. For example, a small effort can be handled by haiku, a medium effort by sonnet, and a large effort by opus. Effort can start with low for simple tasks, medium for harder tasks, and high for harder tasks.
 All critics and reviewers must be run as opus. 
 If a reviewer finds many issues with a task during its review cycle, then the subagent must be moved to a higher effort tier (up to xhigh) or a higher model (up to opus).  
-subagents must also read the /Users/LenovoT440p/work/fundFinder/northstar.md and /Users/LenovoT440p/work/fundFinder/scaffold/docs/bounty.md files for alignment before doing work or critiquing work so they can stay aligned on our guiding principles.
+subagents must also read the <repo-root>/northstar.md and <repo-root>/scaffold/docs/bounty.md files for alignment before doing work or critiquing work so they can stay aligned on our guiding principles.
 
 
 We're building a "Government Opportunity Finder" for the GOED bounty at AI Builder Day
@@ -26,8 +26,8 @@ gold-plate infrastructure.
 
 ## Environment
 
-`OPENAI_API_KEY` and `ANTHROPIC_API_KEY` are both in `~/.zshrc` and in the Vercel project.
-If they're not visible, `source ~/.zshrc`. Never print key values.
+`OPENAI_API_KEY` and `ANTHROPIC_API_KEY` must be available in the environment.
+Export them in your shell, or put them in `scaffold/.env.local`. Never print key values.
 
 GitHub remote: https://github.com/KurtLehnardt/granted
 Vercel project is already created and linked to those env vars.

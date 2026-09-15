@@ -1,8 +1,11 @@
 {
-  "name": "gov-opportunity-finder",
+  "name": "granted",
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=18.17"
+  },
   "scripts": {
     "setup": "node scripts/setup.mjs",
     "dev": "next dev",
@@ -38,7 +41,7 @@
     "@anthropic-ai/sdk": "^0.33.1",
     "@supabase/ssr": "^0.12.4",
     "@supabase/supabase-js": "^2.112.3",
-    "next": "14.2.15",
+    "next": "14.2.35",
     "openai": "^7.4.0",
     "postgres": "^3.4.9",
     "react": "^18.3.1",

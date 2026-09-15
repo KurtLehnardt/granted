@@ -5,7 +5,7 @@ A reconstruction of where `prompts/fundfinder-orchestrator-prompt.md` — the 1,
 was done.
 
 This document is built from primary sources: the session transcript
-(`~/.claude/projects/-Users-LenovoT440p-work-fundFinder/f2007485-…​.jsonl`, ~39 MB / ~14k
+(`~/.claude/projects/<project>/<session-id>.jsonl`, ~39 MB / ~14k
 lines), the committed repo (`git show origin/main:…​`), and the retrospective docs that
 already narrate the build (`docs/presentation/build-narrative.md`,
 `retrospective/granted-retrospective-vol2.md`, `retrospective/user-prompt-arc.md`).

@@ -22,9 +22,10 @@
 //     (strong = score>=33, weak if <1) offline from the same per-match scores.
 //
 // SPENDS REAL API CREDITS — one live Anthropic+OpenAI search per profile.
-// Requires ANTHROPIC_API_KEY + OPENAI_API_KEY (interactive shell: source
-// ~/.zshrc first). A per-case try/catch records any error and moves on, so a
-// 429/quota exhaustion mid-run degrades to partial results rather than a crash.
+// Requires ANTHROPIC_API_KEY + OPENAI_API_KEY in the environment (export them
+// in your shell, or put them in scaffold/.env.local). A per-case try/catch
+// records any error and moves on, so a 429/quota exhaustion mid-run degrades
+// to partial results rather than a crash.
 //
 // Run all profiles:      node --import tsx scripts/eval-run.mjs
 // Run a subset by id:    node --import tsx scripts/eval-run.mjs strong-rd vague
@@ -37,33 +38,41 @@ import { writeFile, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-// The app keys (ANTHROPIC_API_KEY / OPENAI_API_KEY / EXA_API_KEY) live in
-// ~/.zshrc and only load in interactive shells. This best-effort loader reads
-// the `export KEY=...` lines directly (NEVER printing any value) and seeds
-// process.env, so this harness runs under a plain `node` invocation without a
-// `source ~/.zshrc` shell step. It PREFERS the ~/.zshrc value over anything
-// already in the environment: the Claude Code harness injects its own
-// ANTHROPIC_API_KEY (scoped to the CLI, invalid for the direct Anthropic SDK),
-// which would otherwise shadow the real app key and 401.
-async function loadKeysFromZshrc() {
+// The app keys (ANTHROPIC_API_KEY / OPENAI_API_KEY / EXA_API_KEY) come from the
+// environment. Provide them however you like — export them in your shell, or put
+// them in scaffold/.env.local. As a convenience so this harness can run under a
+// plain `node` invocation, this best-effort loader also scrapes `KEY=...` (or
+// `export KEY=...`) lines directly from scaffold/.env.local and, if present, your
+// shell profile (~/.zshrc), NEVER printing any value, and seeds process.env. It
+// PREFERS a value found in those files over anything already in the environment:
+// the Claude Code harness injects its own ANTHROPIC_API_KEY (scoped to the CLI,
+// invalid for the direct Anthropic SDK), which would otherwise shadow the real
+// app key and 401.
+async function loadKeysFromFiles() {
   const wanted = ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "EXA_API_KEY"];
-  let text = "";
-  try {
-    text = await readFile(join(homedir(), ".zshrc"), "utf8");
-  } catch {
-    return; // no ~/.zshrc — rely on whatever's already in the env
-  }
-  for (const key of wanted) {
-    const m = text.match(new RegExp(`^\\s*export\\s+${key}\\s*=\\s*(.+?)\\s*$`, "m"));
-    if (!m) continue;
-    let val = m[1].trim();
-    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-      val = val.slice(1, -1);
+  // Sources in increasing precedence order (a later source overrides an earlier
+  // one, and any file value overrides the ambient environment): shell profile
+  // first, then the project-local .env.local.
+  const sources = [join(homedir(), ".zshrc"), join(process.cwd(), ".env.local")];
+  for (const source of sources) {
+    let text = "";
+    try {
+      text = await readFile(source, "utf8");
+    } catch {
+      continue; // source absent — try the next one, else rely on the env
     }
-    if (val) process.env[key] = val;
+    for (const key of wanted) {
+      const m = text.match(new RegExp(`^\\s*(?:export\\s+)?${key}\\s*=\\s*(.+?)\\s*$`, "m"));
+      if (!m) continue;
+      let val = m[1].trim();
+      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+        val = val.slice(1, -1);
+      }
+      if (val) process.env[key] = val;
+    }
   }
 }
-await loadKeysFromZshrc();
+await loadKeysFromFiles();
 
 process.env.NEXT_PUBLIC_FLAG_R4B_COST_DEBUG = "true";
 process.env.NEXT_PUBLIC_FLAG_DISCERNMENT_LAYER = "true";
