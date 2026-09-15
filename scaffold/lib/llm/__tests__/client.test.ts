@@ -1,7 +1,7 @@
 import { test, describe, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { makeLlmClient, isLocalLlm } from "../client";
-import { unwrapArrayEnvelope } from "../../claude";
+import { unwrapArrayEnvelope, coerceProfileStrings } from "../../claude";
 
 /**
  * The local-model seam. The default (Anthropic) path is exercised by the rest of
@@ -90,5 +90,52 @@ describe("unwrapArrayEnvelope — undoes JSON-mode array wrapping", () => {
   });
   test("leaves a single non-array key untouched", () => {
     assert.deepEqual(unwrapArrayEnvelope({ summary: "text" }), { summary: "text" });
+  });
+});
+
+describe("coerceProfileStrings — local-model StartupProfile string-field drift", () => {
+  test("leaves an already-correct (string-typed) profile untouched", () => {
+    const profile = {
+      description: "A biotech startup",
+      location: "Austin, TX",
+      revenue: "$1.2M",
+      capitalRaised: "$500k seed",
+      employees: 12,
+      expandedTerms: ["biotech", "life sciences"],
+    };
+    assert.deepEqual(coerceProfileStrings(profile), profile);
+  });
+
+  test("coerces an object-valued string field (e.g. a structured location) to a compact JSON string", () => {
+    const profile = { description: "d", location: { city: "Austin", state: "TX" } };
+    const out = coerceProfileStrings(profile);
+    assert.equal(out.location, '{"city":"Austin","state":"TX"}');
+  });
+
+  test("coerces an array of primitives on a string field by joining them", () => {
+    const profile = { description: "d", capitalRaised: ["$500k", "seed round"] };
+    const out = coerceProfileStrings(profile);
+    assert.equal(out.capitalRaised, "$500k, seed round");
+  });
+
+  test("coerces an array of objects on a string field to a compact JSON string (not a naive join)", () => {
+    const profile = { description: "d", revenue: [{ amount: "1M" }, { amount: "2M" }] };
+    const out = coerceProfileStrings(profile);
+    assert.equal(out.revenue, JSON.stringify([{ amount: "1M" }, { amount: "2M" }]));
+  });
+
+  test("null/undefined string fields pass through untouched", () => {
+    const profile = { description: "d", location: null, revenue: undefined };
+    const out = coerceProfileStrings(profile);
+    assert.equal(out.location, null);
+    assert.equal(out.revenue, undefined);
+  });
+
+  test("non-string-field values (e.g. employees: number, expandedTerms: string[]) are left alone", () => {
+    const profile = { description: "d", employees: 42, expandedTerms: ["a", "b"], naicsGuesses: ["541511"] };
+    const out = coerceProfileStrings(profile);
+    assert.equal(out.employees, 42);
+    assert.deepEqual(out.expandedTerms, ["a", "b"]);
+    assert.deepEqual(out.naicsGuesses, ["541511"]);
   });
 });

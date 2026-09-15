@@ -126,6 +126,63 @@ function parseJson<T>(raw: string): T {
 }
 
 /**
+ * `StartupProfileSchema` (lib/contracts/opportunityMap.ts) fields that are
+ * documented/required as strings. Kept as an explicit list (not "every field
+ * that isn't a known non-string") so this stays correct if the schema grows a
+ * new non-string field later.
+ */
+const STARTUP_PROFILE_STRING_FIELDS = [
+  "description",
+  "industry",
+  "technology",
+  "location",
+  "revenue",
+  "fundingStage",
+  "capitalRaised",
+  "rdActivities",
+  "productMaturity",
+  "targetCustomers",
+  "capitalRequirement",
+  "useOfFunds",
+] as const;
+
+/**
+ * Local models under JSON-object mode occasionally drift on `StartupProfile`'s
+ * string-typed fields — e.g. returning `location: {"city": "Austin", "state":
+ * "TX"}` or `capitalRaised: ["$500k", "seed"]` instead of a plain string. The
+ * `OpportunityMap` zod boundary (`StartupProfileSchema`) requires these fields
+ * to be strings, so an object/array value fails validation ("serving anyway"
+ * with an invalid-input log) even though the extraction itself mostly
+ * succeeded.
+ *
+ * Coerce at the boundary, right after JSON-parsing the model's output: an
+ * array of primitives joins into a readable comma-separated string, any other
+ * object/array becomes a compact JSON string (still readable, never dropped),
+ * and already-string/null/undefined values pass through untouched. This is
+ * deliberately generic (a fixed field list + one coercion rule) rather than
+ * enumerating local-model quirks, so it covers both cloud and local output.
+ */
+export function coerceProfileStrings(profile: Record<string, unknown>): StartupProfile {
+  const out: Record<string, unknown> = { ...profile };
+  for (const field of STARTUP_PROFILE_STRING_FIELDS) {
+    const value = out[field];
+    if (value == null || typeof value === "string") continue;
+    if (Array.isArray(value)) {
+      out[field] = value.every((v) => v == null || ["string", "number", "boolean"].includes(typeof v))
+        ? value.filter((v) => v != null).join(", ")
+        : JSON.stringify(value);
+    } else if (typeof value === "object") {
+      out[field] = JSON.stringify(value);
+    } else {
+      // number/boolean/etc. — stringify rather than leave a non-string on a
+      // string field.
+      out[field] = String(value);
+    }
+  }
+  return out as StartupProfile;
+}
+
+/**
  * R4b — normalize one Anthropic call's `usage` into `CostMeter.record()`'s
  * generic shape and record it. Called immediately once the API call resolves
  * (msg.usage), BEFORE parseJson() or any other step that could throw — an
@@ -208,7 +265,11 @@ export async function extractProfile(
   recordUsage(meter, "profile_extraction", msg.usage, performance.now() - t0, CHEAP_MODEL);
 
   const text = msg.content.filter((c) => c.type === "text").map((c: any) => c.text).join("");
-  return parseJson(text);
+  const parsed = parseJson<{ profile: StartupProfile; followUps: string[] }>(text);
+  return {
+    ...parsed,
+    profile: coerceProfileStrings((parsed.profile ?? {}) as unknown as Record<string, unknown>),
+  };
 }
 
 /**

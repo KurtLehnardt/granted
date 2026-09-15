@@ -80,11 +80,24 @@ export interface PriceResult {
 }
 
 /**
+ * Models we've already warned about in this process — see `priceUsage`'s
+ * dedup note below. Module-level so it persists across calls for the life of
+ * the process (a fresh process, e.g. a new test file, gets a clean slate).
+ */
+const warnedUnpricedModels = new Set<string>();
+
+/**
  * Pure cost calculation for one call's token counts. Never throws: an
  * unrecognized `model` id degrades to `{ costUsd: 0, unpriced: true }` with a
  * warning, rather than mispricing (e.g. falling back to some other model's
  * rate) or crashing the caller. `lib/metering/meter.ts`'s `record()` relies
  * on that guarantee to stay defensive itself.
+ *
+ * The warning fires at most once per distinct unpriced `model` id per
+ * process: a legitimately free local model (e.g. an Ollama model run through
+ * the local-model path) is otherwise correct at $0/call but would spam the
+ * log once per LLM call — the dedup keeps the signal (an unpriced model
+ * showed up) without the noise.
  *
  * Cache-token fields (`cache_creation_input_tokens` / `cache_read_input_tokens`)
  * are intentionally NOT priced here — see the comment on `StageCost` in
@@ -94,10 +107,14 @@ export interface PriceResult {
 export function priceUsage(model: string, inputTokens: number, outputTokens: number): PriceResult {
   const price = PRICE_TABLE[model];
   if (!price) {
-    console.warn(
-      `[metering] no PRICE_TABLE entry for model "${model}" — costUsd defaulting to 0. ` +
-        `Add a priced entry to lib/metering/pricing.ts if this model is now in real use.`,
-    );
+    if (!warnedUnpricedModels.has(model)) {
+      warnedUnpricedModels.add(model);
+      console.warn(
+        `[metering] no PRICE_TABLE entry for model "${model}" — costUsd defaulting to 0. ` +
+          `Add a priced entry to lib/metering/pricing.ts if this model is now in real use. ` +
+          `(This warning is logged once per model per process.)`,
+      );
+    }
     return { costUsd: 0, unpriced: true };
   }
   const safeIn = Number.isFinite(inputTokens) ? inputTokens : 0;

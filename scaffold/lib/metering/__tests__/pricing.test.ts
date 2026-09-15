@@ -107,4 +107,32 @@ describe("priceUsage() — unrecognized model degrades safely", () => {
     assert.equal(Number.isFinite(result.costUsd), true);
     assert.equal(result.costUsd, 0);
   });
+
+  test("an unpriced model (e.g. a local model) warns at most once per model per process", () => {
+    const original = console.warn;
+    let warnCount = 0;
+    console.warn = () => {
+      warnCount += 1;
+    };
+    try {
+      const localModel = "gemma4:latest-dedup-test";
+      const first = priceUsage(localModel, 100, 50);
+      const second = priceUsage(localModel, 200, 75);
+      const third = priceUsage(localModel, 0, 0);
+      assert.equal(first.costUsd, 0);
+      assert.equal(first.unpriced, true);
+      assert.equal(second.costUsd, 0);
+      assert.equal(second.unpriced, true);
+      assert.equal(third.costUsd, 0);
+      assert.equal(third.unpriced, true);
+      assert.equal(warnCount, 1, "repeated calls for the same unpriced model must warn only once");
+
+      // A different unpriced model id still gets its own first warning.
+      const anotherModel = "nomic-embed-text-dedup-test";
+      priceUsage(anotherModel, 10, 0);
+      assert.equal(warnCount, 2, "a distinct unpriced model gets its own first warning");
+    } finally {
+      console.warn = original;
+    }
+  });
 });
