@@ -8,6 +8,7 @@
   },
   "scripts": {
     "setup": "node scripts/setup.mjs",
+    "setup:local": "node scripts/setup-local.mjs",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",

@@ -67,6 +67,13 @@ Everything else in `.env.example` is optional and documented inline. Start with 
 
 Don't want to pay for or send data to a hosted model? Point the reasoning at a local LLM. The scoring, explanations, and honest verdicts then run entirely on your machine.
 
+### Guided setup (one command)
+```bash
+cd scaffold
+npm run setup:local        # add --yes for non-interactive defaults
+```
+Detects your OS + available memory/GPU, recommends and pulls an Ollama chat model (or lets you pick one you already have), **always** pulls the separate embeddings model (`nomic-embed-text` — the seam people forget), writes the env into `scaffold/.env.local` without clobbering values you've set, and offers to re-embed the corpus so retrieval actually works. It never installs Ollama itself — if Ollama or its daemon is missing it prints the install/start command for your platform and exits. Prefer to do it by hand? The manual steps are below.
+
 1. Install [Ollama](https://ollama.com) and pull a capable instruction model:
    ```bash
    ollama pull gemma4        # or qwen2.5, llama3.1 — pick one that follows JSON well
