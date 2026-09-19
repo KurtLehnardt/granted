@@ -45,10 +45,17 @@ const CHEAP_MODEL = process.env.PROFILE_EXTRACTION_MODEL || "claude-haiku-4-5-20
  * Tunable via `ANTHROPIC_TIMEOUT_MS` (must stay < the deploy's maxDuration).
  */
 const ANTHROPIC_TIMEOUT_MS = Number(process.env.ANTHROPIC_TIMEOUT_MS) || 100_000;
+// Local inference is far slower than hosted, and a self-host run is NOT under
+// Vercel's 120s `maxDuration` — so the cloud-sized per-call timeout above would
+// abort a legitimately-slow local batch mid-scoring (every batch aborting →
+// "All scoring batches failed" → the client's "network error"). Give local a
+// much larger, env-tunable budget instead.
+const LOCAL_LLM_TIMEOUT_MS = Number(process.env.LOCAL_LLM_TIMEOUT_MS) || 1_800_000; // 30 min
 
 function client(): LlmClient {
   // Anthropic by default; an OpenAI-compatible LOCAL model when LLM_PROVIDER is set.
-  return makeLlmClient({ timeout: ANTHROPIC_TIMEOUT_MS, maxRetries: 0 });
+  const timeout = isLocalLlm() ? LOCAL_LLM_TIMEOUT_MS : ANTHROPIC_TIMEOUT_MS;
+  return makeLlmClient({ timeout, maxRetries: 0 });
 }
 
 /**
@@ -446,7 +453,10 @@ const E3_TWO_PASS_MAX_RETRIES = Number(process.env.E3_TWO_PASS_MAX_RETRIES) || 3
 const E3_TWO_PASS_BACKOFF_MS = Number(process.env.E3_TWO_PASS_BACKOFF_MS) || 500;
 
 function twoPassClient(): LlmClient {
-  return makeLlmClient({ timeout: E3_TWO_PASS_TIMEOUT_MS, maxRetries: 0 });
+  // Same local-vs-hosted split as client(): the 45s two-pass budget is a
+  // cloud figure that would abort a slow local batch.
+  const timeout = isLocalLlm() ? LOCAL_LLM_TIMEOUT_MS : E3_TWO_PASS_TIMEOUT_MS;
+  return makeLlmClient({ timeout, maxRetries: 0 });
 }
 
 /**
