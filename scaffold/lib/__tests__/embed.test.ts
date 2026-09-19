@@ -1,6 +1,6 @@
 import { test, describe, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { embed, embedBatch, checkEmbeddingsMisconfig } from "../embed";
+import { embed, embedBatch, checkEmbeddingsMisconfig, assertEmbeddingDimsMatch } from "../embed";
 
 /**
  * The preflight guard added after a real self-hoster set LLM_PROVIDER=local
@@ -144,5 +144,34 @@ describe("embed()/embedBatch() — the guard fires before any network call", () 
 
     const vec = await embed("hello");
     assert.deepEqual(vec, [1, 2, 3]);
+  });
+});
+
+/**
+ * The dimension-mismatch guard: switching EMBEDDINGS_MODEL without re-embedding
+ * the corpus makes cosine() read past the shorter vector and return NaN for
+ * every opp — a silent, confusing "weak field". This locks in the loud,
+ * actionable failure (and the no-ops that must NOT fire).
+ */
+describe("assertEmbeddingDimsMatch — corpus/query embedding-space guard", () => {
+  test("matching dimensions is a no-op", () => {
+    assert.doesNotThrow(() => assertEmbeddingDimsMatch(512, 512));
+  });
+
+  test("mismatch throws with both dims and the `data:embed` fix", () => {
+    assert.throws(
+      () => assertEmbeddingDimsMatch(768, 512),
+      (err: Error) =>
+        /dimension mismatch/i.test(err.message) &&
+        /768/.test(err.message) &&
+        /512/.test(err.message) &&
+        /data:embed/.test(err.message),
+    );
+  });
+
+  test("null/0 corpus dimension is a no-op (un-embedded corpus handled elsewhere)", () => {
+    assert.doesNotThrow(() => assertEmbeddingDimsMatch(768, null));
+    assert.doesNotThrow(() => assertEmbeddingDimsMatch(768, undefined));
+    assert.doesNotThrow(() => assertEmbeddingDimsMatch(768, 0));
   });
 });

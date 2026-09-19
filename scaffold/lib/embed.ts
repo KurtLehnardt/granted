@@ -189,3 +189,24 @@ export function cosine(a: number[], b: number[]): number {
   }
   return dot / (Math.sqrt(na) * Math.sqrt(nb) || 1);
 }
+
+/**
+ * Guard the #1 self-host footgun: switching EMBEDDINGS_MODEL without re-embedding
+ * the corpus. cosine() above iterates over the query vector's length, so if the
+ * query and corpus vectors have DIFFERENT dimensions it silently reads past the
+ * shorter vector — returning NaN (or a garbage similarity) for every opportunity.
+ * That collapses to 0 candidates and a bogus "weak field" with no hint why (the
+ * exact confusion of a 512-dim OpenAI corpus vs a 768-dim local `nomic` query).
+ *
+ * Call this ONCE per search, before the retrieval loop, to fail loudly with the
+ * fix instead. No-op when `corpusDim` is null/0 (an un-embedded corpus is a
+ * different, separately-handled case) or when the dimensions already match.
+ */
+export function assertEmbeddingDimsMatch(queryDim: number, corpusDim: number | null | undefined): void {
+  if (corpusDim == null || corpusDim === 0) return;
+  if (queryDim === corpusDim) return;
+  throw new Error(
+    `Embedding dimension mismatch: your query embeds to ${queryDim} dims but the committed corpus is ${corpusDim} dims — these must match for retrieval to work. ` +
+      "You likely changed EMBEDDINGS_MODEL without re-embedding the corpus. Re-embed it with the same model: run `npm run data:embed` from the scaffold/ directory.",
+  );
+}
