@@ -127,7 +127,7 @@ export default function AutoFillModal({
 
         <div className="flex items-center gap-2 pr-8">
           <LockIcon className="h-3.5 w-3.5" design={design} />
-          <p className={eyebrowClass}>Pro feature &middot; not available yet</p>
+          <p className={eyebrowClass}>Not available yet</p>
         </div>
 
         <h2 id="auto-fill-modal-title" className={titleClass}>
@@ -135,8 +135,8 @@ export default function AutoFillModal({
         </h2>
 
         <p id="auto-fill-modal-desc" className={bodyClass}>
-          Auto Fill would fill out and submit federal applications for you automatically. We're
-          still finishing the integrations with each grant site, so it isn't live yet.
+          Auto Fill would help you prepare federal applications — you always review and file them
+          yourself. We're still finishing the integrations with each grant site, so it isn't live yet.
           {commercial ? " When it ships, it will be part of a Pro plan we're building toward." : ""} Nothing is
           submitted anywhere today.
         </p>
@@ -172,8 +172,8 @@ export default function AutoFillModal({
         </div>
 
         <p className={footnoteClass}>
-          This is a preview, not a purchase — no payment is collected and no application is ever
-          submitted from this screen.
+          This is a preview — no application is ever submitted from this screen. You always review
+          and file it yourself.
         </p>
       </div>
     </div>,

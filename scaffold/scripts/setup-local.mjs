@@ -544,6 +544,9 @@ async function main() {
     LLM_BASE_URL: OLLAMA_BASE_URL,
     EMBEDDINGS_BASE_URL: OLLAMA_BASE_URL,
     EMBEDDINGS_MODEL: EMBED_MODEL,
+    // Competitor & market analysis is free on local inference — enable it so it
+    // works out of the box. (mergeEnvLocal never clobbers a value you already set.)
+    NEXT_PUBLIC_FLAG_R5_DEEP_ANALYSIS: "true",
   };
   const { text, applied, skipped } = mergeEnvLocal(before, updates);
   writeFileSync(ENV, text); // one atomic-ish write of the fully-merged text
