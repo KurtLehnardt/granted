@@ -296,9 +296,10 @@ export default function AutoFillFlow({
         {!showPackage && step === "signin" && (
           <div>
             <p id="auto-fill-flow-desc" className={bodyClass}>
-              Assisted application isn&rsquo;t live yet. This is a preview so you can see what it
-              would need before it could act on your behalf — starting with signing in. Nothing is
-              submitted anywhere; you always review and file the application yourself.
+              Assisted application prepares a grounded submission package — forms, a budget
+              skeleton, and a checklist — from what you enter. First, sign in so it can prepare it
+              under your account. Nothing is ever submitted anywhere; you always review and file the
+              application yourself.
             </p>
             <div className="mt-6 flex flex-wrap items-center gap-4">
               <button type="button" onClick={() => signIn()} className={primaryBtnClass}>
@@ -314,7 +315,7 @@ export default function AutoFillFlow({
         {!showPackage && step === "requirements" && (
           <div>
             <p id="auto-fill-flow-desc" className={bodyClass}>
-              Here&rsquo;s what assisted application would need on file before it could act for you.
+              Here&rsquo;s what assisted application needs on file before it can act for you.
               Record what&rsquo;s true below (stored on this device only) — everything has to be in
               place before you can submit for approval. Nothing here submits an application.
             </p>
@@ -489,13 +490,13 @@ export default function AutoFillFlow({
         {!showPackage && step === "review" && (
           <div>
             <p className={`mt-4 font-display text-[18px] font-bold leading-snug ${design ? "text-foreground" : "text-ink"}`}>
-              Admin review required prior to granting auto-fill approval.
+              You review and file it yourself.
             </p>
             <p id="auto-fill-flow-desc" className={bodyClass}>
-              That&rsquo;s the end of this preview. To be clear about what just happened: nothing was
-              submitted to SAM.gov or any grant portal, and no application was filed. Your answers
-              stayed on this device. Assisted application isn&rsquo;t live yet — when it is, approval
-              would still be reviewed by a person first.
+              To be clear about what just happened: nothing was submitted to SAM.gov or any grant
+              portal, and no application was filed. Your answers stayed on this device. Assisted
+              application prepares your package; your Authorized Organization Representative reviews it
+              and files it through the portal&rsquo;s own submit button.
             </p>
             <div className="mt-6 flex flex-wrap items-center gap-4">
               <button type="button" onClick={onClose} className={secondaryBtnClass}>
@@ -506,8 +507,8 @@ export default function AutoFillFlow({
         )}
 
         <p className={footnoteClass}>
-          This is a preview — no application is ever submitted, and nothing here implies a guarantee
-          or any federal government affiliation.
+          No application is ever submitted here, and nothing implies a guarantee or any federal
+          government affiliation.
         </p>
       </div>
     </div>,
