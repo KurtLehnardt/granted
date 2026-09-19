@@ -1,4 +1,5 @@
 import type { CostMeter } from "./metering/meter";
+import { isLocalLlm } from "./llm/client";
 
 /**
  * Embeddings. Default: OpenAI text-embedding-3-small @ 512 dims, which matches
@@ -25,6 +26,58 @@ const DIMENSIONS = process.env.EMBEDDINGS_DIMENSIONS
     ? 512
     : undefined;
 
+/**
+ * Conservative placeholder detector: real `sk-`/`sk-proj-` keys are dozens of
+ * characters, so this only rejects the literal `.env.example` placeholders
+ * (or an obviously truncated string) — it must never reject a genuine key.
+ */
+function isPlaceholderKey(key: string | undefined): boolean {
+  if (!key) return true;
+  if (key === "sk-..." || key === "sk-ant-...") return true;
+  return key.length < 20;
+}
+
+/**
+ * Pure guard logic, exported for unit testing. `embed.ts`'s BASE_URL/IS_OPENAI
+ * are read once at module load, which makes re-import-per-env awkward under
+ * the tsx --test runner — so the actual decision lives here, as a function of
+ * explicit inputs, and `assertEmbeddingsConfigured()` below just supplies the
+ * real ones.
+ *
+ * Catches the two ways someone ends up silently calling OpenAI:
+ *  (a) they configured a local LLM (LLM_PROVIDER) but never moved the
+ *      SEPARATE embeddings seam off the OpenAI default, or
+ *  (b) they're on the OpenAI path but the key is missing/still the
+ *      .env.example placeholder.
+ * Both are no-ops when embeddings already target a non-OpenAI endpoint.
+ */
+export function checkEmbeddingsMisconfig(
+  isOpenAiTarget: boolean,
+  isLocal: boolean,
+  key: string | undefined,
+): void {
+  if (!isOpenAiTarget) return; // EMBEDDINGS_BASE_URL already points off OpenAI — nothing to check
+  if (isLocal) {
+    throw new Error(
+      "Local LLM is set (LLM_PROVIDER) but embeddings still target OpenAI. For a fully-local setup, set " +
+        "EMBEDDINGS_BASE_URL=http://localhost:11434/v1 and EMBEDDINGS_MODEL=nomic-embed-text in " +
+        "scaffold/.env.local, run `ollama pull nomic-embed-text`, then re-embed with `npm run data:embed`. " +
+        "See the README 'Fully offline' section.",
+    );
+  }
+  if (isPlaceholderKey(key)) {
+    throw new Error(
+      "OPENAI_API_KEY is missing or still the .env.example placeholder. Set a real key, or run fully local " +
+        "(see README).",
+    );
+  }
+}
+
+/** Preflight check called at the top of embed()/embedBatch(), before any network call. */
+function assertEmbeddingsConfigured(): void {
+  checkEmbeddingsMisconfig(IS_OPENAI, isLocalLlm(), process.env.EMBEDDINGS_API_KEY || process.env.OPENAI_API_KEY);
+}
+
 function embeddingKey(): string {
   const key = process.env.EMBEDDINGS_API_KEY || process.env.OPENAI_API_KEY;
   if (!key && IS_OPENAI) {
@@ -42,6 +95,7 @@ function embedBody(input: string | string[]): string {
 }
 
 export async function embed(text: string, meter?: CostMeter, signal?: AbortSignal): Promise<number[]> {
+  assertEmbeddingsConfigured();
   const key = embeddingKey();
   const t0 = performance.now();
   const res = await fetch(`${BASE_URL}/embeddings`, {
@@ -87,6 +141,7 @@ export async function embedBatch(
   signal?: AbortSignal,
 ): Promise<number[][]> {
   if (texts.length === 0) return [];
+  assertEmbeddingsConfigured();
   const key = embeddingKey();
 
   const CHUNK = 128;
