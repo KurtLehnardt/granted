@@ -194,6 +194,17 @@ export default function IntakeForm({ onResult }: { onResult: (m: any) => void })
             setProgress({ pct: msg.pct ?? 0, label: msg.label ?? "" });
           } else if (msg.type === "result") {
             gotResult = true;
+            // Record how long this successful run took so the NEXT search can show
+            // an accurate "~this long" estimate — matters most for slow/variable
+            // local models, where a fixed "up to two minutes" is simply wrong.
+            if (searchStartRef.current) {
+              try {
+                window.localStorage.setItem(
+                  "granted:lastSearchMs",
+                  String(Date.now() - searchStartRef.current),
+                );
+              } catch { /* localStorage blocked (private mode) — just skip the estimate */ }
+            }
             onResult(msg.map);
           } else if (msg.type === "error") {
             throw new Error(msg.error ?? "Matching failed.");

@@ -45,6 +45,14 @@ function softCap(floor: number): number {
   return 12;
 }
 
+/** Human, rounded duration for the "your last search took ~X" estimate. */
+export function formatDuration(ms: number): string {
+  const s = Math.max(1, Math.round(ms / 1000));
+  if (s < 60) return `about ${s} seconds`;
+  const m = Math.round(s / 60);
+  return m <= 1 ? "about a minute" : `about ${m} minutes`;
+}
+
 export default function SearchProgress({
   design,
   realPct,
@@ -58,6 +66,17 @@ export default function SearchProgress({
   const [elapsed, setElapsed] = useState(0);
   const [factIndex, setFactIndex] = useState(0);
   const floorRef = useRef(0);
+  // The duration of this browser's LAST successful search (ms), written by
+  // IntakeForm on completion. It's the only honest per-machine predictor: hosted
+  // and local runs differ by an order of magnitude, and this component can't read
+  // the server-side provider. Null on the first-ever run (or if storage is blocked).
+  const [lastMs, setLastMs] = useState<number | null>(null);
+  useEffect(() => {
+    try {
+      const n = Number(window.localStorage.getItem("granted:lastSearchMs"));
+      if (Number.isFinite(n) && n > 0) setLastMs(n);
+    } catch { /* localStorage unavailable — fall back to the generic line */ }
+  }, []);
 
   // A real milestone raises the monotonic floor and snaps the bar up to include it.
   useEffect(() => {
@@ -103,6 +122,7 @@ export default function SearchProgress({
 
   const label = realLabel || "Reading the federal register…";
   const fact = FACTS[factIndex];
+  const estimate = lastMs ? formatDuration(lastMs) : null;
   const mm = Math.floor(elapsed / 60);
   const ss = Math.floor(elapsed % 60).toString().padStart(2, "0");
   const pct = Math.round(display);
@@ -152,7 +172,9 @@ export default function SearchProgress({
       </p>
 
       <p className={`mt-3 text-pretty ${mutedClass}`}>
-        First-time searches read live federal data and can take up to two minutes. Hang tight.
+        {estimate
+          ? `Your last search took ${estimate}, so this one should be similar. Hang tight.`
+          : "This scores your fit across 968 opportunities — about a minute or two on hosted models, and longer on a local model. Hang tight."}
       </p>
     </div>
   );
