@@ -1,7 +1,7 @@
 /**
  * lib/metering/pricing.ts — R4b cost measurement: per-model $/token price table.
  *
- * `northstar.md` §5.2 (cost ceiling) and the R4b task ("profile before
+ * The product spec's §5.2 (cost ceiling) and the R4b task ("profile before
  * optimizing") both need real dollar figures before anything downstream
  * (`RunBudget` enforcement, latency/cost tradeoffs) can be calibrated
  * sensibly. This module is intentionally tiny and dependency-free: a price

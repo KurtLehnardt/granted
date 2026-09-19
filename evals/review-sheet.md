@@ -14,7 +14,7 @@ rule and see if it says what we say it says.
   beyond agreeing the hedge itself is reasonable.
 - This set stays a draft until every entry is reviewed and any corrections are folded back into
   `golden-set.jsonl`; only then does it get hashed and tagged `v1.0` per the README's freeze
-  procedure (tracked in `open-questions.md` §5.4 — named reviewer still unassigned).
+  procedure (tracked as an open question, §5.4 — named reviewer still unassigned).
 
 **Legend:** `eligible` / `conditional` / `excluded` / `unknown` (intentionally unasserted). A ⚑
 next to a citation means **no citation was given in the entry itself** — check those first.
@@ -224,4 +224,4 @@ Entries asserting an eligibility answer (`eligible` / `excluded` / `conditionall
 6. `education-25-k12-edtech-forprofit` — IES institution-restricted-mechanisms claim
 7. `defense-hw-31-closed-solicitation-freshness` — citation is internal spec (R8.3), not federal law
 
-Source: `evals/golden-set.jsonl` · `evals/rubric.md` · `evals/README.md`. Named-reviewer sign-off tracked in `open-questions.md` §5.4.
+Source: `evals/golden-set.jsonl` · `evals/rubric.md` · `evals/README.md`. Named-reviewer sign-off tracked as an open question (§5.4).

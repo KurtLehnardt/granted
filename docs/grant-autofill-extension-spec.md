@@ -9,7 +9,7 @@ This spec makes concrete the R6 memo's §7 recommendation — *"the thin assiste
 
 Inputs this spec is built on (absolute paths):
 - Field map / Phase-1 recon: `<repo-root>/.claude/worktrees/ext-docs/docs/grant-portal-field-map.md`
-- Product vision: `<repo-root>/northstar.md`
+- Product vision: the project's founding product principles (say no plainly, ground everything, translate government, ship risky things dark)
 - Legal / honesty boundary + S2S path: `<repo-root>/.claude/worktrees/ext-docs/docs/R6-s2s-feasibility-memo.md`
 - App→extension contract (source of truth for payload shapes):
   - `scaffold/lib/contracts/applicationForms.ts`

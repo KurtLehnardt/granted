@@ -22,11 +22,10 @@ import { deriveEnrichmentSignal, enrichmentQueryTerms, boostForOpportunity } fro
  * CALIBRATION KNOBS — tune these against all five test cases before touching UI.
  * Too aggressive and cases 1-4 under-match. Too loose and case 5 hallucinates.
  *
- * SOURCE OF TRUTH for these values + their audit trail:
- * `docs/calibration-baseline.md` (see its "CURRENT SHIPPED CALIBRATION"
- * section). If you change a knob here, update that doc in the SAME commit — the
- * baseline's older guidance is explicitly superseded there. A full golden-set
- * re-validation (evals/golden-set.jsonl) remains the outstanding audit step.
+ * These values are the current shipped calibration. If you change a knob here,
+ * record the rationale in the same commit (see the inline notes on `scoreFloor`
+ * below for the kind of audit trail expected). A full golden-set re-validation
+ * (evals/golden-set.jsonl) remains the outstanding audit step.
  */
 export const CALIBRATION = {
   /** Below this cosine similarity a program is never a candidate. */
@@ -45,8 +44,7 @@ export const CALIBRATION = {
    *  grants render as (permitted) ADJACENT and its weak-field finding stays robust
    *  while every genuinely-fitting non-grant still promotes. The residual
    *  case-1↔case-5 overlap (case-1's non-grant occasionally dips to ~30) is the
-   *  tension the task anticipated: keep case-5 honest, do not over-fit case-1.
-   *  See docs/calibration-baseline.md for the per-case audit. */
+   *  tension the task anticipated: keep case-5 honest, do not over-fit case-1. */
   scoreFloor: 33,
   /** If fewer than this many matches clear scoreFloor, declare a weak field.
    *  1 = weak field means ZERO strong matches — cleanly isolates the case-5

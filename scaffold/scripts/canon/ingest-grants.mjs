@@ -9,8 +9,9 @@
 // (CanonOpportunitySchema) -> upsert into Supabase under a NEW snapshot_version.
 //
 // COVERAGE: broadened beyond v1's ~15 demo keywords via scripts/canon/keywords.mjs
-// (documented in scaffold/docs/canon.md). Configurable via --keywords/--categories
-// for a smoke-test slice; defaults to the full list for the scheduled run.
+// (see that file for the current keyword/category list). Configurable via
+// --keywords/--categories for a smoke-test slice; defaults to the full list
+// for the scheduled run.
 //
 // IDEMPOTENT: upsertOpportunity (lib/canon/store.ts) is `on conflict (id) do
 // update`, keyed on the stable `grants-<id>` row id — re-running the same (or

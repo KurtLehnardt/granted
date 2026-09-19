@@ -26,7 +26,7 @@ signature feature is the honesty to say *"there probably isn't a strong match."*
 
 - **Problem:** founders don't know which federal grants/procurement programs fit them, and generic
   AI will confidently hallucinate five matches for any input.
-- **North Star** (`northstar.md`): "make something that feels like a personal government funding
+- **North Star**: "make something that feels like a personal government funding
   intelligence analyst for every startup." Anchored on the *user* problem, not on finding uses for
   AI. Manage the **Intelligence / Cost / Latency** triangle with architectural model routing.
 - **The product thesis** (`README.md`): *"Calibration is the product."* Any system returns five
@@ -39,16 +39,16 @@ signature feature is the honesty to say *"there probably isn't a strong match."*
 ## 3. The build METHOD (this is the real story)
 
 ### 3.1 Two layers of instruction
-- **How to operate** — `scaffold/docs/handoff.md` (the actual kickoff the human gave the agent):
+- **How to operate** — the actual kickoff prompt the human gave the agent:
   > "You are an orchestrator, not a worker… create dispatcher sub agents who you assign actionable
   > tasks to delegate, and the dispatchers spin up their own sub agents to actually do the work.
   > **These subagents must work in git worktrees.** When a subagent reports back… the dispatcher
   > will create a critical reviewer subagent to critique the code. Any critical or high findings
   > must be fixed… Please have a dispatcher create a new subagent to review all PRs and merge them
   > if no major issues are found."
-- **Model/effort routing** (`handoff.md`): small→haiku, medium→sonnet, large→opus; **all critics and
+- **Model/effort routing**: small→haiku, medium→sonnet, large→opus; **all critics and
   reviewers run as opus**; a subagent that trips a reviewer gets bumped to a higher effort/model tier.
-- **What to build** — `prompts/fundfinder-orchestrator-prompt.md`, the ~1,200-line feature spec
+- **What to build** — the ~1,200-line feature spec the orchestrator was given
   (§0 sequencing, §2 requirements, §3 contracts, §6 teams, §7 dependency graph, §8 rules, §9
   acceptance).
 
@@ -66,11 +66,12 @@ Quoted from the spec (§8):
   prompt-injection-looking content, contract-schema changes).
 
 ### 3.3 Recon-before-build gate
-`prompts/START-HERE.md` forced the orchestrator to **stop after recon and wait for human sign-off**
+The kickoff prompt forced the orchestrator to **stop after recon and wait for human sign-off**
 before writing a single task file: *"Do not write task files. Do not create GitHub issues. Do not
-begin implementation."* Recon produced `as-built.md`, `hypothesis-check.md`, and `canon.md`.
+begin implementation."* Recon produced three recon documents: an as-built summary, a hypothesis
+check, and a canon (data-source map).
 
-**This gate paid off immediately.** `hypothesis-check.md` **refuted or reshaped 3 of the spec's 4
+**This gate paid off immediately.** The hypothesis check **refuted or reshaped 3 of the spec's 4
 `[HYPOTHESIS]` markers** by reading the actual code:
 - H1 "independent calls are serialized" → **refuted** (the real chain has a true data dependency).
 - H3 "the pipeline is one big prompt" → **refuted** (it was already a composed chain).
@@ -89,10 +90,10 @@ and re-scoped the Canon and R4b slices accordingly.
 
 ---
 
-## 4. The decomposition (`task-graph.md`)
+## 4. The decomposition (the task graph)
 
-Tasks are markdown files (`tasks/*.md`), **not** GitHub Issues — an explicit owner decision
-("no GitHub issues mirror," `task-graph.md:3`; also authentic prompt #15). ID convention:
+Tasks were tracked as markdown files, **not** GitHub Issues — an explicit owner decision
+("no GitHub issues mirror"; also authentic prompt #15). ID convention:
 `{TEAM}-{NN}-{slug}`.
 
 | Prefix | Team | Scope |
@@ -116,7 +117,7 @@ Slices 4–8 exist as task specs but were not built** (planned, honest scope not
 
 ## 5. Architecture (the request path)
 
-Verified from `as-built.md` / `lib/*`:
+Verified from the recon notes and `lib/*`:
 
 1. **Interview (optional, R1)** — `generateQuestions()` on **gpt-4o-mini**, gate-first, median **4.1s**.
 2. **Extract profile** — `extractProfile()` on **claude-sonnet-4-6**.
@@ -124,7 +125,7 @@ Verified from `as-built.md` / `lib/*`:
 4. **Retrieve** — cosine over the pre-embedded corpus. **Today this is an in-memory scan over
    `data/opportunities.json`.** The **Supabase Postgres + pgvector** store (schema + typed client +
    hybrid semantic/lexical query, HNSW index) is **built and tested but not yet wired into the live
-   `/api/match` path** — `tasks/CAN-01-...:22` says *"Do NOT wire into `app/api/match/route.ts` yet."*
+   `/api/match` path** — the CAN-01 task spec says *"Do NOT wire into `app/api/match/route.ts` yet."*
    Do not present pgvector as load-bearing. **No government API call on the request path** either way.
 5. **Screen (R8)** — `screen()` → **eligible / conditionally-eligible / excluded / unknown** with a
    zero-false-exclusion guarantee.
@@ -149,14 +150,14 @@ Corpus: **476 opportunities** (grants.gov), all embedded at 512-dim; **335** car
   the request path**; retrieval today is still the in-memory JSON cosine loop.)
 - **The measured win came from parallel-batching the LLM scoring:** `explainMatches` went from serial
   to `Promise.allSettled` over batches of 8, cutting **novel-input latency from ~180s → ~98s**
-  (`as-built.md:72`, PR #1). Precomputed/cached demo cases render **instantly**.
+  (recon-verified, PR #1). Precomputed/cached demo cases render **instantly**.
 - **Honesty note:** the spec's R4b target (p95 ≤ 60s, TTFT < 10s) is the acceptance bar for Perf work
   (PRF-01..07) that was **not fully shipped** in the window. Streaming progress (PIP-01) *did* ship
   (PR #11, NDJSON milestones). So the honest claim is **~180s → ~98s + real streaming**, not "sub-60s."
 - **The hybrid future:** keep local semantic retrieval + add scheduled ingestion + a **targeted live
   freshness check that hits the source only for surfaced opportunities** — fully-live-per-request was
   explicitly rejected as it "reintroduces multi-minute latency… and fails hard on source downtime"
-  (`resolved-questions.md` §4.3; SBIR API is 403 today).
+  (§4.3 of the project's decision log; SBIR API is 403 today).
 
 ---
 
@@ -176,7 +177,7 @@ Corpus: **476 opportunities** (grants.gov), all embedded at 512-dim; **335** car
 - **Quote-grounding + citations:** every asserted eligibility rule cites a published source (SBA Policy
   Directive / 13 CFR 121.702 / 2 CFR 25). The golden set was **citation-checked by the product owner**
   and labeled transparently as *"citation-checked by product owner, not a domain expert"*
-  (`resolved-questions.md` §5.4).
+  (§5.4 of the project's decision log).
 - **Honest funding label** (PR #2): "median award to similar companies," never implying guaranteed
   funding.
 - **The interview eval, told honestly** (EVL-03, PR #17): the two *code-level* regression checks
@@ -195,13 +196,13 @@ Real **auto-apply / system-to-system submission** to a federal portal requires t
 **SAM.gov registration + UEI**, an authorized **AOR**, and **E-Biz POC** delegation, plus approved
 government API access — and **fundFinder cannot legally be the applicant's AOR/E-Biz POC**.
 
-- **APL-01** (`tasks/APL-01-s2s-feasibility-memo.md`) required a **research-only feasibility memo,
+- **APL-01** (the S2S feasibility-memo task) required a **research-only feasibility memo,
   gated on legal review, before any code** — explicit non-goal: headless-browser submission to any
   federal portal. Output: `docs/R6-s2s-feasibility-memo.md`.
 - **FE-06** shipped the "Auto-Apply" feature as a **UI-only stub**: a padlock + "Pro subscription"
   modal that **never submits anything, gates nothing server-side**, framed as *"waiting on grant-site
   API keys / admin review."* Honest about being a placeholder awaiting approval
-  (`open-questions.md`, "FE-06 Auto Apply stub"; PR #18).
+  (tracked as an explicit open question, "FE-06 Auto Apply stub"; PR #18).
 - Settings collects the **founder's own** SAM/UEI/AOR facts (their credentials, not fundFinder's) — the
   correct framing.
 
@@ -229,10 +230,10 @@ government API access — and **fundFinder cannot legally be the applicant's AOR
 
 | Decision | Rationale |
 |---|---|
-| **Supabase Postgres + pgvector** for the corpus (not a flat file) | supports hybrid keyword+semantic retrieval + versioning; owner wired the Supabase MCP mid-session (`resolved-questions.md` V-E) |
+| **Supabase Postgres + pgvector** for the corpus (not a flat file) | supports hybrid keyword+semantic retrieval + versioning; owner wired the Supabase MCP mid-session (decision V-E) |
 | **Hybrid ingestion**, not fully-live-per-request | fully-live "reintroduces multi-minute latency… and fails hard on source downtime" (SBIR 403) — §4.3 |
 | **localStorage for user data, nothing retained server-side** | descriptions/consent stay client-side pre-accounts; server proven retention-free by test (PR #12) |
-| **No GitHub Issues** — `tasks/*.md` is the system of record | owner decision; avoids duplicate tracking during a fast build (authentic prompt #15) |
+| **No GitHub Issues** — task markdown files were the system of record | owner decision; avoids duplicate tracking during a fast build (authentic prompt #15) |
 | **Golden set frozen at v1.0**, owner citation-check | owner had no SBIR expertise; citation-check + transparent labeling instead of expert rating |
 | **Zero-false-exclusion by construction** | defense-in-depth: reviewed-only rules gate, `.parse()` backstop, `model_inferred` → `unknown` |
 | **Feature-flag everything, default off** | one-flag revert if a slice regresses; R7/R1/R8 stay OFF pending a **§9.1 human validation session** |
@@ -246,7 +247,7 @@ government API access — and **fundFinder cannot legally be the applicant's AOR
 - **Vercel "No Next.js version detected"** — the app lives in `scaffold/`, not repo root, so Vercel
   couldn't find `package.json`. **Verified first-hand** via authentic session prompt #4 ("there is CI
   failure with vercel, it says 'No Next.js version detected… check your Root Directory'"); fixed by
-  setting **Vercel Root Directory = `scaffold/`** (`as-built.md`).
+  setting **Vercel Root Directory = `scaffold/`** (recon-verified).
 - **Provider rate-limit / token-budget pressure on the scoring calls** — addressed by parallel-batching
   `explainMatches` and making it fault-tolerant with `Promise.allSettled` so one bad batch no longer
   500s the request (PR #1, PR #2). *(The literal "429" HTTP code isn't named verbatim in PR bodies;
@@ -303,10 +304,4 @@ high-leverage director of an agent fleet:
 
 - **Live demo:** https://your-app.example.com
 - **Repo:** https://github.com/KurtLehnardt/granted
-- **Orchestration spec:** https://github.com/KurtLehnardt/granted/blob/main/prompts/fundfinder-orchestrator-prompt.md
-- **Entry point:** https://github.com/KurtLehnardt/granted/blob/main/prompts/START-HERE.md
-- **Recon — as-built:** https://github.com/KurtLehnardt/granted/blob/main/as-built.md
-- **Recon — hypothesis check:** https://github.com/KurtLehnardt/granted/blob/main/hypothesis-check.md
-- **Recon — canon (data sources):** https://github.com/KurtLehnardt/granted/blob/main/canon.md
-- **Task graph:** https://github.com/KurtLehnardt/granted/blob/main/task-graph.md
 - **R6 assisted-apply feasibility memo:** https://github.com/KurtLehnardt/granted/blob/main/docs/R6-s2s-feasibility-memo.md

@@ -35,9 +35,8 @@ import type { NarrativeSection } from "../contracts/applicationRequirements";
  * one. `lib/apply/draft.ts`'s undeclared-sentence guard now closes this — it
  * accounts for the ENTIRE `draft_text` and wraps any undeclared specific
  * factual sentence into a `[founder to provide: …]` marker. See the
- * `FIXED (Finding 1)` test in `applicationHonesty.test.ts` (and
- * resolved-questions.md §G7) for the full writeup — this fixture is what
- * proves the guard bites.
+ * `FIXED (Finding 1)` test in `applicationHonesty.test.ts` (finding G7)
+ * for the full writeup — this fixture is what proves the guard bites.
  */
 
 /** A `user_stated` provenanced cell (the founder typed/selected it themselves). */

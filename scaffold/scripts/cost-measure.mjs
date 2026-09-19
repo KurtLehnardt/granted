@@ -32,9 +32,9 @@
 //   npm run cost:measure -- "custom company description" "another one"
 //
 // Writes raw { id, description, summary, costDebug, elapsedMs } results to
-// /tmp/r4b-cost-results.json for the dispatcher to turn into the findings doc
-// (docs/R4b-cost-findings.md — out of scope for this script/task; see the
-// R4b task spec's "Out of scope" section).
+// /tmp/r4b-cost-results.json for turning into a findings writeup separately
+// (out of scope for this script/task; see the R4b task spec's "Out of scope"
+// section).
 // ============================================================================
 
 import { writeFile } from "node:fs/promises";
