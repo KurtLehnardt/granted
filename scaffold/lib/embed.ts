@@ -1,5 +1,6 @@
 import type { CostMeter } from "./metering/meter";
 import { isLocalLlm } from "./llm/client";
+import { normalizeOpenAiBaseUrl } from "./llm/baseUrl";
 
 /**
  * Embeddings. Default: OpenAI text-embedding-3-small @ 512 dims, which matches
@@ -15,7 +16,8 @@ import { isLocalLlm } from "./llm/client";
  * Env: EMBEDDINGS_BASE_URL / EMBEDDINGS_MODEL / EMBEDDINGS_DIMENSIONS /
  *      EMBEDDINGS_API_KEY (falls back to OPENAI_API_KEY).
  */
-const BASE_URL = (process.env.EMBEDDINGS_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
+// Accept a bare host (e.g. http://localhost:11434) by auto-appending /v1. See lib/llm/baseUrl.
+const BASE_URL = normalizeOpenAiBaseUrl(process.env.EMBEDDINGS_BASE_URL || "https://api.openai.com/v1");
 const MODEL = process.env.EMBEDDINGS_MODEL || "text-embedding-3-small";
 const IS_OPENAI = /api\.openai\.com/.test(BASE_URL);
 // OpenAI's text-embedding-3-* accept a `dimensions` param (512 matches the
