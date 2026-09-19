@@ -533,13 +533,13 @@ export default function OpportunityCard({
         <span className={autoFillHintClass}>
           {!commercial ? (
             // Commercial framing hidden: describe the feature state, no plan/Pro.
-            assistedApplyFlow ? "Preview" : "Not live yet"
+            assistedApplyFlow ? "Assisted fill" : "Not live yet"
           ) : autoFillUnlocked ? (
-            // The hint must match what clicking actually opens: the walkable
-            // preview (r6 on) vs. the "not live yet" modal (r6 off). Claiming
-            // "included in your plan" while the modal says "not available yet"
-            // was the contradiction (frontend review MEDIUM).
-            assistedApplyFlow ? "Included in your plan (preview)" : <>In your plan &middot; not live yet</>
+            // The hint must match what clicking actually opens: the working
+            // assisted-fill flow (r6 on) vs. the "not live yet" modal (r6 off).
+            // Claiming "included in your plan" while the modal says "not available
+            // yet" was the contradiction (frontend review MEDIUM).
+            assistedApplyFlow ? "Included in your plan" : <>In your plan &middot; not live yet</>
           ) : (
             <>Pro feature &middot; not available yet</>
           )}

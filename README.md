@@ -117,6 +117,8 @@ Everything risky ships **default-OFF** so a fresh clone is safe and boring. Flip
 
 **Competitor & market analysis** (`/api/competitors`) is **on by default** in the template — add `EXA_API_KEY` for richer web competitors, or set `NEXT_PUBLIC_FLAG_R5_DEEP_ANALYSIS=false` to turn it off.
 
+**Assisted application** (the in-app "Auto Fill", `NEXT_PUBLIC_FLAG_R6_AUTO_FILL`) is also **on by default**. It prepares a grounded submission package — forms, a budget skeleton, a checklist — that **you review and file yourself; it never submits anything**. Narrative drafting uses your LLM (hosted key or local model); the forms/budget/checklist work even without one. Set it to `false` to hide the flow. (This is the in-app companion to the optional [Chrome extension](#chrome-extension-assisted-fill-experimental) below, which fills a portal's own form from the package the app generates.)
+
 The full flag list lives in `scaffold/lib/flags/registry.ts`.
 
 ## Real Google sign-in (Supabase + OAuth)
