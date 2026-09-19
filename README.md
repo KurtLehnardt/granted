@@ -112,9 +112,10 @@ Everything risky ships **default-OFF** so a fresh clone is safe and boring. Flip
 | Flag | What it turns on |
 |---|---|
 | `NEXT_PUBLIC_FLAG_DISCERNMENT_LAYER=true` | The **honest "don't apply"** layer: per-match recommend / verify / do-not-recommend verdicts, a whole-map verdict, and rubric-anchored scoring. This is the headline feature. |
-| `NEXT_PUBLIC_FLAG_R5_DEEP_ANALYSIS=true` | The live **competitor & market-analysis** brief (`/api/competitors`). Add `EXA_API_KEY` for web competitors. |
 | `NEXT_PUBLIC_MOCK_AUTH=true` | A localStorage-only **mock** sign-in, to demo the login loop without real OAuth. |
 | `NEXT_PUBLIC_FLAG_R9_SUPABASE_AUTH=true` | **Real** Google sign-in via Supabase (see next section). Wins over mock auth if both are on. |
+
+**Competitor & market analysis** (`/api/competitors`) is **on by default** in the template — add `EXA_API_KEY` for richer web competitors, or set `NEXT_PUBLIC_FLAG_R5_DEEP_ANALYSIS=false` to turn it off.
 
 The full flag list lives in `scaffold/lib/flags/registry.ts`.
 

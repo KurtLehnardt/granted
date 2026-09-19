@@ -348,9 +348,12 @@ export default function OpportunityCard({
 
   const nextStepsBorderClass = design ? "mt-6 border-t border-structure-on-canvas pt-5" : "mt-6 border-t border-rule pt-5";
 
-  const linkClass = design
-    ? "mt-3 inline-block font-mono text-[12px] text-structure-on-canvas underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2"
-    : "mt-3 inline-block font-mono text-[12px] text-federal underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-federal focus-visible:ring-offset-2";
+  // The primary action on a match: a prominent green CTA so opening the official
+  // listing (where you actually apply) is the obvious next step, not a quiet text
+  // link. Uses the shared `success` token so it reads as a positive action in
+  // both themes.
+  const officialCtaClass =
+    "mt-4 inline-flex items-center gap-2 rounded-lg bg-success px-5 py-3 font-display text-[15px] font-bold text-on-semantic shadow-sm transition hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-success focus-visible:ring-offset-2";
 
   // A3-lite — recipient company cells link out to the row's verified
   // SBIR.gov sourceUrl. Same underline affordance as `linkClass` but sized
@@ -714,8 +717,9 @@ export default function OpportunityCard({
               <p className={eyebrowClass(design, "mb-2")}>What to do next</p>
               {nextSteps && <p className="text-pretty font-body text-[14px] leading-relaxed">{nextSteps}</p>}
               {o.url && (
-                <a href={o.url} target="_blank" rel="noreferrer" className={linkClass}>
+                <a href={o.url} target="_blank" rel="noreferrer" className={officialCtaClass}>
                   Open the official listing
+                  <span aria-hidden="true">&rarr;</span>
                 </a>
               )}
             </div>

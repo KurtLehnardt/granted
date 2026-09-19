@@ -8,9 +8,7 @@ import {
   type AutoFillRequirements,
 } from "@/lib/mockAuth";
 import { useAuth } from "@/components/AuthProvider";
-import { useBilling } from "@/components/BillingProvider";
 import { useDialogA11y } from "@/components/useDialogA11y";
-import { useEntitlements } from "@/lib/entitlements/useEntitlements";
 import ApplicationChecklist, { REQUIREMENTS, type RequirementKey } from "@/components/ApplicationChecklist";
 import ApplicationPackage from "@/components/ApplicationPackage";
 import type { Opportunity } from "@/lib/types";
@@ -88,11 +86,6 @@ export default function AutoFillFlow({
   // (previously gated behind r7_design).
   const design = true;
   const { user, signIn } = useAuth();
-  // Pro *framing* only — this gates nothing and entitles nothing (see the stub).
-  // Source the tier from the reactive BillingProvider context (single source of
-  // truth) so this framing stays in lockstep with the OpportunityCard padlocks.
-  const { tier: billingTier } = useBilling();
-  const entitlements = useEntitlements(billingTier);
 
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeBtnRef = useRef<HTMLButtonElement>(null);
@@ -250,7 +243,7 @@ export default function AutoFillFlow({
         <div className="flex items-center gap-2 pr-8">
           <LockIcon className="h-3.5 w-3.5" design={design} />
           <p className={eyebrowClass}>
-            {entitlements.isPro ? "Pro feature" : "Pro feature preview"} &middot; nothing is submitted
+            Assisted application &middot; nothing is submitted
           </p>
         </div>
 
@@ -303,9 +296,9 @@ export default function AutoFillFlow({
         {!showPackage && step === "signin" && (
           <div>
             <p id="auto-fill-flow-desc" className={bodyClass}>
-              Assisted application is a Pro feature we&rsquo;re building toward. This is a preview so
-              you can see what it would need before it could act on your behalf — starting with
-              signing in. Nothing is submitted anywhere, and no payment is collected.
+              Assisted application isn&rsquo;t live yet. This is a preview so you can see what it
+              would need before it could act on your behalf — starting with signing in. Nothing is
+              submitted anywhere; you always review and file the application yourself.
             </p>
             <div className="mt-6 flex flex-wrap items-center gap-4">
               <button type="button" onClick={() => signIn()} className={primaryBtnClass}>
@@ -500,9 +493,9 @@ export default function AutoFillFlow({
             </p>
             <p id="auto-fill-flow-desc" className={bodyClass}>
               That&rsquo;s the end of this preview. To be clear about what just happened: nothing was
-              submitted to SAM.gov or any grant portal, no application was filed, and no payment was
-              taken. Your answers stayed on this device. Assisted application isn&rsquo;t live yet —
-              when it is, approval would still be reviewed by a person first.
+              submitted to SAM.gov or any grant portal, and no application was filed. Your answers
+              stayed on this device. Assisted application isn&rsquo;t live yet — when it is, approval
+              would still be reviewed by a person first.
             </p>
             <div className="mt-6 flex flex-wrap items-center gap-4">
               <button type="button" onClick={onClose} className={secondaryBtnClass}>
@@ -513,9 +506,8 @@ export default function AutoFillFlow({
         )}
 
         <p className={footnoteClass}>
-          This is a preview of a Pro feature, not a purchase — no payment is collected, no
-          application is ever submitted, and nothing here implies a guarantee or any federal
-          government affiliation.
+          This is a preview — no application is ever submitted, and nothing here implies a guarantee
+          or any federal government affiliation.
         </p>
       </div>
     </div>,
