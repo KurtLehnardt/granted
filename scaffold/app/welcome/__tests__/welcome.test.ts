@@ -11,13 +11,13 @@ import { metadata, structuredData, TITLE, DESCRIPTION } from "../content";
  * price) and never claims to auto-file applications.
  */
 describe("welcome landing metadata", () => {
-  test("title and description carry the Granted brand + honest thesis", () => {
+  test("title and description carry the Granted brand + matched-funding thesis", () => {
     assert.equal(metadata.title, TITLE);
     assert.match(String(metadata.title), /Granted/);
-    assert.match(String(metadata.title), /worth chasing/i);
+    assert.match(String(metadata.title), /matched/i);
     assert.equal(metadata.description, DESCRIPTION);
     assert.match(String(metadata.description), /968/);
-    assert.match(String(metadata.description), /honest/i);
+    assert.match(String(metadata.description), /grounded/i);
   });
 
   test("OpenGraph + Twitter tags are present and consistent", () => {

@@ -1,6 +1,6 @@
 # Granted: government opportunity finder
 
-**Granted** turns a founder's plain-English company description into a map of real **federal funding opportunities**: grants, SBIR/STTR R&D, procurement, loans, assistance, scholarships. Each match is scored for fit, screened for eligibility, and calibrated to do the thing no other tool will: **tell you honestly when *not* to apply.**
+**Granted** turns a plain-English description of your business or research into a map of real **federal funding opportunities**: grants, SBIR/STTR R&D, procurement, loans, assistance, scholarships. Each match is scored for fit on the criteria a program officer would apply, and screened for eligibility.
 
 Nothing is fabricated. Every match traces to a real award record, and a schema layer *throws* on any invented program, amount, or citation.
 
@@ -10,7 +10,7 @@ Nothing is fabricated. Every match traces to a real award record, and a schema l
 
 ## Why this matters
 
-Calibration is the product. Any system can return five matches for any input. The differentiator is the willingness to say *"there probably isn't a strong match, and here's why"*. That's a designed screen, not an error. If your system fabricates matches for a company that doesn't align with federal grant mechanics, it fails the people using it.
+Grounding is the product. Any system can return five matches for any input. Granted scores your fit against a corpus of 968 real federal programs and traces every match to a real award record; when the fit genuinely isn't there, it says so instead of padding the list. A system that fabricates matches for a company that doesn't align with federal grant mechanics fails the people using it.
 
 ---
 
@@ -111,7 +111,7 @@ Everything risky ships **default-OFF** so a fresh clone is safe and boring. Flip
 
 | Flag | What it turns on |
 |---|---|
-| `NEXT_PUBLIC_FLAG_DISCERNMENT_LAYER=true` | The **honest "don't apply"** layer: per-match recommend / verify / do-not-recommend verdicts, a whole-map verdict, and rubric-anchored scoring. This is the headline feature. |
+| `NEXT_PUBLIC_FLAG_DISCERNMENT_LAYER=true` | Per-match **recommend / verify / do-not-recommend** verdicts, a whole-map verdict, and rubric-anchored scoring. |
 | `NEXT_PUBLIC_MOCK_AUTH=true` | A localStorage-only **mock** sign-in, to demo the login loop without real OAuth. |
 | `NEXT_PUBLIC_FLAG_R9_SUPABASE_AUTH=true` | **Real** Google sign-in via Supabase (see next section). Wins over mock auth if both are on. |
 
@@ -212,7 +212,7 @@ All sources are keyless. There is a Supabase-backed corpus store (`supabase/migr
 3. **Scoring.** Claude scores each candidate 0–100 on the criteria a program officer would apply, with a met/unmet checklist and plain-language explanations.
 4. **Eligibility screen.** A rules layer buckets eligibility from *stated* facts; it never turns a model guess into an exclusion.
 5. **Discernment** *(flag)*. Recommend / verify / **don't-recommend** per match, plus a whole-map verdict, so a weak idea gets an honest "don't apply" instead of a wall of maybes.
-6. **The honest no.** When nothing fits, that's a first-class finding with real redirects, not an empty screen.
+6. **When nothing fits.** That's a first-class finding with real redirects, so even a weak-field run points you somewhere useful.
 
 Results **stream**. Progress and grounded evidence appear in seconds rather than behind a frozen spinner.
 
