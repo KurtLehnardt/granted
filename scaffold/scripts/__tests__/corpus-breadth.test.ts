@@ -10,7 +10,13 @@
  *    deadline and NO funding floor/ceiling, so nothing reads "closing soon" or
  *    inflates the funding summary (plan A0/I5);
  *  - every record validates against the A0 OpportunitySchema and is embedded at
- *    the same 512 dimensions the runtime query embedding uses.
+ *    ONE consistent dimension. The committed snapshot is 512-d (OpenAI
+ *    text-embedding-3-small), but a self-hoster who runs `npm run data:embed`
+ *    with a local embedder re-embeds the whole corpus at that model's dimension
+ *    (e.g. nomic-embed-text is 768-d). So we derive the dimension from the corpus
+ *    itself and require uniformity, rather than hardcoding 512 — that would fail
+ *    `npm test` after a perfectly valid local re-embed. Query/corpus dimension
+ *    MATCHING is enforced separately at runtime (assertEmbeddingDimsMatch).
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -27,12 +33,20 @@ const corpus = JSON.parse(
 const opps = corpus;
 const by = (pred: (o: any) => boolean) => opps.filter(pred);
 
+// The corpus embedding dimension, DERIVED from the corpus (not hardcoded) so a
+// local re-embed at a different dimension still validates — see the file header.
+// 512 for the committed OpenAI snapshot; whatever the local embedder emits after
+// `npm run data:embed`. Tests assert every record matches this one dimension.
+const EXPECTED_DIM: number =
+  (opps.find((o: any) => Array.isArray(o.embedding) && o.embedding.length > 0) as any)?.embedding?.length ?? 0;
+
 test("the original 476 grants.gov opportunities are preserved and embedded", () => {
   const grants = by((o) => o.source === "grants.gov");
   assert.equal(grants.length, 476, "expected the original 476 grants.gov opps");
+  assert.ok(EXPECTED_DIM > 0, "corpus must be embedded (positive dimension)");
   assert.ok(
-    grants.every((o: any) => Array.isArray(o.embedding) && o.embedding.length === 512),
-    "every grant must keep its 512-dim embedding",
+    grants.every((o: any) => Array.isArray(o.embedding) && o.embedding.length === EXPECTED_DIM),
+    `every grant must keep its ${EXPECTED_DIM}-dim embedding (uniform with the rest of the corpus)`,
   );
 });
 
@@ -77,10 +91,14 @@ test("procurement records honestly frame gov-as-customer and link to a real awar
   }
 });
 
-test("every corpus record validates against OpportunitySchema and is embedded 512-d", () => {
+test("every corpus record validates against OpportunitySchema and is embedded at a uniform dimension", () => {
+  assert.ok(EXPECTED_DIM > 0, "corpus must be embedded (positive dimension)");
   for (const o of opps) {
     const r = OpportunitySchema.safeParse(o);
     assert.ok(r.success, `record ${(o as any).id} failed schema: ${r.success ? "" : JSON.stringify(r.error.issues.slice(0, 2))}`);
-    assert.ok(Array.isArray((o as any).embedding) && (o as any).embedding.length === 512, `${(o as any).id} missing 512-dim embedding`);
+    assert.ok(
+      Array.isArray((o as any).embedding) && (o as any).embedding.length === EXPECTED_DIM,
+      `${(o as any).id} missing ${EXPECTED_DIM}-dim embedding`,
+    );
   }
 });
