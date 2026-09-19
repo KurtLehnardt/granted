@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { normalizeOpenAiBaseUrl } from "./baseUrl";
 
 /**
  * LLM provider seam. `makeLlmClient()` returns something that walks and talks
@@ -54,7 +55,9 @@ export function makeLlmClient(opts: LlmClientOptions = {}): LlmClient {
 }
 
 function openAiCompatShim(opts: LlmClientOptions): LlmClient {
-  const base = (process.env.LLM_BASE_URL || "http://localhost:11434/v1").replace(/\/$/, "");
+  // Accept a bare host (e.g. http://localhost:11434) by auto-appending /v1 —
+  // the OpenAI-compatible path all these servers use. See ./baseUrl.
+  const base = normalizeOpenAiBaseUrl(process.env.LLM_BASE_URL || "http://localhost:11434/v1");
   const model = process.env.LOCAL_LLM_MODEL || "gemma4:latest";
   const apiKey = process.env.LLM_API_KEY || "local"; // Ollama ignores this
   const timeoutMs = opts.timeout ?? 120_000;
@@ -113,7 +116,10 @@ function openAiCompatShim(opts: LlmClientOptions): LlmClient {
           });
           if (!res.ok) {
             const body = await res.text().catch(() => "");
-            throw new Error(`Local LLM request failed (${res.status}) at ${base}: ${body.slice(0, 200)}`);
+            const hint = res.status === 404
+              ? " — a 404 here usually means LLM_BASE_URL is missing the OpenAI-compatible path; it must end in /v1 (e.g. http://localhost:11434/v1)"
+              : "";
+            throw new Error(`Local LLM request failed (${res.status}) at ${base}: ${body.slice(0, 200)}${hint}`);
           }
           const json: any = await res.json();
           const text: string = json?.choices?.[0]?.message?.content ?? "";
