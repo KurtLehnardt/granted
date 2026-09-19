@@ -80,7 +80,7 @@ Don't want to pay for or send data to a hosted model? Point the reasoning at a l
 3. `npm run dev`. Every scoring/explanation call now routes to Ollama's OpenAI-compatible endpoint, with grammar-constrained JSON so a local model stays parseable. Any OpenAI-compatible server works (LM Studio, vLLM, llama.cpp). Set `LLM_BASE_URL` to its `/v1` URL.
 
 ### Fully offline
-By default the tiny query embedding still uses OpenAI (the corpus ships pre-embedded at 512 dims; it costs fractions of a cent). To remove that last hosted call, run embeddings locally and re-embed the corpus once:
+**Embeddings are a SEPARATE setting from the LLM.** `LLM_PROVIDER=ollama` (above) only moves the scoring/explanation calls — it does **not** move the query embedding. By default that tiny embedding still uses OpenAI (the corpus ships pre-embedded at 512 dims; it costs fractions of a cent), and if `OPENAI_API_KEY` is missing or still the `.env.example` placeholder you'll get a clear error rather than a hosted call. To remove that last hosted call and go fully local, you must ALSO set `EMBEDDINGS_BASE_URL`/`EMBEDDINGS_MODEL`, pull a local embedding model, and re-embed the corpus with that model:
 ```bash
 ollama pull nomic-embed-text
 # add these two lines to scaffold/.env.local:

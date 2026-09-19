@@ -66,7 +66,9 @@ describe("embedBatch — one request per chunk, results in input order", () => {
   // Fake OpenAI: echoes each input's position as its embedding, but returns the
   // data array SHUFFLED — so a correct impl must sort by `index`, not trust order.
   function installFakeOpenAI() {
-    process.env.OPENAI_API_KEY = "test-key";
+    // Long enough to clear embed.ts's placeholder-key guard (real sk-/sk-proj-
+    // keys are dozens of chars; anything under ~20 is treated as a placeholder).
+    process.env.OPENAI_API_KEY = "sk-test-1234567890abcdef";
     globalThis.fetch = (async (_url: string, init: any) => {
       calls++;
       const body = JSON.parse(init.body);
@@ -111,6 +113,9 @@ describe("embedBatch — one request per chunk, results in input order", () => {
 
   test("throws without a key", async () => {
     delete process.env.OPENAI_API_KEY;
-    await assert.rejects(() => embedBatch(["x"]), /OPENAI_API_KEY is not set/);
+    // The preflight guard (embed.ts's assertEmbeddingsConfigured) now catches
+    // this before the network call, with a clearer message than the old
+    // fallback ("OPENAI_API_KEY is not set") that only fired inside fetch.
+    await assert.rejects(() => embedBatch(["x"]), /OPENAI_API_KEY is missing or still the \.env\.example placeholder/);
   });
 });
