@@ -1,4 +1,4 @@
-import { embed, cosine } from "./embed";
+import { embed, cosine, assertEmbeddingDimsMatch } from "./embed";
 import { extractProfile, explainMatches, explainMatchesTwoPass, explainWeakField } from "./claude";
 import type { Opportunity, OpportunityMap, StartupProfile, Match, Tier, AwardHistory } from "./types";
 import { screen } from "./eligibility/screen";
@@ -261,6 +261,12 @@ export async function buildOpportunityMap(
     enrich ? enrichmentQueryTerms(enrich).join(", ") : "",
   ].filter(Boolean).join("\n");
   const queryVec = await d.embed(queryText, meter, signal);
+  // Fail loudly if the live query and the committed corpus don't share an
+  // embedding space (switched EMBEDDINGS_MODEL without re-embedding) — otherwise
+  // cosine() silently returns NaN for every opp and the run looks like a weak
+  // field for no visible reason. Sampled from the first embedded opp (uniform dim).
+  const corpusDim = d.corpus.find((o) => Array.isArray(o.embedding) && o.embedding.length > 0)?.embedding?.length;
+  assertEmbeddingDimsMatch(queryVec.length, corpusDim);
   step({ key: "embed", label: `Searching ${d.corpus.length} programs`, pct: 32 });
 
   // 4. Hybrid retrieval: similarity, then LLM scoring. No pre-screen eligibility
