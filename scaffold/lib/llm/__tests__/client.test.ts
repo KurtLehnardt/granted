@@ -1,7 +1,7 @@
 import { test, describe, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { makeLlmClient, isLocalLlm } from "../client";
-import { unwrapArrayEnvelope, coerceProfileStrings } from "../../claude";
+import { unwrapArrayEnvelope, coerceProfileStrings, coerceEmployees } from "../../claude";
 
 /**
  * The local-model seam. The default (Anthropic) path is exercised by the rest of
@@ -137,5 +137,39 @@ describe("coerceProfileStrings — local-model StartupProfile string-field drift
     assert.equal(out.employees, 42);
     assert.deepEqual(out.expandedTerms, ["a", "b"]);
     assert.deepEqual(out.naicsGuesses, ["541511"]);
+  });
+
+  test("coerces a numeric-string `employees` to a number (drift → usable size fact)", () => {
+    assert.equal(coerceProfileStrings({ description: "d", employees: "50" }).employees, 50);
+    assert.equal(coerceProfileStrings({ description: "d", employees: "50 employees" }).employees, 50);
+    assert.equal(coerceProfileStrings({ description: "d", employees: "1,200" }).employees, 1200);
+  });
+
+  test("coerces an `employees` range to its UPPER bound (conservative for the size cap)", () => {
+    assert.equal(coerceProfileStrings({ description: "d", employees: "11-50" }).employees, 50);
+    assert.equal(coerceProfileStrings({ description: "d", employees: "11–50" }).employees, 50);
+  });
+
+  test("drops an unrecoverable `employees` value so the number-typed zod field still validates", () => {
+    const out = coerceProfileStrings({ description: "d", employees: "a few" });
+    assert.equal("employees" in out, false);
+  });
+});
+
+describe("coerceEmployees — number-field drift", () => {
+  test("passes finite numbers through; rejects NaN/Infinity", () => {
+    assert.equal(coerceEmployees(42), 42);
+    assert.equal(coerceEmployees(0), 0);
+    assert.equal(coerceEmployees(NaN), undefined);
+    assert.equal(coerceEmployees(Infinity), undefined);
+  });
+
+  test("parses numeric strings, ranges (upper bound), and returns undefined when no integer", () => {
+    assert.equal(coerceEmployees("500"), 500);
+    assert.equal(coerceEmployees("~50 FTE"), 50);
+    assert.equal(coerceEmployees("300-800"), 800);
+    assert.equal(coerceEmployees("unknown"), undefined);
+    assert.equal(coerceEmployees(null), undefined);
+    assert.equal(coerceEmployees({ n: 5 }), undefined);
   });
 });

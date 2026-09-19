@@ -154,6 +154,28 @@ const STARTUP_PROFILE_STRING_FIELDS = [
 ] as const;
 
 /**
+ * `employees` is the one NUMBER-typed StartupProfile field, and local models
+ * drift on it just like the string fields — returning `"50"`, `"50 employees"`,
+ * `"~50"`, or a range like `"11-50"` instead of a plain number. The zod boundary
+ * (`employees: z.number().optional()`) rejects a string, so the value is dropped
+ * — and every downstream consumer guards on `typeof === "number"` (the SBIR
+ * 500-employee size screen in eligibility/bridge.ts, the small-business boost in
+ * retrieval/enrich.ts, the apply package). A dropped value silently disables all
+ * of them. Parse the common drift forms back to a number; a range takes the
+ * UPPER bound (conservative for a size cap — never over-claims small-business
+ * eligibility). Returns undefined when no integer can be recovered ("a few",
+ * "unknown"), so the caller drops it rather than failing the number field.
+ */
+export function coerceEmployees(value: unknown): number | undefined {
+  if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
+  if (typeof value !== "string") return undefined;
+  const nums = value.replace(/,/g, "").match(/\d+(?:\.\d+)?/g);
+  if (!nums) return undefined;
+  const parsed = nums.map(Number).filter((n) => Number.isFinite(n));
+  return parsed.length ? Math.max(...parsed) : undefined;
+}
+
+/**
  * Local models under JSON-object mode occasionally drift on `StartupProfile`'s
  * string-typed fields — e.g. returning `location: {"city": "Austin", "state":
  * "TX"}` or `capitalRaised: ["$500k", "seed"]` instead of a plain string. The
@@ -185,6 +207,13 @@ export function coerceProfileStrings(profile: Record<string, unknown>): StartupP
       // string field.
       out[field] = String(value);
     }
+  }
+  // The one number field: coerce model drift ("50", "11-50", …) back to a number,
+  // or drop an unrecoverable value so the number-typed zod field still validates.
+  if ("employees" in out) {
+    const emp = coerceEmployees(out.employees);
+    if (emp == null) delete out.employees;
+    else out.employees = emp;
   }
   return out as StartupProfile;
 }
