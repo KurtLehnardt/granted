@@ -102,7 +102,6 @@
         <li>Manage the triangle: <b>Intelligence / Cost / Latency</b>, via model routing</li>
         <li><span class="green">Calibration is the product</span>: the win is saying <i>"probably not a fit"</i> and explaining why</li>
       </ul>
-      <a class="link" href="https://github.com/KurtLehnardt/granted/blob/main/northstar.md">github.com/KurtLehnardt/granted/blob/main/northstar.md</a>
     </div>
     <div class="foot"><span><b>fundFinder</b></span><span>02 / 16</span></div>
   </section>
@@ -134,7 +133,6 @@
         <li>Routing: small→haiku, medium→sonnet, large→opus; <b>all reviewers run opus</b></li>
         <li>Many slices ran <span class="green">in parallel</span> — one branch = one subagent's worktree</li>
       </ul>
-      <a class="link" href="https://github.com/KurtLehnardt/granted/blob/main/prompts/START-HERE.md">github.com/KurtLehnardt/granted/blob/main/prompts/START-HERE.md</a>
     </div>
     <div class="foot"><span><b>fundFinder</b></span><span>04 / 16</span></div>
   </section>
@@ -145,14 +143,13 @@
       <div class="kicker">Recon Before Build</div>
       <h2>A recon-and-stop gate proved the spec was solving a partly-wrong problem — before any code</h2>
       <ul>
-        <li><code>START-HERE.md</code>: <i>"Do not write task files… Do not begin implementation"</i> until recon is signed off</li>
-        <li>Recon produced <b>as-built.md</b>, <b>hypothesis-check.md</b>, <b>canon.md</b></li>
+        <li>Kickoff prompt: <i>"Do not write task files… Do not begin implementation"</i> until recon is signed off</li>
+        <li>Recon produced three documents: an as-built summary, a hypothesis check, and a canon (data-source map)</li>
         <li><b>3 of the spec's 4 hypotheses refuted</b> by reading the code:
           "live grant API per request" → <span class="green">false</span> (already a local pre-embedded corpus);
           "one big prompt" → <span class="green">false</span> (already a composed chain)</li>
         <li>Real risk wasn't latency — it was <b>data staleness</b>. Slices re-scoped accordingly.</li>
       </ul>
-      <a class="link" href="https://github.com/KurtLehnardt/granted/blob/main/hypothesis-check.md">github.com/KurtLehnardt/granted/blob/main/hypothesis-check.md</a>
     </div>
     <div class="foot"><span><b>fundFinder</b></span><span>05 / 16</span></div>
   </section>
@@ -163,13 +160,12 @@
       <div class="kicker">The Decomposition</div>
       <h2>~1,200-line spec → team-scoped task families → a dependency graph</h2>
       <ul>
-        <li>Tasks are markdown files (<code>tasks/*.md</code>), <b>not</b> GitHub Issues — explicit owner decision</li>
+        <li>Tasks were tracked as markdown files, <b>not</b> GitHub Issues — explicit owner decision</li>
         <li>Teams: <b>CON</b> contracts · <b>CAN</b> canon · <b>INT</b> interview · <b>ELG</b> eligibility · <b>FE</b> frontend · <b>PLT</b> platform · <b>EVL</b> evals</li>
         <li><b>Zod contracts freeze first</b> and block everyone; feature-flag everything, default-off</li>
         <li>Critical path: <code>CON-01 → CAN-01 → CAN-04 → ELG-01 → INT-02/FE-03</code></li>
         <li><b>Slices 1–3 shipped</b>; slices 4–8 remain planned specs (honest scope)</li>
       </ul>
-      <a class="link" href="https://github.com/KurtLehnardt/granted/blob/main/task-graph.md">github.com/KurtLehnardt/granted/blob/main/task-graph.md</a>
     </div>
     <div class="foot"><span><b>fundFinder</b></span><span>06 / 16</span></div>
   </section>
@@ -202,7 +198,6 @@
         <li><b>Screen</b> → 4 buckets; <b>score</b> → parallel-batched (<code>Promise.allSettled</code>, batches of 8)</li>
         <li>Model-routing table: cheap subtasks → cheap models; deep analysis stays expensive</li>
       </ul>
-      <a class="link" href="https://github.com/KurtLehnardt/granted/blob/main/as-built.md">github.com/KurtLehnardt/granted/blob/main/as-built.md</a>
     </div>
     <div class="foot"><span><b>fundFinder</b></span><span>08 / 16</span></div>
   </section>
@@ -343,7 +338,6 @@
       </div>
       <ul style="margin-top:14px">
         <li><b>Live:</b> your-app.example.com · <b>Repo:</b> github.com/KurtLehnardt/granted</li>
-        <li><b>Spec:</b> /blob/main/prompts/fundfinder-orchestrator-prompt.md · <b>Recon:</b> as-built · hypothesis-check · canon · task-graph</li>
       </ul>
     </div>
     <div class="foot"><span><b>fundFinder</b> — how it was built</span><span>16 / 16</span></div>

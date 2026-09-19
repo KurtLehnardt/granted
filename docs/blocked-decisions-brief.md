@@ -5,14 +5,13 @@ they need a decision only the product owner can make. Engineering cannot proceed
 without guessing. Each section is designed to be readable and decidable in under 5 minutes.
 Nothing below requires new code to unblock — these are dashboard clicks, sign-offs, and numbers.
 
-Sources read for this brief: `open-questions.md`, `resolved-questions.md` (empty), `feedback.md`
-(empty — no §9.1 human-validation findings recorded yet), `tasks/R9-supabase-auth.md`,
-`tasks/R6-auto-apply-pro.md`, `tasks/R4b-cost-measurement.md`, `tasks/FE-06-auto-apply-stub.md`,
-`tasks/APL-01-s2s-feasibility-memo.md`, `docs/R6-s2s-feasibility-memo.md`,
-`docs/s2s-integration-spec.md`, `scaffold/docs/R4b-cost-findings.md`,
-`prompts/fundfinder-orchestrator-prompt.md` (§9, §9.1, R9, R10), `task-graph.md`, and the current
-`scaffold/lib/flags/registry.ts`, `scaffold/components/AuthProvider.tsx`,
-`scaffold/lib/billing/mockBilling.ts`, `scaffold/lib/contracts/{entitlements,runBudget}.ts`.
+Sources read for this brief: the project's internal planning notes (no §9.1 human-validation
+findings recorded yet), the R9 auth / R6 auto-apply / R4b cost-measurement / FE-06 auto-apply-stub
+/ APL-01 s2s-feasibility task specs, `docs/R6-s2s-feasibility-memo.md`,
+`docs/s2s-integration-spec.md`, the R4b cost-measurement findings (§9, §9.1, R9, R10 of the
+original product spec), and the current `scaffold/lib/flags/registry.ts`,
+`scaffold/components/AuthProvider.tsx`, `scaffold/lib/billing/mockBilling.ts`,
+`scaffold/lib/contracts/{entitlements,runBudget}.ts`.
 
 ---
 
@@ -43,7 +42,7 @@ blocked on the steps below.
 
 ### Decisions you must make
 1. **Ratify Supabase as the auth provider.** The spec left this as `[DECIDE: Clerk, Supabase Auth,
-   or Auth.js]` and nobody's decision is recorded in `resolved-questions.md` — Supabase was simply
+   or Auth.js]` and nobody's decision is recorded anywhere — Supabase was simply
    the one built. It's cheap to change now (flag is off, zero users on it) and expensive later.
    If you're fine with Supabase, say so explicitly so it's recorded; otherwise flag it now.
 2. **Which Supabase project is canonical.** The task doc names project `YOUR_SUPABASE_REF`; the
@@ -103,7 +102,7 @@ handles no credentials, and requires an AOR-attestation gate before anything hap
 spec states it "reconciles with and does not resolve" the escalations below. **This is technical
 readiness for a decision that has not been made, not evidence the decision has been made.**
 
-**Not yet built:** the real package-builder R6 slice (`task-graph.md`'s APL-02/APL-03 — form
+**Not yet built:** the real package-builder R6 slice (the planned APL-02/APL-03 — form
 enumeration, prefilled fields with provenance, narrative drafting, deadline tracking, and the
 mandatory human review-and-attest screen). That work is blocked on billing/entitlements
 (`PLT-07`, see §3) and hasn't started.
@@ -134,17 +133,16 @@ These come directly from the feasibility memo's escalation list (`docs/R6-s2s-fe
    isn't real yet.
 5. **Schedule the required §9.1 human-validation session**: "at least one person with actual
    federal grant submission experience reviews the package builder output and the attest screen...
-   someone who has been an AOR will catch things no test will." `feedback.md` is currently empty
+   someone who has been an AOR will catch things no test will." No findings have been logged yet
    — this has not happened for either the demo flow or (once built) the real package builder.
 
 ### Exact steps to unblock
 - For E1/E3/E4: this is a **legal/counsel conversation**, not an engineering task. Recommend
   reviewing `docs/R6-s2s-feasibility-memo.md` §6 directly with counsel (it's short and already
-  cites sources), then recording the decision in `resolved-questions.md` so it stops being
-  re-litigated by future tasks.
+  cites sources), then recording the decision so it stops being re-litigated by future tasks.
 - For the human-validation session: find someone who has personally been an AOR or Signing
   Official (a grants administrator at a past company, a consultant, etc.) and walk them through
-  the demo flow and/or the eventual attest screen. Log findings in `feedback.md`.
+  the demo flow and/or the eventual attest screen. Log the findings for the team.
 - Who signs off: **counsel** on E1/E3/E4 (legal exposure, ToS, copy that implies representative
   authority); **product owner** on whether to demo the current stub to real users before the real
   slice ships.
@@ -178,9 +176,8 @@ What **does** exist today, and matters for this decision:
   The mock's 3rd tier is UI-only and collapses to `"pro"` under the hood. Adding a real 3rd tier
   means touching a contract that's explicitly frozen ("CON-01-owned"; changing it needs
   escalation/sign-off, not a quiet edit).
-- **Real cost-per-search data exists and is no longer a blocker** — `R4b-cost-measurement.md`'s
-  dependency is done (`scaffold/docs/R4b-cost-findings.md`, measured 2026-08-15 against live
-  APIs): **average $0.224/search** (range $0.21–$0.24), ~99s average latency. The free-tier
+- **Real cost-per-search data exists and is no longer a blocker** — the R4b cost-measurement
+  dependency is done (measured 2026-08-15 against live APIs): **average $0.224/search** (range $0.21–$0.24), ~99s average latency. The free-tier
   `RunBudget` cost ceiling is currently a $0.50/search placeholder (real cost is ~45% of it —
   there's headroom); Pro's ceiling placeholder is $3.00/search.
   - **Gap**: R4b measured the core *search* cost only. It did **not** measure the cost of a
@@ -237,7 +234,7 @@ acted on is both hostile and inconsistent with the honesty thesis.
    questions (E1 real S2S submission, E3 "handles filing" copy, E4 liability for wrong prefills)
    need counsel before it (or the mock S2S layer sitting behind it) goes live to real users.
 3. **R6 also** needs its required human-validation session (an actual AOR/grants-submission
-   reviewer) — not yet scheduled; `feedback.md` is empty.
+   reviewer) — not yet scheduled; no findings have been logged.
 4. **Pricing**: no real billing exists yet; the blocking cost-data dependency (R4b) is done
    (~$0.22/search), so the only remaining inputs are your price points, trial terms, and whether
    to keep a 3rd "Max" tier (recommend dropping it — 2-tier is the lower-effort path).

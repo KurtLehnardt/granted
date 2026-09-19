@@ -47,7 +47,7 @@ import { findBannedPhrases } from "../../../scripts/banned-phrases.mjs";
  * fixed in PR fix/apply-grounding-gaps (draft.ts undeclared-sentence guard +
  * budget.ts justification gap-collection). The two `FIXED (Finding …)` tests
  * below are now real REGRESSION GUARDS asserting the corrected behavior — see
- * that PR + resolved-questions.md (§G7) for the full writeup.
+ * that PR (finding G7) for the full writeup.
  */
 
 // ---------------------------------------------------------------------------

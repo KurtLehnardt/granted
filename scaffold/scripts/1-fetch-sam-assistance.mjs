@@ -3,7 +3,7 @@
  *
  * KEYLESS source: the public Federal Assistance Listings extract that SAM.gov
  * publishes to data.gov via the `falextracts` S3 bucket. No api.sam.gov / data.gov
- * key needed (that path is tabled as a nice-to-have in open-questions.md).
+ * key needed (that path is tabled as a nice-to-have for a future iteration).
  *
  * These are EVERGREEN PROGRAMS, not dated solicitations: most have NO application
  * deadline and NO award floor/ceiling. We deliberately DO NOT synthesize either —

@@ -180,7 +180,7 @@ Reconciliation:
 - G6 **guarantees nothing** — not eligibility, not award, not submission. The `findBannedPhrases` guard (`scripts/check-prompt-registry.mjs` — bans "you qualify", "you are eligible", "guaranteed", "you will receive", "you will be awarded") is reused to lint G6's own generated/derived text and UI copy (§5.2, §12, §15).
 - The brief's north-star honesty differentiator is *preserved and extended*: the package builder refuses to invent founder facts exactly as G2 does.
 
-### 3.3 The north star (`northstar.md`) — honored
+### 3.3 The north star (product principles) — honored
 
 *"A personal government-funding intelligence analyst… build workflows first… ground the AI… never bad advice."* G6 is workflow-first (it completes the apply workflow), grounded (every package value traces to a profile field / draft or is flagged), and honest (never a definitive eligibility/award/submission claim). It is deterministic plumbing — no new model calls — so it adds no fabrication surface; TACA (Transparency/Accuracy/Calibration/Alignment) is served by provenance-per-field + the mock label.
 

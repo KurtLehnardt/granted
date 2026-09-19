@@ -14,7 +14,7 @@
  * each feature team's own job when their slice ships (see accessor.ts / index.ts for the reader).
  *
  * Naming convention for new flags: `{requirement}_{short_name}`, lowercase snake_case, matching
- * the requirement ID in prompts/fundfinder-orchestrator-prompt.md (e.g. `r5_competitor_intel`,
+ * the requirement ID in the original product spec (e.g. `r5_competitor_intel`,
  * `r6_assisted_apply`). To add one:
  *   1. Add the literal to `FlagName` below.
  *   2. Add a `FlagDefinition` entry to `FLAG_REGISTRY`.
@@ -124,8 +124,8 @@ export const FLAG_REGISTRY: Record<FlagName, FlagDefinition> = {
     description:
       "Mocked Google sign-in backed by localStorage (interim, pre-real-auth). Gates nothing " +
       "server-side; UI state machine only.",
-    // Matches the mock-auth drop-in's own env var exactly (prompts/mock-auth-bundle.md), so this
-    // flag and the drop-in read the same source of truth instead of two independent switches.
+    // Matches the mock-auth drop-in's own env var exactly, so this flag and the drop-in read the
+    // same source of truth instead of two independent switches.
     envVar: "NEXT_PUBLIC_MOCK_AUTH",
   },
   r9_supabase_auth: {

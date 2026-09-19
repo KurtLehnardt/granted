@@ -9,7 +9,6 @@
 // `--categories=` in ingest-grants.mjs) for smoke tests or future per-sector
 // scheduling.
 //
-// Coverage is documented in scaffold/docs/canon.md — update both together.
 // ============================================================================
 
 export const KEYWORD_CATEGORIES = {

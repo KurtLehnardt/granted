@@ -28,7 +28,6 @@ multi-agent system.*
   user problem, not on finding uses for AI
 - Manage the triangle: **Intelligence / Cost / Latency**, with model routing
 - **Calibration is the product**: the win is saying *"probably not a fit"* and explaining why
-- Link: https://github.com/KurtLehnardt/granted/blob/main/northstar.md
 
 ---
 
@@ -56,7 +55,6 @@ multi-agent system.*
   before merge; a dispatcher **auto-merges PRs when clean**
 - **Model/effort routing:** small→haiku, medium→sonnet, large→opus; **all reviewers run opus**
 - Many slices ran **in parallel** — one branch = one subagent's isolated worktree
-- Link: https://github.com/KurtLehnardt/granted/blob/main/prompts/START-HERE.md
 
 ---
 
@@ -64,14 +62,13 @@ multi-agent system.*
 
 **A mandatory recon-and-stop gate proved the spec was solving a partly-wrong problem — before any code**
 
-- `START-HERE.md`: *"Do not write task files… Do not begin implementation"* until recon is signed off
-- Recon produced `as-built.md`, `hypothesis-check.md`, `canon.md`
+- Kickoff prompt: *"Do not write task files… Do not begin implementation"* until recon is signed off
+- Recon produced three documents: an as-built summary, a hypothesis check, and a canon (data-source map)
 - **3 of the spec's 4 hypotheses refuted** by reading the actual code:
   - "queries a live grant API per request" → **false** (already a local pre-embedded corpus)
   - "the pipeline is one big prompt" → **false** (already a composed chain)
   - real risk wasn't latency — it was **data staleness**
 - Re-scoped Canon + Perf slices instead of building non-problems
-- Link: https://github.com/KurtLehnardt/granted/blob/main/hypothesis-check.md
 
 ---
 
@@ -79,13 +76,12 @@ multi-agent system.*
 
 **~1,200-line spec → team-scoped task families → a dependency graph**
 
-- Tasks are markdown files (`tasks/*.md`), **not** GitHub Issues — an explicit owner decision
+- Tasks were tracked as markdown files, **not** GitHub Issues — an explicit owner decision
 - Teams: **CON** contracts · **CAN** canon/data · **INT** interview · **ELG** eligibility ·
   **FE** frontend · **PLT** platform · **EVL** evals · PIP/PRF/VER/ITL/APL (later)
 - **Contracts (zod) freeze first** and block everyone; feature-flag everything, default off
 - Critical path: `CON-01 → CAN-01 → CAN-04 → ELG-01 → INT-02/FE-03`
 - **Slices 1–3 shipped** in the window; slices 4–8 remain planned specs (honest scope)
-- Link: https://github.com/KurtLehnardt/granted/blob/main/task-graph.md
 
 ---
 
@@ -111,7 +107,6 @@ multi-agent system.*
 - **Screen** → eligible / conditional / excluded / unknown; **score** → `claude-sonnet-4-6`,
   parallel-batched (`Promise.allSettled`, batches of 8)
 - Model-routing table sends cheap subtasks to cheap models; expensive analysis stays on the analysis model
-- Link: https://github.com/KurtLehnardt/granted/blob/main/as-built.md
 
 ---
 
@@ -123,7 +118,7 @@ multi-agent system.*
   pre-embedded** (fetched offline once, committed as static JSON) — so the bottleneck was **LLM
   generation, not live API calls**
 - Fix that moved the number: `explainMatches` went serial → **`Promise.allSettled` over batches of 8**
-  → **~180s to ~98s** (measured, `as-built.md`); cached demo cases render **instantly**
+  → **~180s to ~98s** (measured, recon-verified); cached demo cases render **instantly**
 - Streaming progress shipped (NDJSON milestones) so the wait is legible
 - **Honest caveat:** the sub-60s p95 target is Perf work that **wasn't fully shipped**; Supabase pgvector
   is **built + tested but not yet wired** into the live path
@@ -224,8 +219,3 @@ multi-agent system.*
 - Latency **~180s → ~98s** · **0 false exclusions** (24 checks + 160 determinations) · interview **4.1s** · **19/19** AA
 - **Live demo:** https://your-app.example.com
 - **Repo:** https://github.com/KurtLehnardt/granted
-- **Orchestration spec:** https://github.com/KurtLehnardt/granted/blob/main/prompts/fundfinder-orchestrator-prompt.md
-- **Recon docs:** [as-built](https://github.com/KurtLehnardt/granted/blob/main/as-built.md) ·
-  [hypothesis-check](https://github.com/KurtLehnardt/granted/blob/main/hypothesis-check.md) ·
-  [canon](https://github.com/KurtLehnardt/granted/blob/main/canon.md) ·
-  [task-graph](https://github.com/KurtLehnardt/granted/blob/main/task-graph.md)

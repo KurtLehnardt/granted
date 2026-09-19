@@ -191,7 +191,7 @@ same corpus but are scored with their own criteria, not this rubric.
 
 §5.4 requires a **named human reviewer** to set the reference the first time: *"Model-graded evals
 are fine for regression detection but a human sets the reference the first time."* No reviewer is
-assigned. This is a **product-owner decision**, already tracked in `open-questions.md`
+assigned. This is a **product-owner decision**, already tracked as an open question
 ("§5.4 named human eval rater — needs an owner before the golden set is trusted").
 
 **Until a reviewer is named and completes the first rating, this set is a draft and cannot serve as

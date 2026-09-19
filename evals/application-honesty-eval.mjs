@@ -22,8 +22,8 @@
 //
 // Exit code: 0 only if all four honesty invariants hold over every golden
 // case AND the two FORMERLY-known findings (draft.ts undeclared-sentence guard
-// + budget.ts justification gap-collection, fixed in PR fix/apply-grounding-gaps
-// — see resolved-questions.md §G7) still hold in their FIXED state. The two
+// + budget.ts justification gap-collection, fixed in PR fix/apply-grounding-gaps)
+// still hold in their FIXED state. The two
 // `known-finding` records below now assert the corrected behavior, so this
 // script fails loudly if either fix is reverted or silently regresses. A
 // nonzero exit means either a genuine invariant violation was found, or one of
@@ -165,7 +165,7 @@ for (const c of APPLICATION_GOLDEN_CASES) {
     "known-finding",
     "draft.ts (FIXED): an UNDECLARED factual sentence is wrapped into a [founder to provide] marker, surfaced in pkg.gaps, and the draft still validates as grounded",
     noLongerBareAssertion && nowWrapped && surfacedInGaps && check.grounded === true,
-    "fixed in PR fix/apply-grounding-gaps; see resolved-questions.md §G7",
+    "fixed in PR fix/apply-grounding-gaps (finding G7)",
   );
 }
 
@@ -227,7 +227,7 @@ for (const c of APPLICATION_GOLDEN_CASES) {
     "known-finding",
     "budget.ts (FIXED): template line-item justification placeholders (use_of_funds absent) ARE collected into budget.gaps and surface in pkg.gaps",
     allCollected && allInPackage,
-    "fixed in PR fix/apply-grounding-gaps; see resolved-questions.md §G7",
+    "fixed in PR fix/apply-grounding-gaps (finding G7)",
   );
 }
 
@@ -268,7 +268,7 @@ const knownFindingDrift = results.filter((r) => r.section === "known-finding" &&
 
 console.log(`\nInvariant failures: ${invariantFailures.length} (must be 0)`);
 for (const f of invariantFailures) console.log(`    - [${f.section}] ${f.name}: ${f.detail ?? ""}`);
-console.log(`Known-finding drift: ${knownFindingDrift.length} (must be 0 — a nonzero count means a documented finding changed state; update open-questions.md/PR + this script)`);
+console.log(`Known-finding drift: ${knownFindingDrift.length} (must be 0 — a nonzero count means a documented finding changed state; update the tracking issue/PR + this script)`);
 for (const f of knownFindingDrift) console.log(`    - [${f.section}] ${f.name}`);
 
 const overallPass = invariantFailures.length === 0 && knownFindingDrift.length === 0;

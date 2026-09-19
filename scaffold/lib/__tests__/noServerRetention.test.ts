@@ -13,7 +13,7 @@ import {
 /**
  * PLT-02 — R9.0 / §5.3 "no server-side retention" regression guard.
  *
- * R9.0 (`prompts/fundfinder-orchestrator-prompt.md` line ~633) and §5.3 require
+ * R9.0 (original product spec, line ~633) and §5.3 require
  * that the server retain NO user company-description or PII content — not in
  * request logs, error tracking, analytics payloads, or ad-hoc console output.
  * PLT-01 built the mock auth as a client-only UI state machine that gates

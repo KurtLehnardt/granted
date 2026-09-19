@@ -1,8 +1,8 @@
 # fundFinder Golden-Set Rating Rubric (TACA)
 
-**Task:** EVL-01 · **Spec:** orchestrator-prompt §5.4, §9 · **Axes:** `northstar.md` §4 (TACA)
+**Task:** EVL-01 · **Spec:** orchestrator-prompt §5.4, §9 · **Axes:** product principles §4 (TACA)
 **Status:** DRAFT v0.1 — the first reference rating must be set by a **named human reviewer**
-(§5.4 `[DECIDE]`, tracked in `open-questions.md`). Until then these scores are provisional.
+(§5.4 `[DECIDE]`, tracked as an open question). Until then these scores are provisional.
 
 ---
 

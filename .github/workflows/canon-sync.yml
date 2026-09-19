@@ -3,8 +3,8 @@ name: canon-sync
 # CAN-02 — scheduled grants.gov ingestion into the Supabase Canon store.
 # Runs scaffold/scripts/canon/ingest-grants.mjs on a cron: fetch -> normalize
 # -> embed (OpenAI, 512-dim) -> upsert into Supabase under a new
-# snapshot_version. See scaffold/docs/canon.md for coverage/keyword docs and
-# tasks/CAN-02-scheduled-ingestion.md for the task spec.
+# snapshot_version. See scaffold/scripts/canon/keywords.mjs for the current
+# keyword/category coverage.
 #
 # FAILURE MODEL (§4.4 / §4.6): per-keyword and per-record failures inside the
 # script degrade + alarm (GitHub Actions `::warning::`/`::error::`
