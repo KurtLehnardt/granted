@@ -63,19 +63,19 @@ export default function WelcomePage() {
 
         <main>
           {/* ---------------------------------------------------------------
-              1. HERO — the honest-no thesis + a proof verdict card
+              1. HERO — the value prop + a proof match card
           ---------------------------------------------------------------- */}
           <section className={`${sectionClass} pb-16 pt-14 sm:pb-20 sm:pt-20`}>
             <div className="grid items-center gap-12 lg:grid-cols-[1.05fr_0.95fr] lg:gap-14">
               <div className="stagger">
                 <p className={eyebrowClass}>Federal funding intelligence</p>
                 <h1 className="mt-4 text-balance font-display text-[34px] font-bold leading-[1.08] text-foreground sm:text-[46px]">
-                  Know whether a federal grant is actually worth chasing — before
-                  you burn three weeks writing one you can&rsquo;t win.
+                  Find government funding matched to your business or research.
                 </h1>
                 <p className="mt-5 max-w-xl text-pretty font-body text-[18px] leading-relaxed text-foreground">
-                  Grounded in real award data, and honest enough to say
-                  don&rsquo;t apply.
+                  Describe your work in plain English. Granted scores your fit
+                  across 968 real federal opportunities, grounded in actual award
+                  data.
                 </p>
 
                 <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
@@ -91,8 +91,8 @@ export default function WelcomePage() {
                 </p>
               </div>
 
-              {/* Proof: a realistic "don't apply" verdict card. Clearly a
-                  SAMPLE — the differentiator made visible. */}
+              {/* Proof: a realistic strong-match card. Clearly a SAMPLE — shows
+                  the primary outcome (funding matched to you) made visible. */}
               <div className="reveal">
                 <VerdictCard />
               </div>
@@ -157,7 +157,7 @@ export default function WelcomePage() {
           ---------------------------------------------------------------- */}
           <section id="how" className={`${sectionClass} scroll-mt-20 py-16 sm:py-20`}>
             <p className={eyebrowClass}>How it works</p>
-            <h2 className={`mt-3 ${h2Class}`}>Three steps to an honest answer.</h2>
+            <h2 className={`mt-3 ${h2Class}`}>Three steps to your matches.</h2>
             <ol className="mt-8 grid gap-5 md:grid-cols-3">
               <Step
                 n="1"
@@ -171,24 +171,23 @@ export default function WelcomePage() {
               />
               <Step
                 n="3"
-                title="Get an honest verdict"
-                body="A recommend / verify / don't-apply call on each opportunity, plus a whole-map verdict. When nothing's worth chasing, we say so."
+                title="See your scored matches"
+                body="Each opportunity is scored and called — recommend, verify, or don't-apply — with a whole-map read on where you actually stand."
               />
             </ol>
           </section>
 
           {/* ---------------------------------------------------------------
-              4. THE DIFFERENTIATOR — grounded + honest vs. a chatbot
+              4. THE DIFFERENTIATOR — grounded in real award data
           ---------------------------------------------------------------- */}
           <section id="why" className={`${sectionClass} scroll-mt-20 py-16 sm:py-20`}>
             <p className={eyebrowClass}>Why Granted</p>
             <h2 className={`mt-3 ${h2Class}`}>
-              Grounded and honest — not a chatbot that tells you what you want to
-              hear.
+              Grounded in real federal award data.
             </h2>
             <p className={`mt-5 max-w-2xl ${leadClass}`}>
-              The real alternative to Granted is pasting your pitch into a general
-              chatbot. Here&rsquo;s why that costs you.
+              The quick alternative is pasting your pitch into a general chatbot.
+              Here&rsquo;s the difference.
             </p>
 
             <div className="mt-8 grid gap-5 md:grid-cols-2">
@@ -217,20 +216,20 @@ export default function WelcomePage() {
               <div className={cardClass}>
                 <p className={eyebrowClass}>Granted</p>
                 <h3 className="mt-2 font-display text-[20px] font-semibold text-foreground">
-                  Grounded in real data. Calibrated to say no.
+                  Grounded in real data. Matched to your work.
                 </h3>
                 <ul className="mt-4 space-y-3">
                   <ProItem>
                     Every claim traces to a real federal opportunity or award
-                    record — or it&rsquo;s thrown out. Nothing is fabricated.
+                    record. Nothing is fabricated.
                   </ProItem>
                   <ProItem>
-                    Fit is scored against a corpus of actual programs, not
-                    recalled from memory.
+                    Fit is scored against a corpus of 968 actual programs, on the
+                    criteria a program officer would apply.
                   </ProItem>
                   <ProItem>
-                    Calibrated to give an honest &ldquo;don&rsquo;t apply&rdquo;
-                    when the fit isn&rsquo;t there. Trust is the product.
+                    Award history shows whether companies like yours have won —
+                    so your matches reflect real fit.
                   </ProItem>
                 </ul>
               </div>
@@ -289,11 +288,11 @@ export default function WelcomePage() {
           <section className={`${sectionClass} py-16 sm:py-24`}>
             <div className="rounded-lg bg-structure px-6 py-12 text-center shadow-card sm:px-10 sm:py-16">
               <h2 className="text-balance font-display text-[28px] font-bold leading-[1.14] text-token-white sm:text-[36px]">
-                Find out if it&rsquo;s worth it — before you write a word.
+                Find funding matched to your work.
               </h2>
               <p className="mx-auto mt-4 max-w-xl text-pretty font-body text-[16px] leading-relaxed text-token-white">
-                A free fit check, an honest verdict, and a map of 968 real federal
-                opportunities.
+                A free fit check and a map of 968 real federal opportunities,
+                scored to your business or research.
               </p>
               <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
                 <Link href="/readiness" className={primaryCtaClass}>
@@ -319,9 +318,9 @@ export default function WelcomePage() {
 // --- local presentational components ---------------------------------------
 
 /**
- * The hero proof card: a realistic "don't apply" verdict, mirroring the app's
- * honest-no treatment (bold-foreground verdict, an amber "honest no" chip) with
- * a redirect. Explicitly labelled SAMPLE — it is illustrative, not a real
+ * The hero proof card: a realistic strong-match result, mirroring the app's
+ * match treatment (bold-foreground verdict, a green "strong match" chip) with
+ * the fit reasoning. Explicitly labelled SAMPLE — it is illustrative, not a real
  * determination for any specific company.
  */
 function VerdictCard() {
@@ -329,29 +328,29 @@ function VerdictCard() {
     <figure className="rounded-lg bg-canvas-alt p-6 text-foreground shadow-card sm:p-7">
       <div className="flex items-center justify-between gap-3">
         <figcaption className="font-mono text-[12px] uppercase tracking-eyebrow text-foreground">
-          Sample verdict
+          Sample match
         </figcaption>
-        <span className="rounded-sm bg-warning px-2 py-0.5 font-mono text-[11px] uppercase tracking-eyebrow text-on-semantic">
-          Honest no
+        <span className="rounded-sm bg-success px-2 py-0.5 font-mono text-[11px] uppercase tracking-eyebrow text-on-semantic">
+          Strong match
         </span>
       </div>
 
       <p className="mt-4 font-display text-[22px] font-bold leading-snug text-foreground">
-        We don&rsquo;t recommend applying.
+        NSF SBIR Phase I — worth applying.
       </p>
       <p className="mt-3 text-pretty font-body text-[14px] leading-relaxed text-foreground">
-        Your R&amp;D is real, but this program funds late-stage clinical trials —
-        your stage and scope don&rsquo;t fit, and the award history shows no
-        company like yours has won. Here&rsquo;s where to look instead.
+        Your early-stage R&amp;D fits this program&rsquo;s scope, and the award
+        history shows companies like yours have won it. Here&rsquo;s what to
+        emphasize in your application.
       </p>
 
       <div className="mt-5 border-t border-structure-on-canvas pt-4">
         <p className="font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas">
-          Look here instead
+          Why it fits
         </p>
         <ul className="mt-2 space-y-1.5 font-body text-[14px] text-foreground">
-          <li>→ NSF SBIR Phase I — earlier-stage R&amp;D, better fit</li>
-          <li>→ State innovation grants — lighter lift, faster turnaround</li>
+          <li>→ Stage and scope match the program&rsquo;s criteria</li>
+          <li>→ Recent awards to comparable early-stage teams</li>
         </ul>
       </div>
     </figure>

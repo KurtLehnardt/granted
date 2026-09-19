@@ -17,10 +17,10 @@ import { BRAND } from "@/lib/brand";
 // for local dev so the repo carries no specific deployment.
 export const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
 
-export const TITLE = "Granted — know if a federal grant is worth chasing";
+export const TITLE = "Granted — find federal funding matched to your business or research";
 
 export const DESCRIPTION =
-  "Granted maps your company to 968 real federal funding opportunities, scores your fit on program-officer criteria, and is honest enough to tell you when not to apply. Grounded in real award data — never fabricated.";
+  "Describe your business or research in plain English and Granted maps you to 968 real federal funding opportunities — grants, SBIR/STTR, and procurement — scored on the criteria a program officer would actually apply. Grounded in real federal award data.";
 
 export const metadata: Metadata = {
   title: TITLE,
@@ -63,8 +63,8 @@ export const structuredData = {
       name: BRAND,
       url: SITE_URL,
       description:
-        "Granted helps founders decide whether a federal grant is worth chasing — grounded in real federal award data and calibrated to say when not to apply.",
-      slogan: "Federal funding intelligence for founders.",
+        "Granted helps founders and researchers find federal funding matched to their work — grounded in real federal award data and scored on program-officer criteria.",
+      slogan: "Find federal funding matched to your work.",
     },
     {
       "@type": "SoftwareApplication",
@@ -73,7 +73,7 @@ export const structuredData = {
       operatingSystem: "Web",
       url: SITE_URL,
       description:
-        "Describe your company in plain English and Granted scores your fit across 968 real federal funding opportunities — grants.gov, SAM.gov, SBIR/STTR, and USAspending — screens eligibility, and gives an honest recommend / verify / don't-apply verdict.",
+        "Describe your business or research in plain English and Granted scores your fit across 968 real federal funding opportunities — grants.gov, SAM.gov, SBIR/STTR, and USAspending — screens eligibility, and scores each match, grounded in real federal award data.",
       offers: {
         "@type": "Offer",
         price: "0",
