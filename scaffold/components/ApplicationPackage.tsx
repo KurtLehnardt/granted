@@ -141,7 +141,7 @@ function NarrativesSection({
               onClick={onRetry}
               className="mt-3 rounded-sm border border-structure-on-canvas px-3 py-1.5 font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2"
             >
-              Retry drafting the narratives
+              Draft the narrative section
             </button>
           )}
         </div>
@@ -408,7 +408,8 @@ function ExportForExtensionSection({ pkg }: { pkg: AssembledPackage }) {
         </button>
         {downloadStatus === "downloaded" && (
           <span className={sourceNoteClass} aria-live="polite">
-            Downloaded — nothing was submitted or sent anywhere.
+            Saved to your browser&rsquo;s Downloads folder. Next: open the Granted extension &rarr;
+            &ldquo;Choose a .granted.json file&rdquo; and pick it. Nothing was submitted or sent anywhere.
           </span>
         )}
         {downloadStatus === "error" && (
@@ -508,13 +509,16 @@ export default function ApplicationPackage({
 }) {
   const [state, setState] = useState<FetchState>({ status: "loading" });
 
-  const assemble = useCallback(async () => {
+  const assemble = useCallback(async (opts?: { draftNarrative?: boolean }) => {
     setState({ status: "loading" });
     try {
       const res = await fetch("/api/apply/package", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ opportunity, profile, autoFillReqs }),
+        // draftNarrative is opt-in: the initial assemble omits it (instant on a
+        // local model — the slow narrative step is skipped server-side), and the
+        // "Draft the narrative section" button sets it to run the draft on demand.
+        body: JSON.stringify({ opportunity, profile, autoFillReqs, draftNarrative: opts?.draftNarrative === true }),
       });
       if (!res.ok) {
         setState({
@@ -543,8 +547,8 @@ export default function ApplicationPackage({
       <div className="mt-4">
         <p className={eyebrowClass}>{PACKAGE_INTRO.eyebrow}</p>
         <p className={`mt-2 ${bodyClass}`} aria-live="polite">
-          Assembling your submission-ready draft — pre-filling forms, building the budget, and drafting a
-          grounded narrative section&hellip; Nothing is submitted.
+          Assembling your submission-ready draft — pre-filling forms, building the budget, and preparing
+          the checklist&hellip; Nothing is submitted.
         </p>
       </div>
     );
@@ -558,7 +562,7 @@ export default function ApplicationPackage({
         <div className="mt-4 flex flex-wrap items-center gap-4">
           <button
             type="button"
-            onClick={assemble}
+            onClick={() => assemble()}
             className="rounded-sm bg-action px-4 py-2 font-mono text-[11px] uppercase tracking-eyebrow text-token-white transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2"
           >
             Try again
@@ -578,6 +582,11 @@ export default function ApplicationPackage({
   }
 
   return (
-    <ApplicationPackageView pkg={state.pkg} opportunity={opportunity} onRetry={assemble} onClose={onClose} />
+    <ApplicationPackageView
+      pkg={state.pkg}
+      opportunity={opportunity}
+      onRetry={() => assemble({ draftNarrative: true })}
+      onClose={onClose}
+    />
   );
 }
