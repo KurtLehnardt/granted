@@ -221,6 +221,18 @@ export type AutoFillRequirements = {
   aorOnFile: boolean;
   /** "Confirm on file" checkbox for E-Biz POC delegation. */
   eBizPocOnFile: boolean;
+  /**
+   * Standing organization details — the same on EVERY grant. Entered once here
+   * and grounded into each application's SF-424 (organization legal name +
+   * address + congressional district), so they're reused across all grants
+   * instead of being re-typed per application. '' when unset (→ an honest gap).
+   */
+  organizationName: string;
+  street: string;
+  city: string;
+  state: string;
+  zip: string;
+  congressionalDistrict: string;
 };
 
 export const EMPTY_AUTO_FILL_REQUIREMENTS: AutoFillRequirements = {
@@ -230,6 +242,12 @@ export const EMPTY_AUTO_FILL_REQUIREMENTS: AutoFillRequirements = {
   aorName: '',
   aorOnFile: false,
   eBizPocOnFile: false,
+  organizationName: '',
+  street: '',
+  city: '',
+  state: '',
+  zip: '',
+  congressionalDistrict: '',
 };
 
 export function getAutoFillRequirements(): AutoFillRequirements {

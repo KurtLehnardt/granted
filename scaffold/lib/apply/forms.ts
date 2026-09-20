@@ -197,6 +197,16 @@ function programTitle(opp: Opportunity): string {
  * `source`) or an honest `[you to provide: …]` gap. The output is validated
  * through `PrefilledFormsSchema.parse` before it is returned.
  */
+/**
+ * A STANDING organization field (legal name, address, congressional district) —
+ * the same on every grant. Grounded from the user's saved details when present
+ * (so it's filled once and reused across all applications), else an honest gap.
+ */
+function standingField(value: string | undefined, key: string, label: string, hint: string, source: string): PrefilledField {
+  const v = (value ?? "").trim();
+  return v ? grounded(key, label, v, source) : gap(key, label, hint);
+}
+
 export function prefillApplicationForms(
   profile: CompanyProfile,
   autoFillReqs: AutoFillRequirements,
@@ -220,8 +230,8 @@ export function prefillApplicationForms(
     // --- Applicant-specific narrative fields (not derivable → honest gaps) ---
     // The project title is the APPLICANT's title, not the program title.
     gap("project_title", "Project title", "project title"),
-    // No profile field carries a legal org name.
-    gap("organization_name", "Organization legal name", "organization legal name"),
+    // Standing org detail — grounded from saved settings, reused on every grant.
+    standingField(autoFillReqs.organizationName, "organization_name", "Organization legal name", "organization legal name", "sam.organizationName"),
 
     // --- Registration facts (grounded from SAM settings / profile) ---
     ueiField(profile, autoFillReqs),
@@ -232,11 +242,11 @@ export function prefillApplicationForms(
     //     as a grounded note, but the structured SF-424 street/city/state/zip
     //     sub-fields are NOT reliably derivable from it — never fabricate them. ---
     applicantLocation,
-    gap("applicant_street", "Street address", "street address"),
-    gap("applicant_city", "City", "city"),
-    gap("applicant_state", "State", "state"),
-    gap("applicant_zip", "ZIP / postal code", "ZIP / postal code"),
-    gap("applicant_congressional_district", "Applicant congressional district", "applicant congressional district"),
+    standingField(autoFillReqs.street, "applicant_street", "Street address", "street address", "sam.street"),
+    standingField(autoFillReqs.city, "applicant_city", "City", "city", "sam.city"),
+    standingField(autoFillReqs.state, "applicant_state", "State", "state", "sam.state"),
+    standingField(autoFillReqs.zip, "applicant_zip", "ZIP / postal code", "ZIP / postal code", "sam.zip"),
+    standingField(autoFillReqs.congressionalDistrict, "applicant_congressional_district", "Applicant congressional district", "applicant congressional district", "sam.congressionalDistrict"),
 
     naicsField(profile),
     aorField(autoFillReqs),

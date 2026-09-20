@@ -34,6 +34,12 @@ const EMPTY_REQS: AutoFillRequirements = {
   aorName: "",
   aorOnFile: false,
   eBizPocOnFile: false,
+  organizationName: "",
+  street: "",
+  city: "",
+  state: "",
+  zip: "",
+  congressionalDistrict: "",
 };
 
 /** A representative matched opportunity. */
@@ -264,4 +270,34 @@ test("FOUNDER_TODO_PATTERN is reused from applicationDraft — same one conventi
   assert.match("[you to provide: project title]", FOUNDER_TODO_PATTERN);
   assert.doesNotMatch("[you to provide:]", FOUNDER_TODO_PATTERN);
   assert.doesNotMatch("you to provide: project title", FOUNDER_TODO_PATTERN);
+});
+
+test("standing org details from settings are grounded (reused on every grant), else honest gaps", () => {
+  const reqs: AutoFillRequirements = {
+    ...EMPTY_REQS,
+    organizationName: "Rural Biosensors Inc.",
+    street: "123 Main St",
+    city: "Boise",
+    state: "ID",
+    zip: "83702",
+    congressionalDistrict: "ID-01",
+  };
+  const out = prefillApplicationForms(wellFilledProfile(), reqs, sampleOpp());
+
+  const org = field(out, "organization_name")!;
+  assert.equal(org.status, "prefilled");
+  assert.equal(org.value, "Rural Biosensors Inc.");
+  assert.equal(org.source, "sam.organizationName");
+
+  const street = field(out, "applicant_street")!;
+  assert.equal(street.status, "prefilled");
+  assert.equal(street.value, "123 Main St");
+  assert.equal(street.source, "sam.street");
+
+  assert.equal(field(out, "applicant_congressional_district")!.value, "ID-01");
+
+  // Empty settings → these stay honest gaps (never fabricated).
+  const outEmpty = prefillApplicationForms(wellFilledProfile(), EMPTY_REQS, sampleOpp());
+  assert.equal(field(outEmpty, "organization_name")!.status, "founder_to_provide");
+  assert.equal(field(outEmpty, "applicant_zip")!.status, "founder_to_provide");
 });
