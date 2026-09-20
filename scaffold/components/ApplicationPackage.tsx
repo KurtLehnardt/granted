@@ -4,7 +4,8 @@
 // (automatic runtime) AND the plain `tsx`-run node:test runner used by
 // components/__tests__ (classic runtime per this repo's tsconfig
 // `"jsx": "preserve"`, which needs `React` in scope). Mirrors ApplicationChecklist.tsx.
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { applyGapInputs, gapFieldId, gapHint } from "@/lib/apply/fillGaps";
 
 import ApplicationChecklist from "@/components/ApplicationChecklist";
 import type { Opportunity } from "@/lib/types";
@@ -168,40 +169,76 @@ function NarrativesSection({
 // (2) Pre-filled forms
 // ---------------------------------------------------------------------------
 
-function FormFieldView({ field }: { field: PrefilledField }) {
+function FormFieldView({
+  field,
+  inputValue,
+  onInput,
+}: {
+  field: PrefilledField;
+  inputValue?: string;
+  onInput?: (value: string) => void;
+}) {
   const isGap = field.status === "founder_to_provide";
+  const filled = (inputValue ?? "").trim().length > 0;
   return (
     <li className="flex flex-col gap-0.5 border-t border-structure-on-canvas py-2 first:border-t-0">
       <span className="font-mono text-[11px] uppercase tracking-eyebrow text-foreground">{field.label}</span>
-      <span className="font-body text-[13px] leading-relaxed text-foreground">
-        {isGap ? (
-          <GapPill>{field.display}</GapPill>
-        ) : (
-          <>
-            {field.display}
-            {field.source && <SourceNote source={field.source} />}
-          </>
-        )}
-      </span>
+      {isGap ? (
+        // A blank you fill in yourself. Your value flows into the exported
+        // package (and the extension) clearly marked as YOUR input — never
+        // presented as grounded data.
+        <span className="flex flex-wrap items-center gap-2">
+          <input
+            type="text"
+            value={inputValue ?? ""}
+            onChange={(e) => onInput?.(e.target.value)}
+            placeholder={gapHint(field.display) || "your answer"}
+            aria-label={field.label}
+            className="min-w-0 flex-1 rounded-sm border border-structure-on-canvas bg-canvas px-2 py-1 font-body text-[13px] text-foreground outline-none focus:ring-2 focus:ring-structure-on-canvas"
+          />
+          <span className={sourceNoteClass}>{filled ? "you added" : "you provide"}</span>
+        </span>
+      ) : (
+        <span className="font-body text-[13px] leading-relaxed text-foreground">
+          {field.display}
+          {field.source && <SourceNote source={field.source} />}
+        </span>
+      )}
     </li>
   );
 }
 
-function FormsSection({ pkg }: { pkg: AssembledPackage }) {
+function FormsSection({
+  pkg,
+  inputs,
+  onInput,
+}: {
+  pkg: AssembledPackage;
+  inputs: Record<string, string>;
+  onInput: (id: string, value: string) => void;
+}) {
   return (
     <section>
       <h3 className={sectionHeadingClass}>2 · Pre-filled forms</h3>
       <p className={`mt-1 ${mutedClass}`}>
         Deterministically pre-filled from your profile and this program&rsquo;s record — grounded values name
-        their source; every blank is yours to complete.
+        their source; fill in any blank yourself and it&rsquo;s included in your export.
       </p>
       {pkg.forms.forms.map((form) => (
         <div key={form.form_name} className="mt-3 rounded-md bg-canvas px-4 py-2">
           <p className={sourceNoteClass}>{form.form_name}</p>
           <ul className="mt-1">
-            {form.fields.map((f) => (
-              <FormFieldView key={f.key} field={f} />
-            ))}
+            {form.fields.map((f) => {
+              const id = gapFieldId(form.form_name, f.key);
+              return (
+                <FormFieldView
+                  key={f.key}
+                  field={f}
+                  inputValue={inputs[id]}
+                  onInput={(v) => onInput(id, v)}
+                />
+              );
+            })}
           </ul>
         </div>
       ))}
@@ -442,6 +479,17 @@ export function ApplicationPackageView({
   onRetry?: () => void;
   onClose?: () => void;
 }) {
+  // In-app fills for the FORM gaps (id → value). `editedPkg` folds them into the
+  // package — as user-sourced prefilled fields, with the gap lists recomputed —
+  // for the gap summary and the export, while FormsSection renders the ORIGINAL
+  // gaps as inputs so they stay editable.
+  const [gapInputs, setGapInputs] = useState<Record<string, string>>({});
+  const onGapInput = useCallback(
+    (id: string, value: string) => setGapInputs((prev) => ({ ...prev, [id]: value })),
+    [],
+  );
+  const editedPkg = useMemo(() => applyGapInputs(pkg, gapInputs), [pkg, gapInputs]);
+
   return (
     <div className="mt-4">
       <p className={eyebrowClass}>{PACKAGE_INTRO.eyebrow}</p>
@@ -450,7 +498,7 @@ export function ApplicationPackageView({
       <p className={`mt-2 ${mutedClass}`}>{PACKAGE_INTRO.note}</p>
 
       <NarrativesSection pkg={pkg} onRetry={onRetry} />
-      <FormsSection pkg={pkg} />
+      <FormsSection pkg={pkg} inputs={gapInputs} onInput={onGapInput} />
       <BudgetSection pkg={pkg} />
 
       <section>
@@ -461,9 +509,9 @@ export function ApplicationPackageView({
         />
       </section>
 
-      <GapSummarySection pkg={pkg} />
+      <GapSummarySection pkg={editedPkg} />
       <AorHandoffSection />
-      {isFlagEnabled("r6_export_autofill") && <ExportForExtensionSection pkg={pkg} />}
+      {isFlagEnabled("r6_export_autofill") && <ExportForExtensionSection pkg={editedPkg} />}
 
       {onClose && (
         <div className="mt-6 flex flex-wrap items-center gap-4">
