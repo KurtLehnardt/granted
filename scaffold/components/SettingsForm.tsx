@@ -6,6 +6,7 @@ import {
   setAutoFillRequirements,
   type AutoFillRequirements,
 } from "@/lib/mockAuth";
+import { getMaxCandidates, setMaxCandidates } from "@/lib/searchSettings";
 
 /**
  * SettingsForm.tsx — the auto-fill requirements form body, extracted from
@@ -27,6 +28,7 @@ import {
  */
 export default function SettingsForm({ onClose }: { onClose?: () => void }) {
   const [form, setForm] = useState<AutoFillRequirements>(() => getAutoFillRequirements());
+  const [maxCandidates, setMaxCandidatesState] = useState<number | null>(() => getMaxCandidates());
   const [savedAt, setSavedAt] = useState<number | null>(null);
   // Instance-unique ids / radio-group name (useId) so two mounted instances —
   // the drawer's inline Settings section and the SettingsPanel modal — never
@@ -36,10 +38,12 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
   const ueiId = `${uid}-uei`;
   const aorNameId = `${uid}-aor-name`;
   const samRadioName = `${uid}-samRegistered`;
+  const depthId = `${uid}-search-depth`;
 
   function handleSave(e: React.FormEvent) {
     e.preventDefault();
     setAutoFillRequirements(form);
+    setMaxCandidates(maxCandidates);
     setSavedAt(Date.now());
   }
 
@@ -145,6 +149,30 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
           Confirm the Electronic Business POC has delegated AOR authority
         </label>
       </fieldset>
+
+      <div className={fieldWrapClass}>
+        <label className={legendClass} htmlFor={depthId}>
+          Search depth
+        </label>
+        <select
+          id={depthId}
+          value={maxCandidates == null ? "" : String(maxCandidates)}
+          onChange={(e) => {
+            setSavedAt(null);
+            const v = e.target.value;
+            setMaxCandidatesState(v === "" ? null : Number(v));
+          }}
+          className={inputClass}
+        >
+          <option value="">Standard (default)</option>
+          <option value="12">Faster — fewer matches</option>
+          <option value="6">Fastest — fewest matches</option>
+        </select>
+        <p className="mt-1.5 font-body text-[12px] text-foreground opacity-80">
+          How many opportunities the model scores each search. Fewer is faster — helpful on a slow
+          local model — but may surface fewer matches.
+        </p>
+      </div>
 
       <div className="mt-6 flex flex-wrap items-center gap-4">
         <button type="submit" className={saveBtnClass}>

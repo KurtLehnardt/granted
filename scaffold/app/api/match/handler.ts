@@ -81,6 +81,10 @@ export async function handleMatchRequest(
   // server mints the user_stated provenance in the bridge — never trust a
   // client-supplied provenance label). Optional; absent -> unchanged screening.
   let companyFacts: { samRegistered?: boolean; uei?: string } | undefined;
+  // Optional "search depth" preference (Settings): how many candidates the model
+  // scores. Passed through to buildOpportunityMap, which CLAMPS it to a safe
+  // range — so a bad client value can never overrun the scorer's token budget.
+  let maxCandidates: number | undefined;
   try {
     const body = await req.json();
     description = body?.description;
@@ -91,6 +95,9 @@ export async function handleMatchRequest(
       if (typeof cf.uei === "string" && cf.uei.trim().length > 0) {
         companyFacts.uei = cf.uei.trim().slice(0, 64);
       }
+    }
+    if (typeof body?.maxCandidates === "number" && Number.isFinite(body.maxCandidates)) {
+      maxCandidates = body.maxCandidates;
     }
   } catch {
     return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
@@ -143,6 +150,7 @@ export async function handleMatchRequest(
           undefined,
           ac.signal,
           companyFacts,
+          maxCandidates,
         );
         // Log any boundary drift for visibility, but ALWAYS stream the real,
         // completed map — never dead-end a finished search on schema strictness.

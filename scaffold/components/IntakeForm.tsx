@@ -6,6 +6,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { useAnalytics } from "@/components/AnalyticsProvider";
 import { useSearchDraft } from "@/components/SearchDraftProvider";
 import { clearAllLocalData, getAutoFillRequirements } from "@/lib/mockAuth";
+import { getMaxCandidates } from "@/lib/searchSettings";
 import { BRAND } from "@/lib/brand";
 import Swal from "sweetalert2";
 import SearchProgress from "@/components/SearchProgress";
@@ -144,7 +145,9 @@ export default function IntakeForm({ onResult }: { onResult: (m: any) => void })
       const res = await fetch("/api/match", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ description, companyFacts }),
+        // maxCandidates: the founder's Settings "search depth" preference (null
+        // when unset → server default). The server clamps it to a safe range.
+        body: JSON.stringify({ description, companyFacts, maxCandidates: getMaxCandidates() ?? undefined }),
       });
 
       // H1: ANY non-OK response is an error, regardless of content-type. A
