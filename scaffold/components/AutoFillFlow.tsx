@@ -146,7 +146,10 @@ export default function AutoFillFlow({
     setStep("review");
   }
 
-  const stepIndex = STEP_ORDER.indexOf(step);
+  // The stepper only shows the sign-in step when real OAuth is on (otherwise it's
+  // skipped — see the initial-step logic above), so it must never advertise a
+  // step the user won't see.
+  const visibleSteps = realAuth ? STEP_ORDER : STEP_ORDER.filter((s) => s !== "signin");
 
   /* ---- Shared dual-className tokens (mirrors AutoFillModal / SettingsPanel) ---- */
 
@@ -250,7 +253,7 @@ export default function AutoFillFlow({
         <div className="flex items-center gap-2 pr-8">
           <LockIcon className="h-3.5 w-3.5" design={design} />
           <p className={eyebrowClass}>
-            Assisted application &middot; nothing is submitted
+            Never submits anything
           </p>
         </div>
 
@@ -262,15 +265,15 @@ export default function AutoFillFlow({
             Hidden while the assembled package is shown (it replaces the stepper). */}
         {!showPackage && (
         <ol className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1">
-          {STEP_ORDER.map((s, i) => (
+          {visibleSteps.map((s, i) => (
             <li key={s} className="flex items-center gap-2">
               <span
-                className={i === stepIndex ? stepDotActiveClass : stepDotClass}
-                aria-current={i === stepIndex ? "step" : undefined}
+                className={s === step ? stepDotActiveClass : stepDotClass}
+                aria-current={s === step ? "step" : undefined}
               >
                 {i + 1}. {STEP_LABEL[s]}
               </span>
-              {i < STEP_ORDER.length - 1 && (
+              {i < visibleSteps.length - 1 && (
                 <span className={stepDotClass} aria-hidden="true">
                   &rarr;
                 </span>
@@ -321,10 +324,8 @@ export default function AutoFillFlow({
 
         {!showPackage && step === "requirements" && (
           <div>
-            <p id="auto-fill-flow-desc" className={bodyClass}>
-              Here&rsquo;s what assisted application needs on file before it can act for you.
-              Record what&rsquo;s true below (stored on this device only) — everything has to be in
-              place before you can submit for approval. Nothing here submits an application.
+            <p id="auto-fill-flow-desc" className="sr-only">
+              Record your registration details below. Nothing here submits an application.
             </p>
 
             {/* D6: per-opportunity preparation checklist — only renders when the
@@ -497,13 +498,11 @@ export default function AutoFillFlow({
         {!showPackage && step === "review" && (
           <div>
             <p className={`mt-4 font-display text-[18px] font-bold leading-snug ${design ? "text-foreground" : "text-ink"}`}>
-              You review and file it yourself.
+              What happens next
             </p>
             <p id="auto-fill-flow-desc" className={bodyClass}>
-              To be clear about what just happened: nothing was submitted to SAM.gov or any grant
-              portal, and no application was filed. Your answers stayed on this device. Assisted
-              application prepares your package; your Authorized Organization Representative reviews it
-              and files it through the portal&rsquo;s own submit button.
+              Your answers stayed on this device. Your Authorized Organization Representative reviews
+              the package and files it through the portal&rsquo;s own submit button.
             </p>
             <div className="mt-6 flex flex-wrap items-center gap-4">
               <button type="button" onClick={onClose} className={secondaryBtnClass}>
@@ -514,8 +513,7 @@ export default function AutoFillFlow({
         )}
 
         <p className={footnoteClass}>
-          No application is ever submitted here, and nothing implies a guarantee or any federal
-          government affiliation.
+          Nothing here implies a guarantee or any federal government affiliation.
         </p>
       </div>
     </div>,
@@ -526,7 +524,7 @@ export default function AutoFillFlow({
 const STEP_LABEL: Record<Step, string> = {
   signin: "Sign in",
   requirements: "Requirements",
-  review: "Admin review",
+  review: "Next steps",
 };
 
 function LockIcon({ className, design }: { className?: string; design: boolean }) {

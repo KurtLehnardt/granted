@@ -217,8 +217,6 @@ export default function ApplicationChecklist({
   const sectionHeadingClass = "mt-4 font-mono text-[11px] uppercase tracking-eyebrow text-foreground";
   const itemClass = "font-body text-[13px] leading-relaxed text-foreground";
   const mutedItemClass = "font-body text-[13px] italic leading-relaxed text-foreground";
-  const footnoteClass =
-    "mt-4 border-t border-structure-on-canvas pt-3 font-body text-[11px] leading-relaxed text-foreground";
 
   return (
     <section aria-labelledby="application-checklist-heading" className="mt-4">
@@ -264,12 +262,6 @@ export default function ApplicationChecklist({
           </li>
         ))}
       </ol>
-
-      <p className={footnoteClass}>
-        This is a preparation checklist, not a submission. Nothing above is sent to SAM.gov, Grants.gov, or any
-        agency, and it never determines eligibility for you. Final submission requires your organization&rsquo;s
-        Authorized Organization Representative (AOR), acting through the opportunity&rsquo;s official portal.
-      </p>
     </section>
   );
 }
