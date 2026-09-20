@@ -5,7 +5,7 @@ import { normalizeOpenAiBaseUrl } from "./llm/baseUrl";
 /**
  * Embeddings. Default: OpenAI text-embedding-3-small @ 512 dims, which matches
  * the committed corpus (programs are embedded once at build time via
- * scripts/3-embed.mjs; founder queries are embedded here at runtime — both must
+ * scripts/3-embed.mjs; user queries are embedded here at runtime — both must
  * use the SAME model or the vectors aren't comparable).
  *
  * The same env seam as lib/llm/client.ts lets you point at a LOCAL,

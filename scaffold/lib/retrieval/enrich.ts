@@ -137,7 +137,7 @@ export function deriveEnrichmentSignal(profile: StartupProfile): EnrichmentSigna
     if (terms.some((t) => mechanismText.includes(t))) mechanisms.add(kind);
   }
 
-  // Early-stage founders (idea/pre-seed/seed) with an R&D use-of-funds are the
+  // Early-stage applicants (idea/pre-seed/seed) with an R&D use-of-funds are the
   // canonical SBIR/STTR population — nudge the rd mechanism in for them even if
   // the use-of-funds prose didn't name it outright.
   const stage = lc(profile.fundingStage);

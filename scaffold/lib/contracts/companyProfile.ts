@@ -63,7 +63,7 @@ export const CompanyProfileSchema = z.object({
   id: z.string(),
 
   /**
-   * The founder's own description. Provenanced like everything else; it is
+   * The user's own description. Provenanced like everything else; it is
    * `user_stated` when typed, `model_inferred`/`verified` after an R3 rewrite.
    */
   raw_text: provenanced(z.string()),
@@ -99,7 +99,7 @@ export const CompanyProfileSchema = z.object({
   /** Prior federal awards — a Phase-II prerequisite check for SBIR/STTR (R8.1). */
   prior_federal_funding: provenanced(z.boolean()).optional(),
 
-  /** Government-vocabulary expansion of the founder's own words (feeds retrieval). */
+  /** Government-vocabulary expansion of the user's own words (feeds retrieval). */
   expanded_terms: provenanced(z.array(z.string())).optional(),
 
   /** The R1 interview transcript. */
@@ -113,7 +113,7 @@ export type CompanyProfile = z.infer<typeof CompanyProfileSchema>;
 //
 // The CompanyProfileSchema above stays deliberately PERMISSIVE — every
 // structured cell is a free `provenanced(...)` value so an extractor, a lookup,
-// or a founder answer can all land there without fighting the shape. This
+// or a user answer can all land there without fighting the shape. This
 // companion metadata layer sits *beside* that schema and says, per field:
 //
 //   - how MATERIAL the field is to routing (required / material / optional), and
@@ -122,7 +122,7 @@ export type CompanyProfile = z.infer<typeof CompanyProfileSchema>;
 // It adds NO fields to the contract and changes NO field type, so mergeAnswers
 // (INT-02) keeps validating against the permissive schema unchanged. Enum
 // choices here are the interview's *offered* options; the stored value stays a
-// plain string, so a founder's free-text escape is never lost. Gap-detection
+// plain string, so a user's free-text escape is never lost. Gap-detection
 // (see `lib/interview/generateQuestions.ts`) reads this to ask only the missing
 // material fields and never re-ask one the profile already provides.
 
@@ -186,7 +186,7 @@ export const FUNDING_STAGES: readonly ProfileFieldOption[] = [
   { value: "bootstrapped", label: "Bootstrapped / revenue-funded" },
 ] as const;
 
-/** Product-maturity choices (roughly maps onto TRL but founder-facing). */
+/** Product-maturity choices (roughly maps onto TRL but user-facing). */
 export const PRODUCT_MATURITY_LEVELS: readonly ProfileFieldOption[] = [
   { value: "concept", label: "Concept" },
   { value: "prototype", label: "Prototype" },
@@ -204,7 +204,7 @@ export interface ProfileFieldMeta {
   requirement: ProfileFieldRequirement;
   /** How the R1 interview collects the value. */
   inputType: ProfileFieldInputType;
-  /** Founder-facing short label. */
+  /** User-facing short label. */
   label: string;
   /** Offered choices for `single_select` / `range_select`; omitted otherwise. */
   options?: readonly ProfileFieldOption[];
@@ -214,8 +214,8 @@ export interface ProfileFieldMeta {
  * The 13 fields the R1 interview cares about, in ask-order (required first,
  * then material). `optional`-tier profile fields (entity_type, uei, …) are
  * deliberately absent: they are gated/verified elsewhere, not manufactured into
- * the founder gap-interview. Field keys match `CompanyProfileSchema` exactly;
- * `raw_text` is the founder's own description.
+ * the user gap-interview. Field keys match `CompanyProfileSchema` exactly;
+ * `raw_text` is the user's own description.
  */
 export const PROFILE_FIELD_META: readonly ProfileFieldMeta[] = [
   // --- REQUIRED — the search needs these to route at all. ---

@@ -10,7 +10,7 @@ import { z } from "zod";
  * from this worktree, per spec §9.4).
  *
  * WS-G / G2 — ApplicationDraft (the grounded narrative draft package produced
- * from a founder's `CompanyProfile` + G1's `ApplicationRequirements`).
+ * from a user's `CompanyProfile` + G1's `ApplicationRequirements`).
  *
  * THE HONESTY CONTRACT (R7.7 — mirrors G1's `applicationRequirements.ts` and
  * `lib/eligibility/screen.ts`): every sentence in a drafted section that makes a
@@ -18,11 +18,11 @@ import { z } from "zod";
  *   (a) GROUNDED — it appears in `claims` with the exact `profile_field` key it
  *       came from, and that field is actually provided on the profile
  *       (`isFieldProvided`); or
- *   (b) A GAP — an inline `[founder to provide: …]` placeholder in `draft_text`,
+ *   (b) A GAP — an inline `[you to provide: …]` placeholder in `draft_text`,
  *       recorded in `gaps`.
  *
  * A specific fact is NEVER invented. A profile missing `revenue` yields
- * `[founder to provide: annual revenue]`, never a made-up number. The drafter
+ * `[you to provide: annual revenue]`, never a made-up number. The drafter
  * (`lib/apply/draft.ts`) enforces this in a PURE, model-free validator
  * (`validateDraftGrounding`) and neutralizes any ungrounded claim into a gap
  * before this schema ever sees it — exactly as G1's `annotateGrounding` +
@@ -31,14 +31,14 @@ import { z } from "zod";
  */
 
 /**
- * The exact shape every founder-TODO placeholder must take. Anchored so a
- * `gap.placeholder` is the WHOLE string (`[founder to provide: <plain text>]`).
+ * The exact shape every you-to-provide placeholder must take. Anchored so a
+ * `gap.placeholder` is the WHOLE string (`[you to provide: <plain text>]`).
  * Consumers scanning `draft_text` for inline occurrences build a global,
  * non-anchored variant from the same literal shape (see `lib/apply/draft.ts`).
  * NEVER loosen this: it is what proves the drafter refused to fabricate a fact
  * and left an honest, fillable blank instead.
  */
-export const FOUNDER_TODO_PATTERN = /^\[founder to provide: .+\]$/;
+export const FOUNDER_TODO_PATTERN = /^\[you to provide: .+\]$/;
 
 /**
  * One grounded factual sentence and the profile field key it rests on. The
@@ -56,7 +56,7 @@ export type DraftClaim = z.infer<typeof DraftClaimSchema>;
 
 /**
  * A fact the profile does not provide, surfaced as a fillable blank rather than
- * invented. `placeholder` is the exact `[founder to provide: …]` string that
+ * invented. `placeholder` is the exact `[you to provide: …]` string that
  * appears inline in `draft_text`, and MUST match `FOUNDER_TODO_PATTERN`.
  */
 export const DraftGapSchema = z.object({
@@ -70,7 +70,7 @@ export type DraftGap = z.infer<typeof DraftGapSchema>;
 /**
  * One drafted narrative section, keyed to a G1 `NarrativeSection`. `draft_text`
  * is the assembled narrative: grounded sentences (each mirrored in `claims`)
- * interleaved with inline `[founder to provide: …]` placeholders (each mirrored
+ * interleaved with inline `[you to provide: …]` placeholders (each mirrored
  * in `gaps`). `key`/`title`/`prompt` are carried over verbatim from the G1
  * section this answers.
  */

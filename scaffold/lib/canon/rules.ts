@@ -31,7 +31,7 @@ import type { RuleEvaluation } from "../contracts/eligibilityDetermination";
  *  2. Everything CAN-04 writes is `provenance = 'model_inferred'`
  *     (`model_inferred = true`). Per R8.4, a `model_inferred` rule MUST NOT gate
  *     an exclusion in ELG-01 until a human review promotes it to `verified`.
- *     "A founder told they are ineligible on the strength of a hallucinated rule
+ *     "A user told they are ineligible on the strength of a hallucinated rule
  *     is the worst single failure this product can produce." The
  *     `EligibilityDetermination` schema already refuses an `excluded` bucket that
  *     rests only on `model_inferred` rules — this module produces exactly those

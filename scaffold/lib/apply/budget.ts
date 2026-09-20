@@ -20,7 +20,7 @@ import {
 /**
  * WS-G / G4 — deterministic, grounded line-item budget builder.
  *
- * `buildBudget(profile, requirements?, opp?)` turns the founder's
+ * `buildBudget(profile, requirements?, opp?)` turns the user's
  * `CompanyProfile` (`capital_requirement` + `use_of_funds`), optionally
  * sharpened by G1's `ApplicationRequirements.budget_rules` and the
  * opportunity's `award_range`, into a structured `ApplicationBudget`.
@@ -30,11 +30,11 @@ import {
  * generative step in which a plausible-looking dollar figure could be
  * hallucinated. Every fact in the output is either:
  *
- *   (a) GROUNDED — a line item's `justification` quotes the founder's actual
+ *   (a) GROUNDED — a line item's `justification` quotes the user's actual
  *       `use_of_funds` value verbatim (`source_quote`), or a `constraint` /
  *       indirect-cost line quotes a G1 `BudgetRule.source_quote` verbatim; or
  *   (b) A GAP — every `amount` (line-item and total) is a
- *       `[founder to provide: …]` placeholder, because `capital_requirement`
+ *       `[you to provide: …]` placeholder, because `capital_requirement`
  *       is a COARSE RANGE BUCKET (e.g. "250k_1m"), not an exact figure, so an
  *       exact line-item dollar amount is never derivable from it.
  *
@@ -48,13 +48,13 @@ import {
  */
 
 // ---------------------------------------------------------------------------
-// Gap-placeholder helpers (the `[founder to provide: …]` machinery)
+// Gap-placeholder helpers (the `[you to provide: …]` machinery)
 // ---------------------------------------------------------------------------
 
-/** Wrap a plain hint into the exact `[founder to provide: …]` shape (matches `FOUNDER_TODO_PATTERN`). */
+/** Wrap a plain hint into the exact `[you to provide: …]` shape (matches `FOUNDER_TODO_PATTERN`). */
 function toPlaceholder(hint: string): string {
   const clean = hint.replace(/[[\]]/g, "").replace(/\s+/g, " ").trim();
-  return `[founder to provide: ${clean.length > 0 ? clean : "this detail"}]`;
+  return `[you to provide: ${clean.length > 0 ? clean : "this detail"}]`;
 }
 
 // ---------------------------------------------------------------------------
@@ -74,7 +74,7 @@ interface CategoryRule {
  * and `indirect_fna` are DELIBERATELY absent here: fringe is derived from a
  * `personnel_salaries` match (standard federal-budget pairing, see
  * `buildLineItemsFromUseOfFunds`) and indirect is only ever grounded in a G1
- * `budget_rule` (see `indirectLineItemFromRules`) — neither has a founder
+ * `budget_rule` (see `indirectLineItemFromRules`) — neither has a user
  * use-of-funds keyword of its own to match against.
  */
 const CATEGORY_RULES: readonly CategoryRule[] = [
@@ -116,10 +116,10 @@ const CATEGORY_RULES: readonly CategoryRule[] = [
   },
 ];
 
-/** Quote the founder's `use_of_funds` value verbatim in a grounded justification sentence. */
+/** Quote the user's `use_of_funds` value verbatim in a grounded justification sentence. */
 function useOfFundsJustification(activity: string, label: string, quote: string): string {
   return (
-    `The founder's stated use of funds — "${quote}" — indicates ${activity}, ` +
+    `The user's stated use of funds — "${quote}" — indicates ${activity}, ` +
     `so this budget includes a ${label} line item.`
   );
 }
@@ -163,7 +163,7 @@ function buildLineItemsFromUseOfFunds(useOfFunds: string): BudgetLineItem[] {
     const label = BUDGET_CATEGORY_LABELS.fringe_benefits;
     const justification =
       `Standard fringe benefits (payroll taxes, health insurance, retirement contributions) ` +
-      `associated with the personnel effort described in the founder's stated use of funds — "${quote}".`;
+      `associated with the personnel effort described in the user's stated use of funds — "${quote}".`;
     items.set("fringe_benefits", useOfFundsLineItem("fringe_benefits", justification, quote));
   }
 
@@ -172,9 +172,9 @@ function buildLineItemsFromUseOfFunds(useOfFunds: string): BudgetLineItem[] {
 
 /**
  * `use_of_funds` is absent: emit the full standard-category checklist so the
- * founder sees the shape of a federal budget, with NEITHER a dollar figure
+ * user sees the shape of a federal budget, with NEITHER a dollar figure
  * NOR a specific activity invented — both `amount` and `justification` are
- * honest `[founder to provide: …]` gaps.
+ * honest `[you to provide: …]` gaps.
  */
 function buildTemplateLineItems(): BudgetLineItem[] {
   return BUDGET_CATEGORY_ORDER.map((category) => {
@@ -267,7 +267,7 @@ function formatUsd(amount: number, currency: string): string {
 
 /**
  * Build a deterministic, grounded line-item federal budget + justification
- * from a founder's `CompanyProfile`, optionally sharpened by G1's
+ * from a user's `CompanyProfile`, optionally sharpened by G1's
  * `ApplicationRequirements` (`budget_rules`) and the opportunity's
  * `award_range`. Pure, model-free — see the module doc for the honesty
  * contract this enforces.
@@ -291,7 +291,7 @@ export function buildBudget(
     : buildTemplateLineItems();
 
   // Indirect/F&A is only ever added when a G1 budget_rule grounds it — never
-  // inferred from use_of_funds prose (founders don't narrate overhead) and
+  // inferred from use_of_funds prose (users don't narrate overhead) and
   // never included in the use_of_funds-grounded pass above.
   const indirectItem = indirectLineItemFromRules(requirements?.budget_rules);
   if (indirectItem && !lineItems.some((li) => li.category === "indirect_fna")) {
@@ -301,7 +301,7 @@ export function buildBudget(
   for (const li of lineItems) {
     addGap(li.amount);
     // FINDING 2: a line item's `justification` can itself embed inline
-    // `[founder to provide: …]` placeholders — the use_of_funds-absent template
+    // `[you to provide: …]` placeholders — the use_of_funds-absent template
     // path (`buildTemplateLineItems`) writes one per category, genuinely
     // rendered on the budget. Scan it with the SAME shared scanner
     // `collectAllGaps` runs on narrative draft_text, so every visibly-rendered
@@ -321,7 +321,7 @@ export function buildBudget(
 
   const total = rangeLabel
     ? {
-        range_statement: `Founder-stated capital requirement range: ${rangeLabel} (source: profile field "capital_requirement").`,
+        range_statement: `User-stated capital requirement range: ${rangeLabel} (source: profile field "capital_requirement").`,
         range_grounded: true as const,
         profile_field: "capital_requirement" as const,
         amount: totalAmountPlaceholder,
@@ -349,7 +349,7 @@ export function buildBudget(
         const ceilingText = formatUsd(opp.award_range.ceiling, opp.award_range.currency ?? "USD");
         const rangeText = rangeLabel ?? capitalRequirementValue;
         advisories.push(
-          `Advisory: the founder's stated capital requirement range (${rangeText}) may exceed this ` +
+          `Advisory: the user's stated capital requirement range (${rangeText}) may exceed this ` +
             `program's stated award ceiling (${ceilingText}) — verify against the program's funding ` +
             `limits before finalizing the budget.`,
         );
@@ -361,9 +361,9 @@ export function buildBudget(
   const notes: string[] = [];
   if (!useOfFundsProvided) {
     notes.push(
-      "The founder has not yet provided use-of-funds detail. The line items above are the standard " +
+      "The user has not yet provided use-of-funds detail. The line items above are the standard " +
         "federal budget category checklist, not a spending plan — replace each justification and amount " +
-        "gap with the founder's actual planned use of funds before submission.",
+        "gap with the user's actual planned use of funds before submission.",
     );
   }
 

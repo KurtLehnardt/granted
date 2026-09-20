@@ -33,7 +33,7 @@ function logMapDrift(map: unknown, label: string): void {
  * (security review MEDIUM — denial-of-wallet). A max description length caps
  * per-request embedding + scoring token spend; a best-effort per-IP rate limit
  * blunts naive bursts. All env-overridable; defaults chosen to never impede a
- * real founder or the judged demo.
+ * real user or the judged demo.
  */
 const MAX_DESCRIPTION_LENGTH = Number(process.env.MAX_DESCRIPTION_LENGTH) || 8_000;
 const MATCH_RATE_LIMIT = Number(process.env.MATCH_RATE_LIMIT) || 20;
@@ -77,7 +77,7 @@ export async function handleMatchRequest(
   // Validation errors return plain JSON (the client checks res.ok before
   // reading the stream). Everything else streams NDJSON progress + result.
   let description: string;
-  // Founder self-reported registration facts, sanitized to primitives here (the
+  // User self-reported registration facts, sanitized to primitives here (the
   // server mints the user_stated provenance in the bridge — never trust a
   // client-supplied provenance label). Optional; absent -> unchanged screening.
   let companyFacts: { samRegistered?: boolean; uei?: string } | undefined;

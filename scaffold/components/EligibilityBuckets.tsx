@@ -464,7 +464,7 @@ function ProvenanceNote({
   }
 
   if (verifiedNote) {
-    const text = provenance === "verified" ? "Verified against the source below." : "As stated by the founder.";
+    const text = provenance === "verified" ? "Verified against the source below." : "As stated by the user.";
     return <p className={`mt-0.5 ${mutedClass}`}>{text}</p>;
   }
 

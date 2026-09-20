@@ -16,7 +16,7 @@ function fnv1a(input: string): string {
 }
 
 /**
- * A stable identity for "this founder's search," derived from the handful of
+ * A stable identity for "this user's search," derived from the handful of
  * profile fields that meaningfully change what the corpus matches against.
  * Two runs with the same description/industry/technology/location/funding
  * stage hash to the same key, so a saved alert snapshot from a prior run is

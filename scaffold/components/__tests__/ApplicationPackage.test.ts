@@ -63,11 +63,11 @@ function sampleDraft(): ApplicationDraft {
         prompt: "Summarize your project.",
         draft_text:
           "We build electrochemical biosensor arrays for rural clinics. " +
-          "Our annual revenue is [founder to provide: annual revenue].",
+          "Our annual revenue is [you to provide: annual revenue].",
         claims: [
           { text: "We build electrochemical biosensor arrays for rural clinics.", profile_field: "technology" },
         ],
-        gaps: [{ field_hint: "annual revenue", placeholder: "[founder to provide: annual revenue]" }],
+        gaps: [{ field_hint: "annual revenue", placeholder: "[you to provide: annual revenue]" }],
       },
     ],
   };
@@ -123,11 +123,11 @@ const SUBMIT_CONFIRMATION_PATTERNS: RegExp[] = [
 ];
 
 describe("<ApplicationPackageView/> honesty", () => {
-  test("highlights every [founder to provide: …] gap as a warning pill", () => {
+  test("highlights every [you to provide: …] gap as a warning pill", () => {
     const html = render(fullPackage());
     // The pill token class is present, and the narrative's own gap is shown.
     assert.match(html, /bg-warning/);
-    assert.ok(html.includes("[founder to provide: annual revenue]"));
+    assert.ok(html.includes("[you to provide: annual revenue]"));
   });
 
   test("renders NO submit/eligibility CONFIRMATION, for the full package", () => {

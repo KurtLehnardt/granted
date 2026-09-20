@@ -32,7 +32,7 @@ export interface FillResult {
   outcome: FillOutcome;
   /** Only present for grounded fills; the value shown for the human's review. */
   intendedValue?: string;
-  /** For gaps: the exact `[founder to provide: …]` display, shown as the blank to complete. */
+  /** For gaps: the exact `[you to provide: …]` display, shown as the blank to complete. */
   gapDisplay?: string;
   /** Provenance from the package (PrefilledField.source), shown in the review list. */
   source?: string;

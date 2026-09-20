@@ -17,7 +17,7 @@ import { z } from "zod";
  * the whole product (§11 "never let a model inference wear the costume of a
  * verified fact"). R2, R3, R8, and R6's attest screen all branch on it.
  *
- * - `user_stated`    — the founder said it.
+ * - `user_stated`    — the user said it.
  * - `model_inferred` — the model guessed/derived it; never sufficient to gate an
  *                      exclusion on its own (R8.4).
  * - `verified`       — confirmed against an authoritative source (R2).

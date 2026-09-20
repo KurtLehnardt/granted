@@ -29,7 +29,7 @@ const meta: SubmissionMeta = {
 /**
  * A small but representative package: a grounded field + a `founder_to_provide`
  * field, a budget with gap amounts, and a narrative with an inline
- * `[founder to provide: …]`.
+ * `[you to provide: …]`.
  */
 const assembled: AssembledPackage = {
   opportunity_id: "OPP-XYZ",
@@ -43,10 +43,10 @@ const assembled: AssembledPackage = {
       title: "Project Summary",
       prompt: "Summarize the project.",
       draft_text:
-        "We build clean-energy systems. [founder to provide: annual revenue] & more.",
+        "We build clean-energy systems. [you to provide: annual revenue] & more.",
       claims: [],
       gaps: [
-        { field_hint: "annual revenue", placeholder: "[founder to provide: annual revenue]" },
+        { field_hint: "annual revenue", placeholder: "[you to provide: annual revenue]" },
       ],
     },
   ],
@@ -79,12 +79,12 @@ const assembled: AssembledPackage = {
             key: "project_title",
             label: "Project Title",
             status: "founder_to_provide",
-            display: "[founder to provide: project title]",
+            display: "[you to provide: project title]",
           },
         ],
       },
     ],
-    gaps: ["[founder to provide: project title]"],
+    gaps: ["[you to provide: project title]"],
   },
   budget: {
     generated_at: ISO,
@@ -95,28 +95,28 @@ const assembled: AssembledPackage = {
         justification: "Salaries for the R&D team.",
         justification_source: "use_of_funds",
         source_quote: "R&D team",
-        amount: "[founder to provide: personnel & salaries amount]",
+        amount: "[you to provide: personnel & salaries amount]",
       },
     ],
     total: {
-      range_statement: "[founder to provide: total budget range]",
+      range_statement: "[you to provide: total budget range]",
       range_grounded: false,
-      amount: "[founder to provide: total budget amount]",
+      amount: "[you to provide: total budget amount]",
     },
     constraints: [],
     advisories: [],
     notes: [],
     gaps: [
-      "[founder to provide: personnel & salaries amount]",
-      "[founder to provide: total budget amount]",
+      "[you to provide: personnel & salaries amount]",
+      "[you to provide: total budget amount]",
     ],
   },
   checklist: { allRegistrationsSatisfied: false },
   gaps: [
-    "[founder to provide: annual revenue]",
-    "[founder to provide: project title]",
-    "[founder to provide: personnel & salaries amount]",
-    "[founder to provide: total budget amount]",
+    "[you to provide: annual revenue]",
+    "[you to provide: project title]",
+    "[you to provide: personnel & salaries amount]",
+    "[you to provide: total budget amount]",
   ],
 };
 
@@ -170,8 +170,8 @@ describe("gap preservation (HR-1)", () => {
   const xml = toGrantApplicationXml(assembled, meta);
 
   test("missing cfda_number / competition_id render as visible gap markers, not empty elements", () => {
-    assert.ok(xml.includes("<!-- GAP: founder to provide: CFDA number -->"));
-    assert.ok(xml.includes("<!-- GAP: founder to provide: competition id -->"));
+    assert.ok(xml.includes("<!-- GAP: you to provide: CFDA number -->"));
+    assert.ok(xml.includes("<!-- GAP: you to provide: competition id -->"));
     // Crucially: no empty-but-plausible element was emitted for either.
     assert.ok(!xml.includes("<CFDANumber>"), "no (empty) CFDANumber element");
     assert.ok(!xml.includes("<CompetitionID>"), "no (empty) CompetitionID element");
@@ -179,7 +179,7 @@ describe("gap preservation (HR-1)", () => {
 
   test("a founder_to_provide form field renders a gap marker, never a value/source", () => {
     assert.ok(
-      xml.includes("<!-- GAP: Project Title: [founder to provide: project title] -->"),
+      xml.includes("<!-- GAP: Project Title: [you to provide: project title] -->"),
     );
     // The gap field carries no source attribute (nothing was grounded).
     assert.ok(
@@ -191,11 +191,11 @@ describe("gap preservation (HR-1)", () => {
   test("every budget amount renders a gap marker, never a number", () => {
     assert.ok(
       xml.includes(
-        "<!-- GAP: Personnel & Salaries amount: [founder to provide: personnel & salaries amount] -->",
+        "<!-- GAP: Personnel & Salaries amount: [you to provide: personnel & salaries amount] -->",
       ),
     );
     assert.ok(
-      xml.includes("<!-- GAP: total budget amount: [founder to provide: total budget amount] -->"),
+      xml.includes("<!-- GAP: total budget amount: [you to provide: total budget amount] -->"),
     );
     // No fabricated dollar figure anywhere in the budget section.
     const budget = xml.slice(xml.indexOf("<Budget>"), xml.indexOf("</Budget>"));
@@ -203,8 +203,8 @@ describe("gap preservation (HR-1)", () => {
     assert.ok(!/<Amount>\s*\d/.test(budget), "no numeric <Amount>");
   });
 
-  test("an inline narrative [founder to provide: …] stays visible after escaping", () => {
-    assert.ok(xml.includes("[founder to provide: annual revenue]"));
+  test("an inline narrative [you to provide: …] stays visible after escaping", () => {
+    assert.ok(xml.includes("[you to provide: annual revenue]"));
   });
 
   test("the footer enumerates every assembled.gaps entry for the AOR", () => {
@@ -288,7 +288,7 @@ describe("SOAP envelope", () => {
       "schema version inside body",
     );
     assert.ok(
-      bodyInner.includes("<!-- GAP: founder to provide: CFDA number -->"),
+      bodyInner.includes("<!-- GAP: you to provide: CFDA number -->"),
       "gap markers preserved inside body",
     );
     // The app XML's own content is not lost to indentation: strip leading

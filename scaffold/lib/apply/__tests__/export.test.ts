@@ -110,12 +110,12 @@ function sampleForms(): PrefilledForms {
             key: "project_title",
             label: "Descriptive Title",
             status: "founder_to_provide",
-            display: "[founder to provide: project title]",
+            display: "[you to provide: project title]",
           },
         ],
       },
     ],
-    gaps: ["[founder to provide: project title]"],
+    gaps: ["[you to provide: project title]"],
   };
 }
 
@@ -124,14 +124,14 @@ function sampleBudget(): ApplicationBudget {
     generated_at: "2026-08-01T00:00:00.000Z",
     line_items: [],
     total: {
-      range_statement: "[founder to provide: total budget amount]",
+      range_statement: "[you to provide: total budget amount]",
       range_grounded: false,
-      amount: "[founder to provide: total budget amount]",
+      amount: "[you to provide: total budget amount]",
     },
     constraints: [],
     advisories: [],
     notes: [],
-    gaps: ["[founder to provide: total budget amount]"],
+    gaps: ["[you to provide: total budget amount]"],
   };
 }
 
@@ -148,7 +148,7 @@ function samplePackage(): AssembledPackage {
     forms: sampleForms(),
     budget: sampleBudget(),
     checklist: { allRegistrationsSatisfied: false },
-    gaps: ["[founder to provide: project title]", "[founder to provide: total budget amount]"],
+    gaps: ["[you to provide: project title]", "[you to provide: total budget amount]"],
   };
 }
 

@@ -165,7 +165,7 @@ export const CompetitorSynthesisSchema = z.object({
   competitors: z.array(CompetitorNoteSchema).min(1),
   recommendations: z.array(RecommendationSchema).min(1),
   /**
-   * R5-deep — gaps / whitespace opportunities the founder could exploit. Same
+   * R5-deep — gaps / whitespace opportunities the user could exploit. Same
    * cited shape as a recommendation: every entry MUST cite at least one real
    * record or web-profile id (enforced by the top-level refine). Optional so the
    * original demo-first fixture (which predates this section) still validates.

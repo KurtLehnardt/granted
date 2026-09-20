@@ -66,7 +66,7 @@ export default function IntakeForm({ onResult }: { onResult: (m: any) => void })
   const [interviewQuestions, setInterviewQuestions] = useState<InterviewQuestion[]>([]);
   // The exact description /api/interview generated questions for — captured
   // at beginSearch() time, independent of subsequent edits to `text`, so
-  // PreSearchInterview's "Search anyway" always searches what the founder
+  // PreSearchInterview's "Search anyway" always searches what the user
   // actually asked the interview about.
   const [originalDescription, setOriginalDescription] = useState("");
   // Interview "generating" guard: a hung /api/interview must never strand the
@@ -135,8 +135,8 @@ export default function IntakeForm({ onResult }: { onResult: (m: any) => void })
     // content is sent — the event is a name + timestamp only.
     searchStartRef.current = Date.now();
     analytics.searchStarted();
-    // Arch review: feed the founder's OWN self-reported SAM/UEI (from the local
-    // Auto Fill form) into eligibility screening so a registered founder isn't
+    // Arch review: feed the user's OWN self-reported SAM/UEI (from the local
+    // Auto Fill form) into eligibility screening so a registered user isn't
     // told to register. Empty when unfilled -> server no-ops it. Not analytics,
     // not the description; used transiently server-side for screening only.
     const reqs = getAutoFillRequirements();
@@ -145,7 +145,7 @@ export default function IntakeForm({ onResult }: { onResult: (m: any) => void })
       const res = await fetch("/api/match", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // maxCandidates: the founder's Settings "search depth" preference (null
+        // maxCandidates: the user's Settings "search depth" preference (null
         // when unset → server default). The server clamps it to a safe range.
         body: JSON.stringify({ description, companyFacts, maxCandidates: getMaxCandidates() ?? undefined }),
       });

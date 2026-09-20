@@ -8,7 +8,7 @@ import type { AlertItem } from "@/lib/alerts/types";
 
 /**
  * D5 — "Opportunity Alerts": a client-only diff of this run's opportunity map
- * against the snapshot saved from the founder's last visit for the SAME
+ * against the snapshot saved from the user's last visit for the SAME
  * profile/search (see lib/alerts/profileKey.ts), surfacing what's new or
  * changed since then — new matches, tier upgrades, and newly closing-soon
  * deadlines.

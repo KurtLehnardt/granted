@@ -25,7 +25,7 @@ import {
  * specific program and never odds of winning — see the persistent disclaimer.
  *
  * Email capture comes AFTER the grade (POST to the stubbed /api/readiness-lead),
- * and the primary CTA drops the founder into the full matcher at `/`.
+ * and the primary CTA drops the user into the full matcher at `/`.
  *
  * Self-contained: styling uses only CON-02 design tokens (no raw hex — see
  * scripts/design/check-hex.mjs), it's dark-aware and mobile-responsive, and it

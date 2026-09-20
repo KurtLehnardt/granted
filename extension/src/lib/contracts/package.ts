@@ -19,7 +19,7 @@ import type { ApplicationBudget } from "./applicationBudget";
  *
  *   - `AOR_HANDOFF` is the honest hand-off copy: the tool assembled a
  *     submission-ready DRAFT, nothing was submitted, no application was filed,
- *     and final legal submission is the founder's authorized AOR's — never a
+ *     and final legal submission is the user's authorized AOR's — never a
  *     "submitted"/"filed"/"won"/"approved" confirmation, never a definitive
  *     eligibility claim.
  */
@@ -46,7 +46,7 @@ export interface ChecklistInputs {
 
 /**
  * The full assembled, submission-READY package for one opportunity. Every
- * founder-facing blank across all three artifacts is collected in `gaps`.
+ * user-facing blank across all three artifacts is collected in `gaps`.
  * Nothing here is ever a submission — see `AOR_HANDOFF`.
  */
 export interface AssembledPackage {
@@ -73,7 +73,7 @@ export interface AssembledPackage {
   /** (4) Inputs for the reused D6 `<ApplicationChecklist>`. */
   checklist: ChecklistInputs;
 
-  /** (5) Every `[founder to provide: …]` across narratives + forms + budget. */
+  /** (5) Every `[you to provide: …]` across narratives + forms + budget. */
   gaps: string[];
 }
 
@@ -84,7 +84,7 @@ export interface AssembledPackage {
 /**
  * The honest hand-off copy, consistent with `components/AutoApplyFlow.tsx`: the
  * tool drafted a submission-READY package, nothing was submitted, no application
- * was filed, and final legal submission is the founder's authorized AOR's,
+ * was filed, and final legal submission is the user's authorized AOR's,
  * through the program's official portal. Every string here is deliberately clear
  * of any "submitted"/"filed"/"won"/"approved" CONFIRMATION and of any banned
  * definitive-eligibility phrasing. Exported so tests can assert the invariants
@@ -97,7 +97,7 @@ export const AOR_HANDOFF = {
     "This is a submission-ready draft assembled from your profile and this program's own stated " +
     "requirements. To be clear about what just happened: nothing was submitted to Grants.gov, SAM.gov, " +
     "or any agency, no application was filed, and no payment was taken. Complete every highlighted " +
-    "[founder to provide: …] blank above, then have your organization's Authorized Organization " +
+    "[you to provide: …] blank above, then have your organization's Authorized Organization " +
     "Representative (AOR) review the finished package and submit it through the program's official portal.",
   cta: "Review & submit via your authorized AOR",
 } as const;

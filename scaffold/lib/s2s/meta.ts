@@ -13,7 +13,7 @@ import { SubmissionMetaSchema, type SubmissionMeta } from "./types";
  * HONESTY (HR-1, spec §9.3): this function NEVER invents an identifier. A field
  * is filled only from a value the `Opportunity` genuinely carries; anything the
  * record lacks is left `undefined` so the downstream XML mapper (T-B) renders it
- * as a visible `[founder to provide: …]` / `<!-- GAP: … -->` marker rather than a
+ * as a visible `[you to provide: …]` / `<!-- GAP: … -->` marker rather than a
  * plausible-but-fabricated number.
  *
  * Note on the record shape (documented so no one "fixes" it by guessing): the

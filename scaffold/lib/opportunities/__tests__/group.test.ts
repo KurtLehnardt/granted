@@ -20,7 +20,7 @@ function m(id: string, kind: string, score: number): GroupableMatch {
 }
 
 describe("KIND_LABEL / KIND_ORDER", () => {
-  test("every OpportunityKind has a founder-facing label and a canonical order slot", () => {
+  test("every OpportunityKind has a user-facing label and a canonical order slot", () => {
     for (const kind of OpportunityKindSchema.options) {
       assert.ok(KIND_LABEL[kind], `${kind} needs a label`);
       assert.ok(KIND_ORDER.includes(kind), `${kind} needs an order slot`);

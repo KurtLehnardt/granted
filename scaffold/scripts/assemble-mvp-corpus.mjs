@@ -19,7 +19,7 @@
  *   USAspending      → source:"usaspending",        kind:"procurement" (gov-as-customer; a past contract, no deadline)
  *
  * Embedding matches 3-embed.mjs exactly (text-embedding-3-small, dimensions:512,
- * rounded to 5 decimals) so new vectors are comparable to the founder query
+ * rounded to 5 decimals) so new vectors are comparable to the user query
  * embedded at request time by lib/embed.ts.
  *
  * Run AFTER the three fetchers: `node scripts/assemble-mvp-corpus.mjs`

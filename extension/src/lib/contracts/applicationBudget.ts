@@ -11,7 +11,7 @@ import { FOUNDER_TODO_PATTERN } from "./applicationDraft";
  * popup can render budget line items/gaps truthfully.
  *
  * WS-G / G4 — ApplicationBudget (the deterministic, grounded line-item federal
- * budget + justification package built from a founder's `CompanyProfile`,
+ * budget + justification package built from a user's `CompanyProfile`,
  * optionally sharpened by G1's `ApplicationRequirements.budget_rules` and the
  * `Opportunity.award_range` cross-check).
  *
@@ -19,7 +19,7 @@ import { FOUNDER_TODO_PATTERN } from "./applicationDraft";
  * G2's `applicationDraft.ts`): `capital_requirement` on the profile is a
  * COARSE RANGE BUCKET (e.g. "250k_1m"), never an exact figure. An exact
  * line-item dollar amount is therefore NOT DERIVABLE from the profile and MUST
- * be a `[founder to provide: …]` gap — NEVER an invented number. This contract
+ * be a `[you to provide: …]` gap — NEVER an invented number. This contract
  * enforces that structurally: every `amount` field (on a line item AND on the
  * total) is REGEX-CONSTRAINED to `FOUNDER_TODO_PATTERN`, so there is no shape
  * of `ApplicationBudget` that carries a synthesized dollar figure. The builder
@@ -51,7 +51,7 @@ export const BudgetCategorySchema = z.enum([
 ]);
 export type BudgetCategory = z.infer<typeof BudgetCategorySchema>;
 
-/** Founder-facing label for each category, in standard SF-424A presentation order. */
+/** User-facing label for each category, in standard SF-424A presentation order. */
 export const BUDGET_CATEGORY_LABELS: Record<BudgetCategory, string> = {
   personnel_salaries: "Personnel & Salaries",
   fringe_benefits: "Fringe Benefits",
@@ -79,12 +79,12 @@ export const BUDGET_CATEGORY_ORDER: readonly BudgetCategory[] = [
  * Where a line item's `justification` prose is grounded. Mirrors G2's
  * `DraftClaim.profile_field` idea, but at the coarser grain this builder
  * operates at:
- *   - `use_of_funds` — paraphrases/quotes the founder's `use_of_funds` text
+ *   - `use_of_funds` — paraphrases/quotes the user's `use_of_funds` text
  *     (`source_quote` is a verbatim substring of that field's value).
  *   - `budget_rule`  — grounded in a G1 `BudgetRule` with `specified: true`
  *     (`source_quote` is that rule's verbatim `source_quote`).
- *   - `template`     — no founder text to ground in (use_of_funds absent);
- *     the justification itself is an honest `[founder to provide: …]` gap
+ *   - `template`     — no user text to ground in (use_of_funds absent);
+ *     the justification itself is an honest `[you to provide: …]` gap
  *     describing what's missing, and `source_quote` is `""`.
  */
 export const BudgetJustificationSourceSchema = z.enum([
@@ -102,23 +102,23 @@ export type BudgetJustificationSource = z.infer<typeof BudgetJustificationSource
  */
 export const BudgetLineItemSchema = z.object({
   category: BudgetCategorySchema,
-  /** Founder-facing label, carried from `BUDGET_CATEGORY_LABELS[category]`. */
+  /** User-facing label, carried from `BUDGET_CATEGORY_LABELS[category]`. */
   label: z.string(),
   /** Grounded justification prose — cites `use_of_funds` text or a `budget_rule`, or is an honest template gap. */
   justification: z.string(),
   justification_source: BudgetJustificationSourceSchema,
-  /** Verbatim substring backing `justification` (the founder's `use_of_funds` value, or a `BudgetRule.source_quote`); `""` for `template`. */
+  /** Verbatim substring backing `justification` (the user's `use_of_funds` value, or a `BudgetRule.source_quote`); `""` for `template`. */
   source_quote: z.string(),
-  /** ALWAYS a `[founder to provide: …]` gap — an exact figure is never derivable from a range bucket. */
+  /** ALWAYS a `[you to provide: …]` gap — an exact figure is never derivable from a range bucket. */
   amount: z.string().regex(FOUNDER_TODO_PATTERN),
 });
 export type BudgetLineItem = z.infer<typeof BudgetLineItemSchema>;
 
 /**
  * The SF-424 budget total. `range_statement` is either a grounded sentence
- * citing the founder's `capital_requirement` profile field (`range_grounded:
+ * citing the user's `capital_requirement` profile field (`range_grounded:
  * true`), or — when that field isn't provided — itself an honest
- * `[founder to provide: …]` gap (`range_grounded: false`). `amount` (the exact
+ * `[you to provide: …]` gap (`range_grounded: false`). `amount` (the exact
  * total) is ALWAYS a gap: a range bucket never yields an exact SF-424 figure.
  */
 export const BudgetTotalSchema = z
@@ -127,12 +127,12 @@ export const BudgetTotalSchema = z
     range_grounded: z.boolean(),
     /** The `CompanyProfile` field `range_statement` is grounded in, when `range_grounded` is true. */
     profile_field: z.literal("capital_requirement").optional(),
-    /** ALWAYS a `[founder to provide: total budget amount]`-shaped gap. */
+    /** ALWAYS a `[you to provide: total budget amount]`-shaped gap. */
     amount: z.string().regex(FOUNDER_TODO_PATTERN),
   })
   .refine(
     (t) => t.range_grounded || FOUNDER_TODO_PATTERN.test(t.range_statement),
-    { message: "range_statement must be grounded, or itself a [founder to provide: …] gap" },
+    { message: "range_statement must be grounded, or itself a [you to provide: …] gap" },
   );
 export type BudgetTotal = z.infer<typeof BudgetTotalSchema>;
 
@@ -142,7 +142,7 @@ export type BudgetTotal = z.infer<typeof BudgetTotalSchema>;
  * that rule's verbatim quote — carried through unchanged, never paraphrased
  * away from its grounding. `note` is an honest, non-determinative nudge (e.g.
  * "confirm the applicable rate with the program officer") — it NEVER asserts
- * the founder satisfies the rule.
+ * the user satisfies the rule.
  */
 export const BudgetConstraintSchema = z.object({
   /** The G1 `BudgetRule.rule` text this constraint carries. */
@@ -158,7 +158,7 @@ export type BudgetConstraint = z.infer<typeof BudgetConstraintSchema>;
  * The full deterministic budget package for one opportunity (or a
  * requirements-less/opportunity-less draft, when those optional inputs are
  * omitted). `gaps` is the flat, deduplicated list of every distinct
- * `[founder to provide: …]` placeholder appearing anywhere in the package —
+ * `[you to provide: …]` placeholder appearing anywhere in the package —
  * G5's single scan surface for this artifact.
  */
 export const ApplicationBudgetSchema = z.object({
@@ -173,9 +173,9 @@ export const ApplicationBudgetSchema = z.object({
   constraints: z.array(BudgetConstraintSchema).default([]),
   /** Advisory-only cross-checks (e.g. stated range vs. program award ceiling) — never a determination. */
   advisories: z.array(z.string()).default([]),
-  /** Top-level honest notes (e.g. "founder has not provided use-of-funds detail"). */
+  /** Top-level honest notes (e.g. "user has not provided use-of-funds detail"). */
   notes: z.array(z.string()).default([]),
-  /** Every distinct `[founder to provide: …]` placeholder in this package. */
+  /** Every distinct `[you to provide: …]` placeholder in this package. */
   gaps: z.array(z.string()).default([]),
 });
 export type ApplicationBudget = z.infer<typeof ApplicationBudgetSchema>;

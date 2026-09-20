@@ -71,7 +71,7 @@ export const EligibilityDeterminationSchema = z
     path: ["failed_rules"],
   })
   /**
-   * R8.4 — "A founder told they are ineligible on the strength of a
+   * R8.4 — "A user told they are ineligible on the strength of a
    * hallucinated rule is the worst single failure this product can produce."
    * An exclusion cannot rest ONLY on `model_inferred` rules; at least one
    * failed rule must be `user_stated` or `verified`.

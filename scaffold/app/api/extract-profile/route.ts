@@ -13,7 +13,7 @@ import { rateLimit, clientKey } from "@/lib/security/rateLimit";
  * per-IP rate limit, same "never a 5xx" contract.
  *
  * Contract with the client: autofill is a convenience that PRE-FILLS the
- * structured form for the founder to confirm/edit — it must never block the
+ * structured form for the user to confirm/edit — it must never block the
  * form itself. ANY extraction failure (missing/bad key, timeout, malformed
  * model output) degrades to `{ profile: null }` with a 200, and the client
  * falls back to manual entry.

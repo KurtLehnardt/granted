@@ -13,7 +13,7 @@ import type { OpportunityKind } from "../contracts/opportunity";
  * opportunity id, so the grouped view is stable across renders/runs.
  */
 
-/** Founder-facing labels for each instrument kind. */
+/** User-facing labels for each instrument kind. */
 export const KIND_LABEL: Readonly<Record<OpportunityKind, string>> = {
   grant: "Grants",
   rd: "R&D / SBIR",
@@ -24,7 +24,7 @@ export const KIND_LABEL: Readonly<Record<OpportunityKind, string>> = {
 };
 
 /**
- * Canonical display order: the funding instruments a founder is most likely to
+ * Canonical display order: the funding instruments a user is most likely to
  * act on first, then the longer-tail types. Also the tie-break order for the
  * filter chips and group sections.
  */
@@ -74,7 +74,7 @@ function byScoreThenId(a: GroupableMatch, b: GroupableMatch): number {
 
 /**
  * The distinct instrument kinds present among `matches`, in canonical order.
- * Unknown/absent kinds are skipped. Used to build the founder-facing type
+ * Unknown/absent kinds are skipped. Used to build the user-facing type
  * filter chips (never offer a filter for a kind that isn't present).
  */
 export function availableKinds(matches: GroupableMatch[] | null | undefined): OpportunityKind[] {

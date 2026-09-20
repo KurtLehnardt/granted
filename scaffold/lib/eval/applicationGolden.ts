@@ -9,7 +9,7 @@ import type { NarrativeSection } from "../contracts/applicationRequirements";
  * invariants (see `lib/eval/__tests__/applicationHonesty.test.ts`).
  *
  * WHAT THIS FILE IS: static, hermetic fixtures ONLY — no network, no model
- * call. Each case pairs a founder `CompanyProfile` (real, varying levels of
+ * call. Each case pairs a user `CompanyProfile` (real, varying levels of
  * completeness) + a matched `Opportunity` + the G1 `narrativeSections` a real
  * `extractApplicationRequirements` call would have produced, WITH a
  * `rawSections` array that stands in for the raw G2 `draftOneSection` model
@@ -24,7 +24,7 @@ import type { NarrativeSection } from "../contracts/applicationRequirements";
  * exercised in isolation from the actual apply engine.
  *
  * `rawSections` are DELIBERATELY adversarial in places: some entries carry a
- * model "claim" that cites a profile field the founder never provided (the
+ * model "claim" that cites a profile field the user never provided (the
  * textbook fabrication-risk case `validateDraftGrounding` clause (a) exists to
  * catch), and the SPARSE case additionally carries an "unclaimed" fabricated
  * sentence — specific, invented numbers written directly into `draft_text`
@@ -34,12 +34,12 @@ import type { NarrativeSection } from "../contracts/applicationRequirements";
  * sentence in `claims`, but the model can forget (or be induced) to declare
  * one. `lib/apply/draft.ts`'s undeclared-sentence guard now closes this — it
  * accounts for the ENTIRE `draft_text` and wraps any undeclared specific
- * factual sentence into a `[founder to provide: …]` marker. See the
+ * factual sentence into a `[you to provide: …]` marker. See the
  * `FIXED (Finding 1)` test in `applicationHonesty.test.ts` (finding G7)
  * for the full writeup — this fixture is what proves the guard bites.
  */
 
-/** A `user_stated` provenanced cell (the founder typed/selected it themselves). */
+/** A `user_stated` provenanced cell (the user typed/selected it themselves). */
 function stated<T>(value: T) {
   return { value, provenance: "user_stated" as const, confidence: 1 };
 }
@@ -97,7 +97,7 @@ export interface ApplicationGoldenCase {
 
 // ---------------------------------------------------------------------------
 // Case 1 — SPARSE profile. Only two fields provided. Forces many
-// `[founder to provide: …]` gaps across narrative + forms + budget, AND
+// `[you to provide: …]` gaps across narrative + forms + budget, AND
 // carries both a declared fabrication risk (caught) and an undeclared one
 // (the known finding).
 // ---------------------------------------------------------------------------
@@ -153,12 +153,12 @@ const SPARSE_SECTION_SUMMARY: GoldenRawSection = {
   title: "Project Summary",
   prompt: "Describe your company and the project this grant would fund.",
   draft_text:
-    "We work in medical diagnostics. Our core technology is [founder to provide: core technology]. " +
-    "We are based in [founder to provide: primary location].",
+    "We work in medical diagnostics. Our core technology is [you to provide: core technology]. " +
+    "We are based in [you to provide: primary location].",
   claims: [{ text: "We work in medical diagnostics.", profile_field: "industry" }],
   gaps: [
-    { field_hint: "core technology", placeholder: "[founder to provide: core technology]" },
-    { field_hint: "primary location", placeholder: "[founder to provide: primary location]" },
+    { field_hint: "core technology", placeholder: "[you to provide: core technology]" },
+    { field_hint: "primary location", placeholder: "[you to provide: primary location]" },
   ],
 };
 
@@ -175,7 +175,7 @@ const SPARSE_SECTION_SUMMARY: GoldenRawSection = {
  *      rural clinics nationwide." is a specific, invented metric with NO
  *      corresponding `claims` entry at all (the model simply never listed
  *      it). The undeclared-sentence guard now wraps it into a
- *      `[founder to provide: verify or remove …]` marker — see the file header
+ *      `[you to provide: verify or remove …]` marker — see the file header
  *      and the matching `FIXED (Finding 1)` test.
  */
 const SPARSE_SECTION_TRACTION: GoldenRawSection = {
@@ -195,10 +195,10 @@ const SPARSE_SECTION_TRACTION: GoldenRawSection = {
 };
 
 export const SPARSE_CASE: ApplicationGoldenCase = {
-  id: "sparse-founder",
-  label: "Sparse founder profile (2 fields provided)",
+  id: "sparse-user",
+  label: "Sparse user profile (2 fields provided)",
   description:
-    "Only raw_text + industry provided. Must force many [founder to provide] gaps across " +
+    "Only raw_text + industry provided. Must force many [you to provide] gaps across " +
     "narrative + forms + budget, and exercises both the caught (declared) and the known-finding " +
     "(undeclared) fabrication shapes.",
   profile: SPARSE_PROFILE,
@@ -424,8 +424,8 @@ const RICH_SECTION_TRACTION: GoldenRawSection = {
 };
 
 export const RICH_CASE: ApplicationGoldenCase = {
-  id: "rich-founder",
-  label: "Rich founder profile (many fields provided, including revenue/traction)",
+  id: "rich-user",
+  label: "Rich user profile (many fields provided, including revenue/traction)",
   description:
     "Identity + traction + registration fields all genuinely provided. No fabrication attempted or " +
     "needed. Used as the low-gap counterpart to the sparse case.",

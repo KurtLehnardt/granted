@@ -28,7 +28,7 @@ import type { ApplicationBudget } from "../contracts/applicationBudget";
  *
  *   - `collectAllGaps` is the single gap-summary surface: it scans the G2
  *     narrative drafts, the G3 forms, and the G4 budget for every
- *     `[founder to provide: …]` placeholder and returns the deduped set, each
+ *     `[you to provide: …]` placeholder and returns the deduped set, each
  *     entry re-validated against `FOUNDER_TODO_PATTERN` (defense-in-depth — the
  *     three builders each already guarantee their own gaps match it).
  *   - `assemblePackage` is a pure shaper: it never drafts, never invents a
@@ -37,7 +37,7 @@ import type { ApplicationBudget } from "../contracts/applicationBudget";
  *     "unavailable"`) still yields a partially-useful package.
  *   - `AOR_HANDOFF` is the honest hand-off copy: the tool assembled a
  *     submission-ready DRAFT, nothing was submitted, no application was filed,
- *     and final legal submission is the founder's authorized AOR's — never a
+ *     and final legal submission is the user's authorized AOR's — never a
  *     "submitted"/"filed"/"won"/"approved" confirmation, never a definitive
  *     eligibility claim.
  *
@@ -46,11 +46,11 @@ import type { ApplicationBudget } from "../contracts/applicationBudget";
  */
 
 // ---------------------------------------------------------------------------
-// Gap-placeholder scanning (`[founder to provide: …]`)
+// Gap-placeholder scanning (`[you to provide: …]`)
 // ---------------------------------------------------------------------------
 
 /**
- * The inline `[founder to provide: …]` scanner is the ONE convention defined in
+ * The inline `[you to provide: …]` scanner is the ONE convention defined in
  * `contracts/applicationDraft.ts` (next to `FOUNDER_TODO_PATTERN`) and shared by
  * every WS-G surface — G2 drafts, the G4 budget, and this G5 assembler — so they
  * can never drift apart. Re-exported here so existing importers
@@ -60,7 +60,7 @@ export { FOUNDER_TODO_SCAN, scanFounderTodos };
 
 /**
  * The single gap-summary surface (test requirement 1). Collects every
- * `[founder to provide: …]` placeholder across the G2 narratives, the G3 forms,
+ * `[you to provide: …]` placeholder across the G2 narratives, the G3 forms,
  * and the G4 budget, dedupes, and keeps ONLY well-formed placeholders (each is
  * re-checked against `FOUNDER_TODO_PATTERN`). Order is stable: narratives, then
  * forms, then budget, first occurrence wins.
@@ -120,7 +120,7 @@ export interface ChecklistInputs {
 
 /**
  * The full assembled, submission-READY package for one opportunity. Every
- * founder-facing blank across all three artifacts is collected in `gaps`.
+ * user-facing blank across all three artifacts is collected in `gaps`.
  * Nothing here is ever a submission — see `AOR_HANDOFF`.
  */
 export interface AssembledPackage {
@@ -147,7 +147,7 @@ export interface AssembledPackage {
   /** (4) Inputs for the reused D6 `<ApplicationChecklist>`. */
   checklist: ChecklistInputs;
 
-  /** (5) Every `[founder to provide: …]` across narratives + forms + budget. */
+  /** (5) Every `[you to provide: …]` across narratives + forms + budget. */
   gaps: string[];
 }
 
@@ -221,14 +221,14 @@ export function allRegistrationsSatisfied(reqs: AutoFillRequirements): boolean {
 /**
  * The live match pipeline extracts the ad-hoc v1 `StartupProfile` and the client
  * carries it on `map.profile`. G2/G3/G4 consume the §3.1 `CompanyProfile`. This
- * PURE mapper carries the founder's OWN extracted fields across so the wired
+ * PURE mapper carries the user's OWN extracted fields across so the wired
  * "Draft my application" path drafts from real grounded data — anything the v1
  * profile does not carry simply stays absent, so G2/G3/G4 emit honest
- * `[founder to provide: …]` gaps for it (NEVER a fabricated value).
+ * `[you to provide: …]` gaps for it (NEVER a fabricated value).
  *
  * Provenance mirrors `lib/eligibility/bridge.ts`: extracted fields are
  * `model_inferred` (they were inferred, not confirmed — and G2 grounding checks
- * only PRESENCE, never provenance), the founder's own description is
+ * only PRESENCE, never provenance), the user's own description is
  * `user_stated`, and the self-reported SAM/UEI facts are `user_stated`. This is
  * DISTINCT from `toCompanyProfile` in the eligibility bridge, which deliberately
  * drops these non-gate fields for screening safety — for drafting they are
@@ -268,7 +268,7 @@ export function startupProfileToCompanyProfile(
   const terms = (sp?.expandedTerms ?? []).map((t) => String(t).trim()).filter(Boolean);
   if (terms.length > 0) profile.expanded_terms = { value: terms, provenance: "model_inferred", confidence: 0.5 };
 
-  // Founder self-reported registration facts (user_stated) — the same two the
+  // User self-reported registration facts (user_stated) — the same two the
   // match pipeline already trusts to satisfy the SAM registration step.
   if (reqs?.samRegistered) profile.sam_registered = { value: true, provenance: "user_stated", confidence: 1 };
   if (reqs?.uei?.trim()) profile.uei = { value: reqs.uei.trim(), provenance: "user_stated", confidence: 1 };
@@ -288,7 +288,7 @@ export function packageProgramTitle(opp: Opportunity): string {
 /**
  * The honest hand-off copy, consistent with `components/AutoFillFlow.tsx`: the
  * tool drafted a submission-READY package, nothing was submitted, no application
- * was filed, and final legal submission is the founder's authorized AOR's,
+ * was filed, and final legal submission is the user's authorized AOR's,
  * through the program's official portal. Every string here is deliberately clear
  * of any "submitted"/"filed"/"won"/"approved" CONFIRMATION and of any banned
  * definitive-eligibility phrasing. Exported so tests can assert the invariants
@@ -301,7 +301,7 @@ export const AOR_HANDOFF = {
     "This is a submission-ready draft assembled from your profile and this program's own stated " +
     "requirements. To be clear about what just happened: nothing was submitted to Grants.gov, SAM.gov, " +
     "or any agency, no application was filed, and no payment was taken. Complete every highlighted " +
-    "[founder to provide: …] blank above, then have your organization's Authorized Organization " +
+    "[you to provide: …] blank above, then have your organization's Authorized Organization " +
     "Representative (AOR) review the finished package and submit it through the program's official portal.",
   cta: "Review & submit via your authorized AOR",
 } as const;

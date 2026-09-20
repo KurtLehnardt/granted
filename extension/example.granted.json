@@ -6,7 +6,7 @@
   "program_title": "Example Federal Grant Program (SBIR Phase I)",
   "digest": {
     "alg": "SHA-256",
-    "value": "d6a5be440d90343e2a21fc3b90e6842dee4ac362186d1a1c79de0d2d9f900252"
+    "value": "7318f72fa24472fe7e05f3e54767ad63dcc06239f5f6aaa655a4518789ee3fee"
   },
   "payload": {
     "opportunity_id": "example-opportunity-001",
@@ -37,44 +37,44 @@
               "key": "aor_name",
               "label": "Authorized Organization Representative",
               "status": "prefilled",
-              "value": "Jane Founder",
-              "display": "Jane Founder",
+              "value": "Jane Smith",
+              "display": "Jane Smith",
               "source": "sam.aorName"
             },
             {
               "key": "project_title",
               "label": "Descriptive Title of Applicant's Project",
               "status": "founder_to_provide",
-              "display": "[founder to provide: project title]"
+              "display": "[you to provide: project title]"
             }
           ]
         }
       ],
       "gaps": [
-        "[founder to provide: project title]"
+        "[you to provide: project title]"
       ]
     },
     "budget": {
       "generated_at": "2026-01-01T00:00:00.000Z",
       "line_items": [],
       "total": {
-        "range_statement": "[founder to provide: total budget amount]",
+        "range_statement": "[you to provide: total budget amount]",
         "range_grounded": false,
-        "amount": "[founder to provide: total budget amount]"
+        "amount": "[you to provide: total budget amount]"
       },
       "constraints": [],
       "advisories": [],
       "notes": [],
       "gaps": [
-        "[founder to provide: total budget amount]"
+        "[you to provide: total budget amount]"
       ]
     },
     "checklist": {
       "allRegistrationsSatisfied": true
     },
     "gaps": [
-      "[founder to provide: project title]",
-      "[founder to provide: total budget amount]"
+      "[you to provide: project title]",
+      "[you to provide: total budget amount]"
     ]
   }
 }

@@ -11,16 +11,16 @@ import type { Opportunity } from "@/lib/types";
  *
  * This is the on-ramp to WS-G's real auto-fill work, not auto-fill itself.
  * It NEVER submits anything, NEVER claims a submission happened or a program
- * was "won," and NEVER fabricates founder facts or an eligibility verdict
+ * was "won," and NEVER fabricates user facts or an eligibility verdict
  * (R7.7 / §11). Everything below is either:
  *   (a) read straight off the selected `Opportunity` record (title, agency,
  *       dates, the agency's own eligibility prose, source URL), or
  *   (b) generic, clearly-labeled "typical for this kind of program" guidance
- *       that tells the founder to confirm specifics on the official listing —
+ *       that tells the user to confirm specifics on the official listing —
  *       never presented as a fact about *this* opportunity that we don't
  *       actually have.
  * The four SAM.gov / UEI / AOR / E-Biz registration facts are self-reported by
- * the founder elsewhere (lib/mockAuth.ts, unchanged by this file) — this
+ * the user elsewhere (lib/mockAuth.ts, unchanged by this file) — this
  * component only reads the already-computed `satisfied` map, it never invents
  * registration status.
  */
@@ -129,10 +129,10 @@ export function buildDocumentChecklist(opportunity: Opportunity): string[] {
 }
 
 /**
- * Prompts for the founder to answer themselves — never an eligibility
+ * Prompts for the user to answer themselves — never an eligibility
  * verdict rendered by this app. When the opportunity record carries the
  * agency's own eligibility prose, we quote it back verbatim (real data, not
- * invented) and ask the founder to self-assess against it.
+ * invented) and ask the user to self-assess against it.
  */
 export function buildQuestions(opportunity: Opportunity): string[] {
   const questions: string[] = [];

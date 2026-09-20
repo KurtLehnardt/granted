@@ -6,7 +6,7 @@
  *
  * Device-local only, like the auto-fill requirements in lib/mockAuth.ts —
  * nothing here is sent anywhere except as the `maxCandidates` field on the
- * founder's own /api/match request, and "Delete my data" can clear it.
+ * user's own /api/match request, and "Delete my data" can clear it.
  */
 const MAX_CANDIDATES_KEY = "granted:maxCandidates";
 

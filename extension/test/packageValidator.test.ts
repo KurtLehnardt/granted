@@ -25,7 +25,7 @@ describe("validateImport — the import pipeline (spec §6.3, INV-8)", () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.envelope.opportunity_id).toBe("opp-123");
-      expect(result.envelope.payload.forms.gaps).toContain("[founder to provide: organization legal name]");
+      expect(result.envelope.payload.forms.gaps).toContain("[you to provide: organization legal name]");
     }
   });
 
@@ -110,7 +110,7 @@ describe("validateImport — the import pipeline (spec §6.3, INV-8)", () => {
 
   test("rejects a package whose gaps[] list doesn't match the actual gap displays", async () => {
     const pkg = validPackage();
-    pkg.forms.gaps = ["[founder to provide: something completely different]"];
+    pkg.forms.gaps = ["[you to provide: something completely different]"];
     const result = await validateImport(await envelopeJsonFor(pkg));
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toBe("invalid_forms_contract");

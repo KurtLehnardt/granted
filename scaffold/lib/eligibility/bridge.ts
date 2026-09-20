@@ -31,10 +31,10 @@ import type { ScreenableOpportunity } from "./screen";
 const INFERRED_CONFIDENCE = 0.5;
 
 /**
- * Facts the founder has told the app directly (via the Auto Fill / Settings
+ * Facts the user has told the app directly (via the Auto Fill / Settings
  * form) — self-reported, so `user_stated`. Passed in from the client on the
  * match request so `screen()` reflects registrations the user has recorded
- * (arch review MEDIUM: a SAM-registered founder was still told to register).
+ * (arch review MEDIUM: a SAM-registered user was still told to register).
  * Primitives only (never a client-supplied provenance label); the bridge mints
  * the `user_stated` provenance itself. `user_stated` legitimately SATISFIES the
  * registration step; it can never drive a false exclusion (the SBIR
@@ -49,7 +49,7 @@ export type KnownCompanyFacts = {
  * Bridge the v1 `StartupProfile` to the v2 `CompanyProfile` `screen()` reads.
  *
  * MAPPED (genuinely known):
- *   - `description` → `raw_text` (`user_stated` — the founder's own account;
+ *   - `description` → `raw_text` (`user_stated` — the user's own account;
  *     not a gate, screen() never reads it, kept for a complete profile object).
  *   - `employees`   → `employee_count` (`model_inferred` — the extractor's guess;
  *     the ONLY screening gate the v1 profile can fill). Omitted when absent /
@@ -87,10 +87,10 @@ export function toCompanyProfile(sp: StartupProfile, known?: KnownCompanyFacts):
     };
   }
 
-  // Founder self-reported registration facts (user_stated). Only set when the
+  // User self-reported registration facts (user_stated). Only set when the
   // user affirmatively stated them; an unset gate stays `unknown`/conditional,
   // never a guess. A `user_stated` SAM registration satisfies the registration
-  // step so a registered founder is no longer told to register.
+  // step so a registered user is no longer told to register.
   if (known?.samRegistered === true) {
     profile.sam_registered = { value: true, provenance: "user_stated", confidence: 1 };
   }

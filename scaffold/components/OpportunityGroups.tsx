@@ -11,7 +11,7 @@ import {
 } from "@/lib/opportunities/group";
 
 /**
- * C1b — founder-facing type filters + map grouping by instrument kind.
+ * C1b — user-facing type filters + map grouping by instrument kind.
  *
  * Rendered by `OpportunityMap.tsx` in place of the flat card list ONLY when the
  * `c1b_type_groups` flag is on (default off, so the flat list stays the
@@ -70,7 +70,7 @@ export default function OpportunityGroups({
   return (
     <div>
       {/* Type filters — only offered for kinds actually present. A single-select
-          All / one-kind toggle: the clearest founder-facing "show me only X". */}
+          All / one-kind toggle: the clearest user-facing "show me only X". */}
       {kinds.length > 1 && (
         <div role="group" aria-label="Filter opportunities by type" className="mb-5 flex flex-wrap gap-2">
           <button

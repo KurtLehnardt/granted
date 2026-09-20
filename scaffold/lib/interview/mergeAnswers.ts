@@ -12,19 +12,19 @@ import type { InterviewQuestion } from "./generateQuestions";
 /**
  * INT-02 — R1 answer → enriched-description MERGE (counterpart to INT-01).
  *
- * Pure, synchronous, hermetic. NO LLM, NO network. Given the founder's base
+ * Pure, synchronous, hermetic. NO LLM, NO network. Given the user's base
  * `CompanyProfile` (their original `raw_text`), the `InterviewQuestion[]` that
- * INT-01 generated, and the `InterviewAnswer[]` the founder gave, this produces:
+ * INT-01 generated, and the `InterviewAnswer[]` the user gave, this produces:
  *
  *   (a) an ENRICHED `CompanyProfile` — structured fields populated at the
- *       correct provenance (§11: a founder answer is `user_stated`; a
+ *       correct provenance (§11: a user answer is `user_stated`; a
  *       skipped-then-inferred answer is `model_inferred`), and
  *   (b) an ENRICHED description string — the original text verbatim followed by
  *       a compact, factual rendering of each answered Q/A pair — that feeds the
  *       expensive search.
  *
  * Provenance is the whole point (§11). This module NEVER fabricates a fact the
- * founder did not give, and NEVER lets a `model_inferred` value clobber an
+ * user did not give, and NEVER lets a `model_inferred` value clobber an
  * existing `user_stated`/`verified` fact.
  *
  * Answers are joined to questions by `answer.question_id === question.id`; the
@@ -54,7 +54,7 @@ const DEFAULT_INTERVIEW_HEADING = "Interview answers:";
 // --- Field coercion registry ------------------------------------------------
 
 /**
- * How a founder answer (`string | string[]`) is coerced into a given
+ * How a user answer (`string | string[]`) is coerced into a given
  * `CompanyProfile` structured field. This lists ONLY the enrichable structured
  * fields; `id`, `raw_text`, and `interview_answers` are deliberately absent, so
  * an answer can never target them. A `maps_to_profile_field` that is not a key
@@ -220,7 +220,7 @@ function hasContent(v: string | string[]): boolean {
 // --- Entry point ------------------------------------------------------------
 
 /**
- * Merge the founder's interview answers into their base profile.
+ * Merge the user's interview answers into their base profile.
  *
  * Pure & deterministic: no LLM, no network, no input mutation. The base profile
  * must carry at least `id` + `raw_text`; every other structured field is
@@ -297,9 +297,9 @@ export function mergeAnswers(
 }
 
 /**
- * Deterministic enriched description: the founder's original `raw_text.value`
+ * Deterministic enriched description: the user's original `raw_text.value`
  * verbatim at the front, then one compact factual line per answered Q/A pair.
- * Introduces no facts beyond the original text and the founder's answers.
+ * Introduces no facts beyond the original text and the user's answers.
  */
 function buildEnrichedDescription(
   baseProfile: CompanyProfile,

@@ -52,7 +52,7 @@ type View = "intro" | "loading" | "results";
 
 export interface CompetitorAnalysisModalProps {
   onClose: () => void;
-  /** The founder's company, for a live personalized run. Absent → demo-only. */
+  /** The user's company, for a live personalized run. Absent → demo-only. */
   profile?: { description: string; keywords?: string[]; persona?: string };
   /** The target opportunity being viewed, for framing the live analysis. */
   opportunity?: { program?: string; agency?: string };

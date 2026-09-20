@@ -15,7 +15,7 @@ import {
 /**
  * WS-G / G3 — deterministic SF-424 federal form pre-fill.
  *
- * `prefillApplicationForms(profile, autoFillReqs, opp)` maps the founder's
+ * `prefillApplicationForms(profile, autoFillReqs, opp)` maps the user's
  * `CompanyProfile` + the mock SAM/UEI settings (`AutoFillRequirements`) + the
  * matched `Opportunity` into a schema-validated `PrefilledForms` object for the
  * SF-424 family.
@@ -24,7 +24,7 @@ import {
  * grounding, zero spend, hermetic tests. Because nothing is generated, there is
  * nothing to hallucinate: every field is either
  *   (a) GROUNDED — a real value derived from a named source (`source`), or
- *   (b) A GAP — the exact `[founder to provide: <hint>]` placeholder, emitted
+ *   (b) A GAP — the exact `[you to provide: <hint>]` placeholder, emitted
  *       whenever a field is NOT derivable from the profile/SAM/opportunity data.
  * A plausible-but-invented org name, address, project title, amount, or date is
  * NEVER emitted. The honesty contract is enforced structurally by
@@ -38,15 +38,15 @@ import {
  */
 
 // ---------------------------------------------------------------------------
-// Placeholder + field helpers — the `[founder to provide: …]` machinery.
+// Placeholder + field helpers — the `[you to provide: …]` machinery.
 // Built from the SAME literal shape as G2's `FOUNDER_TODO_PATTERN` so the one
 // convention holds across every WS-G surface.
 // ---------------------------------------------------------------------------
 
-/** Wrap a plain hint into the exact `[founder to provide: <hint>]` placeholder shape. */
+/** Wrap a plain hint into the exact `[you to provide: <hint>]` placeholder shape. */
 function toPlaceholder(hint: string): string {
   const clean = hint.replace(/[[\]]/g, "").replace(/\s+/g, " ").trim();
-  return `[founder to provide: ${clean.length > 0 ? clean : "this detail"}]`;
+  return `[you to provide: ${clean.length > 0 ? clean : "this detail"}]`;
 }
 
 /** Read a provenanced cell's raw value (`profile.<key>.value`), or undefined. */
@@ -60,7 +60,7 @@ function grounded(key: string, label: string, value: string, source: string): Pr
   return { key, label, status: "prefilled", value, display: value, source };
 }
 
-/** A GAP: a fillable blank. No value, no source — an honest `[founder to provide: …]`. */
+/** A GAP: a fillable blank. No value, no source — an honest `[you to provide: …]`. */
 function gap(key: string, label: string, hint: string): PrefilledField {
   return { key, label, status: "founder_to_provide", display: toPlaceholder(hint) };
 }
@@ -105,7 +105,7 @@ function ueiField(profile: CompanyProfile, reqs: AutoFillRequirements): Prefille
 /**
  * SAM.gov registration status — always derivable. A positive self-report from
  * EITHER source wins; the default (nothing on file) grounds to "Not registered"
- * from the SAM settings. Never a gap: the founder's SAM settings always carry a
+ * from the SAM settings. Never a gap: the user's SAM settings always carry a
  * concrete boolean.
  */
 function samStatusField(profile: CompanyProfile, reqs: AutoFillRequirements): PrefilledField {
@@ -192,9 +192,9 @@ function programTitle(opp: Opportunity): string {
 
 /**
  * Deterministically pre-fill the SF-424 core federal-application fields from a
- * founder's `CompanyProfile`, the mock SAM/UEI settings, and the matched
+ * user's `CompanyProfile`, the mock SAM/UEI settings, and the matched
  * `Opportunity`. Pure and model-free. Every returned field is grounded (with a
- * `source`) or an honest `[founder to provide: …]` gap. The output is validated
+ * `source`) or an honest `[you to provide: …]` gap. The output is validated
  * through `PrefilledFormsSchema.parse` before it is returned.
  */
 export function prefillApplicationForms(
@@ -242,7 +242,7 @@ export function prefillApplicationForms(
     aorField(autoFillReqs),
 
     // --- Amounts. `capital_requirement` is a coarse RANGE bucket, not the exact
-    //     SF-424 figure: the exact amounts are gaps. The founder's stated range
+    //     SF-424 figure: the exact amounts are gaps. The user's stated range
     //     is attached below (when present) as a NON-authoritative hint. ---
     gap("federal_funding_requested", "Federal funding requested (exact dollar figure)", "federal funding amount requested (exact dollar figure)"),
     gap("total_project_cost", "Total project cost (exact dollar figure)", "total project cost (exact dollar figure)"),
@@ -253,7 +253,7 @@ export function prefillApplicationForms(
     gap("project_end_date", "Proposed project end date", "proposed project end date"),
   ];
 
-  // Non-authoritative grounded hint: the founder's stated capital RANGE. Clearly
+  // Non-authoritative grounded hint: the user's stated capital RANGE. Clearly
   // labeled as a coarse range, NOT the exact SF-424 amount above. Included only
   // when actually provided (never manufactured into a gap — the exact-amount
   // gaps above already carry the honest blank).
@@ -262,7 +262,7 @@ export function prefillApplicationForms(
     fields.push(
       grounded(
         "capital_requirement_range",
-        "Founder's stated capital range (coarse — NOT the SF-424 exact amount)",
+        "User's stated capital range (coarse — NOT the SF-424 exact amount)",
         capitalRangeLabel(bucket),
         "profile.capital_requirement",
       ),

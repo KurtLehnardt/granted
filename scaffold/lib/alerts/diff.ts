@@ -9,7 +9,7 @@ import type {
 /**
  * lib/alerts/diff.ts — D5 "Opportunity Alerts" pure diff logic.
  *
- * Given the snapshot saved from a founder's last visit (or none) and the
+ * Given the snapshot saved from a user's last visit (or none) and the
  * matches on the CURRENT OpportunityMap, computes what's new or changed:
  * new opportunities, tier upgrades, and newly closing-soon deadlines.
  *

@@ -180,7 +180,7 @@ export const FLAG_REGISTRY: Record<FlagName, FlagDefinition> = {
     name: "c1b_type_groups",
     requirement: "C1b",
     description:
-      "Founder-facing opportunity-type filters plus grouping of the results map by instrument kind " +
+      "User-facing opportunity-type filters plus grouping of the results map by instrument kind " +
       "(grants / R&D / procurement / loans / assistance / scholarships), replacing the flat list.",
     envVar: "NEXT_PUBLIC_FLAG_C1B_TYPE_GROUPS",
   },
@@ -206,7 +206,7 @@ export const FLAG_REGISTRY: Record<FlagName, FlagDefinition> = {
     requirement: "D5",
     description:
       "\"Since your last visit\" opportunity alerts: a client-only, localStorage-only diff " +
-      "(new matches, tier upgrades, newly closing-soon) against the founder's last saved run " +
+      "(new matches, tier upgrades, newly closing-soon) against the user's last saved run " +
       "for the same profile. Never sent to a server (§5.3).",
     envVar: "NEXT_PUBLIC_FLAG_D5_ALERTS",
   },
@@ -237,7 +237,7 @@ export const FLAG_REGISTRY: Record<FlagName, FlagDefinition> = {
     description:
       "Matching discernment: an advisory per-match verdict (recommend / verify / do-not-recommend) plus a " +
       "whole-map verdict (strong/thin/no-fit), derived purely from the score, the model's own met-criteria, " +
-      "and any FOUNDER-STATED disqualifier. Recounts 'high potential' as recommend-only and raises the bar " +
+      "and any USER-STATED disqualifier. Recounts 'high potential' as recommend-only and raises the bar " +
       "per instrument type. Advisory, never an eligibility ruling (R8.4); default OFF until golden-set validated.",
     envVar: "NEXT_PUBLIC_FLAG_DISCERNMENT_LAYER",
   },

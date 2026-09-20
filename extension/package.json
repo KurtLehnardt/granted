@@ -2,7 +2,7 @@
   "name": "granted-assisted-fill",
   "version": "0.1.0",
   "private": true,
-  "description": "Granted Assisted Fill — MV3 browser extension that fills a grant-portal form from a Granted-generated package in the founder's own authenticated session. It never submits, signs, certifies, attests, or files. The human AOR reviews and submits.",
+  "description": "Granted Assisted Fill — MV3 browser extension that fills a grant-portal form from a Granted-generated package in the user's own authenticated session. It never submits, signs, certifies, attests, or files. The human AOR reviews and submits.",
   "type": "module",
   "scripts": {
     "dev": "vite",

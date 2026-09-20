@@ -13,7 +13,7 @@ const body = Inter({ subsets: ["latin"], variable: "--font-body" });
 const mono = IBM_Plex_Mono({ subsets: ["latin"], variable: "--font-mono", weight: ["400", "500"] });
 
 export const metadata: Metadata = {
-  title: `${BRAND} — federal funding intelligence for founders`,
+  title: `${BRAND} — federal funding intelligence for everyone`,
   description: "Tell us about your company. We'll tell you what federal resources you should know about — and why.",
 };
 
