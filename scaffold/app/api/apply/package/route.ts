@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { rateLimit, clientKey } from "@/lib/security/rateLimit";
+import { isLocalLlm } from "@/lib/llm/client";
 import { extractApplicationRequirements } from "@/lib/apply/requirements";
 import { draftApplication } from "@/lib/apply/draft";
 import { prefillApplicationForms } from "@/lib/apply/forms";
@@ -83,6 +84,16 @@ const NARRATIVE_UNAVAILABLE_NOTE =
   "We couldn't draft the grounded narrative sections just now (the drafting model was busy or timed out). " +
   "Your pre-filled forms, budget, and checklist below are ready — retry to add the narrative drafts.";
 
+// On a LOCAL model the narrative draft is slow enough (tens of seconds per call)
+// to make the whole package screen feel hung on "Assembling…". So by default we
+// SKIP the model steps for local and return the deterministic package (forms,
+// budget, checklist — and the export button) instantly; the UI's "Draft the
+// narrative section" button re-requests with `draftNarrative: true` to generate
+// it on demand.
+const LOCAL_SKIP_NOTE =
+  "Narrative drafting is slow on a local model, so your forms, budget, and checklist are ready right away. " +
+  "Use “Draft the narrative section” below to generate it now (it can take a minute or two on a local model).";
+
 function badRequest(error: string) {
   return NextResponse.json({ error }, { status: 400 });
 }
@@ -99,6 +110,7 @@ export async function POST(req: NextRequest) {
   let opportunity: Opportunity;
   let profile: CompanyProfile;
   let autoFillReqs: AutoFillRequirements;
+  let draftNarrative = false;
   try {
     const body = await req.json();
     const oppParsed = OpportunitySchema.safeParse(body?.opportunity);
@@ -112,43 +124,53 @@ export async function POST(req: NextRequest) {
     // reads every field). Never trusted for anything gated — it only shapes the
     // honest, self-reported registration facts on the forms.
     autoFillReqs = { ...EMPTY_AUTO_FILL_REQUIREMENTS, ...(body?.autoFillReqs ?? {}) };
+    // Explicit opt-in to the (slow-on-local) narrative draft — the UI sets this
+    // when the founder clicks "Draft the narrative section".
+    draftNarrative = body?.draftNarrative === true;
   } catch {
     return badRequest("Invalid request body.");
   }
+
+  // Draft the narrative when explicitly requested, OR always on a hosted model
+  // (fast). On local we skip it by default so the deterministic package returns
+  // instantly instead of hanging on "Assembling…" for minutes.
+  const shouldDraft = draftNarrative || !isLocalLlm();
 
   // --- Model steps (graceful): G1 requirements, then G2 draft of section 1 ---
   let requirements: ApplicationRequirements | null = null;
   let draft: ApplicationDraft | null = null;
   let narrativeStatus: NarrativeStatus = "unavailable";
-  let narrativeNote: string | undefined = NARRATIVE_UNAVAILABLE_NOTE;
+  let narrativeNote: string | undefined = shouldDraft ? NARRATIVE_UNAVAILABLE_NOTE : LOCAL_SKIP_NOTE;
 
-  try {
-    requirements = await withTimeoutRetry(
-      (signal) => extractApplicationRequirements(opportunity, { signal }),
-      { timeoutMs: STEP_TIMEOUT_MS, retries: 1 },
-    );
-
-    const firstSection = requirements.narrative_sections.find((s) => s.specified);
-    if (firstSection) {
-      // Keep spend modest: draft ONLY the first grounded section. The rest are
-      // returned as `draftableSections` below (draftable on demand).
-      draft = await withTimeoutRetry(
-        (signal) =>
-          draftApplication(profile, requirements!, { sectionKeys: [firstSection.key], signal }),
+  if (shouldDraft) {
+    try {
+      requirements = await withTimeoutRetry(
+        (signal) => extractApplicationRequirements(opportunity, { signal }),
         { timeoutMs: STEP_TIMEOUT_MS, retries: 1 },
       );
+
+      const firstSection = requirements.narrative_sections.find((s) => s.specified);
+      if (firstSection) {
+        // Keep spend modest: draft ONLY the first grounded section. The rest are
+        // returned as `draftableSections` below (draftable on demand).
+        draft = await withTimeoutRetry(
+          (signal) =>
+            draftApplication(profile, requirements!, { sectionKeys: [firstSection.key], signal }),
+          { timeoutMs: STEP_TIMEOUT_MS, retries: 1 },
+        );
+      }
+      // Requirements available (with or without narrative sections) → not degraded.
+      narrativeStatus = "drafted";
+      narrativeNote = undefined;
+    } catch (err) {
+      // Any model failure (overload, timeout, bad/missing key, malformed output)
+      // degrades to the deterministic package — never a 5xx. Log server-side.
+      console.error("apply/package: model step failed, serving deterministic package:", err);
+      requirements = null;
+      draft = null;
+      narrativeStatus = "unavailable";
+      narrativeNote = NARRATIVE_UNAVAILABLE_NOTE;
     }
-    // Requirements available (with or without narrative sections) → not degraded.
-    narrativeStatus = "drafted";
-    narrativeNote = undefined;
-  } catch (err) {
-    // Any model failure (overload, timeout, bad/missing key, malformed output)
-    // degrades to the deterministic package — never a 5xx. Log server-side.
-    console.error("apply/package: model step failed, serving deterministic package:", err);
-    requirements = null;
-    draft = null;
-    narrativeStatus = "unavailable";
-    narrativeNote = NARRATIVE_UNAVAILABLE_NOTE;
   }
 
   // --- Deterministic parts (never need a model) -----------------------------
