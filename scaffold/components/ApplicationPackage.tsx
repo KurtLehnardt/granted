@@ -4,7 +4,7 @@
 // (automatic runtime) AND the plain `tsx`-run node:test runner used by
 // components/__tests__ (classic runtime per this repo's tsconfig
 // `"jsx": "preserve"`, which needs `React` in scope). Mirrors ApplicationChecklist.tsx.
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 
 import ApplicationChecklist from "@/components/ApplicationChecklist";
 import type { Opportunity } from "@/lib/types";
@@ -508,8 +508,16 @@ export default function ApplicationPackage({
   onClose?: () => void;
 }) {
   const [state, setState] = useState<FetchState>({ status: "loading" });
+  // Tracks the in-flight assembly so a re-click ("Draft the narrative section"
+  // again) or leaving the screen ("back to requirements") CANCELS it. Without
+  // this, a serial local model queues duplicate/abandoned draft jobs and the new
+  // request waits behind work nobody is looking at anymore.
+  const abortRef = useRef<AbortController | null>(null);
 
   const assemble = useCallback(async (opts?: { draftNarrative?: boolean }) => {
+    abortRef.current?.abort();
+    const ac = new AbortController();
+    abortRef.current = ac;
     setState({ status: "loading" });
     try {
       const res = await fetch("/api/apply/package", {
@@ -519,6 +527,7 @@ export default function ApplicationPackage({
         // local model — the slow narrative step is skipped server-side), and the
         // "Draft the narrative section" button sets it to run the draft on demand.
         body: JSON.stringify({ opportunity, profile, autoFillReqs, draftNarrative: opts?.draftNarrative === true }),
+        signal: ac.signal,
       });
       if (!res.ok) {
         setState({
@@ -534,12 +543,20 @@ export default function ApplicationPackage({
       }
       setState({ status: "ready", pkg: data.package as AssembledPackage });
     } catch {
+      // A superseded/abandoned request (aborted by a new assemble or by unmount)
+      // is intentional — leave the state to whoever aborted it. Only a real
+      // failure surfaces an error.
+      if (ac.signal.aborted) return;
       setState({ status: "error", message: "We couldn't reach the assembly service. Please try again." });
     }
   }, [opportunity, profile, autoFillReqs]);
 
   useEffect(() => {
     assemble();
+    // Cancel the in-flight assembly if the founder leaves this screen (e.g.
+    // "back to requirements") so the local model isn't left drafting for a view
+    // that's gone.
+    return () => abortRef.current?.abort();
   }, [assemble]);
 
   if (state.status === "loading") {
