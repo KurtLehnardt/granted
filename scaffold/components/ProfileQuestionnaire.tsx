@@ -570,7 +570,15 @@ export default function ProfileQuestionnaire({
     if (provided) {
       const bag = profile as Record<string, { value: unknown }>;
       const raw = bag[meta.field].value;
-      const display = Array.isArray(raw) ? raw.join(", ") : String(raw);
+      // For option-backed fields (single_select / range_select) the stored value
+      // is the enum value (e.g. "in_market"), so the read-only summary must map
+      // it back to the SAME human label the dropdown shows ("In market") — never
+      // print the underscored raw value. Free-text/number fields have no options
+      // and pass through unchanged.
+      const optionLabelFor = (v: string) => meta.options?.find((o) => o.value === v)?.label ?? v;
+      const display = Array.isArray(raw)
+        ? raw.map((v) => optionLabelFor(String(v))).join(", ")
+        : optionLabelFor(String(raw));
       return (
         <div key={meta.field} className={`${providedRowClass} ${spanClass}`.trim()}>
           <div className="min-w-0">
