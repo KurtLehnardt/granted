@@ -219,12 +219,26 @@ function finalizeCost(meter: CostMeter, result: OpportunityMap): void {
   }
 }
 
+/**
+ * Clamp a client-supplied candidate cap to a safe range. Users can LOWER it
+ * (Settings → "Search depth") to speed up a slow local search at the cost of
+ * scoring fewer opportunities. Floor of 4 so a run still returns something;
+ * ceiling at the calibrated default (a higher value risks the scorer's
+ * max_tokens budget). Absent / non-finite → the default.
+ */
+export function clampCandidateCount(requested: number | null | undefined): number {
+  const def = CALIBRATION.candidateCount;
+  if (requested == null || !Number.isFinite(requested)) return def;
+  return Math.min(Math.max(4, Math.floor(requested)), def);
+}
+
 export async function buildOpportunityMap(
   description: string,
   onStep?: (e: StepEvent) => void,
   deps: Partial<BuildDeps> = {},
   signal?: AbortSignal,
   companyFacts?: KnownCompanyFacts,
+  maxCandidates?: number,
 ): Promise<OpportunityMap> {
   const d: BuildDeps = { ...REAL_DEPS, ...deps };
   // Progress is best-effort: a reporting error must never fail the search.
@@ -297,7 +311,8 @@ export async function buildOpportunityMap(
 
   // Base set: the UNCHANGED global top-N (preserves every strong grant that
   // already qualified — nothing is discarded to make room for the quota).
-  const selectedIds = new Set(floorCleared.slice(0, CALIBRATION.candidateCount).map((x) => x.o.id));
+  const candidateCount = clampCandidateCount(maxCandidates);
+  const selectedIds = new Set(floorCleared.slice(0, candidateCount).map((x) => x.o.id));
 
   // Reserved slots: top-`perTypeQuota`-by-cosine of EACH present kind, added if
   // not already selected. Because `floorCleared` is pre-sorted, taking the first

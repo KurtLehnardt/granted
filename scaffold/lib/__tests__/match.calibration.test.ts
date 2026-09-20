@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { tierFromScore, historyFor, CALIBRATION } from "../match";
+import { tierFromScore, historyFor, CALIBRATION, clampCandidateCount } from "../match";
 
 /**
  * Pure calibration helpers of the match pipeline (H6). No LLM / embedding /
@@ -28,4 +28,22 @@ test("tierFromScore — exact boundaries around the calibrated thresholds", () =
 test("historyFor — an opportunity id with no award rows returns undefined (never throws)", () => {
   assert.equal(historyFor("this-id-has-no-award-rows-xyz"), undefined);
   assert.equal(historyFor("this-id-has-no-award-rows-xyz", "utah"), undefined);
+});
+
+test("clampCandidateCount — user 'search depth' is clamped to a safe range", () => {
+  const def = CALIBRATION.candidateCount;
+  // Absent / invalid → the calibrated default.
+  assert.equal(clampCandidateCount(undefined), def);
+  assert.equal(clampCandidateCount(null), def);
+  assert.equal(clampCandidateCount(NaN), def);
+  // Lowering is honored (the whole point — faster local searches).
+  assert.equal(clampCandidateCount(12), 12);
+  assert.equal(clampCandidateCount(6), 6);
+  // Floored at 4 so a run still returns something; capped at the default so a
+  // client value can never overrun the scorer's token budget.
+  assert.equal(clampCandidateCount(1), 4);
+  assert.equal(clampCandidateCount(0), 4);
+  assert.equal(clampCandidateCount(1000), def);
+  // Fractional values floor to an integer count.
+  assert.equal(clampCandidateCount(12.9), 12);
 });
