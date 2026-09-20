@@ -268,6 +268,12 @@ describe("allRegistrationsSatisfied", () => {
       aorName: "Jane Doe",
       aorOnFile: false,
       eBizPocOnFile: true,
+      organizationName: "",
+      street: "",
+      city: "",
+      state: "",
+      zip: "",
+      congressionalDistrict: "",
     };
     assert.equal(allRegistrationsSatisfied(all), true);
     assert.equal(allRegistrationsSatisfied({ ...all, uei: "" }), false);
@@ -307,7 +313,7 @@ describe("startupProfileToCompanyProfile", () => {
   test("threads self-reported SAM/UEI registration facts as user_stated", () => {
     const profile = startupProfileToCompanyProfile(
       { description: "x" },
-      { samRegistered: true, samRegisteredDate: "", uei: "XYZ789", aorName: "", aorOnFile: false, eBizPocOnFile: false },
+      { samRegistered: true, samRegisteredDate: "", uei: "XYZ789", aorName: "", aorOnFile: false, eBizPocOnFile: false, organizationName: "", street: "", city: "", state: "", zip: "", congressionalDistrict: "" },
     );
     assert.equal(profile.sam_registered?.value, true);
     assert.equal(profile.sam_registered?.provenance, "user_stated");

@@ -39,6 +39,12 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
   const aorNameId = `${uid}-aor-name`;
   const samRadioName = `${uid}-samRegistered`;
   const depthId = `${uid}-search-depth`;
+  const orgNameId = `${uid}-org-name`;
+  const streetId = `${uid}-street`;
+  const cityId = `${uid}-city`;
+  const stateId = `${uid}-state`;
+  const zipId = `${uid}-zip`;
+  const cdId = `${uid}-cd`;
 
   function handleSave(e: React.FormEvent) {
     e.preventDefault();
@@ -147,6 +153,60 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
             onChange={(e) => update("eBizPocOnFile", e.target.checked)}
           />
           Confirm the Electronic Business POC has delegated AOR authority
+        </label>
+      </fieldset>
+
+      <fieldset className={fieldWrapClass}>
+        <legend className={legendClass}>Organization details (reused on every grant)</legend>
+        <p className="mt-1 font-body text-[12px] text-foreground opacity-80">
+          Your legal organization info as registered in SAM.gov. Enter it once here and it&rsquo;s
+          filled into every application — copy it from your SAM.gov entity registration.
+        </p>
+        <label className={`mt-2 block ${labelTextClass}`} htmlFor={orgNameId}>
+          Legal organization name
+          <input
+            id={orgNameId}
+            type="text"
+            value={form.organizationName}
+            onChange={(e) => update("organizationName", e.target.value)}
+            placeholder="Exactly as registered in SAM.gov"
+            className={inputClass}
+          />
+        </label>
+        <label className={`mt-2 block ${labelTextClass}`} htmlFor={streetId}>
+          Street address
+          <input
+            id={streetId}
+            type="text"
+            value={form.street}
+            onChange={(e) => update("street", e.target.value)}
+            className={inputClass}
+          />
+        </label>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <label className={`flex-1 ${labelTextClass}`} htmlFor={cityId}>
+            City
+            <input id={cityId} type="text" value={form.city} onChange={(e) => update("city", e.target.value)} className={inputClass} />
+          </label>
+          <label className={labelTextClass} htmlFor={stateId}>
+            State
+            <input id={stateId} type="text" value={form.state} onChange={(e) => update("state", e.target.value)} className={`${inputClass} w-24`} />
+          </label>
+          <label className={labelTextClass} htmlFor={zipId}>
+            ZIP
+            <input id={zipId} type="text" value={form.zip} onChange={(e) => update("zip", e.target.value)} className={`${inputClass} w-28`} />
+          </label>
+        </div>
+        <label className={`mt-2 block ${labelTextClass}`} htmlFor={cdId}>
+          Congressional district
+          <input
+            id={cdId}
+            type="text"
+            value={form.congressionalDistrict}
+            onChange={(e) => update("congressionalDistrict", e.target.value)}
+            placeholder="e.g. ID-01 — look it up at house.gov (Find Your Representative)"
+            className={inputClass}
+          />
         </label>
       </fieldset>
 
