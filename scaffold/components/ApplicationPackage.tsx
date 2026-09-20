@@ -5,7 +5,7 @@
 // components/__tests__ (classic runtime per this repo's tsconfig
 // `"jsx": "preserve"`, which needs `React` in scope). Mirrors ApplicationChecklist.tsx.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { applyGapInputs, gapFieldId, gapHint } from "@/lib/apply/fillGaps";
+import { applyGapInputs, gapFieldId, gapHint, USER_PROVIDED_SOURCE } from "@/lib/apply/fillGaps";
 
 import ApplicationChecklist from "@/components/ApplicationChecklist";
 import type { Opportunity } from "@/lib/types";
@@ -66,9 +66,21 @@ function GapPill({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** Small "grounded in …" provenance note for a filled value. */
+/**
+ * Plain-English provenance for an auto-filled value — where it came from, not
+ * the internal source key. Keeps the trust signal (this value wasn't invented)
+ * without the "grounded · sam.uei" jargon a user filling a grant form would hit.
+ */
+function humanizeSource(source: string): string {
+  if (source === USER_PROVIDED_SOURCE) return "you added this";
+  if (source.startsWith("sam.")) return "from your SAM.gov details";
+  if (source.startsWith("profile.")) return "from your profile";
+  if (source.startsWith("opportunity.")) return "from this opportunity";
+  return `from ${source}`;
+}
+
 function SourceNote({ source }: { source: string }) {
-  return <span className={`ml-2 ${sourceNoteClass}`}>grounded · {source}</span>;
+  return <span className={`ml-2 ${sourceNoteClass}`}>{humanizeSource(source)}</span>;
 }
 
 /**
@@ -104,7 +116,7 @@ function NarrativeSectionView({ section }: { section: DraftSection }) {
       <p className={`mt-2 whitespace-pre-wrap ${bodyClass}`}>{renderWithGaps(section.draft_text)}</p>
       {section.claims.length > 0 && (
         <div className="mt-3">
-          <p className={sourceNoteClass}>Grounded claims</p>
+          <p className={sourceNoteClass}>Sources</p>
           <ul className="mt-1 space-y-1">
             {section.claims.map((c, i) => (
               <li key={i} className="font-body text-[12px] leading-relaxed text-foreground">
@@ -128,13 +140,13 @@ function NarrativesSection({
 }) {
   return (
     <section>
-      <h3 className={sectionHeadingClass}>1 · Grounded narratives</h3>
+      <h3 className={sectionHeadingClass}>1 · Narrative drafts</h3>
 
       {pkg.narrativeStatus === "unavailable" ? (
         <div className="mt-3 rounded-md bg-canvas px-4 py-4">
           <p className={bodyClass}>
             {pkg.narrativeNote ??
-              "The grounded narrative drafts aren't available right now. Your forms, budget, and checklist below are ready."}
+              "The narrative drafts aren't available right now. Your forms, budget, and checklist below are ready."}
           </p>
           {onRetry && (
             <button
@@ -221,8 +233,8 @@ function FormsSection({
     <section>
       <h3 className={sectionHeadingClass}>2 · Pre-filled forms</h3>
       <p className={`mt-1 ${mutedClass}`}>
-        Deterministically pre-filled from your profile and this program&rsquo;s record — grounded values name
-        their source; fill in any blank yourself and it&rsquo;s included in your export.
+        Pre-filled from your profile and this program&rsquo;s record — auto-filled values show where they
+        came from; fill in any blank yourself and it&rsquo;s included in your export.
       </p>
       {pkg.forms.forms.map((form) => (
         <div key={form.form_name} className="mt-3 rounded-md bg-canvas px-4 py-2">
