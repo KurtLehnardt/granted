@@ -6,6 +6,7 @@
 // `"jsx": "preserve"`, which needs `React` in scope). Mirrors ApplicationChecklist.tsx.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { applyGapInputs, gapFieldId, gapHint, USER_PROVIDED_SOURCE } from "@/lib/apply/fillGaps";
+import { FIELD_HELP } from "@/lib/apply/fieldHelp";
 
 import ApplicationChecklist from "@/components/ApplicationChecklist";
 import type { Opportunity } from "@/lib/types";
@@ -62,6 +63,23 @@ function GapPill({ children }: { children: React.ReactNode }) {
   return (
     <span className="inline rounded-sm bg-warning px-1.5 py-0.5 font-mono text-[12px] text-on-semantic">
       {children}
+    </span>
+  );
+}
+
+/**
+ * An "ⓘ" tooltip explaining a field and where to find its value (native title +
+ * aria-label, so it's discoverable on hover and to screen readers).
+ */
+function InfoTip({ text }: { text: string }) {
+  return (
+    <span
+      className="ml-1 inline-flex h-3.5 w-3.5 cursor-help select-none items-center justify-center rounded-full border border-structure-on-canvas align-middle font-mono text-[9px] lowercase text-structure-on-canvas"
+      title={text}
+      aria-label={text}
+      role="img"
+    >
+      i
     </span>
   );
 }
@@ -194,7 +212,10 @@ function FormFieldView({
   const filled = (inputValue ?? "").trim().length > 0;
   return (
     <li className="flex flex-col gap-0.5 border-t border-structure-on-canvas py-2 first:border-t-0">
-      <span className="font-mono text-[11px] uppercase tracking-eyebrow text-foreground">{field.label}</span>
+      <span className="font-mono text-[11px] uppercase tracking-eyebrow text-foreground">
+        {field.label}
+        {FIELD_HELP[field.key] && <InfoTip text={FIELD_HELP[field.key]} />}
+      </span>
       {isGap ? (
         // A blank you fill in yourself. Your value flows into the exported
         // package (and the extension) clearly marked as YOUR input — never
