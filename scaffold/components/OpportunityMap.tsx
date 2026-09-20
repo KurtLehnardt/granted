@@ -113,9 +113,16 @@ export default function OpportunityMap({ map }: { map: MapT }) {
 
   // The stat band keeps its hairline grid (gap-px over a navy fill = structural
   // cell separators), now clipped to a rounded, softly-elevated card.
+  //
+  // The column count MUST match the number of cells rendered below. The funding
+  // cell is conditional (dropped when there's no groundable figure — the honest
+  // funding label), so a hardcoded 4-col grid leaves the 4th slot empty and the
+  // navy gap-fill shows through as a blank cell. Size to the actual count: 4
+  // cells → 2-up mobile / 4-up desktop; 3 cells → an even 3-up row (no gap).
+  const statCols = funding ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-3";
   const statGridClass = design
-    ? "grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-structure-on-canvas bg-structure-on-canvas shadow-card sm:grid-cols-4"
-    : "grid grid-cols-2 gap-px border border-rule bg-rule sm:grid-cols-4";
+    ? `grid ${statCols} gap-px overflow-hidden rounded-lg border border-structure-on-canvas bg-structure-on-canvas shadow-card`
+    : `grid ${statCols} gap-px border border-rule bg-rule`;
 
   // "A finding, not a dead end" is the honest-no hero panel — navy structure
   // fill (white content on top), same pairing as the header/nav per R7.2.
