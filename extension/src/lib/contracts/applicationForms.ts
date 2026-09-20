@@ -12,7 +12,7 @@ import { FOUNDER_TODO_PATTERN } from "./applicationDraft";
  * pass extension-side validation just because it passed on the app side.
  *
  * WS-G / G3 — PrefilledForms (the deterministic SF-424 federal-application
- * pre-fill produced from a founder's `CompanyProfile` + the mock SAM/UEI
+ * pre-fill produced from a user's `CompanyProfile` + the mock SAM/UEI
  * settings + the matched `Opportunity`).
  *
  * THE HONESTY CONTRACT (R7.7 — mirrors G1's `applicationRequirements.ts`, G2's
@@ -21,9 +21,9 @@ import { FOUNDER_TODO_PATTERN } from "./applicationDraft";
  *   (a) GROUNDED — `status: "prefilled"`, a real `value`, and a `source` string
  *       naming precisely where the value came from (e.g. `"sam.uei"`,
  *       `"profile.naics_codes"`, `"opportunity.agency"`). Its `display` is the
- *       human value and is NEVER a `[founder to provide: …]` placeholder; or
+ *       human value and is NEVER a `[you to provide: …]` placeholder; or
  *   (b) A GAP — `status: "founder_to_provide"`, NO `value`, NO `source`, and a
- *       `display` that is the exact `[founder to provide: <hint>]` string
+ *       `display` that is the exact `[you to provide: <hint>]` string
  *       matching `FOUNDER_TODO_PATTERN`.
  *
  * A specific fact (org name, project title, exact dollar amount, project dates)
@@ -47,21 +47,21 @@ export type PrefilledFieldStatus = z.infer<typeof PrefilledFieldStatusSchema>;
  * it makes a grounded field structurally require a `source` + `value` (so no
  * value can appear without saying where it came from), and makes a gap
  * structurally forbid `value`/`source` while forcing its `display` to the exact
- * `[founder to provide: …]` shape (so a made-up placeholder cannot pass). There
+ * `[you to provide: …]` shape (so a made-up placeholder cannot pass). There
  * is no valid shape carrying an invented value with no provenance.
  */
 export const PrefilledFieldSchema = z
   .object({
     /** Stable machine key for the SF-424 field (e.g. `"uei"`, `"project_title"`). */
     key: z.string().min(1),
-    /** Founder-facing label (e.g. "Unique Entity Identifier (UEI)"). */
+    /** User-facing label (e.g. "Unique Entity Identifier (UEI)"). */
     label: z.string().min(1),
     status: PrefilledFieldStatusSchema,
     /** The underlying grounded value. Present iff `status === "prefilled"`. */
     value: z.string().optional(),
     /**
      * The human-facing string. For a grounded field it is the value as shown to
-     * the founder; for a gap it is the exact `[founder to provide: …]` placeholder.
+     * the user; for a gap it is the exact `[you to provide: …]` placeholder.
      */
     display: z.string().min(1),
     /**
@@ -91,7 +91,7 @@ export const PrefilledFieldSchema = z
       if (FOUNDER_TODO_PATTERN.test(f.display)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: `prefilled field "${f.key}" display must not be a [founder to provide: …] placeholder`,
+          message: `prefilled field "${f.key}" display must not be a [you to provide: …] placeholder`,
           path: ["display"],
         });
       }
@@ -111,11 +111,11 @@ export const PrefilledFieldSchema = z
           path: ["source"],
         });
       }
-      // A gap's display is the exact `[founder to provide: <hint>]` string.
+      // A gap's display is the exact `[you to provide: <hint>]` string.
       if (!FOUNDER_TODO_PATTERN.test(f.display)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: `gap field "${f.key}" display ${JSON.stringify(f.display)} must match the [founder to provide: …] shape`,
+          message: `gap field "${f.key}" display ${JSON.stringify(f.display)} must match the [you to provide: …] shape`,
           path: ["display"],
         });
       }
@@ -133,7 +133,7 @@ export type PrefilledForm = z.infer<typeof PrefilledFormSchema>;
 
 /**
  * The full pre-fill package for one opportunity. `gaps` is the DERIVED list of
- * every `[founder to provide: …]` placeholder across every form — the single
+ * every `[you to provide: …]` placeholder across every form — the single
  * surface G5 highlights. The `superRefine` guarantees `gaps` is exactly the set
  * of gap `display`s (no missing or invented entries) and that each one matches
  * `FOUNDER_TODO_PATTERN`.
@@ -147,7 +147,7 @@ export const PrefilledFormsSchema = z
     /** ISO-8601 timestamp of when this pre-fill was generated. */
     generated_at: z.string().datetime(),
     forms: z.array(PrefilledFormSchema).default([]),
-    /** Every `[founder to provide: …]` placeholder across all forms (for G5). */
+    /** Every `[you to provide: …]` placeholder across all forms (for G5). */
     gaps: z.array(z.string()).default([]),
   })
   .superRefine((pkg, ctx) => {
@@ -156,7 +156,7 @@ export const PrefilledFormsSchema = z
       if (!FOUNDER_TODO_PATTERN.test(g)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: `gaps[${i}] ${JSON.stringify(g)} does not match the [founder to provide: …] shape`,
+          message: `gaps[${i}] ${JSON.stringify(g)} does not match the [you to provide: …] shape`,
           path: ["gaps", i],
         });
       }
@@ -177,7 +177,7 @@ export const PrefilledFormsSchema = z
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message:
-          "gaps must list exactly every [founder to provide: …] placeholder across all forms",
+          "gaps must list exactly every [you to provide: …] placeholder across all forms",
         path: ["gaps"],
       });
     }

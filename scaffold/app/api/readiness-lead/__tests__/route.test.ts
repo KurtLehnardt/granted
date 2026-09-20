@@ -35,14 +35,14 @@ test("malformed email -> 400", async () => {
 
 test("valid email -> { ok: true }", async () => {
   __resetRateLimits();
-  const res = await POST(post(JSON.stringify({ email: "founder@startup.io", grade: 82 })));
+  const res = await POST(post(JSON.stringify({ email: "user@startup.io", grade: 82 })));
   assert.equal(res.status, 200);
   assert.deepEqual(await res.json(), { ok: true });
 });
 
 test("valid email without a grade still succeeds", async () => {
   __resetRateLimits();
-  const res = await POST(post(JSON.stringify({ email: "founder@startup.io" })));
+  const res = await POST(post(JSON.stringify({ email: "user@startup.io" })));
   assert.equal(res.status, 200);
   assert.deepEqual(await res.json(), { ok: true });
 });

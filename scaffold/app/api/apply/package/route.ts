@@ -40,7 +40,7 @@ import type { ApplicationDraft } from "@/lib/contracts/applicationDraft";
  *     package is ALWAYS at least partially useful. If G1 or G2 fails after a
  *     single retry, the route STILL returns 200 with those deterministic parts
  *     and `narrativeStatus: "unavailable"` + an honest retry affordance —
- *     never a 5xx (a broken model step must not dead-end the founder).
+ *     never a 5xx (a broken model step must not dead-end the user).
  *   - Spend is kept modest: only the FIRST grounded narrative section is
  *     drafted; the rest are returned as `draftableSections` ("draftable on
  *     demand"), not drafted.
@@ -135,7 +135,7 @@ export async function POST(req: NextRequest) {
     // honest, self-reported registration facts on the forms.
     autoFillReqs = { ...EMPTY_AUTO_FILL_REQUIREMENTS, ...(body?.autoFillReqs ?? {}) };
     // Explicit opt-in to the (slow-on-local) narrative draft — the UI sets this
-    // when the founder clicks "Draft the narrative section".
+    // when the user clicks "Draft the narrative section".
     draftNarrative = body?.draftNarrative === true;
   } catch {
     return badRequest("Invalid request body.");

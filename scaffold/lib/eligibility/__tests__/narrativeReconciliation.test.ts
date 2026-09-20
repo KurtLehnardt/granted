@@ -10,7 +10,7 @@ import type { EligibilityBucket } from "../../contracts/eligibilityDetermination
  * assert a determination the engine didn't make.
  *
  * These tests feed a deliberate MISMATCH — a narrative that boldly asserts the
- * founder is ineligible while the engine did NOT exclude — and prove the
+ * user is ineligible while the engine did NOT exclude — and prove the
  * assertion is reconciled/blocked. Importing `reconcileIneligibilityNarrative`
  * from lib/claude.ts is the point: the constraint lives with the narrative it
  * governs. (Pure function — no API key or network is touched.)

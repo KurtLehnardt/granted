@@ -204,7 +204,7 @@ export function setConsent(granted: boolean): ConsentRecord {
 
 /* ---- Auto-fill requirements (FE-06) ----
  * "Auto Fill" is a locked, stubbed affordance on each opportunity card: it
- * opens a Pro-upsell modal listing what the founder needs on file before a
+ * opens a Pro-upsell modal listing what the user needs on file before a
  * real auto-fill flow (blocked on grant-site API keys) could act on their
  * behalf. This form — reached via the hamburger menu's Settings panel — lets
  * them record those facts locally so the modal can show what's already done.
@@ -254,7 +254,7 @@ export function setAutoFillRequirements(reqs: AutoFillRequirements): AutoFillReq
  * uei) that R8.1 eligibility screening reads. Pure, unwired mapper from the
  * local Auto Fill form to that shape, provided so ELG/Interview can adopt it
  * later without re-deriving the mapping — nothing in the app calls this today.
- * Provenance is always `user_stated` (the founder's own self-report);
+ * Provenance is always `user_stated` (the user's own self-report);
  * confidence 1 because a self-report carries no model uncertainty.
  */
 export function mapAutoFillToCompanyProfileFields(

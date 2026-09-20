@@ -79,20 +79,20 @@ test("ApplicationDraftSchema.parse accepts a well-formed package", () => {
 
 test("safeParse rejects a gap whose placeholder violates FOUNDER_TODO_PATTERN", () => {
   const bad = baseDraft({
-    draft_text: "We build sensors. [founder to provide: annual revenue]",
+    draft_text: "We build sensors. [you to provide: annual revenue]",
     gaps: [{ field_hint: "annual revenue", placeholder: "TODO: revenue" }], // malformed shape
   });
   assert.equal(ApplicationDraftSchema.safeParse(bad).success, false);
 });
 
 test("FOUNDER_TODO_PATTERN matches the exact placeholder shape and rejects near-misses", () => {
-  assert.match("[founder to provide: annual revenue]", FOUNDER_TODO_PATTERN);
-  assert.doesNotMatch("[founder to provide:]", FOUNDER_TODO_PATTERN); // needs content
-  assert.doesNotMatch("founder to provide: revenue", FOUNDER_TODO_PATTERN); // needs brackets
+  assert.match("[you to provide: annual revenue]", FOUNDER_TODO_PATTERN);
+  assert.doesNotMatch("[you to provide:]", FOUNDER_TODO_PATTERN); // needs content
+  assert.doesNotMatch("you to provide: revenue", FOUNDER_TODO_PATTERN); // needs brackets
 });
 
 // --- Case 2: anti-fabrication headline -------------------------------------
-// A profile missing `revenue` must yield a `[founder to provide]`, NEVER a
+// A profile missing `revenue` must yield a `[you to provide]`, NEVER a
 // made-up number.
 
 test("a claim citing a NON-provided field (revenue) FAILS validateDraftGrounding, naming the field", () => {
@@ -112,18 +112,18 @@ test("a claim citing a NON-provided field (revenue) FAILS validateDraftGrounding
   assert.match(issues[0], /non-provided field|fabrication risk/i);
 });
 
-test("the HONEST counterpart — the same fact as a [founder to provide: annual revenue] gap — PASSES", () => {
+test("the HONEST counterpart — the same fact as a [you to provide: annual revenue] gap — PASSES", () => {
   const profile = sampleProfile();
   const draft = baseDraft({
-    draft_text: "We build sensors. [founder to provide: annual revenue]",
+    draft_text: "We build sensors. [you to provide: annual revenue]",
     claims: [{ text: "We build sensors.", profile_field: "technology" }],
-    gaps: [{ field_hint: "annual revenue", placeholder: "[founder to provide: annual revenue]" }],
+    gaps: [{ field_hint: "annual revenue", placeholder: "[you to provide: annual revenue]" }],
   });
   const { grounded, issues } = validateDraftGrounding(draft, profile);
   assert.equal(grounded, true, `expected grounded, issues: ${JSON.stringify(issues)}`);
 });
 
-test("enforceGrounding NEUTRALIZES a fabricated revenue claim into a [founder to provide: annual revenue] gap", () => {
+test("enforceGrounding NEUTRALIZES a fabricated revenue claim into a [you to provide: annual revenue] gap", () => {
   const profile = sampleProfile();
   const draft = baseDraft({
     draft_text: "We build sensors. Our annual revenue is $4.2M.",
@@ -138,7 +138,7 @@ test("enforceGrounding NEUTRALIZES a fabricated revenue claim into a [founder to
 
   // The made-up number is gone; the honest placeholder took its place.
   assert.doesNotMatch(section.draft_text, /\$4\.2M/);
-  assert.match(section.draft_text, /\[founder to provide: annual revenue\]/);
+  assert.match(section.draft_text, /\[you to provide: annual revenue\]/);
   // The revenue claim is dropped; the grounded technology claim survives.
   assert.deepEqual(
     section.claims.map((c) => c.profile_field),
@@ -146,7 +146,7 @@ test("enforceGrounding NEUTRALIZES a fabricated revenue claim into a [founder to
   );
   // A matching gap now exists, with a valid placeholder.
   assert.equal(section.gaps.length, 1);
-  assert.equal(section.gaps[0].placeholder, "[founder to provide: annual revenue]");
+  assert.equal(section.gaps[0].placeholder, "[you to provide: annual revenue]");
   assert.match(section.gaps[0].placeholder, FOUNDER_TODO_PATTERN);
   // And the neutralized draft now passes both grounding and the schema.
   assert.equal(validateDraftGrounding(enforced, profile).grounded, true);
@@ -163,7 +163,7 @@ test("a claim citing a PROVIDED field (technology) PASSES", () => {
 test("an ORPHAN placeholder (in draft_text, no gap) is caught", () => {
   const profile = sampleProfile();
   const draft = baseDraft({
-    draft_text: "We build sensors. [founder to provide: annual revenue]",
+    draft_text: "We build sensors. [you to provide: annual revenue]",
     claims: [{ text: "We build sensors.", profile_field: "technology" }],
     gaps: [], // no gap for the inline placeholder
   });
@@ -177,7 +177,7 @@ test("an ORPHAN gap (placeholder absent from draft_text) is caught", () => {
   const draft = baseDraft({
     draft_text: "We build sensors.",
     claims: [{ text: "We build sensors.", profile_field: "technology" }],
-    gaps: [{ field_hint: "annual revenue", placeholder: "[founder to provide: annual revenue]" }],
+    gaps: [{ field_hint: "annual revenue", placeholder: "[you to provide: annual revenue]" }],
   });
   const { grounded, issues } = validateDraftGrounding(draft, profile);
   assert.equal(grounded, false);

@@ -27,7 +27,7 @@ export interface AlertSnapshotEntry {
 /** The full snapshot persisted to localStorage after each visit. */
 export interface AlertSnapshot {
   /**
-   * Stable identity for the founder's profile/search this snapshot belongs
+   * Stable identity for the user's profile/search this snapshot belongs
    * to (see profileKey.ts's computeProfileKey). Comparing against a snapshot
    * saved under a different profile would produce meaningless "new
    * opportunity" noise, so diffOpportunities only compares entries when the
@@ -38,7 +38,7 @@ export interface AlertSnapshot {
   savedAt: string;
   /**
    * Keyed by opportunity id. Only opportunities with tier !== "none" (the
-   * real fits the founder actually sees as cards) are tracked.
+   * real fits the user actually sees as cards) are tracked.
    */
   opportunities: Record<string, AlertSnapshotEntry>;
 }

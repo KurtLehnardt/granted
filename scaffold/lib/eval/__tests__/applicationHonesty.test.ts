@@ -31,8 +31,8 @@ import { findBannedPhrases } from "../../../scripts/banned-phrases.mjs";
 
 /**
  * G7 — application-eval: proves the WS-G draft/package pipeline NEVER
- * fabricates a founder fact, NEVER claims submission/award, and ALWAYS
- * surfaces `[founder to provide]` gaps for what it does not know.
+ * fabricates a user fact, NEVER claims submission/award, and ALWAYS
+ * surfaces `[you to provide]` gaps for what it does not know.
  *
  * Hermetic — NO network, NO live model call. The golden cases in
  * `../applicationGolden` stand in for the raw G2 model output (the shape
@@ -135,7 +135,7 @@ const SUBMIT_CONFIRMATION_PATTERNS: readonly RegExp[] = [
 
 // ---------------------------------------------------------------------------
 // Invariant 1 — every factual claim traces to a provided field, or becomes a
-// [founder to provide: …] gap. No invented metrics/traction/eligibility.
+// [you to provide: …] gap. No invented metrics/traction/eligibility.
 // ---------------------------------------------------------------------------
 
 describe("invariant 1: no fabrication — every claim is grounded or neutralized to a gap", () => {
@@ -176,21 +176,21 @@ describe("invariant 1: no fabrication — every claim is grounded or neutralized
     });
   }
 
-  test("sparse-founder: the declared fabricated revenue figure is scrubbed and replaced with an honest gap", () => {
+  test("sparse-user: the declared fabricated revenue figure is scrubbed and replaced with an honest gap", () => {
     const enforced = enforcedDraft(SPARSE_CASE);
     const traction = enforced.sections.find((s) => s.key === "traction_and_impact")!;
     assert.doesNotMatch(traction.draft_text, /\$180,000/);
-    assert.match(traction.draft_text, /\[founder to provide: [^\]]*revenue[^\]]*\]/i);
+    assert.match(traction.draft_text, /\[you to provide: [^\]]*revenue[^\]]*\]/i);
   });
 
   test("no-traction: the declared fabricated $95,000 revenue figure is scrubbed and replaced with an honest gap", () => {
     const enforced = enforcedDraft(NO_TRACTION_CASE);
     const commercialization = enforced.sections.find((s) => s.key === "commercialization_plan")!;
     assert.doesNotMatch(commercialization.draft_text, /\$95,000/);
-    assert.match(commercialization.draft_text, /\[founder to provide: [^\]]*revenue[^\]]*\]/i);
+    assert.match(commercialization.draft_text, /\[you to provide: [^\]]*revenue[^\]]*\]/i);
   });
 
-  test("rich-founder: revenue/technology/traction claims are genuinely grounded — nothing is neutralized", () => {
+  test("rich-user: revenue/technology/traction claims are genuinely grounded — nothing is neutralized", () => {
     const raw = preEnforcementDraft(RICH_CASE);
     const enforced = enforceGrounding(raw, RICH_CASE.profile);
     // Every claim from the raw candidate survives verbatim (nothing needed neutralizing).
@@ -207,33 +207,33 @@ describe("invariant 1: no fabrication — every claim is grounded or neutralized
   // `enforceGrounding` used to inspect only the model's DECLARED `claims` array,
   // so a factual-sounding sentence written directly into `draft_text` with NO
   // corresponding `claims` entry (and no gap) bypassed grounding entirely —
-  // shipping an invented specific with no `[founder to provide: …]` marker at
+  // shipping an invented specific with no `[you to provide: …]` marker at
   // all. The undeclared-sentence guard now makes the check account for the
   // ENTIRE `draft_text`: a sentence carrying a HIGH-SIGNAL specific-quantitative
   // token ($-amounts, N% percentages, comma-grouped counts like 3,000) whose
   // number is NOT accounted for by a declared grounded claim is WRAPPED IN PLACE
-  // into a `[founder to provide: verify or remove …]` gap. It can no longer read
+  // into a `[you to provide: verify or remove …]` gap. It can no longer read
   // as an asserted fact and now surfaces in every gap-summary surface. (Scope is
   // deliberately narrow — bare integers, reference cites, and purely qualitative
   // claims are NOT wrapped; see the `Finding-1 guard` robustness suite above.)
   // This test is now a real REGRESSION GUARD on the fix.
   // ---------------------------------------------------------------------------
-  test("FIXED (Finding 1): an UNDECLARED factual sentence (no claims entry) is wrapped into a founder-to-provide marker, never shipped as a bare assertion", () => {
+  test("FIXED (Finding 1): an UNDECLARED factual sentence (no claims entry) is wrapped into a you-to-provide marker, never shipped as a bare assertion", () => {
     const enforced = enforcedDraft(SPARSE_CASE);
     const traction = enforced.sections.find((s) => s.key === "traction_and_impact")!;
 
-    // With every [founder to provide: …] marker stripped out, the invented
+    // With every [you to provide: …] marker stripped out, the invented
     // "3,000 rural clinics" metric is gone from the bare narrative prose — it no
     // longer ships as an asserted fact.
-    const withoutMarkers = traction.draft_text.replace(/\[founder to provide: [^\]]+\]/g, "");
+    const withoutMarkers = traction.draft_text.replace(/\[you to provide: [^\]]+\]/g, "");
     assert.doesNotMatch(withoutMarkers, /Our platform now serves more than 3,000/);
     assert.doesNotMatch(withoutMarkers, /3,000/);
 
-    // Instead the whole sentence is WRAPPED inside a founder-to-provide
-    // verify-or-remove marker (flagged for the founder, not silently deleted).
+    // Instead the whole sentence is WRAPPED inside a you-to-provide
+    // verify-or-remove marker (flagged for the user, not silently deleted).
     assert.match(
       traction.draft_text,
-      /\[founder to provide: [^\]]*Our platform now serves more than 3,000 rural clinics nationwide[^\]]*\]/,
+      /\[you to provide: [^\]]*Our platform now serves more than 3,000 rural clinics nationwide[^\]]*\]/,
     );
 
     // That marker is a real, well-formed gap the pipeline surfaces end-to-end:
@@ -292,7 +292,7 @@ describe("Finding-1 guard: narrow, in-place, abbreviation-safe", () => {
     return enforceGrounding(draft, profile).sections[0].draft_text;
   }
 
-  const stripMarkers = (text: string) => text.replace(/\[founder to provide: [^\]]+\]/g, "");
+  const stripMarkers = (text: string) => text.replace(/\[you to provide: [^\]]+\]/g, "");
 
   // MUST NOT be wrapped or fragmented — each returns byte-for-byte unchanged.
   const MUST_NOT_WRAP: readonly string[] = [
@@ -305,7 +305,7 @@ describe("Finding-1 guard: narrow, in-place, abbreviation-safe", () => {
     test(`does NOT wrap or fragment: ${JSON.stringify(sentence)}`, () => {
       const out = runGuard(sentence, [], EMPTY_PROFILE);
       assert.equal(out, sentence, "benign/reference sentence must pass through unchanged");
-      assert.doesNotMatch(out, /\[founder to provide:/);
+      assert.doesNotMatch(out, /\[you to provide:/);
     });
   }
 
@@ -325,8 +325,8 @@ describe("Finding-1 guard: narrow, in-place, abbreviation-safe", () => {
   test("STILL wraps an undeclared $-amount sentence (wrap, don't delete)", () => {
     const sentence = "We closed $2,400,000 in new contracts last year.";
     const out = runGuard(sentence, [], EMPTY_PROFILE);
-    // Wrapped into a founder-to-provide marker; the raw figure no longer reads as a bare assertion.
-    assert.match(out, /\[founder to provide: [^\]]*\$2,400,000[^\]]*\]/);
+    // Wrapped into a you-to-provide marker; the raw figure no longer reads as a bare assertion.
+    assert.match(out, /\[you to provide: [^\]]*\$2,400,000[^\]]*\]/);
     assert.doesNotMatch(stripMarkers(out), /\$2,400,000/);
   });
 
@@ -336,7 +336,7 @@ describe("Finding-1 guard: narrow, in-place, abbreviation-safe", () => {
     // One marker wrapping the ENTIRE sentence (abbreviation kept inside, not split on).
     assert.match(
       out,
-      /\[founder to provide: verify or remove this unverified statement — "We partner with the U\.S\. Government across 3,000 clinics\."\]/,
+      /\[you to provide: verify or remove this unverified statement — "We partner with the U\.S\. Government across 3,000 clinics\."\]/,
     );
     // Nothing leaked outside the marker (no fragment like "...the U.S." left bare).
     assert.equal(stripMarkers(out).trim(), "");
@@ -377,15 +377,15 @@ describe("invariant 2: never claims submission/award/eligibility", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Invariant 3 — every genuine gap surfaces a [founder to provide] marker.
+// Invariant 3 — every genuine gap surfaces a [you to provide] marker.
 // ---------------------------------------------------------------------------
 
-describe("invariant 3: every genuine gap surfaces a [founder to provide] marker", () => {
+describe("invariant 3: every genuine gap surfaces a [you to provide] marker", () => {
   for (const goldenCase of APPLICATION_GOLDEN_CASES) {
     test(`${goldenCase.id}: pkg.gaps is non-empty, well-formed, and a superset of every inline narrative placeholder`, () => {
       const pkg = assembleGoldenPackage(goldenCase);
 
-      assert.ok(pkg.gaps.length > 0, `${goldenCase.id}: expected at least one founder-to-provide gap`);
+      assert.ok(pkg.gaps.length > 0, `${goldenCase.id}: expected at least one you-to-provide gap`);
       for (const g of pkg.gaps) assert.match(g, FOUNDER_TODO_PATTERN);
 
       // Every inline placeholder actually printed in a drafted narrative is
@@ -399,7 +399,7 @@ describe("invariant 3: every genuine gap surfaces a [founder to provide] marker"
     });
   }
 
-  test("sparse-founder: missing identity fields (technology, location) surface as real gaps", () => {
+  test("sparse-user: missing identity fields (technology, location) surface as real gaps", () => {
     const pkg = assembleGoldenPackage(SPARSE_CASE);
     const joined = pkg.gaps.join(" | ");
     assert.match(joined, /core technology/i);
@@ -420,13 +420,13 @@ describe("invariant 3: every genuine gap surfaces a [founder to provide] marker"
   // ---------------------------------------------------------------------------
   // FIXED — Finding 2 (lib/apply/budget.ts), PR fix/apply-grounding-gaps.
   // When `use_of_funds` is absent, `buildTemplateLineItems` embeds a
-  // `[founder to provide: how funds will be used for <category>]` placeholder
+  // `[you to provide: how funds will be used for <category>]` placeholder
   // INSIDE each line item's `justification` (genuinely rendered on the package).
   // `buildBudget` used to call only `addGap(li.amount)`, so up to 8 of those
   // visibly-rendered markers were silently missing from `budget.gaps` — and
   // therefore from `collectAllGaps`/`AssembledPackage.gaps`, contradicting
   // `applicationBudget.ts`'s own doc: "`gaps` is the flat, deduplicated list of
-  // every distinct `[founder to provide: …]` placeholder appearing anywhere in
+  // every distinct `[you to provide: …]` placeholder appearing anywhere in
   // the package." `buildBudget` now also scans each `justification` with the
   // SAME shared `scanFounderTodos` scanner `collectAllGaps` uses on narrative
   // draft_text, adding every match to the gap set. This test is now a real
@@ -450,7 +450,7 @@ describe("invariant 3: every genuine gap surfaces a [founder to provide] marker"
     }
 
     // And therefore the ASSEMBLED PACKAGE's single gap-summary surface carries
-    // them too — a founder scanning `pkg.gaps` alone now sees every blank that
+    // them too — a user scanning `pkg.gaps` alone now sees every blank that
     // is printed in the budget line items.
     const pkg = assembleGoldenPackage(SPARSE_CASE);
     for (const ph of renderedPlaceholders) {

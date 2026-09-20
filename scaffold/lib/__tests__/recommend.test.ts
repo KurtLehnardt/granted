@@ -58,7 +58,7 @@ describe("recommendFor — aggressive thresholds", () => {
     assert.equal(r.recommendation, "verify");
   });
 
-  test("founder-STATED disqualifier → do_not_recommend regardless of score", () => {
+  test("user-STATED disqualifier → do_not_recommend regardless of score", () => {
     const r = recommendFor({ adjustedScore: 80, kind: "rd", criteria: crit(5, 5), statedDisqualifier: true });
     assert.equal(r.recommendation, "do_not_recommend");
     assert.match(r.basis, /confirm.*program officer/i);

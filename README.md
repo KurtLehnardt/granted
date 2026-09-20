@@ -231,7 +231,7 @@ Results **stream**. Progress and grounded evidence appear in seconds rather than
 
 - **Say no plainly.** Honesty is the differentiator, not a failure state.
 - **Ground everything.** Every claim traces to a real record; the schema throws on fabrication.
-- **Translate government.** Founder language first; jargon only when necessary.
+- **Translate government.** Plain language first; jargon only when necessary.
 - **Ship risky things dark.** Every feature is flag-gated and default-off.
 
 ## Project structure

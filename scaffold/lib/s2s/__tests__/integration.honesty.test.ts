@@ -43,7 +43,7 @@ import { ISO, OPP_ID, ORG_UEI, makeAuthorization } from "./_fixtures";
  */
 
 // ---------------------------------------------------------------------------
-// A realistic fixture: grounded fields + `[founder to provide: …]` gaps + an
+// A realistic fixture: grounded fields + `[you to provide: …]` gaps + an
 // always-gap budget amount + an inline narrative gap + absent header ids.
 // ---------------------------------------------------------------------------
 
@@ -70,7 +70,7 @@ const RICH_ASSEMBLED: AssembledPackage = {
       prompt: "Summarize the project.",
       draft_text:
         "Acme Water Labs builds decentralized water-treatment units for rural " +
-        "municipalities. [founder to provide: annual revenue] and has not yet " +
+        "municipalities. [you to provide: annual revenue] and has not yet " +
         "secured matching funds.",
       claims: [
         {
@@ -78,7 +78,7 @@ const RICH_ASSEMBLED: AssembledPackage = {
           profile_field: "raw_text",
         },
       ],
-      gaps: [{ field_hint: "annual revenue", placeholder: "[founder to provide: annual revenue]" }],
+      gaps: [{ field_hint: "annual revenue", placeholder: "[you to provide: annual revenue]" }],
     },
   ],
   draftableSections: [],
@@ -107,17 +107,17 @@ const RICH_ASSEMBLED: AssembledPackage = {
             display: "Acme Water Labs, Inc.",
             source: "profile.legal_name",
           },
-          // A gap: no value, no source, an honest [founder to provide: …] display.
+          // A gap: no value, no source, an honest [you to provide: …] display.
           {
             key: "project_title",
             label: "Project Title",
             status: "founder_to_provide",
-            display: "[founder to provide: project title]",
+            display: "[you to provide: project title]",
           },
         ],
       },
     ],
-    gaps: ["[founder to provide: project title]"],
+    gaps: ["[you to provide: project title]"],
   },
   budget: {
     generated_at: ISO,
@@ -129,28 +129,28 @@ const RICH_ASSEMBLED: AssembledPackage = {
         justification_source: "template",
         source_quote: "",
         // ALWAYS a gap by G4's contract — a range bucket never yields an exact figure.
-        amount: "[founder to provide: personnel & salaries amount]",
+        amount: "[you to provide: personnel & salaries amount]",
       },
     ],
     total: {
-      range_statement: "[founder to provide: total budget range]",
+      range_statement: "[you to provide: total budget range]",
       range_grounded: false,
-      amount: "[founder to provide: total budget amount]",
+      amount: "[you to provide: total budget amount]",
     },
     constraints: [],
     advisories: [],
     notes: [],
     gaps: [
-      "[founder to provide: personnel & salaries amount]",
-      "[founder to provide: total budget amount]",
+      "[you to provide: personnel & salaries amount]",
+      "[you to provide: total budget amount]",
     ],
   },
   checklist: { allRegistrationsSatisfied: false },
   gaps: [
-    "[founder to provide: annual revenue]",
-    "[founder to provide: project title]",
-    "[founder to provide: personnel & salaries amount]",
-    "[founder to provide: total budget amount]",
+    "[you to provide: annual revenue]",
+    "[you to provide: project title]",
+    "[you to provide: personnel & salaries amount]",
+    "[you to provide: total budget amount]",
   ],
 };
 
@@ -262,24 +262,24 @@ describe("HR-1 — grounding preserved end-to-end; no fabrication where the pack
     assert.ok(/source="sam\.uei"/.test(xml), "the grounded UEI field names its source");
 
     // Absent header ids -> visible gap markers, never invented values.
-    assert.ok(xml.includes("<!-- GAP: founder to provide: CFDA number -->"));
-    assert.ok(xml.includes("<!-- GAP: founder to provide: competition id -->"));
+    assert.ok(xml.includes("<!-- GAP: you to provide: CFDA number -->"));
+    assert.ok(xml.includes("<!-- GAP: you to provide: competition id -->"));
     assert.ok(!xml.includes("<CFDANumber>"), "no (empty/invented) CFDANumber element");
     assert.ok(!xml.includes("<CompetitionID>"), "no (empty/invented) CompetitionID element");
 
     // The founder_to_provide form field -> gap marker, no source/value.
-    assert.ok(xml.includes("[founder to provide: project title]"));
+    assert.ok(xml.includes("[you to provide: project title]"));
     assert.ok(
       !xml.includes(`key="project_title"`) || !/project_title[^>]*source=/.test(xml),
       "the project_title field carries no source attribute",
     );
 
     // The inline narrative gap survives, visibly, after escaping.
-    assert.ok(xml.includes("[founder to provide: annual revenue]"));
+    assert.ok(xml.includes("[you to provide: annual revenue]"));
 
     // Budget amounts are ALWAYS gaps (G4's contract) — never a number.
-    assert.ok(xml.includes("[founder to provide: personnel & salaries amount]"));
-    assert.ok(xml.includes("[founder to provide: total budget amount]"));
+    assert.ok(xml.includes("[you to provide: personnel & salaries amount]"));
+    assert.ok(xml.includes("[you to provide: total budget amount]"));
     const budgetSlice = xml.slice(xml.indexOf("<Budget>"), xml.indexOf("</Budget>"));
     assert.ok(!/\$\s*\d/.test(budgetSlice), "no $-amount anywhere in the budget section");
     assert.ok(!/<Amount>\s*\d/.test(budgetSlice), "no numeric <Amount> anywhere in the budget section");

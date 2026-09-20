@@ -154,7 +154,7 @@ export default function OpportunityCard({
 }: {
   m: Match;
   index: number;
-  /** G5: the founder's extracted v1 profile (from `map.profile`), bridged to a
+  /** G5: the user's extracted v1 profile (from `map.profile`), bridged to a
    *  §3.1 CompanyProfile for the assisted-apply "Draft my application" flow.
    *  Optional/additive — absent leaves the pre-G5 behavior unchanged. */
   startupProfile?: StartupProfile;
@@ -171,7 +171,7 @@ export default function OpportunityCard({
   // the static upsell modal. Default OFF -> the FE-06 path below is unchanged.
   // Still a preview: it never submits anything and gates nothing server-side.
   const assistedApplyFlow = isFlagEnabled("r6_auto_fill");
-  // G5: bridge the founder's extracted v1 profile to a §3.1 CompanyProfile once,
+  // G5: bridge the user's extracted v1 profile to a §3.1 CompanyProfile once,
   // so the assisted-apply flow can assemble a grounded package. Undefined when no
   // profile was threaded down (the flow then simply doesn't offer "Draft my
   // application"); never fabricated.
@@ -570,7 +570,7 @@ export default function OpportunityCard({
       {competitorOpen && (
         <CompetitorAnalysisModal
           onClose={() => setCompetitorOpen(false)}
-          // R5-deep: thread the founder's profile + this opportunity so a Max-tier
+          // R5-deep: thread the user's profile + this opportunity so a Max-tier
           // user (with the r5_deep_analysis flag on) can run a live, personalized
           // brief. Absent profile → the modal stays demo-only. Keywords prefer the
           // gov-vocabulary expandedTerms the retrieval is tuned for.

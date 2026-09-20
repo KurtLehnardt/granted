@@ -67,7 +67,7 @@ export const AnswerKindSchema = z.enum([
 ]);
 export type AnswerKind = z.infer<typeof AnswerKindSchema>;
 
-/** One selectable answer option. `value` is stable; `label` is founder-facing. */
+/** One selectable answer option. `value` is stable; `label` is user-facing. */
 export const InterviewOptionSchema = z.object({
   value: z.string(),
   label: z.string(),
@@ -82,7 +82,7 @@ export type InterviewOption = z.infer<typeof InterviewOptionSchema>;
 export const InterviewQuestionSchema = z.object({
   /** Stable id (`q1`, `q2`, …) → CompanyProfile.InterviewAnswer.question_id. */
   id: z.string(),
-  /** Founder-facing question text. */
+  /** User-facing question text. */
   question: z.string(),
   /** The branch this question resolves. */
   routing_target: RoutingTargetSchema,
@@ -184,7 +184,7 @@ export interface GenerateQuestionsOptions {
    */
   client?: InterviewChatClient;
   /**
-   * The founder's known profile so far (B1a gap interview). When provided, the
+   * The user's known profile so far (B1a gap interview). When provided, the
    * interview runs gap-first:
    *   - if no MATERIAL field is missing, it returns ZERO questions WITHOUT
    *     calling the model (a fully-filled profile asks nothing); and

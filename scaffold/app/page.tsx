@@ -128,7 +128,7 @@ function HomeShell({ sidebarOn }: { sidebarOn: boolean }) {
           Grant funds are waiting<br />Let's find your match
         </h1>
         <p className="mt-5 max-w-xl text-pretty font-body text-[16px] leading-relaxed text-foreground">
-          Describe your company the way you'd describe it to another founder. We'll translate it
+          Describe your company the way you'd describe it to a friend. We'll translate it
           into the language the federal government uses — and tell you plainly when there's
           nothing worth chasing.
         </p>

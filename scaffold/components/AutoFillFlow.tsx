@@ -19,7 +19,7 @@ import type { CompanyProfile } from "@/lib/contracts/companyProfile";
  * R6 / D6 — assisted-apply Application Assistant (behind the default-off
  * `r6_auto_fill` flag).
  *
- * A single, walkable modal stepper that shows founders what pre-approval for
+ * A single, walkable modal stepper that shows users what pre-approval for
  * assisted application actually requires, plus (D6) an honest, per-opportunity
  * PREPARATION CHECKLIST when a specific `opportunity` is passed in:
  *   1. Sign in (R9)      — the same sign-in gate the rest of the app uses.
@@ -35,11 +35,11 @@ import type { CompanyProfile } from "@/lib/contracts/companyProfile";
  * This is a PREVIEW / STUB, and it is honest about it (R7.7 / §11):
  *   - It NEVER submits an application, and says so on every step.
  *   - It NEVER claims to have submitted anything or won an award.
- *   - It NEVER fabricates founder facts or an eligibility verdict — the
+ *   - It NEVER fabricates user facts or an eligibility verdict — the
  *     per-opportunity checklist only reflects data already on the
  *     `Opportunity` record (title, agency, dates, the agency's own
  *     eligibility prose) or generic, clearly-labeled "typical" guidance that
- *     tells the founder to confirm specifics on the official listing.
+ *     tells the user to confirm specifics on the official listing.
  *   - No payment is taken, no stats are invented, no guarantee or federal
  *     affiliation is implied.
  *   - "Pro" is framing only, via the client-only `useEntitlements` stub, which
@@ -77,7 +77,7 @@ export default function AutoFillFlow({
   /** D6: the selected opportunity to build a per-opportunity checklist for.
    *  Optional — omit for the pre-D6 generic registration-only flow. */
   opportunity?: Opportunity;
-  /** G5: the founder's §3.1 CompanyProfile. When BOTH this and `opportunity` are
+  /** G5: the user's §3.1 CompanyProfile. When BOTH this and `opportunity` are
    *  present, a "Draft my application" action assembles the submission-ready
    *  package (components/ApplicationPackage.tsx). Absent → the pre-G5 flow is
    *  unchanged; an absent profile is never fabricated. */
@@ -104,7 +104,7 @@ export default function AutoFillFlow({
   const [saved, setSaved] = useState(false);
 
   // G5: "Draft my application" is offered only when we have BOTH the selected
-  // opportunity and the founder's CompanyProfile. When shown, the assembled
+  // opportunity and the user's CompanyProfile. When shown, the assembled
   // package renders INSIDE this same dialog (replacing the stepper body) so
   // there is only ever one focus-trap / aria-modal over the document — the same
   // single-dialog rule the header note documents for Settings.
@@ -337,7 +337,7 @@ export default function AutoFillFlow({
             )}
 
             {/* G5: assemble a submission-ready package (G1→G2→G3→G4→D6). Only
-                offered when we have both the opportunity and the founder's
+                offered when we have both the opportunity and the user's
                 profile — an absent profile is never fabricated. Nothing is
                 submitted; the package ends in an honest AOR hand-off. */}
             {canDraft && (

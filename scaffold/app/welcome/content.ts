@@ -63,7 +63,7 @@ export const structuredData = {
       name: BRAND,
       url: SITE_URL,
       description:
-        "Granted helps founders and researchers find federal funding matched to their work — grounded in real federal award data and scored on program-officer criteria.",
+        "Granted helps you find federal funding matched to your work — grounded in real federal award data and scored on program-officer criteria.",
       slogan: "Find federal funding matched to your work.",
     },
     {

@@ -21,9 +21,9 @@ function definePrompt(id: string, version: string, template: string): PromptEntr
   return { id, version, contentHash: hashPrompt(template), template };
 }
 
-const EXTRACT_PROFILE_V1_TEMPLATE = "You extract structured company profiles for a federal funding matcher.\n\nReturn ONLY a JSON object, no preamble, no markdown fences:\n{\n  \"profile\": {\n    \"description\": string,\n    \"industry\": string, \"technology\": string, \"location\": string,\n    \"employees\": number|null, \"revenue\": string|null, \"fundingStage\": string|null,\n    \"capitalRaised\": string|null, \"rdActivities\": string|null,\n    \"productMaturity\": string|null, \"targetCustomers\": string|null,\n    \"capitalRequirement\": string|null, \"useOfFunds\": string|null,\n    \"expandedTerms\": string[], \"naicsGuesses\": string[]\n  },\n  \"followUps\": string[]\n}\n\nexpandedTerms is the most important field. Translate the founder's own words\ninto the vocabulary the federal government actually uses — agency program\nlanguage, statutory eligibility categories, funding mechanisms. Example:\n\"software that reduces the administrative burden on nurses\" should expand to\nhealthcare, artificial intelligence, workforce development, health information\ntechnology, hospital operations, labor productivity, digital health, clinical\ntechnology. Produce 10-20 terms.\n\nfollowUps: at most 3 questions, ONLY for fields that are both missing and\nmaterial to matching. Never ask for something the founder already stated.\nReturn an empty array if the description is complete enough.";
+const EXTRACT_PROFILE_V1_TEMPLATE = "You extract structured company profiles for a federal funding matcher.\n\nReturn ONLY a JSON object, no preamble, no markdown fences:\n{\n  \"profile\": {\n    \"description\": string,\n    \"industry\": string, \"technology\": string, \"location\": string,\n    \"employees\": number|null, \"revenue\": string|null, \"fundingStage\": string|null,\n    \"capitalRaised\": string|null, \"rdActivities\": string|null,\n    \"productMaturity\": string|null, \"targetCustomers\": string|null,\n    \"capitalRequirement\": string|null, \"useOfFunds\": string|null,\n    \"expandedTerms\": string[], \"naicsGuesses\": string[]\n  },\n  \"followUps\": string[]\n}\n\nexpandedTerms is the most important field. Translate the user's own words\ninto the vocabulary the federal government actually uses — agency program\nlanguage, statutory eligibility categories, funding mechanisms. Example:\n\"software that reduces the administrative burden on nurses\" should expand to\nhealthcare, artificial intelligence, workforce development, health information\ntechnology, hospital operations, labor productivity, digital health, clinical\ntechnology. Produce 10-20 terms.\n\nfollowUps: at most 3 questions, ONLY for fields that are both missing and\nmaterial to matching. Never ask for something the user already stated.\nReturn an empty array if the description is complete enough.";
 
-const EXPLAIN_MATCHES_V1_TEMPLATE = "You assess fit between a startup and federal funding opportunities.\n\nReturn ONLY a JSON array, no preamble, no markdown fences:\n[{\n  \"id\": string,\n  \"score\": number,          // 0-100\n  \"tier\": \"likely\"|\"verify\"|\"adjacent\"|\"none\",\n  \"criteria\": [{\"label\": string, \"met\": boolean, \"note\": string}],\n  \"whyFit\": string,\n  \"whyIneligible\": string,\n  \"whatToVerify\": string,\n  \"whatToDoNext\": string\n}]\n\nRULES THAT MATTER MORE THAN COVERAGE:\n\n1. You are NOT determining eligibility. Never state a definitive\n   determination. Use \"appears to align\", \"you may qualify\", \"verify with the\n   program officer\". This is required.\n\n2. whyIneligible must contain SPECIFIC, REAL concerns drawn from the actual\n   program and this actual company — never boilerplate, never empty. If you\n   cannot name a concrete concern, the match is weaker than you scored it.\n\n3. BE WILLING TO SAY NO. A company that does not fit federal grant mechanisms\n   should receive \"none\" tiers and low scores. Fabricating plausible-sounding\n   matches is the single worst failure mode here. Consumer marketplaces,\n   local service businesses, and companies with no R&D component frequently\n   have no strong federal grant match — say so plainly.\n\n4. criteria: 4-6 checks a program officer would actually apply (US-based small\n   business, active R&D component, technology area alignment, funding amount\n   consistent with program, commercialization potential, eligibility category).\n   Mark met honestly. Unmet criteria are informative, not failures to hide.\n\n5. Write for a founder, not a bureaucrat. Plain language. No jargon left\n   untranslated.";
+const EXPLAIN_MATCHES_V1_TEMPLATE = "You assess fit between a startup and federal funding opportunities.\n\nReturn ONLY a JSON array, no preamble, no markdown fences:\n[{\n  \"id\": string,\n  \"score\": number,          // 0-100\n  \"tier\": \"likely\"|\"verify\"|\"adjacent\"|\"none\",\n  \"criteria\": [{\"label\": string, \"met\": boolean, \"note\": string}],\n  \"whyFit\": string,\n  \"whyIneligible\": string,\n  \"whatToVerify\": string,\n  \"whatToDoNext\": string\n}]\n\nRULES THAT MATTER MORE THAN COVERAGE:\n\n1. You are NOT determining eligibility. Never state a definitive\n   determination. Use \"appears to align\", \"you may qualify\", \"verify with the\n   program officer\". This is required.\n\n2. whyIneligible must contain SPECIFIC, REAL concerns drawn from the actual\n   program and this actual company — never boilerplate, never empty. If you\n   cannot name a concrete concern, the match is weaker than you scored it.\n\n3. BE WILLING TO SAY NO. A company that does not fit federal grant mechanisms\n   should receive \"none\" tiers and low scores. Fabricating plausible-sounding\n   matches is the single worst failure mode here. Consumer marketplaces,\n   local service businesses, and companies with no R&D component frequently\n   have no strong federal grant match — say so plainly.\n\n4. criteria: 4-6 checks a program officer would actually apply (US-based small\n   business, active R&D component, technology area alignment, funding amount\n   consistent with program, commercialization potential, eligibility category).\n   Mark met honestly. Unmet criteria are informative, not failures to hide.\n\n5. Write for the user, not a bureaucrat. Plain language. No jargon left\n   untranslated.";
 
 /**
  * C2 (@v2) — adds a first-class `whyCare` field, DISTINCT from `whyFit`.
@@ -36,7 +36,7 @@ const EXPLAIN_MATCHES_V1_TEMPLATE = "You assess fit between a startup and federa
  * grant-shaped question that reads as a non sequitur on a procurement listing
  * (a contract vehicle isn't something a company "fits" the way a grant NOFO
  * is). `whyCare` answers the prior, more general question — "should this
- * founder even spend attention here" — and its answer legitimately differs by
+ * user even spend attention here" — and its answer legitimately differs by
  * `kind`: for a grant/R&D opportunity it's the fit signal; for a procurement
  * or adjacent listing it's the strategic-value signal (government as a
  * customer), which `whyFit` has no vocabulary for. Keeping them separate lets
@@ -93,7 +93,7 @@ RULES THAT MATTER MORE THAN COVERAGE:
    consistent with program, commercialization potential, eligibility category).
    Mark met honestly. Unmet criteria are informative, not failures to hide.
 
-6. Write for a founder, not a bureaucrat. Plain language. No jargon left
+6. Write for the user, not a bureaucrat. Plain language. No jargon left
    untranslated.`;
 
 /**
@@ -164,7 +164,7 @@ RULES THAT MATTER MORE THAN COVERAGE:
    consistent with program, commercialization potential, eligibility category).
    Mark met honestly. Unmet criteria are informative, not failures to hide.
 
-6. Write for a founder, not a bureaucrat. Plain language. No jargon left
+6. Write for the user, not a bureaucrat. Plain language. No jargon left
    untranslated.`;
 
 const EXPLAIN_WEAK_FIELD_V1_TEMPLATE = "A startup has no strong federal grant matches. That is a legitimate\nand useful finding — deliver it with confidence, not apology.\n\nReturn ONLY JSON, no fences:\n{\n  \"headline\": string,      // one sentence, direct\n  \"reasoning\": string,     // 2-4 sentences: why this company profile does not\n                           // align with how federal grant mechanisms work\n  \"redirects\": [{\"label\": string, \"why\": string}]  // 3-5 concrete alternatives\n}\n\nRedirects should be specific and real: SBA programs, state economic\ndevelopment, local/community development, workforce and education funding,\nprocurement as a government customer, university partnerships. Name the\ncategory and say why it fits better than federal R&D grants.\n\nDo not hedge into implying they should apply anyway. The value here is saving\nthem weeks of wasted applications.";
@@ -185,7 +185,7 @@ const EXPLAIN_WEAK_FIELD_V1_TEMPLATE = "A startup has no strong federal grant ma
  */
 const GENERATE_INTERVIEW_QUESTIONS_V1_TEMPLATE = `You generate the pre-search interview for fundFinder, a federal-funding matcher.
 
-A founder has just described their company. BEFORE running an expensive search across federal funding programs (Grants.gov grant NOFOs, SBIR/STTR topics, SAM.gov contract opportunities, agency solicitations), you ask a few short questions whose answers CHANGE WHICH PROGRAMS MATCH. You are a cheap, fast routing step — never the analysis, never a chatbot.
+A user has just described their company. BEFORE running an expensive search across federal funding programs (Grants.gov grant NOFOs, SBIR/STTR topics, SAM.gov contract opportunities, agency solicitations), you ask a few short questions whose answers CHANGE WHICH PROGRAMS MATCH. You are a cheap, fast routing step — never the analysis, never a chatbot.
 
 Follow these rules exactly.
 
@@ -204,20 +204,20 @@ Follow these rules exactly.
 
 3. NEVER RE-ASK A STATED FACT. Read the description carefully first. If it already states or clearly implies an answer — entity type, ownership, headcount, sector, agency, stage — do NOT ask that question. It is CORRECT to return fewer than 3, or even zero, questions when the description already resolves the gates and routes cleanly. Do not manufacture questions to reach a count. Quality and non-redundancy beat quantity.
 
-4. STRUCTURED ANSWERS. Typing is friction. Wherever the answer space is enumerable (entity type, yes/no gates, agencies, TRL 1-9, EHR vendor), use multiple choice: set "answer_kind" to "single_select" (one answer) or "multi_select" (several), give a short list of concrete "options", set "allow_free_text" to true, and INCLUDE an "other" option (value "other") so the founder is never trapped. Use "answer_kind":"free_text" (with "options":[]) only when the answer space is genuinely open-ended.
+4. STRUCTURED ANSWERS. Typing is friction. Wherever the answer space is enumerable (entity type, yes/no gates, agencies, TRL 1-9, EHR vendor), use multiple choice: set "answer_kind" to "single_select" (one answer) or "multi_select" (several), give a short list of concrete "options", set "allow_free_text" to true, and INCLUDE an "other" option (value "other") so the user is never trapped. Use "answer_kind":"free_text" (with "options":[]) only when the answer space is genuinely open-ended.
 
 Return ONLY a JSON object — no preamble, no markdown fences — of exactly this shape:
 
 {
   "questions": [
     {
-      "question": string,              // plainly worded for a founder, one sentence
+      "question": string,              // plainly worded for the user, one sentence
       "routing_target": "eligibility_gate" | "program_family" | "agency",
       "gate_class": "entity_type" | "ownership" | "employee_count" | "registration" | "geography" | "program_prerequisite" | null,
                                         // required (non-null) when routing_target is "eligibility_gate"; otherwise null
       "answer_kind": "single_select" | "multi_select" | "free_text",
       "options": [ { "value": string, "label": string } ],   // [] for free_text; for select kinds include an "other" option
-      "allow_free_text": boolean,       // true wherever a founder might not fit a listed option
+      "allow_free_text": boolean,       // true wherever the user might not fit a listed option
       "rationale": string,              // one short line: which branch/gate this resolves and how it changes which programs match
       "maps_to_profile_field": string | null
                                         // the CompanyProfile field this answer enriches: one of
@@ -245,7 +245,7 @@ Aim for 3-5 questions when the description leaves gates or routing open; return 
  */
 const GENERATE_INTERVIEW_QUESTIONS_V2_TEMPLATE = `You generate the pre-search interview for fundFinder, a federal-funding matcher.
 
-A founder has just described their company. BEFORE running an expensive search across federal funding programs (Grants.gov grant NOFOs, SBIR/STTR topics, SAM.gov contract opportunities, agency solicitations), you ask a few short questions whose answers CHANGE WHICH PROGRAMS MATCH. You are a cheap, fast routing step — never the analysis, never a chatbot.
+A user has just described their company. BEFORE running an expensive search across federal funding programs (Grants.gov grant NOFOs, SBIR/STTR topics, SAM.gov contract opportunities, agency solicitations), you ask a few short questions whose answers CHANGE WHICH PROGRAMS MATCH. You are a cheap, fast routing step — never the analysis, never a chatbot.
 
 Follow these rules exactly.
 
@@ -262,7 +262,7 @@ Follow these rules exactly.
    d. registration — does the company already have an active SAM.gov registration and a UEI? (Not legal eligibility, but a hard blocker on the timeline — registration can take weeks.)
    Then, if still unresolved and relevant, softer gates: "geography" (HUBZone / rural / underserved / state-restricted / US-performance) and "program_prerequisite" (a prior Phase I award before a Phase II, cost-share the company must meet). Only AFTER the gates that matter for this company are covered may you spend a question on program_family or agency routing. NEVER spend a question refining rank (exact EHR vendor, precise TRL, sub-sector) while a hard gate the description leaves open is still unknown.
 
-3. NEVER RE-ASK A GATE THE DESCRIPTION ALREADY ANSWERS — WHETHER THE STATED FACT PASSES OR FAILS THE GATE. This is the rule founders notice most when it is broken, and the single most common mistake is re-asking a gate "just to confirm" an answer the description already gave. Read the description word by word FIRST. A gate is ANSWERED the moment the stated facts determine its outcome — and that INCLUDES a failing, negative, or "no" answer. Do not confuse "the gate FAILS" with "the gate is unanswered": a company the description tells you is majority foreign-owned has ANSWERED the ownership gate (the answer is no) — you must not ask it again to hear the same no. Asking a gate whose answer is already on the page — pass OR fail — wastes the founder's one interview. It is CORRECT to return fewer than 3, or even zero, questions. Never manufacture a question to reach a count. Quality and non-redundancy beat quantity.
+3. NEVER RE-ASK A GATE THE DESCRIPTION ALREADY ANSWERS — WHETHER THE STATED FACT PASSES OR FAILS THE GATE. This is the rule users notice most when it is broken, and the single most common mistake is re-asking a gate "just to confirm" an answer the description already gave. Read the description word by word FIRST. A gate is ANSWERED the moment the stated facts determine its outcome — and that INCLUDES a failing, negative, or "no" answer. Do not confuse "the gate FAILS" with "the gate is unanswered": a company the description tells you is majority foreign-owned has ANSWERED the ownership gate (the answer is no) — you must not ask it again to hear the same no. Asking a gate whose answer is already on the page — pass OR fail — wastes the user's one interview. It is CORRECT to return fewer than 3, or even zero, questions. Never manufacture a question to reach a count. Quality and non-redundancy beat quantity.
 
    WORK IN TWO PHASES. PHASE 1 — before writing a single question, fill the top-level "already_answered_gates" array with every gate the description already answers (pass OR fail), using the checklist below. PHASE 2 — generate questions, and NEVER emit a question whose "gate_class" appears in "already_answered_gates". Treat that array as a hard blocklist: if you wrote "ownership" into it, you may not ask an ownership question, period. This two-step commit is what stops the "just to confirm" re-ask.
 
@@ -276,7 +276,7 @@ Follow these rules exactly.
    - registration — SAM.gov / UEI status is stated EITHER way, and both answer the gate so you MUST NOT ask it: "already registered in SAM.gov with an active UEI" (yes) OR "does not yet have a SAM.gov registration or UEI" / "not yet registered" / "no UEI" (no). A stated "not registered yet" is a complete answer — do not ask them to confirm they lack it.
    - GOVERNMENT / PUBLIC applicants (municipal, state, tribal-government, a public utility owned by a city): the SBIR/STTR individual-citizen ownership gate DOES NOT APPLY — SBIR/STTR require a for-profit small business concern, so ">50% owned and controlled by US citizens" is not answerable in that frame. NEVER ask a government/public applicant the SBIR ownership gate; route them to the grant families/agencies (infrastructure, EPA / DOE / DOT / USDA) that fund public entities.
 
-4. STRUCTURED ANSWERS. Typing is friction. Wherever the answer space is enumerable (entity type, yes/no gates, agencies, TRL 1-9, EHR vendor), use multiple choice: set "answer_kind" to "single_select" (one answer) or "multi_select" (several), give a short list of concrete "options", set "allow_free_text" to true, and INCLUDE an "other" option (value "other") so the founder is never trapped. Use "answer_kind":"free_text" (with "options":[]) only when the answer space is genuinely open-ended.
+4. STRUCTURED ANSWERS. Typing is friction. Wherever the answer space is enumerable (entity type, yes/no gates, agencies, TRL 1-9, EHR vendor), use multiple choice: set "answer_kind" to "single_select" (one answer) or "multi_select" (several), give a short list of concrete "options", set "allow_free_text" to true, and INCLUDE an "other" option (value "other") so the user is never trapped. Use "answer_kind":"free_text" (with "options":[]) only when the answer space is genuinely open-ended.
 
 WORKED EXAMPLES (reason like this; do not echo them back):
 - Description: "SkySentry is a US-registered drone company, but 70% owned by a foreign parent overseas; the remaining 30% is held by US-citizen employees. Seeking federal R&D funding." → The ownership gate is ANSWERED and it FAILS: the company is majority foreign-owned, so the answer to "more than 50% owned and controlled by US citizens?" is already NO. You MUST NOT ask that ownership question — re-asking it to hear the same no is the exact mistake this rule forbids. "US-registered" does not reopen it. Entity type (a for-profit company) is stated too. The correct output re-asks NO gate — at most one program_family/agency question, or zero questions.
@@ -292,13 +292,13 @@ Return ONLY a JSON object — no preamble, no markdown fences — of exactly thi
                                         // "gate_class" that appears in this array. Empty array if nothing is answered.
   "questions": [
     {
-      "question": string,              // plainly worded for a founder, one sentence
+      "question": string,              // plainly worded for the user, one sentence
       "routing_target": "eligibility_gate" | "program_family" | "agency",
       "gate_class": "entity_type" | "ownership" | "employee_count" | "registration" | "geography" | "program_prerequisite" | null,
                                         // required (non-null) when routing_target is "eligibility_gate"; otherwise null
       "answer_kind": "single_select" | "multi_select" | "free_text",
       "options": [ { "value": string, "label": string } ],   // [] for free_text; for select kinds include an "other" option
-      "allow_free_text": boolean,       // true wherever a founder might not fit a listed option
+      "allow_free_text": boolean,       // true wherever the user might not fit a listed option
       "rationale": string,              // one short line: which branch/gate this resolves and how it changes which programs match
       "maps_to_profile_field": string | null
                                         // the CompanyProfile field this answer enriches: one of
@@ -378,18 +378,18 @@ GUIDANCE:
 - narrative_sections is the most important array. Derive the sections an applicant must actually write from what the text asks for (e.g. a stated priority area, a required focus, a proposal component). Each "prompt" should read as a plain-language instruction to a first-time applicant. Ground every one in a source_quote.
 - Prefer FEWER, well-grounded items over many thin ones. Every item with "specified": true MUST have a source_quote that is a real substring of the announcement text.
 - If a whole array has nothing grounded in the text, you may either return an empty array [] or a single item with "specified": false and the sentinel value. Do not pad arrays with invented items to look complete.
-- Write prompts and labels for a founder, not a bureaucrat: plain language, no unexplained jargon.`;
+- Write prompts and labels for the user, not a bureaucrat: plain language, no unexplained jargon.`;
 
 /**
  * WS-G / G2 — grounded narrative drafting (the consuming module is
  * `lib/apply/draft.ts`). Given ONE application section (its title + prompt, from
- * G1's `ApplicationRequirements`) and the founder's provided `CompanyProfile`
+ * G1's `ApplicationRequirements`) and the user's provided `CompanyProfile`
  * fields, draft that section — grounded ONLY in the profile fields supplied.
  *
  * THE ONE RULE THAT MATTERS MORE THAN A COMPLETE-LOOKING DRAFT — GROUND EVERY
  * CLAIM, INVENT NOTHING: every factual sentence carries the exact profile field
  * key it came from (`claims`); any fact NOT in the profile becomes an inline
- * `[founder to provide: …]` placeholder (`gaps`), never a made-up specific. The
+ * `[you to provide: …]` placeholder (`gaps`), never a made-up specific. The
  * model also never asserts eligibility or that funding is/will be awarded — it
  * hedges. `validateDraftGrounding` in draft.ts re-checks all of this against the
  * profile as defense-in-depth (`isFieldProvided` + the placeholder shape + the
@@ -400,14 +400,14 @@ GUIDANCE:
  * `lib/claude.ts`). Its `contentHash` is computed by `definePrompt` like any
  * other entry; a text change here is a new version, not a mutation.
  */
-const DRAFT_APPLICATION_SECTION_V1_TEMPLATE = `You draft ONE narrative section of a federal grant / SBIR application for a founder, using ONLY the facts in the provided company profile.
+const DRAFT_APPLICATION_SECTION_V1_TEMPLATE = `You draft ONE narrative section of a federal grant / SBIR application for an applicant, using ONLY the facts in the provided company profile.
 
-You are given a single application section (its key, title, and the prompt the applicant must answer) and the founder's company profile as a JSON object whose keys are profile field names (e.g. "raw_text", "industry", "technology", "location", "use_of_funds", "rd_activities", "revenue"). The profile object contains ONLY the fields the founder has actually provided — a field that is missing simply is not there.
+You are given a single application section (its key, title, and the prompt the applicant must answer) and the applicant's company profile as a JSON object whose keys are profile field names (e.g. "raw_text", "industry", "technology", "location", "use_of_funds", "rd_activities", "revenue"). The profile object contains ONLY the fields the applicant has actually provided — a field that is missing simply is not there.
 
 THE ONE RULE THAT OVERRIDES EVERYTHING — GROUND EVERY CLAIM, INVENT NOTHING:
-- Write the section answering its prompt in a plain first-person-plural founder voice ("we", "our"). Keep it concise — a few short paragraphs at most.
+- Write the section answering its prompt in a plain first-person-plural applicant voice ("we", "our"). Keep it concise — a few short paragraphs at most.
 - Every sentence that states a FACT about the company (what it does, its technology, market, location, stage, revenue, capital, R&D, customers, use of funds) must be grounded in a field that is present in the provided profile object. For each such sentence, add an entry to "claims" with the exact sentence in "text" and the exact profile field key it came from in "profile_field".
-- If answering the prompt needs a fact that is NOT present in the provided profile, DO NOT invent it and DO NOT guess a plausible value. Instead put an inline placeholder of EXACTLY this form inside draft_text: [founder to provide: <short plain description of the missing fact>] — for example [founder to provide: annual revenue] — and add a matching entry to "gaps". Never write a number, name, date, dollar amount, or metric that is not in the profile.
+- If answering the prompt needs a fact that is NOT present in the provided profile, DO NOT invent it and DO NOT guess a plausible value. Instead put an inline placeholder of EXACTLY this form inside draft_text: [you to provide: <short plain description of the missing fact>] — for example [you to provide: annual revenue] — and add a matching entry to "gaps". Never write a number, name, date, dollar amount, or metric that is not in the profile.
 - Only cite a "profile_field" key that actually appears in the provided profile object. Never cite a field that is absent — if the fact is not there, it is a gap, not a claim.
 
 NEVER MAKE AN ELIGIBILITY OR AWARD CLAIM:
@@ -427,7 +427,7 @@ Return ONLY a JSON object — no preamble, no markdown fences — of exactly thi
 GUIDANCE:
 - Prefer FEWER, well-grounded sentences over padding. A short honest draft with clearly marked gaps is the goal — not a complete-looking draft resting on invented specifics.
 - Every placeholder you put in draft_text must also appear in "gaps", and every gap's "placeholder" must appear verbatim in draft_text.
-- Write for a founder, not a bureaucrat: plain language, no unexplained jargon.`;
+- Write for the user, not a bureaucrat: plain language, no unexplained jargon.`;
 
 /**
  * R5-deep (competitor_analysis, modelRouting.ts → claude-sonnet-4-6). The single
@@ -439,7 +439,7 @@ GUIDANCE:
  * this prompt's rules are the first, not the only, line of defense.
  *
  * It deliberately makes NO eligibility or award-outcome claim (it describes how
- * past winners positioned themselves; it never tells the founder they will win),
+ * past winners positioned themselves; it never tells the user they will win),
  * so it stays clear of the C2 banned-phrasings the `check:prompts` gate scans
  * every `*_TEMPLATE` for.
  *

@@ -120,7 +120,7 @@ describe("runFill — the fill algorithm (spec §3.3)", () => {
 
     const orgResult = results.find((r) => r.packageKey === "organization_name")!;
     expect(orgResult.outcome).toBe("gap");
-    expect(orgResult.gapDisplay).toBe("[founder to provide: organization legal name]");
+    expect(orgResult.gapDisplay).toBe("[you to provide: organization legal name]");
     expect((document.getElementById("org-input") as HTMLInputElement).value).toBe("");
 
     // A flag badge (shadow-DOM host) is present right after the field.

@@ -77,16 +77,16 @@ function opportunityWithCeiling(ceiling: number): Opportunity {
 
 // --- Case 1: grounded line items, all amounts are gaps ----------------------
 
-test("a profile with use_of_funds + capital_requirement yields line items grounded in the use_of_funds text, with every amount a [founder to provide: …] gap", () => {
+test("a profile with use_of_funds + capital_requirement yields line items grounded in the use_of_funds text, with every amount a [you to provide: …] gap", () => {
   const profile = fundedProfile();
   const budget = buildBudget(profile);
 
   assert.ok(budget.line_items.length > 0, "expected at least one line item");
   for (const item of budget.line_items) {
-    assert.match(item.amount, FOUNDER_TODO_PATTERN, `amount for ${item.category} must be a founder-to-provide gap`);
+    assert.match(item.amount, FOUNDER_TODO_PATTERN, `amount for ${item.category} must be a you-to-provide gap`);
   }
 
-  // At least one line item's justification quotes the founder's actual use_of_funds text.
+  // At least one line item's justification quotes the user's actual use_of_funds text.
   const quoted = budget.line_items.some((i) =>
     i.justification.includes("clinical validation and a first manufacturing line"),
   );
@@ -102,7 +102,7 @@ test("a profile with use_of_funds + capital_requirement yields line items ground
   const equipment = budget.line_items.find((i) => i.category === "equipment");
   assert.ok(equipment, "expected an equipment line item");
 
-  // Total range is grounded in the founder's capital_requirement bucket.
+  // Total range is grounded in the user's capital_requirement bucket.
   assert.equal(budget.total.range_grounded, true);
   assert.equal(budget.total.profile_field, "capital_requirement");
   assert.match(budget.total.range_statement, /\$250K.*\$1M/);
@@ -121,7 +121,7 @@ test("use_of_funds absent → minimal standard-category template, every category
     // activity) — non-anchored, since the placeholder sits inside a "Category: …" sentence.
     assert.match(
       item.justification,
-      /\[founder to provide: [^\]]+\]/,
+      /\[you to provide: [^\]]+\]/,
       "template justification must itself carry an honest gap, not an invented activity",
     );
   }
@@ -182,7 +182,7 @@ test("a specified:true budget_rule surfaces as a grounded constraint carrying it
     "Applicants must provide a 20% cost share of the total project cost.",
   );
   assert.match(budget.constraints[0].rule, /cost share/i);
-  // Honest, non-determinative — never asserts the founder satisfies the rule.
+  // Honest, non-determinative — never asserts the user satisfies the rule.
   assert.doesNotMatch(budget.constraints[0].note, /you (are|qualify|will)/i);
 });
 
@@ -239,7 +239,7 @@ test("ApplicationBudgetSchema rejects a total.range_statement that is neither gr
   assert.equal(ApplicationBudgetSchema.safeParse(bad).success, false);
 });
 
-test("every distinct [founder to provide: …] placeholder is present in the top-level gaps list", () => {
+test("every distinct [you to provide: …] placeholder is present in the top-level gaps list", () => {
   const budget = buildBudget(fundedProfile());
   for (const item of budget.line_items) {
     assert.ok(budget.gaps.includes(item.amount), `expected gaps to include ${item.amount}`);

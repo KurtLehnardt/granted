@@ -268,7 +268,7 @@ export function buildFundingStrategy(
 
   const rawMatches = Array.isArray(map?.matches) ? map!.matches! : [];
 
-  // Real fits only — never wall the founder with "none"-tier rows. Dedupe by
+  // Real fits only — never wall the user with "none"-tier rows. Dedupe by
   // opportunity id, keeping the best-fit instance.
   const byId = new Map<string, StrategyMatchLike>();
   const anon: StrategyMatchLike[] = [];
@@ -450,7 +450,7 @@ function buildRationale(args: {
 /**
  * Plan-level "start registration now" note. Emitted when ANY selected program
  * needs federal registration; it points at the FIRST real deadline in the plan
- * so the founder registers ahead of it. Null when nothing needs registration.
+ * so the user registers ahead of it. Null when nothing needs registration.
  */
 function buildRegistrationNote(items: FundingStrategyItem[]): string | null {
   const needsReg = items.some((it) => it.requiresRegistration);

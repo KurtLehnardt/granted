@@ -14,7 +14,7 @@ import { z } from "zod";
 export const VerificationClassificationSchema = z.enum([
   /** Answerable by web search against an authoritative source in 1–2 lookups. */
   "auto_verifiable",
-  /** Depends on facts only the founder has. */
+  /** Depends on facts only the user has. */
   "user_only",
   /** Needs a program officer or counsel; neither model nor search settles it. */
   "judgment",

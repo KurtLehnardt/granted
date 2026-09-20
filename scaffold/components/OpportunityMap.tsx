@@ -14,7 +14,7 @@ import { aggregateSimilarCompanies } from "@/lib/similar/aggregate";
 import { fundingCell, closingSoonCount, expiredCount } from "@/lib/ui/opportunitySummary";
 import { corpusAsOf } from "@/lib/corpus/meta";
 
-/** Cards to render. We never wall the founder with the 20+ "none" rows. */
+/** Cards to render. We never wall the user with the 20+ "none" rows. */
 const CARD_CAP = 8;
 
 /** FE-01: shared "eyebrow"-style mono label, token-driven when r7_design is on. */
@@ -94,7 +94,7 @@ export default function OpportunityMap({ map }: { map: MapT }) {
 
   // R8 / ELG-04: map the REAL determinations attached by buildOpportunityMap
   // (screen() + freshness) into the FE-04 three-bucket display's item shape.
-  // Only the shown opportunities are screened here — the same set the founder
+  // Only the shown opportunities are screened here — the same set the user
   // sees as cards. Empty when the flag is off, or on cached maps that predate
   // the field (their matches simply carry no `eligibility`).
   const eligibilityItems: EligibilityItem[] = r8
@@ -225,7 +225,7 @@ export default function OpportunityMap({ map }: { map: MapT }) {
 
         {/* D5 — "Since your last visit" alerts: new matches / tier upgrades /
             newly closing-soon, diffed client-only against a localStorage
-            snapshot of the founder's last run. Default-off; all logic lives
+            snapshot of the user's last run. Default-off; all logic lives
             in OpportunityAlerts.tsx + lib/alerts/*. */}
         {isFlagEnabled("d5_alerts") && <OpportunityAlerts map={map} />}
 
@@ -245,7 +245,7 @@ export default function OpportunityMap({ map }: { map: MapT }) {
             <p className={eyebrowClass(design, "mb-4")}>
               {w ? "Adjacent and partial matches" : "Your opportunity map"}
             </p>
-            {/* C1b — founder-facing type filters + grouping by kind, flag-gated
+            {/* C1b — user-facing type filters + grouping by kind, flag-gated
                 (default off). All logic lives in OpportunityGroups + lib/
                 opportunities/group.ts; the flat list stays the baseline. */}
             {isFlagEnabled("c1b_type_groups") ? (
@@ -253,7 +253,7 @@ export default function OpportunityMap({ map }: { map: MapT }) {
             ) : (
               <div className="space-y-3">
                 {shown.map((m, i) => (
-                  // G5: thread the founder's extracted v1 profile down so the
+                  // G5: thread the user's extracted v1 profile down so the
                   // assisted-apply "Draft my application" flow can assemble a
                   // grounded package from real data (bridged to a §3.1
                   // CompanyProfile inside OpportunityCard). Absent → honest gaps.
@@ -309,7 +309,7 @@ export default function OpportunityMap({ map }: { map: MapT }) {
         <div className={footerClass}>
           {/* Data-freshness "as of" surface: the corpus ships committed and is a
               point-in-time snapshot, so we stamp WHEN it was built and always
-              route the founder to the official source for the live deadline —
+              route the user to the official source for the live deadline —
               never presenting the snapshot as if it were current. Safe fallback:
               a date-free caveat when the corpus-meta stamp is absent/invalid. */}
           <p>

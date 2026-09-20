@@ -134,8 +134,8 @@ export default function WelcomePage() {
             <div className="mt-6 grid gap-6 md:grid-cols-3">
               <p className={leadClass}>
                 Federal funding is real money — but the process punishes guesses.
-                Founders sink weeks into a 30-page application for a program they
-                were never eligible for, or that no company like theirs has ever
+                You sink weeks into a 30-page application for a program you
+                were never eligible for, or that no company like yours has ever
                 won.
               </p>
               <p className={leadClass}>
@@ -162,7 +162,7 @@ export default function WelcomePage() {
               <Step
                 n="1"
                 title="Describe your company"
-                body="Plain English, the way you'd explain it to another founder. No forms, no jargon, no spelunking through grants.gov."
+                body="Plain English, the way you'd explain it to a friend. No forms, no jargon, no spelunking through grants.gov."
               />
               <Step
                 n="2"
@@ -408,7 +408,7 @@ function SiteFooter() {
               {BRAND}
             </p>
             <p className="mt-1 font-body text-[14px] text-foreground">
-              Federal funding intelligence for founders.
+              Federal funding intelligence for everyone.
             </p>
           </div>
           <nav aria-label="Footer" className="flex flex-wrap gap-x-6 gap-y-2">

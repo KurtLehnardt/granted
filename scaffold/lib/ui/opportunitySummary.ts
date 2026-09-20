@@ -179,7 +179,7 @@ export function fundingCell(shown: FundingMatchLike[]): { n: string; label: stri
   if (stated > 0) return { n: money(stated), label: "potential funding identified" };
 
   // Otherwise fall back to what similar companies actually received — and label
-  // it honestly as such, not as this founder's potential funding.
+  // it honestly as such, not as this user's potential funding.
   const median = strong.reduce((acc, m) => acc + (m.history?.medianAward ?? 0), 0);
   if (median > 0) return { n: money(median), label: "median award to similar companies" };
 

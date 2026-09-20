@@ -8,7 +8,7 @@ import { CompanyProfileSchema, type InterviewAnswer } from "@/lib/contracts/comp
  * FE-03 — R1 pre-search interview UI.
  *
  * Renders the INT-01-generated questions INLINE (not a modal — R7.4 requires
- * a structured multi-select without a modal trap), lets the founder answer or
+ * a structured multi-select without a modal trap), lets the user answer or
  * skip via an always-visible "Search anyway", then (R1: "answers merge into
  * an enriched description that the user can see and edit before the search
  * fires") shows the INT-02-merged enriched description in an editable

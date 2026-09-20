@@ -33,8 +33,8 @@ import type { BudgetLineItem } from "@/lib/contracts/applicationBudget";
  *
  * HONESTY (R7.7, consistent with AutoFillFlow.tsx): the tool drafted a
  * submission-ready DRAFT — nothing was submitted, no application was filed, and
- * final legal submission is the founder's authorized AOR's. Every
- * `[founder to provide: …]` blank is highlighted for the founder to complete.
+ * final legal submission is the user's authorized AOR's. Every
+ * `[you to provide: …]` blank is highlighted for the user to complete.
  * This view NEVER renders a "submitted"/"filed"/"won"/"approved" confirmation
  * and never asserts a definitive eligibility determination.
  */
@@ -52,7 +52,7 @@ const mutedClass = "font-body text-[13px] italic leading-relaxed text-foreground
 const sourceNoteClass = "font-mono text-[10px] uppercase tracking-eyebrow text-structure-on-canvas";
 
 /**
- * A highlighted `[founder to provide: …]` blank. `warning` used as a FILLED chip
+ * A highlighted `[you to provide: …]` blank. `warning` used as a FILLED chip
  * (dark `on-semantic` text on the fill) — the one AA-safe way to use a semantic
  * token per lib/design/tokens.ts. This is the single visual convention for every
  * gap across narratives, forms, and budget.
@@ -71,7 +71,7 @@ function SourceNote({ source }: { source: string }) {
 }
 
 /**
- * Render prose with every inline `[founder to provide: …]` occurrence wrapped in
+ * Render prose with every inline `[you to provide: …]` occurrence wrapped in
  * a `<GapPill>`. A fresh RegExp is built per call so the shared global scanner's
  * `lastIndex` is never carried across renders.
  */
@@ -341,7 +341,7 @@ function AorHandoffSection() {
 // AssembledPackage already rendered above into a signed .granted.json
 // envelope (see lib/apply/export.ts). No fetch, no server route, nothing
 // retained (northstar §5.3) — it is exactly the data already on this screen,
-// repackaged for the founder to hand to the browser extension themselves.
+// repackaged for the user to hand to the browser extension themselves.
 // ---------------------------------------------------------------------------
 
 type ExportStatus = "idle" | "working" | "downloaded" | "error";
@@ -553,7 +553,7 @@ export default function ApplicationPackage({
 
   useEffect(() => {
     assemble();
-    // Cancel the in-flight assembly if the founder leaves this screen (e.g.
+    // Cancel the in-flight assembly if the user leaves this screen (e.g.
     // "back to requirements") so the local model isn't left drafting for a view
     // that's gone.
     return () => abortRef.current?.abort();

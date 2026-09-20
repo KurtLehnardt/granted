@@ -17,7 +17,7 @@ import { prefillApplicationForms } from "../forms";
  * G3 tests — hermetic, NO network, STATIC fixtures only. `prefillApplicationForms`
  * is a PURE deterministic mapper (no model call), so every case runs offline and
  * exercises the honesty contract: grounded fields always name a `source`, gaps
- * are always the exact `[founder to provide: …]` placeholder, and nothing is ever
+ * are always the exact `[you to provide: …]` placeholder, and nothing is ever
  * fabricated.
  */
 
@@ -81,7 +81,7 @@ test("a well-filled profile + SAM settings grounds UEI/NAICS/entity_type/SAM sta
     samRegistered: true,
     samRegisteredDate: "2025-01-15",
     uei: "SAMUEI1234567",
-    aorName: "Dana Founder",
+    aorName: "Dana Smith",
     aorOnFile: true,
   };
   const out = prefillApplicationForms(wellFilledProfile(), reqs, sampleOpp());
@@ -114,7 +114,7 @@ test("a well-filled profile + SAM settings grounds UEI/NAICS/entity_type/SAM sta
   // AOR name — grounded from the SAM settings.
   const aor = field(out, "authorized_representative_name")!;
   assert.equal(aor.status, "prefilled");
-  assert.equal(aor.value, "Dana Founder");
+  assert.equal(aor.value, "Dana Smith");
   assert.equal(aor.source, "sam.aorName");
 
   // Opportunity identifiers — grounded from the Opportunity record.
@@ -147,7 +147,7 @@ test("UEI falls back to the profile self-report when the SAM settings carry none
 });
 
 // ---------------------------------------------------------------------------
-// Case 2 — a sparse profile emits the right `[founder to provide: …]` GAPS, each
+// Case 2 — a sparse profile emits the right `[you to provide: …]` GAPS, each
 // matching FOUNDER_TODO_PATTERN.
 // ---------------------------------------------------------------------------
 
@@ -197,9 +197,9 @@ test("a sparse profile + empty SAM settings emits the expected honest gaps", () 
     assert.match(g, FOUNDER_TODO_PATTERN);
   }
   // Sanity: the headline applicant-specific blanks are present.
-  assert.ok(out.gaps.includes("[founder to provide: organization legal name]"));
-  assert.ok(out.gaps.includes("[founder to provide: project title]"));
-  assert.ok(out.gaps.includes("[founder to provide: federal funding amount requested (exact dollar figure)]"));
+  assert.ok(out.gaps.includes("[you to provide: organization legal name]"));
+  assert.ok(out.gaps.includes("[you to provide: project title]"));
+  assert.ok(out.gaps.includes("[you to provide: federal funding amount requested (exact dollar figure)]"));
 
   // SAM status is NEVER a gap — the settings always carry a concrete boolean.
   assert.equal(field(out, "sam_registration_status")!.status, "prefilled");
@@ -255,13 +255,13 @@ test("the schema REJECTS a gap that smuggles in a value", () => {
     label: "Organization legal name",
     status: "founder_to_provide",
     value: "Acme Robotics Inc.",
-    display: "[founder to provide: organization legal name]",
+    display: "[you to provide: organization legal name]",
   };
   assert.equal(PrefilledFieldSchema.safeParse(smuggled).success, false);
 });
 
 test("FOUNDER_TODO_PATTERN is reused from applicationDraft — same one convention across WS-G", () => {
-  assert.match("[founder to provide: project title]", FOUNDER_TODO_PATTERN);
-  assert.doesNotMatch("[founder to provide:]", FOUNDER_TODO_PATTERN);
-  assert.doesNotMatch("founder to provide: project title", FOUNDER_TODO_PATTERN);
+  assert.match("[you to provide: project title]", FOUNDER_TODO_PATTERN);
+  assert.doesNotMatch("[you to provide:]", FOUNDER_TODO_PATTERN);
+  assert.doesNotMatch("you to provide: project title", FOUNDER_TODO_PATTERN);
 });

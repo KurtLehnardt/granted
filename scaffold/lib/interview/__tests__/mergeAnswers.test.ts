@@ -154,7 +154,7 @@ test("a genuine non-member free-text escape on an enum field leaves it unset but
 
 test("an escape value coinciding with a real enum member (entity_type 'other') is set, not fabricated", () => {
   // EntityTypeSchema DOES include "other" as a member, so selecting it is a
-  // legitimate founder-stated value — the merge validates against the real
+  // legitimate user-stated value — the merge validates against the real
   // contract rather than blindly rejecting the literal token "other".
   const base = mkProfile();
   const { profile } = mergeAnswers(

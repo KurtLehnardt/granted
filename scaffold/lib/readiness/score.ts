@@ -9,7 +9,7 @@
  * builders (see components/ApplicationChecklist.tsx).
  *
  * HONESTY BOUNDARY (mirrors the product's §11 / R8 posture): this scores a
- * founder's *readiness to apply*, never their eligibility for a specific
+ * user's *readiness to apply*, never their eligibility for a specific
  * program and never their odds of winning. The verdict copy is calibrated to
  * say "not yet" plainly (the brand's "honest no") rather than inflate a grade.
  * The three hard federal gates below (entity formed · SAM.gov Active · US-based
@@ -44,7 +44,7 @@ export interface ReadinessAnswers {
   rdComponent: Tri;
   /** A path to a product/market beyond the research itself? */
   commercialization: Tri;
-  /** The founder's target funding size (context/fit, not a hard gate). */
+  /** The user's target funding size (context/fit, not a hard gate). */
   fundingTarget: FundingBand;
 }
 
@@ -270,7 +270,7 @@ function scoreFunding(a: ReadinessAnswers): Scored {
 }
 
 // ---------------------------------------------------------------------------
-// Verdict — blocker-driven and deterministic, NOT purely numeric. A founder can
+// Verdict — blocker-driven and deterministic, NOT purely numeric. A user can
 // score in the 70s and still be a guaranteed rejection if a hard gate is a
 // blocker, so the honest banner keys off the prerequisite chain first.
 // ---------------------------------------------------------------------------
@@ -365,7 +365,7 @@ export function scoreReadiness(a: ReadinessAnswers): ReadinessResult {
 
   // Highest-leverage fix = the not-ready dimension earliest in the prerequisite
   // chain (lowest `order`). This respects real dependencies — no point telling a
-  // founder to finish SAM before they've formed an entity — and prefers the
+  // user to finish SAM before they've formed an entity — and prefers the
   // universal registration gates over the track-specific R&D/commercialization
   // ones, which only affect some programs.
   const notReady = dimensions.filter((d) => d.status !== "ready").sort((x, y) => x.order - y.order);

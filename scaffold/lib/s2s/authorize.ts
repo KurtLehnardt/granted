@@ -59,7 +59,7 @@ export class SubmissionNotAuthorizedError extends Error {
  *
  * On the org UEI: the v4 shared input is {@link AssembledPackage}, which exposes no
  * single canonical org-UEI field to match against — the UEI lives inside the SF-424
- * form fields (`forms.forms[].fields[]`), where it may itself be a founder-to-provide
+ * form fields (`forms.forms[].fields[]`), where it may itself be a you-to-provide
  * gap. The gate therefore requires the attestation's `org_uei` to be present and
  * non-empty (the AOR names the org they are attesting for) rather than cross-matching
  * a package field that may not exist. This is the deliberate scoping of the old

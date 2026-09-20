@@ -1,7 +1,7 @@
 /**
  * grantsStore.ts — FE-07 "Grants applied for" local tracker.
  *
- * A purely local, localStorage-backed list of grants the founder is tracking,
+ * A purely local, localStorage-backed list of grants the user is tracking,
  * each with a status they can set (unapplied / pending / granted). Gates
  * nothing, submits nothing — it's a personal checklist on this device only,
  * cleared by "Delete my data" along with everything else (STORAGE_KEYS.grants).

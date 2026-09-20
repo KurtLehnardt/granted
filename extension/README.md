@@ -234,7 +234,7 @@ extension/
 
 The R6 feasibility memo describes two apply paths. This extension is
 **exclusively** the browser-side, human-submits one: it runs in the
-founder's own authenticated session, fills and navigates, and stops before
+user's own authenticated session, fills and navigates, and stops before
 submit. No credentials, no network, no submission calls, no third-party
 submitter designation. The separate server-to-server (S2S) enterprise path
 (the gatekept SOAP `Authenticate AOR` + `Submit Application As Third Party`

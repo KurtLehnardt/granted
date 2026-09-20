@@ -5,7 +5,7 @@ import { rateLimit, clientKey } from "@/lib/security/rateLimit";
 /**
  * Input bounds for the unauthenticated interview endpoint (security review
  * MEDIUM — denial-of-wallet). Env-overridable; generous enough never to impede
- * a real founder. The interview call is cheap/fast, so limits are looser than
+ * a real user. The interview call is cheap/fast, so limits are looser than
  * /api/match.
  */
 const MAX_DESCRIPTION_LENGTH = Number(process.env.MAX_DESCRIPTION_LENGTH) || 8_000;

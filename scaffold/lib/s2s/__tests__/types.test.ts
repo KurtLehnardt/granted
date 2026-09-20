@@ -16,7 +16,7 @@ const ISO = "2026-08-16T12:00:00.000Z";
 describe("AorAuthorizationSchema", () => {
   const valid = {
     org_uei: "ABC123DEF456",
-    aor_name: "Jane Founder",
+    aor_name: "Jane Smith",
     attested: true as const,
     attested_at: ISO,
     scope: { opportunity_id: "OPP-1" },

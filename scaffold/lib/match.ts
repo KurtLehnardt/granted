@@ -263,7 +263,7 @@ export async function buildOpportunityMap(
   // pre-B2 behavior, so the calibration/quota guarantees hold unchanged.
   const enrich = isFlagEnabled("b2_enriched_ranking") ? deriveEnrichmentSignal(profile) : undefined;
 
-  // 3. Semantic expansion — embed the founder profile plus expanded gov terms
+  // 3. Semantic expansion — embed the user profile plus expanded gov terms
   //    (and, under B2, the enrichment-derived mechanism/size vocabulary).
   const queryText = [
     profile.description,
@@ -400,7 +400,7 @@ export async function buildOpportunityMap(
 
   // DISCERNMENT (flag `discernment_layer`, default OFF): attach an ADVISORY
   // per-match verdict (recommend / verify / do_not_recommend) derived purely from
-  // the score, the model's own met-criteria, and any FOUNDER-STATED disqualifier —
+  // the score, the model's own met-criteria, and any USER-STATED disqualifier —
   // never a model-inferred exclusion (R8.4). When ON, "high potential" is recounted
   // as recommend-only and the honest-no is driven by a whole-map verdict. When OFF,
   // everything below is byte-unchanged.
@@ -411,7 +411,7 @@ export async function buildOpportunityMap(
         adjustedScore: m.score,
         kind: m.opportunity.kind,
         criteria: m.criteria,
-        // Reserved for a founder-STATED hard mismatch; the v1 profile/companyFacts
+        // Reserved for a user-STATED hard mismatch; the v1 profile/companyFacts
         // carry no structured ownership/size signal, so it is never set here — the
         // aggressive score/criteria floors do the discernment work.
         statedDisqualifier: false,

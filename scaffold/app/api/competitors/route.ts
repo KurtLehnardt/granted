@@ -6,7 +6,7 @@ import type { CompetitorStreamEvent } from "@/lib/contracts/competitorAnalysis";
 /**
  * R5-deep — live "competitor & grant intelligence" market brief.
  *
- * POST a founder profile + (optionally) a target opportunity; get back a
+ * POST a user profile + (optionally) a target opportunity; get back a
  * GROUNDED brief: federal awardees in the space (with how they positioned to
  * win), typical award sizes, cited positioning recommendations, and gaps to
  * exploit — every point traceable to a real public award record or web URL, and

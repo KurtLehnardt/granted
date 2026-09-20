@@ -259,7 +259,7 @@ function recordUsage(meter: CostMeter | undefined, stage: string, usage: Anthrop
 }
 
 /**
- * §5.5 prompt-injection defense. The founder `description` and the government
+ * §5.5 prompt-injection defense. The user `description` and the government
  * corpus `description`/`eligibility` fields are untrusted; wrap them in an
  * explicit delimiter with a standing instruction to treat the contents as DATA,
  * never as instructions. Blast radius is integrity-only (the models have no
@@ -280,7 +280,7 @@ function wrapUntrusted(content: string): string {
 }
 
 /**
- * Stage 1 — intake. Pull structured fields out of the founder's description,
+ * Stage 1 — intake. Pull structured fields out of the user's description,
  * expand into government vocabulary, and ask only for what's still missing.
  */
 export async function extractProfile(
@@ -371,7 +371,7 @@ export async function explainMatches(
         messages: [
           {
             role: "user",
-            // Untrusted founder profile + corpus fields wrapped in the §5.5
+            // Untrusted user profile + corpus fields wrapped in the §5.5
             // envelope. Compact JSON (no `null, 2` pretty-print) — the
             // indentation was pure whitespace tokens on the highest-volume stage.
             content: `COMPANY:\n${wrapUntrusted(JSON.stringify(profile))}\n\nCANDIDATE OPPORTUNITIES:\n${wrapUntrusted(
@@ -733,13 +733,13 @@ export async function explainWeakField(profile: StartupProfile, meter?: CostMete
 /**
  * The deterministic `EligibilityDetermination` produced by
  * `lib/eligibility/screen.ts` is the SINGLE SOURCE OF TRUTH for whether a
- * founder is ruled out. The model's `whyIneligible` narrative is a SUBORDINATE,
+ * user is ruled out. The model's `whyIneligible` narrative is a SUBORDINATE,
  * hedged read of "possible concerns" (see the `explainMatches` prompt rule 1:
  * "You are NOT determining eligibility"). This function enforces that at the
  * boundary: the narrative may echo a definitive exclusion ONLY when the engine's
  * own bucket is `excluded`. In every other case (eligible / conditional /
  * unknown / no determination) a definitive-exclusion assertion is NEUTRALIZED —
- * so the UI can never tell a founder they are ineligible on the strength of an
+ * so the UI can never tell a user they are ineligible on the strength of an
  * uncited model sentence the engine never agreed with (R8.4, the worst single
  * failure this product can make).
  *
@@ -811,7 +811,7 @@ export function reconcileIneligibilityNarrative(
   determination: { bucket: EligibilityBucket } | undefined,
 ): NarrativeReconciliation {
   const raw = (narrative ?? "").trim();
-  // The engine itself ruled the founder out → the narrative may echo it.
+  // The engine itself ruled the user out → the narrative may echo it.
   if (determination?.bucket === "excluded") return { text: raw, reconciled: false };
   if (raw.length === 0) return { text: raw, reconciled: false };
   // No definitive over-assertion → already the subordinate/hedged voice.

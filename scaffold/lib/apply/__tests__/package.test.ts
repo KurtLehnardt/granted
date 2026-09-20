@@ -74,11 +74,11 @@ function sampleDraft(): ApplicationDraft {
         prompt: "Summarize your project.",
         draft_text:
           "We build electrochemical biosensor arrays for rural clinics. " +
-          "Our annual revenue is [founder to provide: annual revenue].",
+          "Our annual revenue is [you to provide: annual revenue].",
         claims: [
           { text: "We build electrochemical biosensor arrays for rural clinics.", profile_field: "technology" },
         ],
-        gaps: [{ field_hint: "annual revenue", placeholder: "[founder to provide: annual revenue]" }],
+        gaps: [{ field_hint: "annual revenue", placeholder: "[you to provide: annual revenue]" }],
       },
     ],
   };
@@ -91,7 +91,7 @@ const REQS: AutoFillRequirements = { ...EMPTY_AUTO_FILL_REQUIREMENTS };
 // ---------------------------------------------------------------------------
 
 describe("collectAllGaps", () => {
-  test("collects every [founder to provide: …] across narratives + forms + budget, each well-formed", () => {
+  test("collects every [you to provide: …] across narratives + forms + budget, each well-formed", () => {
     const profile = sampleProfile();
     const forms = prefillApplicationForms(profile, REQS, OPP);
     const budget = buildBudget(profile, undefined, OPP);
@@ -103,7 +103,7 @@ describe("collectAllGaps", () => {
     for (const g of gaps) assert.match(g, FOUNDER_TODO_PATTERN);
 
     // The narrative's inline gap is present.
-    assert.ok(gaps.includes("[founder to provide: annual revenue]"));
+    assert.ok(gaps.includes("[you to provide: annual revenue]"));
 
     // Every forms gap and every budget gap is present (nothing dropped).
     for (const g of forms.gaps) assert.ok(gaps.includes(g), `missing forms gap: ${g}`);
@@ -140,8 +140,8 @@ describe("collectAllGaps", () => {
 
 describe("scanFounderTodos", () => {
   test("finds each inline placeholder, keeping adjacent ones separate", () => {
-    const found = scanFounderTodos("a [founder to provide: x] b [founder to provide: y] c");
-    assert.deepEqual(found, ["[founder to provide: x]", "[founder to provide: y]"]);
+    const found = scanFounderTodos("a [you to provide: x] b [you to provide: y] c");
+    assert.deepEqual(found, ["[you to provide: x]", "[you to provide: y]"]);
   });
 });
 
@@ -175,7 +175,7 @@ describe("assemblePackage", () => {
     assert.equal(pkg.narratives.length, 1);
     // The section we drafted is NOT re-listed as draftable; the other one is.
     assert.deepEqual(pkg.draftableSections.map((s) => s.key), ["budget_narrative"]);
-    assert.ok(pkg.gaps.includes("[founder to provide: annual revenue]"));
+    assert.ok(pkg.gaps.includes("[you to provide: annual revenue]"));
     assert.ok(pkg.gaps.length > 1);
   });
 
@@ -279,7 +279,7 @@ describe("allRegistrationsSatisfied", () => {
 // ---------------------------------------------------------------------------
 
 describe("startupProfileToCompanyProfile", () => {
-  test("carries the founder's own extracted fields, leaving unknowns absent (honest gaps)", () => {
+  test("carries the user's own extracted fields, leaving unknowns absent (honest gaps)", () => {
     const sp: StartupProfile = {
       description: "We build biosensors.",
       industry: "medical diagnostics",

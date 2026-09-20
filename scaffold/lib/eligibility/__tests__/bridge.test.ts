@@ -64,7 +64,7 @@ test("toCompanyProfile maps employees → employee_count as model_inferred", () 
     "employee_count must be model_inferred (extractor-inferred, R8.4-safe)",
   );
 
-  // raw_text carries the founder's description (not a gate).
+  // raw_text carries the user's description (not a gate).
   assert.equal(cp.raw_text.value, startupProfile.description);
 });
 

@@ -29,9 +29,9 @@ import type { BudgetLineItem, BudgetTotal } from "../contracts/applicationBudget
  * (`<!-- GAP: … -->`), never as an empty-but-plausible value:
  *   - `cfda_number` / `competition_id` absent on the record → header gap marker;
  *   - a `founder_to_provide` form field → a gap marker naming the blank;
- *   - every budget amount (always a `[founder to provide: …]` gap by G4's
+ *   - every budget amount (always a `[you to provide: …]` gap by G4's
  *     contract) → a gap marker, never a number;
- *   - inline `[founder to provide: …]` in a narrative stays literal + visible;
+ *   - inline `[you to provide: …]` in a narrative stays literal + visible;
  *   - the footer enumerates `assembled.gaps` so the human AOR sees exactly what
  *     is unfilled before they (the human) submit through the official portal.
  *
@@ -128,17 +128,17 @@ function renderHeader(meta: SubmissionMeta): string {
   lines.push(
     meta.cfda_number !== undefined
       ? `<CFDANumber>${escapeXml(meta.cfda_number)}</CFDANumber>`
-      : gapMarker("founder to provide: CFDA number"),
+      : gapMarker("you to provide: CFDA number"),
   );
   lines.push(
     meta.competition_id !== undefined
       ? `<CompetitionID>${escapeXml(meta.competition_id)}</CompetitionID>`
-      : gapMarker("founder to provide: competition id"),
+      : gapMarker("you to provide: competition id"),
   );
   lines.push(
     meta.agency !== undefined
       ? `<Agency>${escapeXml(meta.agency)}</Agency>`
-      : gapMarker("founder to provide: awarding agency"),
+      : gapMarker("you to provide: awarding agency"),
   );
   lines.push(`<SubmissionTitle>${escapeXml(meta.program_title)}</SubmissionTitle>`);
   lines.push(`<SchemaVersion>${escapeXml(SCHEMA_VERSION)}</SchemaVersion>`);
@@ -149,7 +149,7 @@ function renderHeader(meta: SubmissionMeta): string {
  * One SF-424 field. Grounded (`prefilled`) → its escaped value plus the `source`
  * attribute that names where it came from. A gap (`founder_to_provide`) → NO
  * value, NO source, just a visible marker built from the field's own
- * `[founder to provide: …]` display (HR-1). Org identity (uei, org name, project
+ * `[you to provide: …]` display (HR-1). Org identity (uei, org name, project
  * title, …) is exactly these fields — never a separate, invented org block.
  */
 function renderField(field: PrefilledField): string {
@@ -173,7 +173,7 @@ function renderForms(forms: PrefilledForm[]): string {
 
 /**
  * One narrative section. `draft_text` is escaped as text — its inline
- * `[founder to provide: …]` placeholders survive escaping (`[` `]` `:` are not
+ * `[you to provide: …]` placeholders survive escaping (`[` `]` `:` are not
  * XML metacharacters) so they stay visible, and we additionally emit a comment
  * enumerating the section's recorded gaps for the reviewer.
  */
@@ -196,7 +196,7 @@ function renderNarratives(sections: DraftSection[]): string {
 }
 
 /**
- * One budget line item. `amount` is ALWAYS a `[founder to provide: …]` gap by
+ * One budget line item. `amount` is ALWAYS a `[you to provide: …]` gap by
  * G4's contract (an exact figure is not derivable from a coarse range bucket),
  * so it is rendered as a visible gap marker, NEVER a number. The grounded
  * justification prose is carried through, escaped.
@@ -230,9 +230,9 @@ function renderBudget(budget: AssembledPackage["budget"]): string {
 
 /**
  * `GrantSubmissionFooter` — the attachment/gap summary. It enumerates every
- * `assembled.gaps` entry (the deduped founder-to-provide list) in a visible
+ * `assembled.gaps` entry (the deduped you-to-provide list) in a visible
  * comment so the human AOR sees exactly what is unfilled. Binary attachment
- * content is out of G6's scope (the founder attaches real files at the official
+ * content is out of G6's scope (the user attaches real files at the official
  * portal); G6 emits references only, so the mock attachment count is zero.
  */
 function renderFooter(assembled: AssembledPackage): string {
@@ -247,7 +247,7 @@ function renderFooter(assembled: AssembledPackage): string {
       .map((g) => `  - ${g.replace(/-{2,}/g, "-")}`)
       .join("\n");
     lines.push(
-      `<!--\nGAP SUMMARY (${assembled.gaps.length} founder-to-provide blank(s) to complete before your AOR submits):\n${enumerated}\n-->`,
+      `<!--\nGAP SUMMARY (${assembled.gaps.length} you-to-provide blank(s) to complete before your AOR submits):\n${enumerated}\n-->`,
     );
   } else {
     lines.push(xmlComment("GAP SUMMARY: none recorded."));

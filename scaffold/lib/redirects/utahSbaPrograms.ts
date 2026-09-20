@@ -4,7 +4,7 @@
  * `explainWeakField` (lib/claude.ts) asks the model for 3-5 "redirects" when a
  * search comes back with no strong federal grant match (the honest no). The
  * model's redirects are useful but CATEGORY-shaped ("SBA programs", "state
- * economic development") rather than a real program a founder could actually
+ * economic development") rather than a real program an applicant could actually
  * go open a tab for. This module is the fix: a small, curated, deterministic
  * list of REAL, currently-operating Utah/SBA-adjacent programs, plus a pure
  * helper that guarantees at least a couple of them land in the finding.
@@ -47,11 +47,11 @@ export type RealProgram = RedirectSuggestion;
 export const UTAH_SBA_PROGRAMS: readonly RealProgram[] = [
   {
     label: "Utah SBDC (Small Business Development Center)",
-    why: "A statewide network of 14 centers offering free one-on-one advising, business planning, and capital-access coaching for Utah founders, funded jointly by the SBA and the state — worth a look regardless of what this search found. https://utahsbdc.org",
+    why: "A statewide network of 14 centers offering free one-on-one advising, business planning, and capital-access coaching for Utah small businesses, funded jointly by the SBA and the state — worth a look regardless of what this search found. https://utahsbdc.org",
   },
   {
     label: "SBA Utah District Office",
-    why: "The SBA's Salt Lake City district office connects founders to 7(a)/504 loan programs, federal-contracting certifications, and local lender referrals — a source of financing outside the federal grant system. https://www.sba.gov/district/utah",
+    why: "The SBA's Salt Lake City district office connects small businesses to 7(a)/504 loan programs, federal-contracting certifications, and local lender referrals — a source of financing outside the federal grant system. https://www.sba.gov/district/utah",
   },
   {
     label: "Utah Innovation Center (GOEO SBIR/STTR assistance)",

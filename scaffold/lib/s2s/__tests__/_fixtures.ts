@@ -37,17 +37,17 @@ export function makeAssembled(opportunityId: string = OPP_ID): AssembledPackage 
       generated_at: ISO,
       line_items: [],
       total: {
-        range_statement: "[founder to provide: total budget range]",
+        range_statement: "[you to provide: total budget range]",
         range_grounded: false,
-        amount: "[founder to provide: total budget amount]",
+        amount: "[you to provide: total budget amount]",
       },
       constraints: [],
       advisories: [],
       notes: [],
-      gaps: ["[founder to provide: total budget amount]"],
+      gaps: ["[you to provide: total budget amount]"],
     },
     checklist: { allRegistrationsSatisfied: false },
-    gaps: ["[founder to provide: total budget amount]"],
+    gaps: ["[you to provide: total budget amount]"],
   };
 }
 
@@ -63,7 +63,7 @@ export function makeMeta(opportunityId: string = OPP_ID): SubmissionMeta {
 export function makeAuthorization(overrides: Partial<AorAuthorization> = {}): AorAuthorization {
   return {
     org_uei: ORG_UEI,
-    aor_name: "Jane Founder",
+    aor_name: "Jane Smith",
     attested: true,
     attested_at: ISO,
     scope: { opportunity_id: OPP_ID },

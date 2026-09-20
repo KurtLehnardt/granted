@@ -17,33 +17,33 @@ import { readJSON, writeJSON } from "@/lib/localStore";
 /**
  * B1b — ProfileQuestionnaire: the structured, gap-first intake form.
  *
- * Replaces the free-text box as the PRIMARY way founders give FundFinder the
+ * Replaces the free-text box as the PRIMARY way users give FundFinder the
  * 13 B1a profile fields (`PROFILE_FIELD_META`, `lib/contracts/companyProfile.ts`)
  * — 5 required + 8 optional-but-material, required first, then progressive
- * disclosure of the material fields once required is complete (or the founder
+ * disclosure of the material fields once required is complete (or the user
  * opts in early).
  *
  * THE CORE GUARANTEE ("never re-ask a provided field"): a field the profile
  * already provides (`isFieldProvided`) NEVER renders as an input — it renders
  * as a read-only summary row with an explicit "Edit" affordance. This is true
- * whether the value came from the founder typing it, from a restored
+ * whether the value came from the user typing it, from a restored
  * localStorage draft, or from the free-text AUTOFILL below. A fully-filled
  * profile therefore has ZERO gaps left to ask about; the caller uses the
  * `complete` flag on `onSubmit` to skip the R1 AI interview entirely for that
  * case (see components/IntakeForm.tsx).
  *
- * AUTOFILL: a founder can still paste free text. It POSTs to
+ * AUTOFILL: a user can still paste free text. It POSTs to
  * `/api/extract-profile` (a thin wrapper around the live pipeline's
  * `extractProfile`, `lib/claude.ts`) and maps the result onto these same 13
  * fields at `model_inferred` provenance — never silently overwriting a
  * `user_stated`/`verified` fact already on the form (mirrors the
- * never-overwrite guard in `lib/interview/mergeAnswers.ts`). The founder then
+ * never-overwrite guard in `lib/interview/mergeAnswers.ts`). The user then
  * confirms/edits each pre-filled field like any other.
  *
  * PERSISTENCE (§5.3 — localStorage-only, no server retention): the whole
  * draft profile lives in `localStorage` via `lib/localStore.ts` and is never
  * sent anywhere except folded into the plain description string handed to
- * `/api/match` when the founder submits — exactly like today's free-text flow.
+ * `/api/match` when the user submits — exactly like today's free-text flow.
  *
  * GAP-DETECTION NOTE: `computeGaps` below intentionally reimplements
  * `lib/interview/generateQuestions.ts`'s `detectGaps` (same two atoms:
@@ -72,7 +72,7 @@ export function computeGaps(profile: ProfileDraft): ProfileFieldMeta[] {
 }
 
 /**
- * Compile the filled fields into a plain description string: the founder's
+ * Compile the filled fields into a plain description string: the user's
  * own `raw_text` verbatim, then one "Label: value" line per other provided
  * field. Mirrors `lib/interview/mergeAnswers.ts`'s `buildEnrichedDescription`
  * shape so the existing `/api/match` + gap-detection heuristics downstream see
@@ -131,7 +131,7 @@ function coerceRaw(meta: ProfileFieldMeta, trimmed: string): unknown {
  * Whether an incoming write of `incoming` provenance may replace a field
  * currently holding `existing` provenance. Mirrors the never-overwrite guard
  * in `lib/interview/mergeAnswers.ts`: a `model_inferred` autofill guess may
- * never clobber a `user_stated`/`verified` fact the founder already gave.
+ * never clobber a `user_stated`/`verified` fact the user already gave.
  */
 function canWriteProvenance(existing: Provenance | undefined, incoming: Provenance): boolean {
   if (existing === undefined) return true;
@@ -187,7 +187,7 @@ export function isWideField(field: string): boolean {
 }
 
 /**
- * Groups the 8 optional-but-material fields under two founder-facing
+ * Groups the 8 optional-but-material fields under two user-facing
  * headings so "A few more details" reads as organized sections instead of
  * one long list. Purely a presentation grouping — `MATERIAL_PROFILE_FIELDS`
  * (the actual required-ness contract gap-detection reads) is untouched; a
@@ -204,7 +204,7 @@ export const MATERIAL_FIELD_GROUPS: readonly { heading: string; fields: readonly
   },
 ];
 
-/** Founder-facing progress copy for the required-fields section. */
+/** User-facing progress copy for the required-fields section. */
 export function requiredProgressText(totalRequired: number, remaining: number): string {
   const done = Math.max(0, totalRequired - remaining);
   if (remaining <= 0) return `All ${totalRequired} required fields complete.`;
@@ -215,7 +215,7 @@ export function requiredProgressText(totalRequired: number, remaining: number): 
  * Inline validation copy for a single field, or `null` when nothing should
  * render. Only `required`-tier fields ever produce a message — the 8
  * material fields are optional by definition, so they never get one — and
- * only once the founder has actually left the field (`touched`), so a fresh
+ * only once the user has actually left the field (`touched`), so a fresh
  * form never opens already showing a wall of errors.
  */
 export function fieldValidationMessage(
@@ -243,7 +243,7 @@ export interface ProfileQuestionnaireProps {
   /** Fires whenever the compiled description changes, so the parent can
    *  mirror it for its own checks (sample-replace confirm, "Try again"). */
   onDescriptionChange?: (text: string) => void;
-  /** Fires when the founder submits. `complete` is true iff every required +
+  /** Fires when the user submits. `complete` is true iff every required +
    *  material field (all 13) is provided — the parent uses this to skip the
    *  R1 AI interview entirely (a fully-filled form asks zero questions). */
   onSubmit: (description: string, meta: { complete: boolean }) => void;
@@ -268,7 +268,7 @@ export default function ProfileQuestionnaire({
   const [extracting, setExtracting] = useState(false);
   const [extractError, setExtractError] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
-  // UX polish: which fields the founder has actually blurred at least once —
+  // UX polish: which fields the user has actually blurred at least once —
   // gates inline "required" validation so a fresh form never opens already
   // showing errors, only after a required field has been visited and left
   // empty (see `fieldValidationMessage` above).
@@ -348,7 +348,7 @@ export default function ProfileQuestionnaire({
 
   // Progressive disclosure: once every required field is in, open the
   // optional section automatically (still opt-out-able via the toggle below
-  // isn't needed — nothing forces the founder to fill it; "Find opportunities"
+  // isn't needed — nothing forces the user to fill it; "Find opportunities"
   // is already enabled at this point).
   useEffect(() => {
     if (requiredGaps.length === 0) setShowOptional(true);
@@ -829,7 +829,7 @@ export default function ProfileQuestionnaire({
 
       {/* Optional-but-material fields — progressive disclosure: revealed once
           the required set is complete, or on demand via the toggle. Grouped
-          under two founder-facing headings (Company & product / Financials)
+          under two user-facing headings (Company & product / Financials)
           so the list reads as organized sections, not one long form. */}
       <div className="mt-5 border-t border-structure-on-canvas pt-4">
         {!showOptional ? (

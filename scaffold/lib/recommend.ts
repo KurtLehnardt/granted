@@ -14,13 +14,13 @@ export type { Recommendation, RecommendationResult, MapVerdict };
  * "should I even apply?" verdict, per matching-discernment-spec.md §1/§2/§4.
  *
  * PURE: no LLM, no network, no flag reads. It reinterprets an ALREADY-computed
- * score + the model's OWN met-criteria flags + any FOUNDER-STATED disqualifier
+ * score + the model's OWN met-criteria flags + any USER-STATED disqualifier
  * into a recommend / verify / do_not_recommend verdict. It never changes a
  * score, never derives "don't apply" from a model-INFERRED exclusion (R8.4), and
  * is framed as advisory — never a definitive eligibility ruling.
  *
  * Thresholds are the AGGRESSIVE variant (product decision): a higher bar to earn
- * "worth pursuing" and a quicker "we don't recommend applying," so a founder is
+ * "worth pursuing" and a quicker "we don't recommend applying," so a user is
  * steered away from marginal/weak applications rather than toward a wall of
  * amber "maybe" cards.
  */
@@ -56,7 +56,7 @@ export interface RecommendInput {
   /** The model's own program-officer checks; `met` flags turn into a signal. */
   criteria: CriterionCheck[];
   /**
-   * TRUE only when a hard eligibility mismatch is stated BY THE FOUNDER (never a
+   * TRUE only when a hard eligibility mismatch is stated BY THE USER (never a
    * model-inferred one — R8.4). Rare; the score path does most of the work.
    */
   statedDisqualifier?: boolean;
@@ -83,7 +83,7 @@ export function recommendFor(input: RecommendInput): RecommendationResult {
   const { met, total } = metCounts(input.criteria);
 
   // 1. Do-not-recommend: below the fit floor, too few criteria met, or a
-  //    FOUNDER-STATED hard mismatch (advisory caveat, never a model exclusion).
+  //    USER-STATED hard mismatch (advisory caveat, never a model exclusion).
   if (input.statedDisqualifier === true) {
     return {
       recommendation: "do_not_recommend",
