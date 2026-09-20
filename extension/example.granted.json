@@ -1,0 +1,80 @@
+{
+  "format": "granted.autofill.package",
+  "version": 1,
+  "generated_at": "2026-09-20T01:20:30.647Z",
+  "opportunity_id": "example-opportunity-001",
+  "program_title": "Example Federal Grant Program (SBIR Phase I)",
+  "digest": {
+    "alg": "SHA-256",
+    "value": "d6a5be440d90343e2a21fc3b90e6842dee4ac362186d1a1c79de0d2d9f900252"
+  },
+  "payload": {
+    "opportunity_id": "example-opportunity-001",
+    "program_title": "Example Federal Grant Program (SBIR Phase I)",
+    "generated_at": "2026-01-01T00:00:00.000Z",
+    "narrativeStatus": "unavailable",
+    "narrativeNote": "Example export. Run Auto Fill in the app with an API key or local model to include drafted narrative sections here.",
+    "requirementsAvailable": true,
+    "narratives": [],
+    "draftableSections": [],
+    "forms": {
+      "opportunity_id": "example-opportunity-001",
+      "program_title": "Example Federal Grant Program (SBIR Phase I)",
+      "generated_at": "2026-01-01T00:00:00.000Z",
+      "forms": [
+        {
+          "form_name": "SF-424",
+          "fields": [
+            {
+              "key": "uei",
+              "label": "Unique Entity Identifier (UEI)",
+              "status": "prefilled",
+              "value": "EXAMPLEUEI12345",
+              "display": "EXAMPLEUEI12345",
+              "source": "sam.uei"
+            },
+            {
+              "key": "aor_name",
+              "label": "Authorized Organization Representative",
+              "status": "prefilled",
+              "value": "Jane Founder",
+              "display": "Jane Founder",
+              "source": "sam.aorName"
+            },
+            {
+              "key": "project_title",
+              "label": "Descriptive Title of Applicant's Project",
+              "status": "founder_to_provide",
+              "display": "[founder to provide: project title]"
+            }
+          ]
+        }
+      ],
+      "gaps": [
+        "[founder to provide: project title]"
+      ]
+    },
+    "budget": {
+      "generated_at": "2026-01-01T00:00:00.000Z",
+      "line_items": [],
+      "total": {
+        "range_statement": "[founder to provide: total budget amount]",
+        "range_grounded": false,
+        "amount": "[founder to provide: total budget amount]"
+      },
+      "constraints": [],
+      "advisories": [],
+      "notes": [],
+      "gaps": [
+        "[founder to provide: total budget amount]"
+      ]
+    },
+    "checklist": {
+      "allRegistrationsSatisfied": true
+    },
+    "gaps": [
+      "[founder to provide: project title]",
+      "[founder to provide: total budget amount]"
+    ]
+  }
+}
