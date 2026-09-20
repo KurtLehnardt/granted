@@ -117,7 +117,7 @@ Everything risky ships **default-OFF** so a fresh clone is safe and boring. Flip
 
 **Competitor & market analysis** (`/api/competitors`) is **on by default** in the template — add `EXA_API_KEY` for richer web competitors, or set `NEXT_PUBLIC_FLAG_R5_DEEP_ANALYSIS=false` to turn it off.
 
-**Assisted application** (the in-app "Auto Fill", `NEXT_PUBLIC_FLAG_R6_AUTO_FILL`) is also **on by default**. It prepares a grounded submission package — forms, a budget skeleton, a checklist — that **you review and file yourself; it never submits anything**. Narrative drafting uses your LLM (hosted key or local model); the forms/budget/checklist work even without one. Set it to `false` to hide the flow. (This is the in-app companion to the optional [Chrome extension](#chrome-extension-assisted-fill-experimental) below, which fills a portal's own form from the package the app generates.)
+**Assisted application** (the in-app "Auto Fill", `NEXT_PUBLIC_FLAG_R6_AUTO_FILL`) is also **on by default**. It prepares a grounded submission package — forms, a budget skeleton, a checklist — that **you review and file yourself; it never submits anything**. Narrative drafting uses your LLM (hosted key or local model); the forms/budget/checklist work even without one. Set it to `false` to hide the flow. The assembled package also gets a **"Download .granted.json"** export button (`NEXT_PUBLIC_FLAG_R6_EXPORT_AUTOFILL`, also on by default) — that's the file you hand to the optional [Chrome extension](#chrome-extension-assisted-fill-experimental) below, which fills a portal's own form from it.
 
 The full flag list lives in `scaffold/lib/flags/registry.ts`.
 
@@ -180,7 +180,16 @@ cd extension
 npm install
 npm run build            # emits a loadable extension into extension/dist/
 ```
-Then in Chrome (or any Chromium browser): open `chrome://extensions` → turn on **Developer mode** (top-right) → **Load unpacked** → select `extension/dist/`. The "Granted Assisted Fill" icon appears in the toolbar. After code changes, re-run `npm run build` and hit reload on the extension's card.
+Then in Chrome (or any Chromium browser): open `chrome://extensions` → turn on **Developer mode** (top-right) → **Load unpacked** → select **`extension/dist/`** (the *build output* — **not** the `extension/` folder itself; the manifest is generated into `dist/` by the build, so pointing Chrome at `extension/` gives *"manifest file not found or unreadable"*). The "Granted Assisted Fill" icon appears in the toolbar. After code changes, re-run `npm run build` and hit reload on the extension's card.
+
+**Get a package to import (the `.granted.json` file).** The extension's popup asks you to "Choose a .granted.json file" — that file is **exported by the app**, not written by hand:
+1. In the app, run a search → open a match → **Auto Fill** → fill your details (SAM.gov, UEI, AOR) → **Draft my application**.
+2. On the assembled package, click **Download .granted.json** (requires `NEXT_PUBLIC_FLAG_R6_AUTO_FILL` + `NEXT_PUBLIC_FLAG_R6_EXPORT_AUTOFILL`, both **on by default**).
+3. In the extension popup, click **Choose a .granted.json file** and pick the download.
+
+To try the import immediately without a full run, use the bundled sample **[`extension/example.granted.json`](extension/example.granted.json)**.
+
+The file is **tamper-evident** (a canonical-JSON SHA-256 `digest` over its payload). **Don't hand-edit it** — the extension re-verifies the digest on import and refuses an edited file (*"Re-export from Granted rather than editing the file"*). Change your inputs in the app and re-export instead.
 
 **What it needs to actually fill a form:**
 - A completed application **package exported from the Granted app**. That's the set of fields and grounded values to fill.
