@@ -174,7 +174,7 @@ export default function SearchProgress({
       <p className={`mt-3 text-pretty ${mutedClass}`}>
         {estimate
           ? `Your last search took ${estimate}, so this one should be similar. Hang tight.`
-          : "This scores your fit across 968 opportunities — about a minute or two on hosted models, and longer on a local model. Hang tight."}
+          : "This scores your fit across 968 opportunities. Hosted models take about a minute or two; a large local model is much slower — a 27B model on an Apple-silicon Mac can take 10 minutes or more. You can leave this tab open and check back — the search keeps running while it's open."}
       </p>
     </div>
   );
