@@ -480,7 +480,7 @@ export default function AutoFillFlow({
                 aria-disabled={!allSatisfied}
                 className={primaryBtnClass}
               >
-                Submit for approval
+                See next steps
               </button>
               <button type="button" onClick={onClose} className={closeTextBtnClass}>
                 Close

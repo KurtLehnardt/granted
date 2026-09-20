@@ -485,7 +485,7 @@ export function ApplicationPackageView({
 // ---------------------------------------------------------------------------
 
 type FetchState =
-  | { status: "loading" }
+  | { status: "loading"; drafting?: boolean }
   | { status: "ready"; pkg: AssembledPackage }
   | { status: "error"; message: string };
 
@@ -518,7 +518,7 @@ export default function ApplicationPackage({
     abortRef.current?.abort();
     const ac = new AbortController();
     abortRef.current = ac;
-    setState({ status: "loading" });
+    setState({ status: "loading", drafting: opts?.draftNarrative === true });
     try {
       const res = await fetch("/api/apply/package", {
         method: "POST",
@@ -564,8 +564,9 @@ export default function ApplicationPackage({
       <div className="mt-4">
         <p className={eyebrowClass}>{PACKAGE_INTRO.eyebrow}</p>
         <p className={`mt-2 ${bodyClass}`} aria-live="polite">
-          Assembling your submission-ready draft — pre-filling forms, building the budget, and preparing
-          the checklist&hellip; Nothing is submitted.
+          {state.drafting
+            ? "Drafting the narrative section with your model — this can take a minute or two on a local model. The page updates on its own when it's done, so you can leave it open. Nothing is submitted."
+            : "Assembling your submission-ready draft — pre-filling forms, building the budget, and preparing the checklist… Nothing is submitted."}
         </p>
       </div>
     );
