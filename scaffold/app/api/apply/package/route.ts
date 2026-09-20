@@ -63,18 +63,28 @@ const STEP_TIMEOUT_MS = Number(process.env.APPLY_PACKAGE_STEP_TIMEOUT_MS) || 45_
  */
 async function withTimeoutRetry<T>(
   step: (signal: AbortSignal) => Promise<T>,
-  opts: { timeoutMs: number; retries: number },
+  opts: { timeoutMs: number; retries: number; externalSignal?: AbortSignal },
 ): Promise<T> {
   let lastErr: unknown;
   for (let attempt = 0; attempt <= opts.retries; attempt++) {
+    // If the client already disconnected (re-clicked "Draft", left the screen),
+    // don't start — or retry — another model call.
+    if (opts.externalSignal?.aborted) throw opts.externalSignal.reason ?? new Error("client disconnected");
     const ac = new AbortController();
     const timer = setTimeout(() => ac.abort(), opts.timeoutMs);
+    // A client disconnect aborts the in-flight model call too, so a serial local
+    // model stops working on an abandoned request instead of finishing it.
+    const onExternalAbort = () => ac.abort(opts.externalSignal?.reason);
+    opts.externalSignal?.addEventListener("abort", onExternalAbort, { once: true });
     try {
       return await step(ac.signal);
     } catch (err) {
       lastErr = err;
+      // Don't burn a retry on a client disconnect — the caller is gone.
+      if (opts.externalSignal?.aborted) throw err;
     } finally {
       clearTimeout(timer);
+      opts.externalSignal?.removeEventListener("abort", onExternalAbort);
     }
   }
   throw lastErr;
@@ -146,7 +156,7 @@ export async function POST(req: NextRequest) {
     try {
       requirements = await withTimeoutRetry(
         (signal) => extractApplicationRequirements(opportunity, { signal }),
-        { timeoutMs: STEP_TIMEOUT_MS, retries: 1 },
+        { timeoutMs: STEP_TIMEOUT_MS, retries: 1, externalSignal: req.signal },
       );
 
       const firstSection = requirements.narrative_sections.find((s) => s.specified);
@@ -156,7 +166,7 @@ export async function POST(req: NextRequest) {
         draft = await withTimeoutRetry(
           (signal) =>
             draftApplication(profile, requirements!, { sectionKeys: [firstSection.key], signal }),
-          { timeoutMs: STEP_TIMEOUT_MS, retries: 1 },
+          { timeoutMs: STEP_TIMEOUT_MS, retries: 1, externalSignal: req.signal },
         );
       }
       // Requirements available (with or without narrative sections) → not degraded.
