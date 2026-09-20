@@ -8,6 +8,7 @@ import {
   type AutoFillRequirements,
 } from "@/lib/mockAuth";
 import { useAuth } from "@/components/AuthProvider";
+import { isFlagEnabled } from "@/lib/flags";
 import { useDialogA11y } from "@/components/useDialogA11y";
 import ApplicationChecklist, { REQUIREMENTS, type RequirementKey } from "@/components/ApplicationChecklist";
 import ApplicationPackage from "@/components/ApplicationPackage";
@@ -86,13 +87,19 @@ export default function AutoFillFlow({
   // (previously gated behind r7_design).
   const design = true;
   const { user, signIn } = useAuth();
+  // The sign-in step is only meaningful with REAL OAuth (r9_supabase_auth). With
+  // it off — the default self-host case — "sign in" is a silent localStorage mock
+  // with no Google redirect, so the "Continue with Google" button just looks
+  // broken. Skip straight to requirements in that case; nothing downstream needs
+  // a signed-in user.
+  const realAuth = isFlagEnabled("r9_supabase_auth");
 
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeBtnRef = useRef<HTMLButtonElement>(null);
   useDialogA11y(dialogRef, onClose, closeBtnRef);
 
   // Already-signed-in users skip straight to the requirements step.
-  const [step, setStep] = useState<Step>(user ? "requirements" : "signin");
+  const [step, setStep] = useState<Step>(realAuth && !user ? "signin" : "requirements");
   const [form, setForm] = useState<AutoFillRequirements>(() => getAutoFillRequirements());
   const [saved, setSaved] = useState(false);
 
