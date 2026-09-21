@@ -416,7 +416,7 @@ export default function AutoFillFlow({
                     checked={form.aorOnFile}
                     onChange={(e) => update("aorOnFile", e.target.checked)}
                   />
-                  Confirm on file with SAM.gov
+                  This AOR is on file in SAM.gov
                 </label>
               </fieldset>
 
@@ -428,7 +428,7 @@ export default function AutoFillFlow({
                     checked={form.eBizPocOnFile}
                     onChange={(e) => update("eBizPocOnFile", e.target.checked)}
                   />
-                  Confirm the Electronic Business POC has delegated AOR authority
+                  The E-Biz POC has delegated AOR authority in SAM.gov
                 </label>
               </fieldset>
 
