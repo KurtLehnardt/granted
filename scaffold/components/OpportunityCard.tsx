@@ -7,7 +7,6 @@ import AutoFillModal from "@/components/AutoFillModal";
 import AutoFillFlow from "@/components/AutoFillFlow";
 import CompetitorAnalysisModal from "@/components/CompetitorAnalysisModal";
 import { useSettingsPanel } from "@/components/AppMenu";
-import { useBilling } from "@/components/BillingProvider";
 import { isFlagEnabled } from "@/lib/flags";
 import {
   opportunityAvailability,
@@ -158,19 +157,6 @@ export default function OpportunityCard({
   const [competitorOpen, setCompetitorOpen] = useState(false);
   const { openSettings } = useSettingsPanel();
 
-  // FE-07: the mock billing tier can unlock the padlocked previews — but only
-  // when the left_sidebar flag is on (that's the only surface that can change
-  // the tier). Gating the unlock behind the flag guarantees flag-OFF is
-  // byte-for-byte today's behavior: `sidebar` is false, so both stay locked
-  // regardless of any stored tier. Clicking still opens the SAME stub flow —
-  // this only changes the lock glyph + hint copy, never what the buttons do.
-  const sidebar = isFlagEnabled("left_sidebar");
-  const { features } = useBilling();
-  const autoFillUnlocked = sidebar && features.autoFill;
-  const competitorUnlocked = sidebar && features.competitor;
-  // Hide the paid framing (padlocks + "plan"/"Pro/Max" hint copy) unless
-  // commercial_ui is on. The buttons + preview flows are unchanged.
-  const commercial = isFlagEnabled("commercial_ui");
 
   const badgeClass = TIER_BADGE[m.tier] ?? TIER_BADGE.none;
   const o = m.opportunity;
@@ -458,22 +444,10 @@ export default function OpportunityCard({
           aria-haspopup="dialog"
           className={autoFillBtnClass}
         >
-          {!autoFillUnlocked && commercial && <LockIcon className="h-3 w-3" />}
           Auto Fill
         </button>
         <span className={autoFillHintClass}>
-          {!commercial ? (
-            // Commercial framing hidden: describe the feature state, no plan/Pro.
-            assistedApplyFlow ? "Assisted fill" : "Not live yet"
-          ) : autoFillUnlocked ? (
-            // The hint must match what clicking actually opens: the working
-            // assisted-fill flow (r6 on) vs. the "not live yet" modal (r6 off).
-            // Claiming "included in your plan" while the modal says "not available
-            // yet" was the contradiction (frontend review MEDIUM).
-            assistedApplyFlow ? "Included in your plan" : <>In your plan &middot; not live yet</>
-          ) : (
-            <>Pro feature &middot; not available yet</>
-          )}
+          {assistedApplyFlow ? "Assisted fill" : "Not live yet"}
         </span>
       </div>
 
@@ -585,24 +559,12 @@ export default function OpportunityCard({
                   aria-haspopup="dialog"
                   className={competitorBtnClass}
                 >
-                  {!competitorUnlocked && commercial && <LockIcon className="h-3 w-3" />}
                   Analyze competing companies
                 </button>
                 <span className={competitorHintClass}>
-                  {/* Honest hint: with r5_deep_analysis ON, an unlocked (Max) tier
-                      really can run a live brief; with it OFF the surface is the
-                      saved example only. Locked tiers can still preview the example. */}
-                  {!commercial ? (
-                    isFlagEnabled("r5_deep_analysis") ? <>Live</> : <>Example</>
-                  ) : competitorUnlocked ? (
-                    isFlagEnabled("r5_deep_analysis") ? (
-                      <>In your plan &middot; live</>
-                    ) : (
-                      <>In your plan &middot; example</>
-                    )
-                  ) : (
-                    <>Max feature &middot; preview available</>
-                  )}
+                  {/* With r5_deep_analysis ON this runs a live brief; with it OFF
+                      the surface is the saved example only. */}
+                  {isFlagEnabled("r5_deep_analysis") ? <>Live</> : <>Example</>}
                 </span>
               </div>
 
@@ -743,25 +705,6 @@ function DeterminationAuthority({
         )}
       </div>
     </div>
-  );
-}
-
-/** FE-06: closed-padlock glyph for the locked Auto Fill control. No external asset. */
-function LockIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-    >
-      <rect x="3" y="7" width="10" height="7" rx="1.5" />
-      <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" />
-    </svg>
   );
 }
 

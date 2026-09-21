@@ -3,8 +3,6 @@
 import { useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useDialogA11y } from "@/components/useDialogA11y";
-import { useBilling } from "@/components/BillingProvider";
-import { useEntitlements } from "@/lib/entitlements/useEntitlements";
 import { isFlagEnabled } from "@/lib/flags";
 import CompetitorResults from "@/components/CompetitorResults";
 import demoCompetitorFixture from "@/data/demo-competitor-fastercontrol.json";
@@ -28,18 +26,11 @@ function fmtUsd(n: number): string {
 }
 
 /**
- * R5 — Competitor & Grant Intelligence, Max-gated + demo-first, now with a LIVE
- * personalized run behind the default-OFF `r5_deep_analysis` flag.
+ * R5 — Competitor & Grant Intelligence, demo-first, with a LIVE personalized run
+ * behind the default-OFF `r5_deep_analysis` flag. Free to use.
  *
- * Gating reads the UNIFIED billing interface (Phase-4 #41): the reactive tier
- * from `useBilling()` feeds `useEntitlements(tier)`, so this modal never adds a
- * second source of truth and stays in sync with the OpportunityCard padlocks.
- *
- *   - Non-Max (competitorEnabled === false): "Maximum plan" padlock + honest
- *     description, a primary "Upgrade to Max" (flips the labeled MOCK tier —
- *     charges nothing) and a secondary "Demo this" (the captured real example).
- *   - Max + flag OFF (default): "View example analysis" (the saved real example).
- *   - Max + flag ON + a company profile: a primary "Run live analysis" that POSTs
+ *   - flag OFF (default): "View example analysis" (the saved real example).
+ *   - flag ON + a company profile: a primary "Run live analysis" that POSTs
  *     to /api/competitors for a real, personalized, grounded market brief — and
  *     falls back to the saved example WITH AN HONEST NOTE if the live run can't
  *     assemble enough grounded data (feasibility §6 honest-degradation posture).
@@ -63,17 +54,10 @@ export default function CompetitorAnalysisModal({ onClose, profile, opportunity 
   const closeBtnRef = useRef<HTMLButtonElement>(null);
   useDialogA11y(dialogRef, onClose, closeBtnRef);
 
-  const { tier, setTier } = useBilling();
-  const { competitorEnabled } = useEntitlements(tier);
-  // Hide the paid framing (Maximum-plan eyebrow / padlock / upgrade) unless
-  // commercial_ui is on; then the feature is simply available. Code stays intact.
-  const commercial = isFlagEnabled("commercial_ui");
-  const isMax = competitorEnabled || !commercial; // full access when commercial UI is hidden
-
-  // Live run is offered ONLY when the default-OFF flag is on, the tier is Max,
-  // and we actually have a company description to ground the run in.
+  // Live run is offered when the default-OFF r5 flag is on and we actually have a
+  // company description to ground the run in.
   const hasProfile = !!profile && typeof profile.description === "string" && profile.description.trim().length >= 20;
-  const liveAvailable = isFlagEnabled("r5_deep_analysis") && isMax && hasProfile;
+  const liveAvailable = isFlagEnabled("r5_deep_analysis") && hasProfile;
 
   const [view, setView] = useState<View>("intro");
   const [resultRaw, setResultRaw] = useState<unknown>(null);
@@ -300,13 +284,6 @@ export default function CompetitorAnalysisModal({ onClose, profile, opportunity 
           </div>
         ) : (
           <>
-            {commercial && (
-              <div className="flex items-center gap-2 pr-8">
-                <LockIcon className="h-3.5 w-3.5" />
-                <p className={eyebrowClass}>{isMax ? "Maximum plan · included" : "Maximum plan"}</p>
-              </div>
-            )}
-
             <h2 id="competitor-analysis-modal-title" className={titleClass}>
               Competitor &amp; grant intelligence
             </h2>
@@ -324,15 +301,10 @@ export default function CompetitorAnalysisModal({ onClose, profile, opportunity 
                 saved example first. The live run is real analysis, grounded in public award data; it is not
                 a guarantee of funding.
               </p>
-            ) : isMax ? (
+            ) : (
               <p className={bodyClass}>
                 Here is a saved example built from {recordCount} real public award records — clearly labeled
                 as an example, not a live run.
-              </p>
-            ) : (
-              <p className={bodyClass}>
-                This is part of the <strong>Maximum</strong> plan. You can preview exactly what it
-                produces right now with a saved example — no upgrade, no charge, no live call.
               </p>
             )}
 
@@ -346,19 +318,10 @@ export default function CompetitorAnalysisModal({ onClose, profile, opportunity 
                     Preview example
                   </button>
                 </>
-              ) : isMax ? (
+              ) : (
                 <button type="button" onClick={showDemo} className={primaryBtnClass}>
                   View example analysis
                 </button>
-              ) : (
-                <>
-                  <button type="button" onClick={() => setTier("max")} className={primaryBtnClass}>
-                    Upgrade to Max
-                  </button>
-                  <button type="button" onClick={showDemo} className={secondaryBtnClass}>
-                    Demo this
-                  </button>
-                </>
               )}
               <button type="button" onClick={onClose} className={textBtnClass}>
                 Close
@@ -366,9 +329,8 @@ export default function CompetitorAnalysisModal({ onClose, profile, opportunity 
             </div>
 
             <p className={footnoteClass}>
-              {isMax
-                ? "The saved example uses real, public award data captured once. A live run retrieves fresh public records and analyzes them; it submits nothing and is analysis, not a guarantee of funding."
-                : "“Upgrade to Max” selects a labeled demo billing tier — it collects no payment and syncs nowhere. It doesn’t imply any endorsement or affiliation with a funding agency or the federal government."}
+              The saved example uses real, public award data captured once. A live run retrieves fresh
+              public records and analyzes them; it submits nothing and is analysis, not a guarantee of funding.
             </p>
           </>
         )}
@@ -388,24 +350,6 @@ function Spinner() {
     >
       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
       <path className="opacity-90" d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function LockIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={`${className ?? ""} text-structure-on-canvas`.trim()}
-      aria-hidden="true"
-    >
-      <rect x="3" y="7" width="10" height="7" rx="1.5" />
-      <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" />
     </svg>
   );
 }
