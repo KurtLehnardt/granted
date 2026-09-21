@@ -17,24 +17,21 @@ import { corpusAsOf } from "@/lib/corpus/meta";
 /** Cards to render. We never wall the user with the 20+ "none" rows. */
 const CARD_CAP = 8;
 
-/** FE-01: shared "eyebrow"-style mono label, token-driven when r7_design is on. */
-function eyebrowClass(design: boolean, extra = "") {
-  return design
-    ? `font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas ${extra}`.trim()
-    : `eyebrow ${extra}`.trim();
+/** FE-01: shared "eyebrow"-style mono label, token-driven. */
+function eyebrowClass(extra = "") {
+  return `font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas ${extra}`.trim();
 }
 
 /** Small boundary so a malformed match can't white-screen the whole demo. */
-class Boundary extends Component<{ children: ReactNode; design: boolean }, { failed: boolean }> {
+class Boundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false };
   static getDerivedStateFromError() {
     return { failed: true };
   }
   render() {
     if (this.state.failed) {
-      const cls = this.props.design
-        ? "mt-8 border-l-2 border-error bg-canvas-alt px-4 py-3 font-body text-sm text-foreground"
-        : "mt-8 border-l-2 border-fit-adjacent bg-white px-4 py-3 font-body text-sm text-ink";
+      const cls =
+        "mt-8 border-l-2 border-error bg-canvas-alt px-4 py-3 font-body text-sm text-foreground";
       return (
         <p className={cls}>
           We hit a snag rendering these results. Try rephrasing your description and running it again.
@@ -47,11 +44,6 @@ class Boundary extends Component<{ children: ReactNode; design: boolean }, { fai
 
 export default function OpportunityMap({ map }: { map: MapT }) {
   if (!map || typeof map !== "object") return null;
-
-  // FE-01 / design revamp: the CON-02 USWDS 60/30/10 restyle is now the
-  // DEFAULT on this A/B branch (previously gated behind r7_design). v1 fallback
-  // branches are retained but unreachable.
-  const design = true;
 
   // R8 / ELG-04: gates the three-bucket eligibility DISPLAY. Off = today's
   // results unchanged; the determinations still ride on each match, just unshown.
@@ -120,64 +112,50 @@ export default function OpportunityMap({ map }: { map: MapT }) {
   // navy gap-fill shows through as a blank cell. Size to the actual count: 4
   // cells → 2-up mobile / 4-up desktop; 3 cells → an even 3-up row (no gap).
   const statCols = funding ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-3";
-  const statGridClass = design
-    ? `grid ${statCols} gap-px overflow-hidden rounded-lg border border-structure-on-canvas bg-structure-on-canvas shadow-card`
-    : `grid ${statCols} gap-px border border-rule bg-rule`;
+  const statGridClass = `grid ${statCols} gap-px overflow-hidden rounded-lg border border-structure-on-canvas bg-structure-on-canvas shadow-card`;
 
   // "A finding, not a dead end" is the honest-no hero panel — navy structure
   // fill (white content on top), same pairing as the header/nav per R7.2.
   // Polish: rounded + elevation instead of a same-color border.
-  const weakFieldClass = design
-    ? "mt-8 rounded-lg bg-structure px-5 py-6 text-token-white shadow-card sm:px-7 sm:py-7"
-    : "mt-8 border border-ink bg-ink px-5 py-6 text-paper sm:px-7 sm:py-7";
+  const weakFieldClass =
+    "mt-8 rounded-lg bg-structure px-5 py-6 text-token-white shadow-card sm:px-7 sm:py-7";
 
-  const weakFieldBodyClass = design
-    ? "mt-3 max-w-2xl text-pretty font-body text-[15px] leading-relaxed text-token-white"
-    : "mt-3 max-w-2xl font-body text-[15px] leading-relaxed text-paper/85";
+  const weakFieldBodyClass =
+    "mt-3 max-w-2xl text-pretty font-body text-[15px] leading-relaxed text-token-white";
 
   // Full-opacity token.white throughout the panel rather than opacity
   // modifiers: Tailwind can't precompute alpha for CON-02's CSS-var-backed
   // colors at build time (only for v1's literal-hex theme colors), so an
   // opacity slash on these tokens silently doesn't apply. De-emphasis in v2
   // comes from type hierarchy, not color-fade.
-  const redirectItemClass = design ? "border-l-2 border-token-white pl-4" : "border-l-2 border-paper/25 pl-4";
+  const redirectItemClass = "border-l-2 border-token-white pl-4";
 
-  const redirectWhyClass = design
-    ? "mt-1 text-pretty font-body text-[13px] leading-relaxed text-token-white"
-    : "mt-1 font-body text-[13px] leading-relaxed text-paper/70";
+  const redirectWhyClass = "mt-1 text-pretty font-body text-[13px] leading-relaxed text-token-white";
 
-  const followUpsSectionClass = design
-    ? "mt-8 rounded-lg bg-canvas-alt px-4 py-5 shadow-card sm:px-6"
-    : "mt-8 border border-rule bg-white px-4 py-5 sm:px-6";
+  const followUpsSectionClass = "mt-8 rounded-lg bg-canvas-alt px-4 py-5 shadow-card sm:px-6";
 
-  const followUpItemClass = design
-    ? "text-pretty font-body text-[14px] text-foreground"
-    : "font-body text-[14px] text-slate-550";
+  const followUpItemClass = "text-pretty font-body text-[14px] text-foreground";
 
-  const agenciesSectionClass = design
-    ? "mt-10 border-t border-structure-on-canvas pt-7"
-    : "mt-10 border-t border-rule pt-7";
+  const agenciesSectionClass = "mt-10 border-t border-structure-on-canvas pt-7";
 
   // D1 — same section rhythm as "Agencies most relevant to you" above it.
-  const similarCompaniesCaptionClass = design
-    ? "mt-1.5 max-w-2xl text-pretty font-body text-[13px] leading-relaxed text-foreground"
-    : "mt-1.5 max-w-2xl font-body text-[13px] leading-relaxed text-slate-550";
+  const similarCompaniesCaptionClass =
+    "mt-1.5 max-w-2xl text-pretty font-body text-[13px] leading-relaxed text-foreground";
 
-  const footerClass = design
-    ? "mt-10 border-t border-structure-on-canvas pt-5 text-pretty font-body text-[12px] leading-relaxed text-foreground"
-    : "mt-10 border-t border-rule pt-5 font-body text-[12px] leading-relaxed text-slate-550";
+  const footerClass =
+    "mt-10 border-t border-structure-on-canvas pt-5 text-pretty font-body text-[12px] leading-relaxed text-foreground";
 
   return (
-    <Boundary design={design}>
+    <Boundary>
       <div className="reveal">
         {/* On a weak-field finding the honest panel is the hero — an empty
             "0 / $0" band above it would read as a failed query, so we drop it. */}
         {!w && (
           <div className={statGridClass}>
-            <Cell design={design} n={String(highPotential)} label="high-potential opportunities" />
-            {funding && <Cell design={design} n={funding.n} label={funding.label} />}
-            <Cell design={design} n={String(agencyIntelligence.length)} label="relevant agencies" />
-            <Cell design={design} n={String(closingSoon)} label="closing within 90 days" />
+            <Cell n={String(highPotential)} label="high-potential opportunities" />
+            {funding && <Cell n={funding.n} label={funding.label} />}
+            <Cell n={String(agencyIntelligence.length)} label="relevant agencies" />
+            <Cell n={String(closingSoon)} label="closing within 90 days" />
           </div>
         )}
 
@@ -189,11 +167,7 @@ export default function OpportunityMap({ map }: { map: MapT }) {
         {expired > 0 && (
           <p
             role="note"
-            className={
-              design
-                ? "mt-4 border-l-2 border-warning pl-3 font-body text-[13px] leading-relaxed text-foreground"
-                : "mt-4 border-l-2 border-fit-adjacent pl-3 font-body text-[13px] leading-relaxed text-slate-550"
-            }
+            className="mt-4 border-l-2 border-warning pl-3 font-body text-[13px] leading-relaxed text-foreground"
           >
             {expired === 1 ? "1 of these has a passed deadline" : `${expired} of these have passed deadlines`} —
             verify current status on the official source before applying.
@@ -203,13 +177,13 @@ export default function OpportunityMap({ map }: { map: MapT }) {
         {/* The honest no. Deliberate, not an error state. */}
         {w && (
           <section className={weakFieldClass}>
-            <p className={eyebrowClass(design)}>A finding, not a dead end</p>
+            <p className={eyebrowClass()}>A finding, not a dead end</p>
             <h2 className="mt-3 text-balance font-display text-[20px] font-medium leading-snug sm:text-[24px]">{w.headline}</h2>
             <p className={weakFieldBodyClass}>{w.reasoning}</p>
 
             {w.redirects?.length > 0 && (
               <>
-                <p className={eyebrowClass(design, "mt-7")}>Where to look instead</p>
+                <p className={eyebrowClass("mt-7")}>Where to look instead</p>
                 <ul className="mt-3 grid gap-4 sm:grid-cols-2">
                   {w.redirects.map((r, i) => (
                     <li key={i} className={redirectItemClass}>
@@ -231,7 +205,7 @@ export default function OpportunityMap({ map }: { map: MapT }) {
 
         {followUps.length > 0 && (
           <section className={followUpsSectionClass}>
-            <p className={eyebrowClass(design, "mb-3")}>A few things would sharpen this</p>
+            <p className={eyebrowClass("mb-3")}>A few things would sharpen this</p>
             <ul className="space-y-2">
               {followUps.map((q, i) => (
                 <li key={i} className={followUpItemClass}>{q}</li>
@@ -242,7 +216,7 @@ export default function OpportunityMap({ map }: { map: MapT }) {
 
         {shown.length > 0 && (
           <section className="mt-8">
-            <p className={eyebrowClass(design, "mb-4")}>
+            <p className={eyebrowClass("mb-4")}>
               {w ? "Adjacent and partial matches" : "Your opportunity map"}
             </p>
             {/* C1b — user-facing type filters + grouping by kind, flag-gated
@@ -268,7 +242,7 @@ export default function OpportunityMap({ map }: { map: MapT }) {
             opportunities, gated behind r8_eligibility (default off). */}
         {r8 && eligibilityItems.length > 0 && (
           <section className={agenciesSectionClass}>
-            <p className={eyebrowClass(design, "mb-4")}>Eligibility screening</p>
+            <p className={eyebrowClass("mb-4")}>Eligibility screening</p>
             <EligibilityBuckets items={eligibilityItems} />
           </section>
         )}
@@ -290,7 +264,7 @@ export default function OpportunityMap({ map }: { map: MapT }) {
             CompetitorResults flow, untouched by this section. */}
         {similarRecipients.length > 0 && (
           <section className={agenciesSectionClass}>
-            <p className={eyebrowClass(design, "mb-1")}>Companies like yours that received federal funding</p>
+            <p className={eyebrowClass("mb-1")}>Companies like yours that received federal funding</p>
             <p className={similarCompaniesCaptionClass}>
               Verified public federal award records, deduped across your strongest matches — each row links to
               its official source record. Not a personalized competitor analysis.
@@ -327,17 +301,15 @@ export default function OpportunityMap({ map }: { map: MapT }) {
   );
 }
 
-function Cell({ design, n, label }: { design: boolean; n: string; label: string }) {
+function Cell({ n, label }: { n: string; label: string }) {
   // Mobile pass (N4): tighter padding + a smaller number size at phone
   // widths so a 2-up stat grid (grid-cols-2 below sm) doesn't crowd or wrap
   // longer figures like "$1.2M+ potential funding identified".
-  const cellClass = design
-    ? "bg-canvas-alt px-3 py-4 text-foreground sm:px-5 sm:py-6"
-    : "bg-paper px-3 py-4 sm:px-5 sm:py-6";
+  const cellClass = "bg-canvas-alt px-3 py-4 text-foreground sm:px-5 sm:py-6";
   return (
     <div className={cellClass}>
       <div className="font-display text-[22px] font-bold leading-none tabular-nums sm:text-[30px]">{n}</div>
-      <div className={eyebrowClass(design, "mt-2 leading-snug")}>{label}</div>
+      <div className={eyebrowClass("mt-2 leading-snug")}>{label}</div>
     </div>
   );
 }

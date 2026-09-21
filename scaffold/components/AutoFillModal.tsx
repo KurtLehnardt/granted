@@ -48,8 +48,6 @@ export default function AutoFillModal({
   onClose: () => void;
   onOpenSettings: () => void;
 }) {
-  // FE-01 / design revamp: CON-02 USWDS 60/30/10 restyle is now the DEFAULT.
-  const design = true;
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeBtnRef = useRef<HTMLButtonElement>(null);
   useDialogA11y(dialogRef, onClose, closeBtnRef);
@@ -63,46 +61,33 @@ export default function AutoFillModal({
     ebiz: reqs.eBizPocOnFile,
   };
 
-  const panelClass = design
-    ? "relative max-h-[calc(100dvh-4rem)] w-full max-w-lg overflow-y-auto rounded-lg border border-structure-on-canvas bg-canvas p-6 text-foreground shadow-overlay"
-    : "relative max-h-[calc(100dvh-4rem)] w-full max-w-lg overflow-y-auto border border-rule bg-white p-6 text-ink";
+  const panelClass =
+    "relative max-h-[calc(100dvh-4rem)] w-full max-w-lg overflow-y-auto rounded-lg border border-structure-on-canvas bg-canvas p-6 text-foreground shadow-overlay";
 
-  const eyebrowClass = design
-    ? "font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas"
-    : "eyebrow";
+  const eyebrowClass = "font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas";
 
-  const titleClass = design
-    ? "mt-2 text-balance font-display text-[24px] font-bold leading-snug text-foreground"
-    : "mt-2 font-display text-[24px] font-bold leading-snug";
+  const titleClass = "mt-2 text-balance font-display text-[24px] font-bold leading-snug text-foreground";
 
-  const bodyClass = design
-    ? "mt-3 text-pretty font-body text-[14px] leading-relaxed text-foreground"
-    : "mt-3 font-body text-[14px] leading-relaxed text-slate-550";
+  const bodyClass = "mt-3 text-pretty font-body text-[14px] leading-relaxed text-foreground";
 
-  const metClass = design ? "text-structure-on-canvas" : "text-fit-strong";
-  const mutedClass = design ? "text-foreground" : "text-slate-550";
+  const metClass = "text-structure-on-canvas";
+  const mutedClass = "text-foreground";
 
-  const reqLabelClass = design ? "font-body text-[13px] font-medium text-foreground" : "font-body text-[13px] font-medium text-ink";
-  const reqStatusClass = design ? "font-body text-[13px] font-normal text-foreground" : "font-body text-[13px] font-normal text-slate-550";
-  const reqDetailClass = design
-    ? "mt-0.5 text-pretty font-body text-[12px] leading-relaxed text-foreground"
-    : "mt-0.5 font-body text-[12px] leading-relaxed text-slate-550";
+  const reqLabelClass = "font-body text-[13px] font-medium text-foreground";
+  const reqStatusClass = "font-body text-[13px] font-normal text-foreground";
+  const reqDetailClass = "mt-0.5 text-pretty font-body text-[12px] leading-relaxed text-foreground";
 
-  const settingsBtnClass = design
-    ? "inline-flex min-h-[44px] items-center rounded-sm border border-structure-on-canvas px-4 py-2 font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas transition hover:bg-structure hover:text-token-white active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2"
-    : "rounded-sm border border-federal px-4 py-2 font-mono text-[11px] uppercase tracking-eyebrow text-federal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-federal focus-visible:ring-offset-2";
+  const settingsBtnClass =
+    "inline-flex min-h-[44px] items-center rounded-sm border border-structure-on-canvas px-4 py-2 font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas transition hover:bg-structure hover:text-token-white active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2";
 
-  const closeTextBtnClass = design
-    ? "inline-flex min-h-[44px] items-center font-mono text-[11px] uppercase tracking-eyebrow text-foreground underline underline-offset-4 transition hover:text-structure-on-canvas focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2"
-    : "font-mono text-[11px] uppercase tracking-eyebrow text-slate-550 underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-federal focus-visible:ring-offset-2";
+  const closeTextBtnClass =
+    "inline-flex min-h-[44px] items-center font-mono text-[11px] uppercase tracking-eyebrow text-foreground underline underline-offset-4 transition hover:text-structure-on-canvas focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2";
 
-  const closeIconBtnClass = design
-    ? "absolute right-3 top-3 rounded-sm p-1 text-foreground transition hover:bg-canvas-alt focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2"
-    : "absolute right-4 top-4 text-slate-550 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-federal focus-visible:ring-offset-2";
+  const closeIconBtnClass =
+    "absolute right-3 top-3 rounded-sm p-1 text-foreground transition hover:bg-canvas-alt focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2";
 
-  const footnoteClass = design
-    ? "mt-6 border-t border-structure-on-canvas pt-4 text-pretty font-body text-[11px] leading-relaxed text-foreground"
-    : "mt-6 border-t border-rule pt-4 font-body text-[11px] leading-relaxed text-slate-550";
+  const footnoteClass =
+    "mt-6 border-t border-structure-on-canvas pt-4 text-pretty font-body text-[11px] leading-relaxed text-foreground";
 
   // Portaled to document.body so the fixed overlay escapes the opportunity
   // card's stacking/overflow context and opens as a true viewport overlay.
@@ -126,7 +111,7 @@ export default function AutoFillModal({
         </button>
 
         <div className="flex items-center gap-2 pr-8">
-          <LockIcon className="h-3.5 w-3.5" design={design} />
+          <LockIcon className="h-3.5 w-3.5" />
           <p className={eyebrowClass}>Not available yet</p>
         </div>
 
@@ -181,7 +166,7 @@ export default function AutoFillModal({
   );
 }
 
-function LockIcon({ className, design }: { className?: string; design: boolean }) {
+function LockIcon({ className }: { className?: string }) {
   return (
     <svg
       viewBox="0 0 16 16"
@@ -190,7 +175,7 @@ function LockIcon({ className, design }: { className?: string; design: boolean }
       strokeWidth="1.5"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className={`${className ?? ""} ${design ? "text-structure-on-canvas" : "text-slate-550"}`.trim()}
+      className={`${className ?? ""} text-structure-on-canvas`.trim()}
       aria-hidden="true"
     >
       <rect x="3" y="7" width="10" height="7" rx="1.5" />

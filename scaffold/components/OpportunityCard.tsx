@@ -1,6 +1,6 @@
 "use client";
 import { useMemo, useState } from "react";
-import { TIER_LABEL, TIER_COLOR, type Match, type Opportunity, type StartupProfile } from "@/lib/types";
+import { TIER_LABEL, type Match, type Opportunity, type StartupProfile } from "@/lib/types";
 import { startupProfileToCompanyProfile } from "@/lib/apply/package";
 import type { EligibilityBucket } from "@/lib/contracts/eligibilityDetermination";
 import AutoFillModal from "@/components/AutoFillModal";
@@ -92,27 +92,7 @@ function reconcileCardNarrative(raw: string, bucket: EligibilityBucket | undefin
 }
 
 /**
- * Darker tier text for the small 11px label + score so they clear WCAG
- * contrast on white — v1 (r7_design OFF) look only. These are pre-existing,
- * hand-picked darkenings of the v1 `fit-*` palette (tailwind.config.ts), not
- * part of the CON-02 token contract (lib/design/tokens.ts) and out of FE-01's
- * file scope to relocate there. `fit-verify`/`fit-adjacent` measure 3.47:1 /
- * 4.38:1 on white — both fail the 4.5:1 AA text threshold — which is exactly
- * why this darker map exists; removing it would regress v1's contrast.
- * Marked `hex-ok` per scripts/design/check-hex.mjs's documented escape
- * hatch — this is its "rare legitimate exception" case, needed only to keep
- * the v1 fallback pixel-for-pixel (and contrast-for-contrast) when the flag
- * is off.
- */
-const TIER_TEXT: Record<string, string> = {
-  likely: "#1E7A4C", // hex-ok
-  verify: "#8A6012", // hex-ok
-  adjacent: "#A5451F", // hex-ok
-  none: "#6B7280", // hex-ok
-};
-
-/**
- * v2 (r7_design ON) tier badge — a filled chip per CON-02: the reserved
+ * Tier badge — a filled chip per CON-02: the reserved
  * semantic tokens are AA-safe only as filled chips/badges/banners with
  * adequate area (dark foreground text on the fill), never as a bare small
  * icon/border/inline-text color directly on canvas (see the `semantic` doc
@@ -129,11 +109,9 @@ const TIER_BADGE: Record<string, string> = {
   none: "bg-canvas-alt text-foreground",
 };
 
-/** FE-01: shared "eyebrow"-style mono label, token-driven when r7_design is on. */
-function eyebrowClass(design: boolean, extra = "") {
-  return design
-    ? `font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas ${extra}`.trim()
-    : `eyebrow ${extra}`.trim();
+/** FE-01: shared "eyebrow"-style mono label, token-driven. */
+function eyebrowClass(extra = "") {
+  return `font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas ${extra}`.trim();
 }
 
 /** One-sided ranges must never read "$500K–$0". */
@@ -161,10 +139,6 @@ export default function OpportunityCard({
 }) {
   // Expand the first three cards so criteria / ineligibility / history read at a glance.
   const [open, setOpen] = useState(index < 3);
-  // FE-01 / design revamp: the CON-02 USWDS 60/30/10 restyle is now the
-  // DEFAULT on this A/B branch (previously gated behind r7_design). v1 fallback
-  // branches are retained but unreachable.
-  const design = true;
   // FE-06: locked "Auto Fill" stub — opens the Pro-upsell modal, never submits anything.
   const [autoFillOpen, setAutoFillOpen] = useState(false);
   // R6: when on, "Auto Fill" opens the assisted-apply DEMO stepper instead of
@@ -198,8 +172,6 @@ export default function OpportunityCard({
   // commercial_ui is on. The buttons + preview flows are unchanged.
   const commercial = isFlagEnabled("commercial_ui");
 
-  const spine = TIER_COLOR[m.tier] ?? TIER_COLOR.none;
-  const color = TIER_TEXT[m.tier] ?? TIER_TEXT.none;
   const badgeClass = TIER_BADGE[m.tier] ?? TIER_BADGE.none;
   const o = m.opportunity;
   const value = fundingRange(o);
@@ -245,22 +217,20 @@ export default function OpportunityCard({
   // slightly on hover) rather than a hard navy border. overflow-hidden clips the
   // left tier spine to the rounded corners; the interior border-t dividers stay
   // as structural separators. transition-shadow names only the animated prop.
-  const articleClass = design
-    ? "relative overflow-hidden rounded-lg bg-canvas-alt text-foreground shadow-card transition-shadow duration-200 ease-out hover:shadow-card-hover"
-    : "relative border border-rule bg-white";
+  const articleClass =
+    "relative overflow-hidden rounded-lg bg-canvas-alt text-foreground shadow-card transition-shadow duration-200 ease-out hover:shadow-card-hover";
 
   // v2: the spine is a neutral structural accent only — semantic tier color
   // is carried entirely by the filled badge below (see TIER_BADGE comment on
   // why a thin colored bar can't carry it and stay AA-safe).
-  const spineClass = design ? "spine bg-structure-on-canvas" : "spine";
+  const spineClass = "spine bg-structure-on-canvas";
 
-  const titleClass = design
-    ? "mt-1.5 text-balance font-display text-[19px] font-medium leading-snug text-foreground"
-    : "mt-1.5 font-display text-[19px] font-medium leading-snug";
+  const titleClass =
+    "mt-1.5 text-balance font-display text-[19px] font-medium leading-snug text-foreground";
 
-  const agencyClass = design ? "mt-1 text-pretty font-mono text-[12px] text-foreground" : "mt-1 font-mono text-[12px] text-slate-550";
+  const agencyClass = "mt-1 text-pretty font-mono text-[12px] text-foreground";
 
-  const dtClass = design ? "inline text-foreground" : "inline text-slate-550";
+  const dtClass = "inline text-foreground";
 
   // C2: whyCare leads the card, ABOVE THE FOLD (in the always-visible header,
   // not behind the `open` toggle) — distinct from whyFit, which stays in the
@@ -268,9 +238,8 @@ export default function OpportunityCard({
   // may fit"; for a procurement/adjacent candidate it's "why this matters to
   // you" (government-as-customer strategic value) — see the explainMatches
   // v2 prompt (lib/prompts/registry.ts) rule 2.
-  const whyCareClass = design
-    ? "mt-2 text-pretty font-body text-[14px] leading-relaxed text-foreground"
-    : "mt-2 font-body text-[14px] leading-relaxed";
+  const whyCareClass =
+    "mt-2 text-pretty font-body text-[14px] leading-relaxed text-foreground";
 
   // F1 — availability badge per non-default kind. "forecasted" keeps the
   // pre-existing bg-info style byte-for-byte; "rolling" reuses the same
@@ -281,72 +250,52 @@ export default function OpportunityCard({
   const AVAILABILITY_BADGE: Record<
     Exclude<OpportunityAvailabilityKind, "open">,
     { text: string; className: string }
-  > = design
-    ? {
-        forecasted: {
-          text: "Forecasted",
-          className: "rounded-sm bg-info px-1.5 py-0.5 text-[10px] uppercase tracking-eyebrow text-on-semantic",
-        },
-        rolling: {
-          text: "Rolling",
-          className:
-            "rounded-sm border border-structure-on-canvas px-1.5 py-0.5 text-[10px] uppercase tracking-eyebrow text-structure-on-canvas",
-        },
-        closed: {
-          text: "Closed",
-          className: "rounded-sm bg-error px-1.5 py-0.5 text-[10px] uppercase tracking-eyebrow text-token-white",
-        },
-      }
-    : {
-        forecasted: {
-          text: "Forecasted",
-          className: "rounded-sm border border-rule px-1.5 py-0.5 text-[10px] uppercase tracking-eyebrow text-slate-550",
-        },
-        rolling: {
-          text: "Rolling",
-          className: "rounded-sm border border-rule px-1.5 py-0.5 text-[10px] uppercase tracking-eyebrow text-slate-550",
-        },
-        closed: {
-          text: "Closed",
-          className: "rounded-sm border border-rule px-1.5 py-0.5 text-[10px] uppercase tracking-eyebrow text-slate-550",
-        },
-      };
+  > = {
+    forecasted: {
+      text: "Forecasted",
+      className: "rounded-sm bg-info px-1.5 py-0.5 text-[10px] uppercase tracking-eyebrow text-on-semantic",
+    },
+    rolling: {
+      text: "Rolling",
+      className:
+        "rounded-sm border border-structure-on-canvas px-1.5 py-0.5 text-[10px] uppercase tracking-eyebrow text-structure-on-canvas",
+    },
+    closed: {
+      text: "Closed",
+      className: "rounded-sm bg-error px-1.5 py-0.5 text-[10px] uppercase tracking-eyebrow text-token-white",
+    },
+  };
 
   // F1 — evergreen-safe "closing soon" chip (never rendered for a rolling/
   // continuous/standing/closed program; see isClosingSoon above). Filled
   // warning chip — the same AA-safe pairing as the other semantic badges,
   // never a bare border/inline-text use of the token (lib/design/tokens.ts).
-  const closingSoonClass = design
-    ? "rounded-sm bg-warning px-1.5 py-0.5 text-[10px] uppercase tracking-eyebrow text-on-semantic"
-    : "rounded-sm border border-rule px-1.5 py-0.5 text-[10px] uppercase tracking-eyebrow text-slate-550";
+  const closingSoonClass =
+    "rounded-sm bg-warning px-1.5 py-0.5 text-[10px] uppercase tracking-eyebrow text-on-semantic";
 
   // Data-freshness — "Deadline passed" badge. Same filled-error chip as the
   // "Closed" availability badge / "Excluded" bucket (an AA-safe filled pairing,
   // never a bare border/inline-text use of the token). The copy says "verify,"
   // never asserts the program is gone: a self-hoster's stale snapshot may lag
   // the official source, so we flag honestly and send them to check.
-  const deadlinePassedClass = design
-    ? "rounded-sm bg-error px-1.5 py-0.5 text-[10px] uppercase tracking-eyebrow text-token-white"
-    : "rounded-sm border border-rule px-1.5 py-0.5 text-[10px] uppercase tracking-eyebrow text-slate-550";
+  const deadlinePassedClass =
+    "rounded-sm bg-error px-1.5 py-0.5 text-[10px] uppercase tracking-eyebrow text-token-white";
 
-  const detailsClass = design
-    ? "reveal border-t border-structure-on-canvas px-4 pb-5 pt-4 sm:px-6 sm:pb-6 sm:pt-5"
-    : "reveal border-t border-rule px-4 pb-5 pt-4 sm:px-6 sm:pb-6 sm:pt-5";
+  const detailsClass =
+    "reveal border-t border-structure-on-canvas px-4 pb-5 pt-4 sm:px-6 sm:pb-6 sm:pt-5";
 
-  const criterionMetClass = design ? "text-structure-on-canvas" : "text-fit-strong";
-  const criterionMutedClass = design ? "text-foreground" : "text-slate-550";
+  const criterionMetClass = "text-structure-on-canvas";
+  const criterionMutedClass = "text-foreground";
 
-  const historyBorderClass = design ? "mt-6 border-t border-structure-on-canvas pt-5" : "mt-6 border-t border-rule pt-5";
+  const historyBorderClass = "mt-6 border-t border-structure-on-canvas pt-5";
 
-  const tableHeadRowClass = design
-    ? "border-b border-structure-on-canvas text-left text-foreground"
-    : "border-b border-rule text-left text-slate-550";
+  const tableHeadRowClass = "border-b border-structure-on-canvas text-left text-foreground";
 
-  const tableBodyRowClass = design ? "border-b border-structure-on-canvas" : "border-b border-rule/60";
+  const tableBodyRowClass = "border-b border-structure-on-canvas";
 
-  const tableMutedCellClass = design ? "py-1.5 pr-3 text-foreground" : "py-1.5 pr-3 text-slate-550";
+  const tableMutedCellClass = "py-1.5 pr-3 text-foreground";
 
-  const nextStepsBorderClass = design ? "mt-6 border-t border-structure-on-canvas pt-5" : "mt-6 border-t border-rule pt-5";
+  const nextStepsBorderClass = "mt-6 border-t border-structure-on-canvas pt-5";
 
   // The primary action on a match: a prominent green CTA so opening the official
   // listing (where you actually apply) is the obvious next step, not a quiet text
@@ -359,51 +308,42 @@ export default function OpportunityCard({
   // SBIR.gov sourceUrl. Same underline affordance as `linkClass` but sized
   // for the table's font-mono text-[11px] context (no `mt-3 inline-block`
   // block spacing, which is meant for a standalone link below a paragraph).
-  const recipientLinkClass = design
-    ? "underline underline-offset-2 hover:text-structure-on-canvas focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-1"
-    : "underline underline-offset-2 hover:text-federal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-federal focus-visible:ring-offset-1";
+  const recipientLinkClass =
+    "underline underline-offset-2 hover:text-structure-on-canvas focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-1";
 
   // Header toggle — the card's whole title row is one full-width <button>;
   // no existing dual-class const covered it before, so the focus ring is
-  // added inline here, keyed off the same `design` flag as everything else.
+  // added inline here.
   // ring-inset (not ring-offset) — this button is flush against the card's
   // own border on all sides, so an outside offset would bleed the ring past
   // the card edge.
-  const headerToggleClass = design
-    ? "w-full px-4 py-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-inset sm:px-6 sm:py-5"
-    : "w-full px-4 py-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-federal focus-visible:ring-inset sm:px-6 sm:py-5";
+  const headerToggleClass =
+    "w-full px-4 py-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-inset sm:px-6 sm:py-5";
 
   // FE-06: the locked Auto Fill control is a secondary/structure affordance —
   // never bg-action (reserved for the primary CTA). Sits in its own row, own
   // <button>, outside the header's full-width toggle button (see below).
-  const autoFillRowClass = design
-    ? "flex flex-wrap items-center gap-2 border-t border-structure-on-canvas px-4 py-3 sm:px-6"
-    : "flex flex-wrap items-center gap-2 border-t border-rule px-4 py-3 sm:px-6";
+  const autoFillRowClass =
+    "flex flex-wrap items-center gap-2 border-t border-structure-on-canvas px-4 py-3 sm:px-6";
 
   // Polish: real hover + a 40px min hit target (dense-desktop control), plus
   // optical padding (icon side 2px tighter than the text side).
-  const autoFillBtnClass = design
-    ? "inline-flex min-h-[40px] items-center gap-1.5 rounded-sm border border-structure-on-canvas bg-canvas pl-2 pr-2.5 py-1.5 font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas transition hover:bg-structure hover:text-token-white active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2"
-    : "inline-flex items-center gap-1.5 rounded-sm border border-rule bg-white px-2.5 py-1.5 font-mono text-[11px] uppercase tracking-eyebrow text-slate-550 transition hover:border-federal hover:text-federal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-federal focus-visible:ring-offset-2";
+  const autoFillBtnClass =
+    "inline-flex min-h-[40px] items-center gap-1.5 rounded-sm border border-structure-on-canvas bg-canvas pl-2 pr-2.5 py-1.5 font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas transition hover:bg-structure hover:text-token-white active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2";
 
-  const autoFillHintClass = design
-    ? "font-mono text-[10px] text-foreground"
-    : "font-mono text-[10px] text-slate-550";
+  const autoFillHintClass = "font-mono text-[10px] text-foreground";
 
   // PRO-01: locked "Analyze competing companies" control — same
   // secondary/structure affordance as Auto Fill above, but lives inside
   // the "Similar companies funded" history section rather than its own row.
-  const competitorBtnClass = design
-    ? "inline-flex items-center gap-1.5 rounded-sm border border-structure-on-canvas bg-canvas px-2.5 py-1.5 font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2"
-    : "inline-flex items-center gap-1.5 rounded-sm border border-rule bg-white px-2.5 py-1.5 font-mono text-[11px] uppercase tracking-eyebrow text-slate-550 transition hover:border-federal hover:text-federal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-federal focus-visible:ring-offset-2";
+  const competitorBtnClass =
+    "inline-flex items-center gap-1.5 rounded-sm border border-structure-on-canvas bg-canvas px-2.5 py-1.5 font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2";
 
-  const competitorHintClass = design
-    ? "font-mono text-[10px] text-foreground"
-    : "font-mono text-[10px] text-slate-550";
+  const competitorHintClass = "font-mono text-[10px] text-foreground";
 
   return (
     <article className={articleClass}>
-      <span className={spineClass} style={design ? undefined : { background: spine }} aria-hidden />
+      <span className={spineClass} aria-hidden />
 
       <button
         onClick={() => setOpen(!open)}
@@ -415,15 +355,9 @@ export default function OpportunityCard({
             squeezed into a shrink-0 column beside a long program title. */}
         <div className="flex flex-wrap items-start justify-between gap-4 sm:flex-nowrap sm:gap-6">
           <div className="min-w-0">
-            {design ? (
-              <span className={`inline-block rounded-sm px-2 py-0.5 font-mono text-[11px] uppercase tracking-eyebrow ${badgeClass}`}>
-                {TIER_LABEL[m.tier]}
-              </span>
-            ) : (
-              <span className="font-mono text-[11px] uppercase tracking-eyebrow" style={{ color }}>
-                {TIER_LABEL[m.tier]}
-              </span>
-            )}
+            <span className={`inline-block rounded-sm px-2 py-0.5 font-mono text-[11px] uppercase tracking-eyebrow ${badgeClass}`}>
+              {TIER_LABEL[m.tier]}
+            </span>
             {/* DISC — advisory recommend/verify/do-not-recommend verdict (flag ON only).
                 do_not_recommend gets the strongest treatment (bold foreground) so an
                 honest "don't apply" reads at a glance; both others stay quiet. */}
@@ -450,17 +384,14 @@ export default function OpportunityCard({
 
           <div className="flex shrink-0 items-center gap-3">
             <div className="text-right">
-              <div
-                className={design ? "font-display text-[26px] font-bold leading-none tabular-nums text-foreground" : "font-display text-[26px] font-bold leading-none"}
-                style={design ? undefined : { color }}
-              >
+              <div className="font-display text-[26px] font-bold leading-none tabular-nums text-foreground">
                 {m.score}
                 <span className="text-[15px] font-medium">%</span>
               </div>
-              <div className={eyebrowClass(design, "mt-1")}>match</div>
+              <div className={eyebrowClass("mt-1")}>match</div>
             </div>
             <ChevronIcon
-              className={`h-4 w-4 shrink-0 transition-transform ${open ? "rotate-180" : ""} ${design ? "text-structure-on-canvas" : "text-slate-550"}`}
+              className={`h-4 w-4 shrink-0 transition-transform ${open ? "rotate-180" : ""} text-structure-on-canvas`}
             />
           </div>
         </div>
@@ -599,13 +530,13 @@ export default function OpportunityCard({
                   <span className={c.met ? criterionMetClass : criterionMutedClass} aria-hidden>
                     {c.met ? "✓" : "○"}
                   </span>
-                  <span className={c.met ? (design ? "text-foreground" : "") : criterionMutedClass}>{c.label}</span>
+                  <span className={c.met ? "text-foreground" : criterionMutedClass}>{c.label}</span>
                 </li>
               ))}
             </ul>
           )}
 
-          <Section design={design} title="Why we think you're a fit" body={m.whyFit} />
+          <Section title="Why we think you're a fit" body={m.whyFit} />
 
           {/*
             AUTHORITY (§1 #5): the deterministic screening determination is the
@@ -614,7 +545,6 @@ export default function OpportunityCard({
           */}
           {detMeta && (
             <DeterminationAuthority
-              design={design}
               meta={detMeta}
               steps={determination?.required_steps ?? []}
               caveat={freshnessCaveat}
@@ -622,7 +552,6 @@ export default function OpportunityCard({
           )}
 
           <Section
-            design={design}
             title="What could make you ineligible"
             body={ineligible}
             accent
@@ -632,17 +561,17 @@ export default function OpportunityCard({
                 : "Model assessment — a generated read on possible concerns, not a cited rule or a formal eligibility determination. Confirm requirements with the program officer."
             }
           />
-          <Section design={design} title="What you should verify" body={m.whatToVerify} />
+          <Section title="What you should verify" body={m.whatToVerify} />
 
           {m.history && (
             <div className={historyBorderClass}>
-              <p className={eyebrowClass(design, "mb-3")}>Similar companies funded</p>
+              <p className={eyebrowClass("mb-3")}>Similar companies funded</p>
               <div className="mb-4 flex flex-wrap gap-x-5 gap-y-3 sm:gap-x-8">
-                <Stat design={design} n={m.history.similarCompanies} label="similar companies" />
-                <Stat design={design} n={money(m.history.totalAwarded)} label="total awarded" />
-                <Stat design={design} n={money(m.history.medianAward)} label="median award" />
-                <Stat design={design} n={m.history.inState} label="in Utah" />
-                <Stat design={design} n={m.history.inVertical} label="in your vertical" />
+                <Stat n={m.history.similarCompanies} label="similar companies" />
+                <Stat n={money(m.history.totalAwarded)} label="total awarded" />
+                <Stat n={money(m.history.medianAward)} label="median award" />
+                <Stat n={m.history.inState} label="in Utah" />
+                <Stat n={m.history.inVertical} label="in your vertical" />
               </div>
 
               {/*
@@ -703,7 +632,7 @@ export default function OpportunityCard({
                         <td className={tableMutedCellClass}>{r.program}</td>
                         <td className={tableMutedCellClass}>{r.agency}</td>
                         <td className="py-1.5 pr-3 text-right">{money(r.amount)}</td>
-                        <td className={design ? "py-1.5 text-right text-foreground" : "py-1.5 text-right text-slate-550"}>{r.year}</td>
+                        <td className="py-1.5 text-right text-foreground">{r.year}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -714,7 +643,7 @@ export default function OpportunityCard({
 
           {(nextSteps || o.url) && (
             <div className={nextStepsBorderClass}>
-              <p className={eyebrowClass(design, "mb-2")}>What to do next</p>
+              <p className={eyebrowClass("mb-2")}>What to do next</p>
               {nextSteps && <p className="text-pretty font-body text-[14px] leading-relaxed">{nextSteps}</p>}
               {o.url && (
                 <a href={o.url} target="_blank" rel="noreferrer" className={officialCtaClass}>
@@ -730,22 +659,21 @@ export default function OpportunityCard({
   );
 }
 
-function Section({ title, body, accent, design, note }: { title: string; body?: string; accent?: boolean; design: boolean; note?: string }) {
+function Section({ title, body, accent, note }: { title: string; body?: string; accent?: boolean; note?: string }) {
   if (!body || !body.trim()) return null;
   // Ineligibility factors are a blocking/cautionary signal -> `error`, used
   // here as a 2px left border (non-text, 3:1 threshold — passes; see the
   // TIER_BADGE comment for why the same tokens can't be bare small text).
-  const accentClass = accent ? (design ? "border-l-2 border-error pl-4" : "border-l-2 border-fit-verify pl-4") : "";
-  const bodyClass = design ? "text-pretty font-body text-[14px] leading-relaxed text-foreground" : "font-body text-[14px] leading-relaxed";
+  const accentClass = accent ? "border-l-2 border-error pl-4" : "";
+  const bodyClass = "text-pretty font-body text-[14px] leading-relaxed text-foreground";
   // Provenance note (R8.4 spirit): mark uncited model-recall blocks as a model
   // assessment so a generated concern doesn't read as an authoritative,
   // rule-grounded determination — mirrors EligibilityBuckets' ProvenanceNote.
-  const noteClass = design
-    ? "mt-1.5 font-body text-[11px] italic leading-relaxed text-foreground"
-    : "mt-1.5 font-body text-[11px] italic leading-relaxed text-slate-550";
+  const noteClass =
+    "mt-1.5 font-body text-[11px] italic leading-relaxed text-foreground";
   return (
     <div className={`mb-5 ${accentClass}`}>
-      <p className={eyebrowClass(design, "mb-1.5")}>{title}</p>
+      <p className={eyebrowClass("mb-1.5")}>{title}</p>
       <p className={bodyClass}>{body}</p>
       {note && <p className={noteClass}>{note}</p>}
     </div>
@@ -760,40 +688,28 @@ function Section({ title, body, accent, design, note }: { title: string; body?: 
  * the source of truth the model "ineligible" narrative below is subordinate to.
  */
 function DeterminationAuthority({
-  design,
   meta,
   steps,
   caveat,
 }: {
-  design: boolean;
   meta: { label: string; meaning: string; chip: string };
   steps: { step: string; lead_time_days?: number; why?: string }[];
   caveat: string | null;
 }) {
-  const wrapClass = design ? "rounded-md bg-canvas px-4 py-3" : "border border-rule px-4 py-3";
-  const headingClass = design
-    ? "font-display text-[15px] font-semibold leading-snug text-foreground"
-    : "font-display text-[15px] font-semibold leading-snug";
-  const meaningClass = design
-    ? "mt-1 text-pretty font-body text-[13px] leading-relaxed text-foreground"
-    : "mt-1 font-body text-[13px] leading-relaxed text-slate-550";
-  const stepTextClass = design
-    ? "font-body text-[13px] font-medium leading-snug text-foreground"
-    : "font-body text-[13px] font-medium leading-snug";
-  const stepWhyClass = design
-    ? "mt-0.5 font-body text-[12px] leading-relaxed text-foreground"
-    : "mt-0.5 font-body text-[12px] leading-relaxed text-slate-550";
+  const wrapClass = "rounded-md bg-canvas px-4 py-3";
+  const headingClass = "font-display text-[15px] font-semibold leading-snug text-foreground";
+  const meaningClass = "mt-1 text-pretty font-body text-[13px] leading-relaxed text-foreground";
+  const stepTextClass = "font-body text-[13px] font-medium leading-snug text-foreground";
+  const stepWhyClass = "mt-0.5 font-body text-[12px] leading-relaxed text-foreground";
   const chipClass = `inline-block rounded-sm px-2 py-0.5 font-mono text-[11px] uppercase tracking-eyebrow ${meta.chip}`;
-  const leadChipClass = design
-    ? "inline-block shrink-0 rounded-sm bg-info px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-eyebrow tabular-nums text-on-semantic"
-    : "inline-block shrink-0 rounded-sm border border-rule px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-eyebrow text-slate-550";
-  const caveatClass = design
-    ? "mt-2 border-l-2 border-warning pl-3 font-body text-[12px] italic leading-relaxed text-foreground"
-    : "mt-2 border-l-2 border-fit-adjacent pl-3 font-body text-[12px] italic leading-relaxed text-slate-550";
+  const leadChipClass =
+    "inline-block shrink-0 rounded-sm bg-info px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-eyebrow tabular-nums text-on-semantic";
+  const caveatClass =
+    "mt-2 border-l-2 border-warning pl-3 font-body text-[12px] italic leading-relaxed text-foreground";
 
   return (
     <div className="mb-5">
-      <p className={eyebrowClass(design, "mb-1.5")}>Eligibility screening &middot; the authority</p>
+      <p className={eyebrowClass("mb-1.5")}>Eligibility screening &middot; the authority</p>
       <div className={wrapClass}>
         <div className="flex flex-wrap items-center gap-2">
           <span className={chipClass}>{meta.label}</span>
@@ -869,14 +785,12 @@ function ChevronIcon({ className }: { className?: string }) {
   );
 }
 
-function Stat({ n, label, design }: { n: number | string; label: string; design: boolean }) {
-  const numberClass = design
-    ? "font-display text-[20px] font-bold leading-none tabular-nums text-foreground"
-    : "font-display text-[20px] font-bold leading-none";
+function Stat({ n, label }: { n: number | string; label: string }) {
+  const numberClass = "font-display text-[20px] font-bold leading-none tabular-nums text-foreground";
   return (
     <div>
       <div className={numberClass}>{n}</div>
-      <div className={eyebrowClass(design, "mt-1")}>{label}</div>
+      <div className={eyebrowClass("mt-1")}>{label}</div>
     </div>
   );
 }

@@ -61,19 +61,12 @@ const BUCKET_META: Record<EligibilityBucket, { heading: string; badgeLabel: stri
   },
 };
 
-/** Shared "eyebrow"-style mono label, token-driven when r7_design is on (matches OpportunityCard/Map). */
-function eyebrowClass(design: boolean, extra = "") {
-  return design
-    ? `font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas ${extra}`.trim()
-    : `eyebrow ${extra}`.trim();
+/** Shared "eyebrow"-style mono label, token-driven (matches OpportunityCard/Map). */
+function eyebrowClass(extra = "") {
+  return `font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas ${extra}`.trim();
 }
 
 export default function EligibilityBuckets({ items }: { items: EligibilityItem[] }) {
-  // FE-01 / design revamp: the CON-02 USWDS 60/30/10 restyle is now the DEFAULT
-  // on this A/B branch (previously gated behind r7_design). v1 fallback branches
-  // are retained but unreachable.
-  const design = true;
-
   const groups = new Map<EligibilityBucket, EligibilityItem[]>();
   for (const item of items ?? []) {
     const bucket = item.determination.bucket;
@@ -85,9 +78,7 @@ export default function EligibilityBuckets({ items }: { items: EligibilityItem[]
   const nonEmptyBuckets = BUCKET_ORDER.filter((b) => (groups.get(b) ?? []).length > 0);
 
   if (nonEmptyBuckets.length === 0) {
-    const emptyClass = design
-      ? "font-body text-[14px] text-foreground"
-      : "font-body text-[14px] text-slate-550";
+    const emptyClass = "font-body text-[14px] text-foreground";
     return <p className={emptyClass}>No opportunities have been screened yet.</p>;
   }
 
@@ -96,15 +87,9 @@ export default function EligibilityBuckets({ items }: { items: EligibilityItem[]
       {nonEmptyBuckets.map((bucket) => {
         const group = groups.get(bucket)!;
         const meta = BUCKET_META[bucket];
-        const headingClass = design
-          ? "text-balance font-display text-[22px] font-bold leading-tight text-foreground"
-          : "font-display text-[22px] font-bold leading-tight text-ink";
-        const countClass = design
-          ? "ml-2 font-mono text-[13px] font-normal tabular-nums text-foreground"
-          : "ml-2 font-mono text-[13px] font-normal text-slate-550";
-        const introClass = design
-          ? "mt-1 text-pretty font-body text-[13px] leading-relaxed text-foreground"
-          : "mt-1 font-body text-[13px] leading-relaxed text-slate-550";
+        const headingClass = "text-balance font-display text-[22px] font-bold leading-tight text-foreground";
+        const countClass = "ml-2 font-mono text-[13px] font-normal tabular-nums text-foreground";
+        const introClass = "mt-1 text-pretty font-body text-[13px] leading-relaxed text-foreground";
 
         return (
           <section key={bucket} className="mt-10 first:mt-0">
@@ -116,7 +101,7 @@ export default function EligibilityBuckets({ items }: { items: EligibilityItem[]
 
             <div className="mt-4 space-y-4">
               {group.map((item, i) => (
-                <BucketCard key={item.determination.opportunity_id ?? i} item={item} design={design} />
+                <BucketCard key={item.determination.opportunity_id ?? i} item={item} />
               ))}
             </div>
           </section>
@@ -130,86 +115,53 @@ export default function EligibilityBuckets({ items }: { items: EligibilityItem[]
 // Per-bucket card
 // ---------------------------------------------------------------------------
 
-function spineClass(design: boolean, bucket: EligibilityBucket): string {
-  // v2: the spine is a neutral structural accent — the bucket's semantic color
+function spineClass(): string {
+  // The spine is a neutral structural accent — the bucket's semantic color
   // is carried entirely by the filled badge below (see BucketBadge; the CON-02
   // token contract only guarantees AA contrast for semantic tokens used as
   // filled chips, never as a bare border/accent directly on canvas).
-  if (design) return "absolute left-0 top-0 h-full w-[3px] bg-structure-on-canvas";
-  switch (bucket) {
-    case "eligible":
-      return "absolute left-0 top-0 h-full w-[3px] bg-fit-strong";
-    case "conditionally_eligible":
-      return "absolute left-0 top-0 h-full w-[3px] bg-fit-verify";
-    case "unknown":
-      return "absolute left-0 top-0 h-full w-[3px] bg-fit-adjacent";
-    case "excluded":
-      // v1 has no red token (R7.2 deliberately drops decorative red) — excluded
-      // reads as neutral/slate with a thicker accent, not a color, per CON-02.
-      return "absolute left-0 top-0 h-full w-1.5 bg-slate-550";
-  }
+  return "absolute left-0 top-0 h-full w-[3px] bg-structure-on-canvas";
 }
 
-function BucketBadge({ design, bucket }: { design: boolean; bucket: EligibilityBucket }) {
+function BucketBadge({ bucket }: { bucket: EligibilityBucket }) {
   const label = BUCKET_META[bucket].badgeLabel;
-  if (design) {
-    const chip: Record<EligibilityBucket, string> = {
-      eligible: "bg-success text-on-semantic",
-      conditionally_eligible: "bg-info text-on-semantic",
-      unknown: "bg-warning text-on-semantic",
-      excluded: "bg-error text-token-white",
-    };
-    return (
-      <span
-        className={`inline-block rounded-sm px-2 py-0.5 font-mono text-[11px] uppercase tracking-eyebrow ${chip[bucket]}`}
-      >
-        {label}
-      </span>
-    );
-  }
-  const textColor: Record<EligibilityBucket, string> = {
-    eligible: "text-fit-strong",
-    conditionally_eligible: "text-fit-verify",
-    unknown: "text-fit-adjacent",
-    excluded: "text-slate-550",
+  const chip: Record<EligibilityBucket, string> = {
+    eligible: "bg-success text-on-semantic",
+    conditionally_eligible: "bg-info text-on-semantic",
+    unknown: "bg-warning text-on-semantic",
+    excluded: "bg-error text-token-white",
   };
   return (
-    <span className={`font-mono text-[11px] uppercase tracking-eyebrow ${textColor[bucket]}`}>{label}</span>
+    <span
+      className={`inline-block rounded-sm px-2 py-0.5 font-mono text-[11px] uppercase tracking-eyebrow ${chip[bucket]}`}
+    >
+      {label}
+    </span>
   );
 }
 
-function BucketCard({ item, design }: { item: EligibilityItem; design: boolean }) {
+function BucketCard({ item }: { item: EligibilityItem }) {
   const { determination, title, agency, caveat } = item;
   const bucket = determination.bucket;
 
-  const cardClass = design
-    ? "relative overflow-hidden rounded-lg bg-canvas-alt px-6 py-5 text-foreground shadow-card"
-    : "relative border border-rule bg-white px-6 py-5";
+  const cardClass = "relative overflow-hidden rounded-lg bg-canvas-alt px-6 py-5 text-foreground shadow-card";
 
-  const titleClass = design
-    ? "mt-1.5 text-balance font-display text-[17px] font-medium leading-snug text-foreground"
-    : "mt-1.5 font-display text-[17px] font-medium leading-snug";
+  const titleClass = "mt-1.5 text-balance font-display text-[17px] font-medium leading-snug text-foreground";
 
-  const agencyClass = design
-    ? "mt-0.5 text-pretty font-mono text-[12px] text-foreground"
-    : "mt-0.5 font-mono text-[12px] text-slate-550";
+  const agencyClass = "mt-0.5 text-pretty font-mono text-[12px] text-foreground";
 
   return (
     <article className={cardClass}>
-      <span className={spineClass(design, bucket)} aria-hidden />
+      <span className={spineClass()} aria-hidden />
 
-      <BucketBadge design={design} bucket={bucket} />
+      <BucketBadge bucket={bucket} />
       {title && <h3 className={titleClass}>{title}</h3>}
       {agency && <p className={agencyClass}>{agency}</p>}
 
       {caveat && (
         <p
           role="note"
-          className={
-            design
-              ? "mt-2 border-l-2 border-warning pl-3 font-body text-[12px] italic leading-relaxed text-foreground"
-              : "mt-2 border-l-2 border-fit-adjacent pl-3 font-body text-[12px] italic leading-relaxed text-slate-550"
-          }
+          className="mt-2 border-l-2 border-warning pl-3 font-body text-[12px] italic leading-relaxed text-foreground"
         >
           <span className="font-mono uppercase tracking-eyebrow not-italic">Data freshness</span>{" "}
           — {caveat}
@@ -217,12 +169,12 @@ function BucketCard({ item, design }: { item: EligibilityItem; design: boolean }
       )}
 
       <div className="mt-4">
-        {bucket === "eligible" && <EligibleBody determination={determination} design={design} />}
+        {bucket === "eligible" && <EligibleBody determination={determination} />}
         {bucket === "conditionally_eligible" && (
-          <ConditionalBody determination={determination} design={design} />
+          <ConditionalBody determination={determination} />
         )}
-        {bucket === "unknown" && <UnknownBody determination={determination} design={design} />}
-        {bucket === "excluded" && <ExcludedBody determination={determination} design={design} />}
+        {bucket === "unknown" && <UnknownBody determination={determination} />}
+        {bucket === "excluded" && <ExcludedBody determination={determination} />}
       </div>
     </article>
   );
@@ -234,12 +186,10 @@ function BucketCard({ item, design }: { item: EligibilityItem; design: boolean }
 
 function EligibleBody({
   determination,
-  design,
 }: {
   determination: EligibilityDetermination;
-  design: boolean;
 }) {
-  return <SatisfiedList rules={determination.satisfied_rules} design={design} />;
+  return <SatisfiedList rules={determination.satisfied_rules} />;
 }
 
 // ---------------------------------------------------------------------------
@@ -248,12 +198,10 @@ function EligibleBody({
 
 function ConditionalBody({
   determination,
-  design,
 }: {
   determination: EligibilityDetermination;
-  design: boolean;
 }) {
-  const stepHeadingClass = eyebrowClass(design);
+  const stepHeadingClass = eyebrowClass();
   return (
     <div>
       {determination.required_steps.length > 0 && (
@@ -261,14 +209,13 @@ function ConditionalBody({
           <p className={stepHeadingClass}>What to do next</p>
           <ul className="mt-2 space-y-3">
             {determination.required_steps.map((step, i) => (
-              <RequiredStepLine key={`${step.step}-${i}`} step={step} design={design} />
+              <RequiredStepLine key={`${step.step}-${i}`} step={step} />
             ))}
           </ul>
         </div>
       )}
       <SatisfiedList
         rules={determination.satisfied_rules}
-        design={design}
         heading="What's already met"
         extraClass="mt-5"
       />
@@ -276,23 +223,18 @@ function ConditionalBody({
   );
 }
 
-function RequiredStepLine({ step, design }: { step: RequiredStep; design: boolean }) {
+function RequiredStepLine({ step }: { step: RequiredStep }) {
   const leadTime =
     typeof step.lead_time_days === "number"
       ? `~${step.lead_time_days} day${step.lead_time_days === 1 ? "" : "s"}`
       : null;
 
-  const chipClass = design
-    ? "inline-block shrink-0 rounded-sm bg-info px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-eyebrow tabular-nums text-on-semantic"
-    : "inline-block shrink-0 rounded-sm border border-rule px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-eyebrow text-slate-550";
+  const chipClass =
+    "inline-block shrink-0 rounded-sm bg-info px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-eyebrow tabular-nums text-on-semantic";
 
-  const stepTextClass = design
-    ? "font-body text-[14px] font-medium leading-snug text-foreground"
-    : "font-body text-[14px] font-medium leading-snug text-ink";
+  const stepTextClass = "font-body text-[14px] font-medium leading-snug text-foreground";
 
-  const whyClass = design
-    ? "mt-1 font-body text-[13px] leading-relaxed text-foreground"
-    : "mt-1 font-body text-[13px] leading-relaxed text-slate-550";
+  const whyClass = "mt-1 font-body text-[13px] leading-relaxed text-foreground";
 
   return (
     <li>
@@ -312,41 +254,28 @@ function RequiredStepLine({ step, design }: { step: RequiredStep; design: boolea
 
 function UnknownBody({
   determination,
-  design,
 }: {
   determination: EligibilityDetermination;
-  design: boolean;
 }) {
-  const itemClass = design
-    ? "border-l-2 border-structure-on-canvas pl-4 py-0.5"
-    : "border-l-2 border-rule pl-4 py-0.5";
-  const bodyClass = design
-    ? "font-body text-[14px] leading-relaxed text-foreground"
-    : "font-body text-[14px] leading-relaxed text-ink";
+  const itemClass = "border-l-2 border-structure-on-canvas pl-4 py-0.5";
+  const bodyClass = "font-body text-[14px] leading-relaxed text-foreground";
 
   return (
     <div>
-      <p className={eyebrowClass(design)}>Eligibility depends on</p>
+      <p className={eyebrowClass()}>Eligibility depends on</p>
       <ul className="mt-2 space-y-3">
         {determination.unknown_rules.map((rule, i) => (
           <li key={rule.rule_id ?? i} className={itemClass}>
             <p className={bodyClass}>{rule.description}</p>
-            <ProvenanceNote provenance={rule.provenance} design={design} />
+            <ProvenanceNote provenance={rule.provenance} />
           </li>
         ))}
       </ul>
-      <p
-        className={
-          design
-            ? "mt-3 font-body text-[12px] italic leading-relaxed text-foreground"
-            : "mt-3 font-body text-[12px] italic leading-relaxed text-slate-550"
-        }
-      >
+      <p className="mt-3 font-body text-[12px] italic leading-relaxed text-foreground">
         Tell us and we&rsquo;ll screen this — we never guess eligible or ineligible.
       </p>
       <SatisfiedList
         rules={determination.satisfied_rules}
-        design={design}
         heading="What's already met"
         extraClass="mt-5"
       />
@@ -361,36 +290,31 @@ function UnknownBody({
 
 function ExcludedBody({
   determination,
-  design,
 }: {
   determination: EligibilityDetermination;
-  design: boolean;
 }) {
-  const summaryClass = design
-    ? "cursor-pointer font-body text-[14px] font-medium leading-snug text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2"
-    : "cursor-pointer font-body text-[14px] font-medium leading-snug text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-federal focus-visible:ring-offset-2";
+  const summaryClass =
+    "cursor-pointer font-body text-[14px] font-medium leading-snug text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2";
 
   return (
     <details>
       <summary className={summaryClass}>Why this is excluded</summary>
       <ul className="mt-3 space-y-4">
         {determination.failed_rules.map((rule, i) => (
-          <RuleReasonLine key={rule.rule_id ?? i} rule={rule} design={design} />
+          <RuleReasonLine key={rule.rule_id ?? i} rule={rule} />
         ))}
       </ul>
     </details>
   );
 }
 
-function RuleReasonLine({ rule, design }: { rule: RuleEvaluation; design: boolean }) {
-  const bodyClass = design
-    ? "font-body text-[14px] leading-relaxed text-foreground"
-    : "font-body text-[14px] leading-relaxed text-ink";
+function RuleReasonLine({ rule }: { rule: RuleEvaluation }) {
+  const bodyClass = "font-body text-[14px] leading-relaxed text-foreground";
   return (
     <li>
       <p className={bodyClass}>{rule.description}</p>
-      <ProvenanceNote provenance={rule.provenance} design={design} verifiedNote />
-      <CitationNote citation={rule.citation} design={design} />
+      <ProvenanceNote provenance={rule.provenance} verifiedNote />
+      <CitationNote citation={rule.citation} />
     </li>
   );
 }
@@ -401,21 +325,19 @@ function RuleReasonLine({ rule, design }: { rule: RuleEvaluation; design: boolea
 
 function SatisfiedList({
   rules,
-  design,
   heading = "What's already met",
   extraClass = "",
 }: {
   rules: RuleEvaluation[];
-  design: boolean;
   heading?: string;
   extraClass?: string;
 }) {
   if (!rules || rules.length === 0) return null;
-  const checkClass = design ? "text-foreground" : "text-fit-strong";
-  const textClass = design ? "text-foreground" : "text-ink";
+  const checkClass = "text-foreground";
+  const textClass = "text-foreground";
   return (
     <div className={extraClass}>
-      <p className={eyebrowClass(design)}>{heading}</p>
+      <p className={eyebrowClass()}>{heading}</p>
       <ul className="mt-2 space-y-1.5">
         {rules.map((rule, i) => (
           <li key={rule.rule_id ?? i} className="flex gap-2 font-body text-[13px]">
@@ -424,7 +346,7 @@ function SatisfiedList({
             </span>
             <span>
               <span className={textClass}>{rule.description}</span>
-              <ProvenanceNote provenance={rule.provenance} design={design} inline />
+              <ProvenanceNote provenance={rule.provenance} inline />
             </span>
           </li>
         ))}
@@ -441,18 +363,14 @@ function SatisfiedList({
  */
 function ProvenanceNote({
   provenance,
-  design,
   inline = false,
   verifiedNote = false,
 }: {
   provenance: Provenance;
-  design: boolean;
   inline?: boolean;
   verifiedNote?: boolean;
 }) {
-  const mutedClass = design
-    ? "font-body text-[11px] italic text-foreground"
-    : "font-body text-[11px] italic text-slate-550";
+  const mutedClass = "font-body text-[11px] italic text-foreground";
 
   if (provenance === "model_inferred") {
     const text = "Model-inferred — needs review before this is treated as confirmed.";
@@ -471,15 +389,12 @@ function ProvenanceNote({
   return null;
 }
 
-function CitationNote({ citation, design }: { citation?: Citation; design: boolean }) {
+function CitationNote({ citation }: { citation?: Citation }) {
   if (!citation) return null;
   const label = citation.source_name ?? citation.source_url ?? "Source";
-  const wrapClass = design
-    ? "mt-1 font-mono text-[11px] text-foreground"
-    : "mt-1 font-mono text-[11px] text-slate-550";
-  const linkClass = design
-    ? "text-structure-on-canvas underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2"
-    : "text-federal underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-federal focus-visible:ring-offset-2";
+  const wrapClass = "mt-1 font-mono text-[11px] text-foreground";
+  const linkClass =
+    "text-structure-on-canvas underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2";
 
   return (
     <p className={wrapClass}>

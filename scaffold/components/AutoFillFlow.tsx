@@ -83,9 +83,6 @@ export default function AutoFillFlow({
    *  unchanged; an absent profile is never fabricated. */
   profile?: CompanyProfile;
 }) {
-  // Design revamp: USWDS 60/30/10 restyle is the DEFAULT on this A/B branch
-  // (previously gated behind r7_design).
-  const design = true;
   const { user, signIn } = useAuth();
   // The sign-in step is only meaningful with REAL OAuth (r9_supabase_auth). With
   // it off — the default self-host case — "sign in" is a silent localStorage mock
@@ -153,79 +150,51 @@ export default function AutoFillFlow({
 
   /* ---- Shared dual-className tokens (mirrors AutoFillModal / SettingsPanel) ---- */
 
-  const panelClass = design
-    ? "relative max-h-[85vh] w-full max-w-lg overflow-y-auto border border-structure-on-canvas bg-canvas p-6 text-foreground"
-    : "relative max-h-[85vh] w-full max-w-lg overflow-y-auto border border-rule bg-white p-6 text-ink";
+  const panelClass =
+    "relative max-h-[85vh] w-full max-w-lg overflow-y-auto border border-structure-on-canvas bg-canvas p-6 text-foreground";
 
-  const eyebrowClass = design
-    ? "font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas"
-    : "eyebrow";
+  const eyebrowClass = "font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas";
 
-  const titleClass = design
-    ? "mt-2 font-display text-[24px] font-bold leading-snug text-foreground"
-    : "mt-2 font-display text-[24px] font-bold leading-snug";
+  const titleClass = "mt-2 font-display text-[24px] font-bold leading-snug text-foreground";
 
-  const bodyClass = design
-    ? "mt-3 font-body text-[14px] leading-relaxed text-foreground"
-    : "mt-3 font-body text-[14px] leading-relaxed text-slate-550";
+  const bodyClass = "mt-3 font-body text-[14px] leading-relaxed text-foreground";
 
-  const metClass = design ? "text-structure-on-canvas" : "text-fit-strong";
-  const mutedClass = design ? "text-foreground" : "text-slate-550";
+  const metClass = "text-structure-on-canvas";
+  const mutedClass = "text-foreground";
 
-  const reqLabelClass = design
-    ? "font-body text-[13px] font-medium text-foreground"
-    : "font-body text-[13px] font-medium text-ink";
-  const reqStatusClass = design
-    ? "font-body text-[13px] font-normal text-foreground"
-    : "font-body text-[13px] font-normal text-slate-550";
-  const reqDetailClass = design
-    ? "mt-0.5 font-body text-[12px] leading-relaxed text-foreground"
-    : "mt-0.5 font-body text-[12px] leading-relaxed text-slate-550";
+  const reqLabelClass = "font-body text-[13px] font-medium text-foreground";
+  const reqStatusClass = "font-body text-[13px] font-normal text-foreground";
+  const reqDetailClass = "mt-0.5 font-body text-[12px] leading-relaxed text-foreground";
 
-  const stepDotClass = design
-    ? "font-mono text-[11px] uppercase tracking-eyebrow text-foreground"
-    : "font-mono text-[11px] uppercase tracking-eyebrow text-slate-550";
-  const stepDotActiveClass = design
-    ? "font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas"
-    : "font-mono text-[11px] uppercase tracking-eyebrow text-federal";
+  const stepDotClass = "font-mono text-[11px] uppercase tracking-eyebrow text-foreground";
+  const stepDotActiveClass = "font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas";
 
-  const legendClass = design
-    ? "font-mono text-[11px] uppercase tracking-eyebrow text-foreground"
-    : "font-mono text-[11px] uppercase tracking-eyebrow text-slate-550";
+  const legendClass = "font-mono text-[11px] uppercase tracking-eyebrow text-foreground";
 
-  const fieldWrapClass = design
-    ? "mt-5 border-t border-structure-on-canvas pt-4 first:mt-4 first:border-t-0 first:pt-0"
-    : "mt-5 border-t border-rule pt-4 first:mt-4 first:border-t-0 first:pt-0";
+  const fieldWrapClass =
+    "mt-5 border-t border-structure-on-canvas pt-4 first:mt-4 first:border-t-0 first:pt-0";
 
-  const inputClass = design
-    ? "mt-1.5 w-full rounded-sm border border-structure-on-canvas bg-canvas px-2.5 py-1.5 font-body text-[13px] text-foreground"
-    : "mt-1.5 w-full rounded-sm border border-rule bg-white px-2.5 py-1.5 font-body text-[13px] text-ink";
+  const inputClass =
+    "mt-1.5 w-full rounded-sm border border-structure-on-canvas bg-canvas px-2.5 py-1.5 font-body text-[13px] text-foreground";
 
-  const labelTextClass = design ? "font-body text-[13px] text-foreground" : "font-body text-[13px] text-ink";
+  const labelTextClass = "font-body text-[13px] text-foreground";
 
-  const primaryBtnClass = design
-    ? "rounded-sm bg-action px-4 py-2 font-mono text-[11px] uppercase tracking-eyebrow text-token-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2"
-    : "rounded-sm bg-ink px-4 py-2 font-mono text-[11px] uppercase tracking-eyebrow text-paper transition hover:bg-federal disabled:cursor-not-allowed disabled:opacity-35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-federal focus-visible:ring-offset-2";
+  const primaryBtnClass =
+    "rounded-sm bg-action px-4 py-2 font-mono text-[11px] uppercase tracking-eyebrow text-token-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2";
 
-  const secondaryBtnClass = design
-    ? "rounded-sm border border-structure-on-canvas px-4 py-2 font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2"
-    : "rounded-sm border border-federal px-4 py-2 font-mono text-[11px] uppercase tracking-eyebrow text-federal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-federal focus-visible:ring-offset-2";
+  const secondaryBtnClass =
+    "rounded-sm border border-structure-on-canvas px-4 py-2 font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2";
 
-  const closeTextBtnClass = design
-    ? "font-mono text-[11px] uppercase tracking-eyebrow text-foreground underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2"
-    : "font-mono text-[11px] uppercase tracking-eyebrow text-slate-550 underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-federal focus-visible:ring-offset-2";
+  const closeTextBtnClass =
+    "font-mono text-[11px] uppercase tracking-eyebrow text-foreground underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2";
 
-  const closeIconBtnClass = design
-    ? "absolute right-4 top-4 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2"
-    : "absolute right-4 top-4 text-slate-550 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-federal focus-visible:ring-offset-2";
+  const closeIconBtnClass =
+    "absolute right-4 top-4 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2";
 
-  const savedMsgClass = design
-    ? "font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas"
-    : "font-mono text-[11px] uppercase tracking-eyebrow text-fit-strong";
+  const savedMsgClass = "font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas";
 
-  const footnoteClass = design
-    ? "mt-6 border-t border-structure-on-canvas pt-4 font-body text-[11px] leading-relaxed text-foreground"
-    : "mt-6 border-t border-rule pt-4 font-body text-[11px] leading-relaxed text-slate-550";
+  const footnoteClass =
+    "mt-6 border-t border-structure-on-canvas pt-4 font-body text-[11px] leading-relaxed text-foreground";
 
   // Rendered through a portal to document.body so the fixed overlay is a
   // sibling of the app root, not a descendant of the opportunity card. This
@@ -251,7 +220,7 @@ export default function AutoFillFlow({
         </button>
 
         <div className="flex items-center gap-2 pr-8">
-          <LockIcon className="h-3.5 w-3.5" design={design} />
+          <LockIcon className="h-3.5 w-3.5" />
           <p className={eyebrowClass}>
             Never submits anything
           </p>
@@ -497,7 +466,7 @@ export default function AutoFillFlow({
 
         {!showPackage && step === "review" && (
           <div>
-            <p className={`mt-4 font-display text-[18px] font-bold leading-snug ${design ? "text-foreground" : "text-ink"}`}>
+            <p className={`mt-4 font-display text-[18px] font-bold leading-snug text-foreground`}>
               What happens next
             </p>
             <p id="auto-fill-flow-desc" className={bodyClass}>
@@ -527,7 +496,7 @@ const STEP_LABEL: Record<Step, string> = {
   review: "Next steps",
 };
 
-function LockIcon({ className, design }: { className?: string; design: boolean }) {
+function LockIcon({ className }: { className?: string }) {
   return (
     <svg
       viewBox="0 0 16 16"
@@ -536,7 +505,7 @@ function LockIcon({ className, design }: { className?: string; design: boolean }
       strokeWidth="1.5"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className={`${className ?? ""} ${design ? "text-structure-on-canvas" : "text-slate-550"}`.trim()}
+      className={`${className ?? ""} text-structure-on-canvas`.trim()}
       aria-hidden="true"
     >
       <rect x="3" y="7" width="10" height="7" rx="1.5" />
