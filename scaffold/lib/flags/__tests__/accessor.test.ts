@@ -91,8 +91,8 @@ describe("isFlagEnabled — env override", () => {
 
 describe("isFlagEnabled — config override", () => {
   test("a config override takes precedence over an env var", () => {
-    process.env[FLAG_REGISTRY.r7_design.envVar] = "false";
-    assert.equal(isFlagEnabled("r7_design", { r7_design: "true" }), true);
+    process.env[FLAG_REGISTRY.left_sidebar.envVar] = "false";
+    assert.equal(isFlagEnabled("left_sidebar", { left_sidebar: "true" }), true);
   });
 
   test("a config override of an unset env var still works", () => {

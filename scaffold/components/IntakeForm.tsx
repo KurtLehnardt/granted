@@ -42,11 +42,6 @@ export default function IntakeForm({ onResult }: { onResult: (m: any) => void })
   // FE-02 (R7.1): sample-company picker is collapsed by default; it's a
   // secondary affordance behind a real visual break, not an inline filter row.
   const [samplesOpen, setSamplesOpen] = useState(false);
-  // FE-01 / design revamp: the CON-02 USWDS 60/30/10 restyle is now the
-  // DEFAULT on this A/B branch (previously gated behind r7_design). The v1
-  // fallback branches below are retained but no longer reachable.
-  const design = true;
-
   // FE-07: when the left sidebar is on, "Delete my data" moves into the drawer's
   // Account section, so it's dropped from here. Off (default) -> unchanged.
   const sidebar = isFlagEnabled("left_sidebar");
@@ -353,55 +348,42 @@ export default function IntakeForm({ onResult }: { onResult: (m: any) => void })
   // (border-t + vertical space), not inline with the CTA. It's a secondary
   // affordance -> navy "structure" role, never green (`bg-action` is
   // reserved for the primary CTA only).
-  const sampleSectionClass = design
-    ? "mt-6 border-t border-structure-on-canvas pt-5"
-    : "mt-6 border-t border-rule pt-5";
+  const sampleSectionClass = "mt-6 border-t border-structure-on-canvas pt-5";
 
-  const sampleTriggerClass = design
-    ? "min-h-[44px] rounded-sm border border-structure-on-canvas bg-canvas-alt px-4 py-2.5 font-mono text-[12px] uppercase tracking-eyebrow text-structure-on-canvas transition hover:bg-structure hover:text-token-white active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2"
-    : "min-h-[44px] rounded-sm border border-rule bg-white px-4 py-2.5 font-mono text-[12px] uppercase tracking-eyebrow text-slate-550 transition hover:border-federal hover:text-federal disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-federal focus-visible:ring-offset-2";
+  const sampleTriggerClass =
+    "min-h-[44px] rounded-sm border border-structure-on-canvas bg-canvas-alt px-4 py-2.5 font-mono text-[12px] uppercase tracking-eyebrow text-structure-on-canvas transition hover:bg-structure hover:text-token-white active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2";
 
   // Expanded picker panel reads as a distinct, optional area. Polish: depth
   // now comes from an elevation shadow (concentric rounded-lg outer / rounded-sm
   // items) rather than a hard navy border.
-  const samplePanelClass = design
-    ? "mt-3 rounded-lg bg-canvas-alt p-4 shadow-card"
-    : "mt-3 rounded-sm border border-rule bg-white p-4";
+  const samplePanelClass = "mt-3 rounded-lg bg-canvas-alt p-4 shadow-card";
 
-  const samplePanelIntroClass = design
-    ? "text-pretty font-body text-[13px] leading-relaxed text-foreground"
-    : "font-body text-[13px] leading-relaxed text-slate-550";
+  const samplePanelIntroClass = "text-pretty font-body text-[13px] leading-relaxed text-foreground";
 
   // List items, not chips: each is a full-width card with a label + one-line
   // description so it reads as "pick an example company," not a filter.
   // `group` + `group-hover:*` on the children lets the hover-fill state
   // (navy on r7_design, federal-blue text on v1) recolor both label and
   // blurb together, matching the required white-on-structure-fill pairing.
-  const sampleItemClass = design
-    ? "group flex min-h-[44px] w-full flex-col justify-center gap-0.5 rounded-sm border border-structure-on-canvas bg-canvas px-3.5 py-2.5 text-left transition hover:bg-structure hover:shadow-card active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2"
-    : "group flex min-h-[44px] w-full flex-col justify-center gap-0.5 rounded-sm border border-rule bg-paper px-3.5 py-2.5 text-left transition hover:border-federal disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-federal focus-visible:ring-offset-2";
+  const sampleItemClass =
+    "group flex min-h-[44px] w-full flex-col justify-center gap-0.5 rounded-sm border border-structure-on-canvas bg-canvas px-3.5 py-2.5 text-left transition hover:bg-structure hover:shadow-card active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2";
 
-  const sampleItemLabelClass = design
-    ? "font-mono text-[12px] uppercase tracking-eyebrow text-structure-on-canvas group-hover:text-token-white"
-    : "font-mono text-[12px] uppercase tracking-eyebrow text-ink group-hover:text-federal";
+  const sampleItemLabelClass =
+    "font-mono text-[12px] uppercase tracking-eyebrow text-structure-on-canvas group-hover:text-token-white";
 
-  const sampleItemBlurbClass = design
-    ? "text-pretty font-body text-[13px] leading-relaxed text-foreground group-hover:text-token-white"
-    : "font-body text-[13px] leading-relaxed text-slate-550 group-hover:text-federal";
+  const sampleItemBlurbClass =
+    "text-pretty font-body text-[13px] leading-relaxed text-foreground group-hover:text-token-white";
 
   // Error state is a legitimate semantic role -> `error` token. As a 2px
   // border (non-text, 3:1 threshold) this passes AA against canvas-alt/canvas
   // (verified ~4.37:1 in the CON-02 report); avoid it as bare small text.
-  const errorClass = design
-    ? "mt-4 rounded-r-sm border-l-2 border-error bg-canvas-alt px-4 py-3 font-body text-sm text-pretty text-foreground"
-    : "mt-4 border-l-2 border-fit-adjacent bg-white px-4 py-3 font-body text-sm text-ink";
+  const errorClass =
+    "mt-4 rounded-r-sm border-l-2 border-error bg-canvas-alt px-4 py-3 font-body text-sm text-pretty text-foreground";
 
   // R1 (FE-03): lightweight status while /api/interview is in flight — NOT
   // the big SearchProgress bar, which is reserved for the expensive
   // /api/match phase.
-  const interviewStatusClass = design
-    ? "mt-4 font-mono text-[12px] text-structure-on-canvas"
-    : "mt-4 font-mono text-[12px] text-federal";
+  const interviewStatusClass = "mt-4 font-mono text-[12px] text-structure-on-canvas";
 
   return (
     <div>
@@ -421,7 +403,6 @@ export default function IntakeForm({ onResult }: { onResult: (m: any) => void })
             externalNonce={pending?.nonce}
             onDescriptionChange={setText}
             onSubmit={handleQuestionnaireSubmit}
-            design={design}
           />
         </div>
       )}
@@ -484,14 +465,13 @@ export default function IntakeForm({ onResult }: { onResult: (m: any) => void })
         <PreSearchInterview
           questions={interviewQuestions}
           originalDescription={originalDescription}
-          design={design}
           onComplete={handleInterviewComplete}
           onSkip={handleInterviewSkip}
         />
       )}
 
       {loading && (
-        <SearchProgress design={design} realPct={progress?.pct} realLabel={progress?.label} />
+        <SearchProgress realPct={progress?.pct} realLabel={progress?.label} />
       )}
 
       {/* FE-02 (R7.1): sample-company picker — a real visual break (border-t

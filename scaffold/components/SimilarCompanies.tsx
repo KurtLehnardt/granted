@@ -23,10 +23,6 @@ const money = (n: number) =>
   n >= 1e6 ? `$${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `$${Math.round(n / 1e3)}K` : `$${n}`;
 
 export default function SimilarCompanies({ recipients }: { recipients: VerifiedRecipient[] }) {
-  // FE-01 / design revamp: the CON-02 USWDS 60/30/10 restyle is now the
-  // DEFAULT (matches OpportunityMap.tsx / OpportunityCard.tsx / EligibilityBuckets.tsx).
-  const design = true;
-
   // Defense-in-depth (per the D1 brief): re-assert the verified-only
   // guarantee at the render boundary too, independent of the pure aggregator
   // that already enforced it — a row can never reach the DOM without a real,
@@ -37,23 +33,20 @@ export default function SimilarCompanies({ recipients }: { recipients: VerifiedR
 
   if (rows.length === 0) return null;
 
-  const tableHeadRowClass = design
-    ? "border-b border-structure-on-canvas text-left text-foreground"
-    : "border-b border-rule text-left text-slate-550";
+  const tableHeadRowClass = "border-b border-structure-on-canvas text-left text-foreground";
 
-  const tableBodyRowClass = design ? "border-b border-structure-on-canvas" : "border-b border-rule/60";
+  const tableBodyRowClass = "border-b border-structure-on-canvas";
 
-  const tableMutedCellClass = design ? "py-1.5 pr-3 text-foreground" : "py-1.5 pr-3 text-slate-550";
+  const tableMutedCellClass = "py-1.5 pr-3 text-foreground";
 
   // Same underline affordance as OpportunityCard's per-match recipient links
   // (recipientLinkClass) — every row here already cleared the same
   // provenance gate, so it gets the identical "click through to the source"
   // treatment.
-  const recipientLinkClass = design
-    ? "underline underline-offset-2 hover:text-structure-on-canvas focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-1"
-    : "underline underline-offset-2 hover:text-federal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-federal focus-visible:ring-offset-1";
+  const recipientLinkClass =
+    "underline underline-offset-2 hover:text-structure-on-canvas focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-1";
 
-  const yearCellClass = design ? "py-1.5 text-right text-foreground" : "py-1.5 text-right text-slate-550";
+  const yearCellClass = "py-1.5 text-right text-foreground";
 
   return (
     <div className="overflow-x-auto">

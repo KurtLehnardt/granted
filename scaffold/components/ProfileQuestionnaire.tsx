@@ -247,8 +247,6 @@ export interface ProfileQuestionnaireProps {
    *  material field (all 13) is provided — the parent uses this to skip the
    *  R1 AI interview entirely (a fully-filled form asks zero questions). */
   onSubmit: (description: string, meta: { complete: boolean }) => void;
-  /** Dual-styling toggle, matching the rest of the app's components. */
-  design?: boolean;
 }
 
 export default function ProfileQuestionnaire({
@@ -257,7 +255,6 @@ export default function ProfileQuestionnaire({
   externalNonce,
   onDescriptionChange,
   onSubmit,
-  design = true,
 }: ProfileQuestionnaireProps) {
   const [profile, setProfile] = useState<ProfileDraft>({});
   const [values, setValues] = useState<Record<string, string>>({});
@@ -459,67 +456,45 @@ export default function ProfileQuestionnaire({
   // ---- styling: dual-class design-token / v1 pattern, matching
   // PreSearchInterview.tsx / IntakeForm.tsx exactly (same tokens, no new hex). ----
 
-  const sectionHeadingClass = design
-    ? "block font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas"
-    : "eyebrow block";
+  const sectionHeadingClass = "block font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas";
 
-  const introClass = design
-    ? "mt-1 text-pretty font-body text-[13px] leading-relaxed text-foreground"
-    : "mt-1 font-body text-[13px] leading-relaxed text-slate-550";
+  const introClass = "mt-1 text-pretty font-body text-[13px] leading-relaxed text-foreground";
 
   const fieldWrapClass = "flex flex-col";
 
-  const fieldLabelClass = design
-    ? "mb-1 block font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas"
-    : "mb-1 block font-mono text-[11px] uppercase tracking-eyebrow text-slate-550";
+  const fieldLabelClass = "mb-1 block font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas";
 
-  const textareaBigClass = design
-    ? "w-full resize-none rounded-sm border border-structure-on-canvas bg-canvas-alt p-4 font-body text-[15px] leading-relaxed text-foreground outline-none focus:border-structure-on-canvas focus:ring-2 focus:ring-structure-on-canvas disabled:cursor-not-allowed disabled:opacity-60"
-    : "w-full resize-none rounded-sm border border-rule bg-white p-4 font-body text-[15px] leading-relaxed outline-none focus:border-federal focus:ring-2 focus:ring-federal/15 disabled:cursor-not-allowed disabled:opacity-60";
+  const textareaBigClass =
+    "w-full resize-none rounded-sm border border-structure-on-canvas bg-canvas-alt p-4 font-body text-[15px] leading-relaxed text-foreground outline-none focus:border-structure-on-canvas focus:ring-2 focus:ring-structure-on-canvas disabled:cursor-not-allowed disabled:opacity-60";
 
-  const textareaSmallClass = design
-    ? "w-full resize-none rounded-sm border border-structure-on-canvas bg-canvas-alt px-3 py-2 font-body text-[14px] leading-relaxed text-foreground outline-none focus:ring-2 focus:ring-structure-on-canvas disabled:cursor-not-allowed disabled:opacity-60"
-    : "w-full resize-none rounded-sm border border-rule bg-white px-3 py-2 font-body text-[14px] leading-relaxed outline-none focus:border-federal focus:ring-2 focus:ring-federal/15 disabled:cursor-not-allowed disabled:opacity-60";
+  const textareaSmallClass =
+    "w-full resize-none rounded-sm border border-structure-on-canvas bg-canvas-alt px-3 py-2 font-body text-[14px] leading-relaxed text-foreground outline-none focus:ring-2 focus:ring-structure-on-canvas disabled:cursor-not-allowed disabled:opacity-60";
 
-  const textInputClass = design
-    ? "w-full rounded-sm border border-structure-on-canvas bg-canvas-alt px-3 py-2 font-body text-[14px] text-foreground outline-none focus:ring-2 focus:ring-structure-on-canvas disabled:cursor-not-allowed disabled:opacity-60"
-    : "w-full rounded-sm border border-rule bg-white px-3 py-2 font-body text-[14px] text-ink outline-none focus:border-federal focus:ring-2 focus:ring-federal/15 disabled:cursor-not-allowed disabled:opacity-60";
+  const textInputClass =
+    "w-full rounded-sm border border-structure-on-canvas bg-canvas-alt px-3 py-2 font-body text-[14px] text-foreground outline-none focus:ring-2 focus:ring-structure-on-canvas disabled:cursor-not-allowed disabled:opacity-60";
 
   const selectClass = textInputClass;
 
-  const radioLabelClass = design
-    ? "flex cursor-pointer items-center gap-2 font-body text-[14px] text-foreground"
-    : "flex cursor-pointer items-center gap-2 font-body text-[14px] text-ink";
+  const radioLabelClass = "flex cursor-pointer items-center gap-2 font-body text-[14px] text-foreground";
 
-  const radioInputClass = design ? "h-4 w-4 shrink-0 accent-structure" : "h-4 w-4 shrink-0 accent-federal";
+  const radioInputClass = "h-4 w-4 shrink-0 accent-structure";
 
-  const providedRowClass = design
-    ? "flex items-start justify-between gap-3 rounded-sm bg-canvas-alt px-3 py-2"
-    : "flex items-start justify-between gap-3 rounded-sm border border-rule bg-white px-3 py-2";
+  const providedRowClass = "flex items-start justify-between gap-3 rounded-sm bg-canvas-alt px-3 py-2";
 
-  const providedLabelClass = design
-    ? "block font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas"
-    : "block font-mono text-[11px] uppercase tracking-eyebrow text-slate-550";
+  const providedLabelClass = "block font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas";
 
-  const providedValueClass = design
-    ? "mt-0.5 text-pretty font-body text-[14px] leading-relaxed text-foreground"
-    : "mt-0.5 font-body text-[14px] leading-relaxed text-ink";
+  const providedValueClass = "mt-0.5 text-pretty font-body text-[14px] leading-relaxed text-foreground";
 
-  const editButtonClass = design
-    ? "shrink-0 font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas underline decoration-dotted underline-offset-2 transition hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2"
-    : "shrink-0 font-mono text-[11px] uppercase tracking-eyebrow text-federal underline decoration-dotted underline-offset-2 disabled:cursor-not-allowed disabled:opacity-40";
+  const editButtonClass =
+    "shrink-0 font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas underline decoration-dotted underline-offset-2 transition hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2";
 
-  const primaryButtonClass = design
-    ? "min-h-[44px] rounded-sm bg-action px-5 py-2.5 font-mono text-[12px] uppercase tracking-eyebrow text-token-white shadow-sm transition hover:opacity-90 hover:shadow active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2"
-    : "min-h-[44px] rounded-sm bg-ink px-5 py-2.5 font-mono text-[12px] uppercase tracking-eyebrow text-paper transition hover:bg-federal disabled:cursor-not-allowed disabled:opacity-35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-federal focus-visible:ring-offset-2";
+  const primaryButtonClass =
+    "min-h-[44px] rounded-sm bg-action px-5 py-2.5 font-mono text-[12px] uppercase tracking-eyebrow text-token-white shadow-sm transition hover:opacity-90 hover:shadow active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2";
 
-  const secondaryButtonClass = design
-    ? "min-h-[44px] rounded-sm border border-structure-on-canvas bg-canvas-alt px-4 py-2.5 font-mono text-[12px] uppercase tracking-eyebrow text-structure-on-canvas transition hover:bg-structure hover:text-token-white active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2"
-    : "min-h-[44px] rounded-sm border border-rule bg-white px-4 py-2.5 font-mono text-[12px] uppercase tracking-eyebrow text-slate-550 transition hover:border-federal hover:text-federal disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-federal focus-visible:ring-offset-2";
+  const secondaryButtonClass =
+    "min-h-[44px] rounded-sm border border-structure-on-canvas bg-canvas-alt px-4 py-2.5 font-mono text-[12px] uppercase tracking-eyebrow text-structure-on-canvas transition hover:bg-structure hover:text-token-white active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2";
 
-  const hintTextClass = design
-    ? "font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas"
-    : "font-mono text-[11px] uppercase tracking-eyebrow text-slate-550";
+  const hintTextClass = "font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas";
 
   // A required-field marker, in words rather than a bare red asterisk: an
   // asterisk-only cue needs its own screen-reader affordance anyway, and a
@@ -527,9 +502,7 @@ export default function ProfileQuestionnaire({
   // scripts/design/contrast-check.mjs's advisory table flags "DO NOT USE"
   // (fails AA at this size/weight). "Required" in the existing safe
   // structure-on-canvas eyebrow token sidesteps both problems.
-  const requiredMarkerClass = design
-    ? "ml-1 font-mono text-[10px] uppercase tracking-eyebrow text-structure-on-canvas"
-    : "ml-1 font-mono text-[10px] uppercase tracking-eyebrow text-slate-550";
+  const requiredMarkerClass = "ml-1 font-mono text-[10px] uppercase tracking-eyebrow text-structure-on-canvas";
 
   // Sub-group heading inside "A few more details" (Company & product /
   // Financials) — same eyebrow treatment as the top-level section headings.
@@ -545,19 +518,15 @@ export default function ProfileQuestionnaire({
   // in scripts/design/contrast-check.mjs's advisory table). The message text
   // stays `text-foreground` (AA-safe); the left border carries the "this is
   // an error" signal instead, same pattern as IntakeForm.tsx's errorClass.
-  const errorTextClass = design
-    ? "border-l-2 border-error pl-2 text-pretty font-body text-[12px] leading-relaxed text-foreground"
-    : "border-l-2 border-fit-adjacent pl-2 font-body text-[12px] leading-relaxed text-ink";
+  const errorTextClass =
+    "border-l-2 border-error pl-2 text-pretty font-body text-[12px] leading-relaxed text-foreground";
 
-  const clearLinkClass = design
-    ? "font-mono text-[11px] uppercase tracking-eyebrow text-foreground underline decoration-dotted underline-offset-2 transition hover:text-structure-on-canvas disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2"
-    : "font-mono text-[11px] uppercase tracking-eyebrow text-slate-550 underline decoration-dotted underline-offset-2 disabled:cursor-not-allowed disabled:opacity-40";
+  const clearLinkClass =
+    "font-mono text-[11px] uppercase tracking-eyebrow text-foreground underline decoration-dotted underline-offset-2 transition hover:text-structure-on-canvas disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2";
 
   const pasteTriggerClass = secondaryButtonClass;
 
-  const pastePanelClass = design
-    ? "mt-3 rounded-lg bg-canvas-alt p-4 shadow-card"
-    : "mt-3 rounded-sm border border-rule bg-white p-4";
+  const pastePanelClass = "mt-3 rounded-lg bg-canvas-alt p-4 shadow-card";
 
   // ---- field rendering ----
 

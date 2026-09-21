@@ -54,11 +54,9 @@ export function formatDuration(ms: number): string {
 }
 
 export default function SearchProgress({
-  design,
   realPct,
   realLabel,
 }: {
-  design?: boolean;
   realPct?: number;
   realLabel?: string;
 }) {
@@ -132,24 +130,12 @@ export default function SearchProgress({
   // green (R7.2: green = primary CTA + progress fill only). The fill animates
   // via an interruptible width transition — never a keyframe — so a real
   // milestone snaps up cleanly and never masks state.
-  const cardClass = design
-    ? "mt-4 rounded-lg bg-canvas-alt px-4 py-4 shadow-card"
-    : "mt-4 rounded-sm border border-rule bg-white px-4 py-4";
-  const trackClass = design
-    ? "h-2.5 w-full overflow-hidden rounded-full bg-canvas"
-    : "h-2.5 w-full overflow-hidden rounded-full bg-rule/50";
-  const fillClass = design
-    ? "h-full rounded-full bg-action transition-[width] duration-700 ease-out"
-    : "h-full rounded-full bg-federal transition-[width] duration-700 ease-out";
-  const phaseClass = design
-    ? "font-mono text-[12px] text-structure-on-canvas"
-    : "font-mono text-[12px] text-federal";
-  const mutedClass = design
-    ? "font-mono text-[12px] tabular-nums text-foreground"
-    : "font-mono text-[12px] tabular-nums text-slate-550";
-  const factClass = design
-    ? "mt-3 text-pretty font-body text-[13px] leading-relaxed text-foreground"
-    : "mt-3 font-body text-[13px] leading-relaxed text-ink";
+  const cardClass = "mt-4 rounded-lg bg-canvas-alt px-4 py-4 shadow-card";
+  const trackClass = "h-2.5 w-full overflow-hidden rounded-full bg-canvas";
+  const fillClass = "h-full rounded-full bg-action transition-[width] duration-700 ease-out";
+  const phaseClass = "font-mono text-[12px] text-structure-on-canvas";
+  const mutedClass = "font-mono text-[12px] tabular-nums text-foreground";
+  const factClass = "mt-3 text-pretty font-body text-[13px] leading-relaxed text-foreground";
 
   return (
     <div className={cardClass} role="status" aria-live="polite" aria-label={`Searching — ${label}`}>

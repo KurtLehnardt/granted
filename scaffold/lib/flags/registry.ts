@@ -30,7 +30,6 @@ export type FlagName =
   | "r4_progress"
   | "r6_auto_fill"
   | "r6_export_autofill"
-  | "r7_design"
   | "r8_eligibility"
   | "r9_0_mockauth"
   | "r9_supabase_auth"
@@ -105,12 +104,6 @@ export const FLAG_REGISTRY: Record<FlagName, FlagDefinition> = {
       "serialization of the already-assembled package into a signed .granted.json download for the " +
       "Granted browser extension (T7). No server call, no server retention (§5.3).",
     envVar: "NEXT_PUBLIC_FLAG_R6_EXPORT_AUTOFILL",
-  },
-  r7_design: {
-    name: "r7_design",
-    requirement: "R7",
-    description: "New design-token-driven landing page (sample picker, 60/30/10 palette, etc).",
-    envVar: "NEXT_PUBLIC_FLAG_R7_DESIGN",
   },
   r8_eligibility: {
     name: "r8_eligibility",

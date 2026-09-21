@@ -23,7 +23,6 @@ import { CompanyProfileSchema, type InterviewAnswer } from "@/lib/contracts/comp
 export interface PreSearchInterviewProps {
   questions: InterviewQuestion[];
   originalDescription: string;
-  design: boolean;
   onComplete: (enrichedDescription: string) => void;
   onSkip: () => void;
 }
@@ -37,7 +36,6 @@ function isOtherValue(value: string): boolean {
 export default function PreSearchInterview({
   questions,
   originalDescription,
-  design,
   onComplete,
   onSkip,
 }: PreSearchInterviewProps) {
@@ -134,58 +132,38 @@ export default function PreSearchInterview({
   // Polish: elevation shadows replace the broken /30 and /20 alpha borders
   // (Tailwind can't compute alpha on CSS-var-backed token colors). Concentric
   // radii: card (rounded-lg) → fieldset (rounded-md) → inputs (rounded-sm).
-  const cardClass = design
-    ? "mt-4 rounded-lg bg-canvas-alt px-4 py-4 shadow-card"
-    : "mt-4 rounded-sm border border-rule bg-white px-4 py-4";
+  const cardClass = "mt-4 rounded-lg bg-canvas-alt px-4 py-4 shadow-card";
 
-  const headingClass = design
-    ? "block mb-3 font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas"
-    : "eyebrow block mb-3";
+  const headingClass = "block mb-3 font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas";
 
-  const introClass = design
-    ? "text-pretty font-body text-[13px] leading-relaxed text-foreground"
-    : "font-body text-[13px] leading-relaxed text-slate-550";
+  const introClass = "text-pretty font-body text-[13px] leading-relaxed text-foreground";
 
-  const fieldsetClass = design
-    ? "rounded-md bg-canvas p-4 shadow-card"
-    : "rounded-sm border border-rule bg-paper p-4";
+  const fieldsetClass = "rounded-md bg-canvas p-4 shadow-card";
 
-  const legendClass = design
-    ? "text-balance px-1 font-body text-[15px] leading-relaxed text-foreground"
-    : "px-1 font-body text-[15px] leading-relaxed text-ink";
+  const legendClass = "text-balance px-1 font-body text-[15px] leading-relaxed text-foreground";
 
-  const rationaleClass = design
-    ? "mt-1 text-pretty font-body text-[12px] leading-relaxed text-structure-on-canvas"
-    : "mt-1 font-body text-[12px] leading-relaxed text-slate-550";
+  const rationaleClass = "mt-1 text-pretty font-body text-[12px] leading-relaxed text-structure-on-canvas";
 
-  const optionLabelClass = design
-    ? "flex cursor-pointer items-center gap-2 font-body text-[14px] text-foreground"
-    : "flex cursor-pointer items-center gap-2 font-body text-[14px] text-ink";
+  const optionLabelClass = "flex cursor-pointer items-center gap-2 font-body text-[14px] text-foreground";
 
-  const optionInputClass = design ? "h-4 w-4 shrink-0 accent-structure" : "h-4 w-4 shrink-0 accent-federal";
+  const optionInputClass = "h-4 w-4 shrink-0 accent-structure";
 
-  const smallLabelClass = design
-    ? "mb-1 block font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas"
-    : "mb-1 block font-mono text-[11px] uppercase tracking-eyebrow text-slate-550";
+  const smallLabelClass = "mb-1 block font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas";
 
-  const textInputClass = design
-    ? "w-full rounded-sm border border-structure-on-canvas bg-canvas-alt px-3 py-2 font-body text-[14px] text-foreground outline-none focus:ring-2 focus:ring-structure-on-canvas"
-    : "w-full rounded-sm border border-rule bg-white px-3 py-2 font-body text-[14px] text-ink outline-none focus:border-federal focus:ring-2 focus:ring-federal/15";
+  const textInputClass =
+    "w-full rounded-sm border border-structure-on-canvas bg-canvas-alt px-3 py-2 font-body text-[14px] text-foreground outline-none focus:ring-2 focus:ring-structure-on-canvas";
 
-  const secondaryButtonClass = design
-    ? "min-h-[44px] rounded-sm border border-structure-on-canvas bg-canvas-alt px-4 py-2.5 font-mono text-[12px] uppercase tracking-eyebrow text-structure-on-canvas transition hover:bg-structure hover:text-token-white active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2"
-    : "min-h-[44px] rounded-sm border border-rule bg-white px-4 py-2.5 font-mono text-[12px] uppercase tracking-eyebrow text-slate-550 transition hover:border-federal hover:text-federal disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-federal focus-visible:ring-offset-2";
+  const secondaryButtonClass =
+    "min-h-[44px] rounded-sm border border-structure-on-canvas bg-canvas-alt px-4 py-2.5 font-mono text-[12px] uppercase tracking-eyebrow text-structure-on-canvas transition hover:bg-structure hover:text-token-white active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2";
 
   // The ONLY green/primary-fill surface in this component — mirrors
   // IntakeForm's primaryButtonClass exactly, reserved for the single final
   // search action.
-  const primaryButtonClass = design
-    ? "min-h-[44px] rounded-sm bg-action px-5 py-2.5 font-mono text-[12px] uppercase tracking-eyebrow text-token-white shadow-sm transition hover:opacity-90 hover:shadow active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2"
-    : "min-h-[44px] rounded-sm bg-ink px-5 py-2.5 font-mono text-[12px] uppercase tracking-eyebrow text-paper transition hover:bg-federal disabled:cursor-not-allowed disabled:opacity-35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-federal focus-visible:ring-offset-2";
+  const primaryButtonClass =
+    "min-h-[44px] rounded-sm bg-action px-5 py-2.5 font-mono text-[12px] uppercase tracking-eyebrow text-token-white shadow-sm transition hover:opacity-90 hover:shadow active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2";
 
-  const reviewTextareaClass = design
-    ? "w-full resize-y rounded-sm border border-structure-on-canvas bg-canvas-alt p-4 font-body text-[15px] leading-relaxed text-foreground outline-none focus:border-structure-on-canvas focus:ring-2 focus:ring-structure-on-canvas"
-    : "w-full resize-y rounded-sm border border-rule bg-white p-4 font-body text-[15px] leading-relaxed outline-none focus:border-federal focus:ring-2 focus:ring-federal/15";
+  const reviewTextareaClass =
+    "w-full resize-y rounded-sm border border-structure-on-canvas bg-canvas-alt p-4 font-body text-[15px] leading-relaxed text-foreground outline-none focus:border-structure-on-canvas focus:ring-2 focus:ring-structure-on-canvas";
 
   if (phase === "review") {
     return (
