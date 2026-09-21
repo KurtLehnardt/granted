@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { Bricolage_Grotesque, Inter, IBM_Plex_Mono } from "next/font/google";
 import { AuthProvider } from "@/components/AuthProvider";
 import { SettingsPanelProvider } from "@/components/AppMenu";
-import { BillingProvider } from "@/components/BillingProvider";
 import { SearchDraftProvider } from "@/components/SearchDraftProvider";
 import { AnalyticsProvider } from "@/components/AnalyticsProvider";
 import { BRAND } from "@/lib/brand";
@@ -39,30 +38,23 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           prop-drilling through OpportunityMap.
         */}
         {/*
-          BillingProvider (FE-07) and SearchDraftProvider (FE-07) are the same
-          kind of always-on, no-UI, no-network passive contexts as the two
-          above: BillingProvider holds the local MOCK billing tier that the
-          drawer's Billing section and the OpportunityCard padlocks read (so a
-          tier change reflects live); SearchDraftProvider carries the drawer's
-          "Use this" text into IntakeForm's search box. Mounting them
-          unconditionally does not change flag-off behavior — nothing reads them
-          in a way that alters today's UI unless the left_sidebar flag is on.
+          SearchDraftProvider (FE-07) is an always-on, no-UI, no-network passive
+          context: it carries the drawer's "Use this" text into IntakeForm's
+          search box. Mounting it unconditionally doesn't change flag-off behavior.
         */}
         {/*
           H5 — AnalyticsProvider (PLT-03 / R10.1). Same always-on, passive,
-          no-UI/no-network context posture as the providers above: it only hands
-          feature code the typed funnel-event builders. Every emit still no-ops
-          unless the `r10_analytics` flag is on (gating lives in track()), so
-          mounting it unconditionally does not change flag-off behavior.
+          no-UI/no-network context posture: it only hands feature code the typed
+          funnel-event builders. Every emit still no-ops unless the
+          `r10_analytics` flag is on (gating lives in track()), so mounting it
+          unconditionally does not change flag-off behavior.
         */}
         <AuthProvider>
-          <BillingProvider>
-            <SearchDraftProvider>
-              <SettingsPanelProvider>
-                <AnalyticsProvider>{children}</AnalyticsProvider>
-              </SettingsPanelProvider>
-            </SearchDraftProvider>
-          </BillingProvider>
+          <SearchDraftProvider>
+            <SettingsPanelProvider>
+              <AnalyticsProvider>{children}</AnalyticsProvider>
+            </SettingsPanelProvider>
+          </SearchDraftProvider>
         </AuthProvider>
       </body>
     </html>

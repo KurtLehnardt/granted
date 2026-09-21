@@ -28,7 +28,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BRAND } from "@/lib/brand";
 import { useAuth } from "@/components/AuthProvider";
-import { useBilling } from "@/components/BillingProvider";
 import { isFlagEnabled } from "@/lib/flags";
 import { useSearchDraft } from "@/components/SearchDraftProvider";
 import { useDialogA11y } from "@/components/useDialogA11y";
@@ -36,7 +35,6 @@ import { useMediaQuery } from "@/components/useMediaQuery";
 import { useSidebar } from "@/components/SidebarProvider";
 import SettingsForm from "@/components/SettingsForm";
 import { clearAllLocalData } from "@/lib/mockAuth";
-import { BILLING_TIERS, type BillingTier } from "@/lib/billing/mockBilling";
 import {
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
@@ -94,12 +92,6 @@ const rowActionReveal =
 // Bare (un-boxed) icon control — NO border at rest, just a subtle hover wash.
 const iconBtnClass =
   "flex h-9 w-9 items-center justify-center rounded-sm text-structure-on-canvas transition hover:bg-canvas-alt active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas";
-
-function tierCardClass(active: boolean) {
-  const base =
-    "flex w-full flex-col gap-1 rounded-sm border px-3 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-structure-on-canvas";
-  return `${base} ${active ? "border-structure-on-canvas bg-canvas-alt" : "border-structure-on-canvas/40 bg-canvas hover:bg-canvas-alt"}`;
-}
 
 // ---------------------------------------------------------------------------
 // Entry point: pick the docked (desktop) vs overlay (mobile) presentation.
@@ -372,7 +364,6 @@ function Section({
 function SidebarSections() {
   const { setMobileOpen, setSectionOpen } = useSidebar();
   const { user, consent, signOut, setConsent } = useAuth();
-  const { tier, setTier } = useBilling();
   const { requestSearchDraft } = useSearchDraft();
 
   // Local stores (SSR-safe: start empty, hydrate after mount).
@@ -439,7 +430,6 @@ function SidebarSections() {
     setGrants([]);
     setDescriptions([]);
     setVersionDrafts({});
-    setTier("free");
     signOut();
     setConsent(false);
     setConfirming(null);
@@ -775,7 +765,7 @@ function SidebarSections() {
           {confirming === "delete" ? (
             <div className={rowCardClass} role="group" aria-label="Confirm delete my data">
               <p className={noteClass}>
-                Delete all locally-stored data (settings, grants, descriptions, tier, sign-in)?
+                Delete all locally-stored data (settings, grants, descriptions, sign-in)?
                 This can&apos;t be undone.
               </p>
               <div className="mt-2 flex items-center gap-3">
@@ -847,44 +837,6 @@ function SidebarSections() {
         </div>
       </Section>
 
-      {/* 5 — Billing (MOCK) — hidden unless commercial_ui is on ----------- */}
-      {isFlagEnabled("commercial_ui") && (
-      <Section id="billing" label="Billing">
-        <p className={noteClass}>
-          Mock plans — selecting one is a local demo switch only. No payment is taken and no
-          server is contacted. It just previews how each plan would unlock features.
-        </p>
-        <ul className="mt-3 flex flex-col gap-2">
-          {BILLING_TIERS.map((t) => {
-            const active = tier === t.id;
-            return (
-              <li key={t.id}>
-                <button
-                  type="button"
-                  onClick={() => setTier(t.id as BillingTier)}
-                  aria-pressed={active}
-                  className={tierCardClass(active)}
-                >
-                  <span className="flex items-center justify-between gap-2">
-                    <span className="font-mono text-[12px] uppercase tracking-eyebrow text-foreground">
-                      {t.label}
-                      {active ? " · current" : ""}
-                    </span>
-                    <span className="font-display text-[15px] font-bold text-foreground">
-                      {t.priceLabel}
-                    </span>
-                  </span>
-                  <span className="font-body text-[12px] leading-relaxed text-foreground">
-                    {t.blurb}
-                  </span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-        <p className={`mt-3 ${noteClass}`}>This is a mock. No real charge, ever.</p>
-      </Section>
-      )}
     </>
   );
 }
