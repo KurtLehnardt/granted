@@ -47,7 +47,7 @@ function cssEscapeAttrValue(value: string): string {
  * (plain inputs/selects/textareas, never `position:absolute` off-screen
  * tricks the recon would have flagged separately).
  */
-function isVisibleAndEnabled(el: Element): boolean {
+export function isVisibleAndEnabled(el: Element): boolean {
   if (!(el instanceof HTMLElement)) return true;
   if (el.hasAttribute("disabled")) return false;
   if (el.hasAttribute("readonly")) return false;

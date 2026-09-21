@@ -2,6 +2,7 @@ import type { FieldBinding, PortalFieldMap } from "../config/schema";
 import type { AssembledPackage } from "../lib/contracts/package";
 import type { PrefilledField } from "../lib/contracts/applicationForms";
 import { resolve, UNRESOLVED } from "./selectorResolver";
+import { isStandingField, resolveStandingField } from "./standingFields";
 import { writeValue, readValue, normalizeForCompare } from "./domIO";
 import { applyTransform } from "../lib/transforms";
 import { flagField, clearAllFlags } from "./flagOverlay";
@@ -192,7 +193,16 @@ export function runFill(input: RunFillInput): RunFillOutput {
 
     // 5. Grounded (INV-3).
     const intended = applyTransform(field.value ?? "", binding.transform);
-    const el = resolve(binding.selector, root);
+    let el = resolve(binding.selector, root);
+    // Heuristic fallback for STANDING fields (org identity + registration facts
+    // that are the same on every grant): when the portal's exact selector isn't
+    // captured, locate the field by its semantics (autocomplete / label keyword),
+    // filling ONLY on a single unambiguous match. Everything below (credential
+    // refusal, idempotency guard, read-back verification) still applies, so a
+    // heuristic hit is held to the same safety bar as a configured selector.
+    if (el === UNRESOLVED && isStandingField(binding.packageKey)) {
+      el = resolveStandingField(binding.packageKey as string, root);
+    }
     if (el === UNRESOLVED) {
       record({
         packageKey: binding.packageKey,
