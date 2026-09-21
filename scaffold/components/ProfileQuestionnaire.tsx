@@ -27,18 +27,9 @@ import { readJSON, writeJSON } from "@/lib/localStore";
  * already provides (`isFieldProvided`) NEVER renders as an input — it renders
  * as a read-only summary row with an explicit "Edit" affordance. This is true
  * whether the value came from the user typing it, from a restored
- * localStorage draft, or from the free-text AUTOFILL below. A fully-filled
- * profile therefore has ZERO gaps left to ask about; the caller uses the
- * `complete` flag on `onSubmit` to skip the R1 AI interview entirely for that
- * case (see components/IntakeForm.tsx).
- *
- * AUTOFILL: a user can still paste free text. It POSTs to
- * `/api/extract-profile` (a thin wrapper around the live pipeline's
- * `extractProfile`, `lib/claude.ts`) and maps the result onto these same 13
- * fields at `model_inferred` provenance — never silently overwriting a
- * `user_stated`/`verified` fact already on the form (mirrors the
- * never-overwrite guard in `lib/interview/mergeAnswers.ts`). The user then
- * confirms/edits each pre-filled field like any other.
+ * localStorage draft. A fully-filled profile therefore has ZERO gaps left to
+ * ask about; the caller uses the `complete` flag on `onSubmit` to skip the R1 AI
+ * interview entirely for that case (see components/IntakeForm.tsx).
  *
  * PERSISTENCE (§5.3 — localStorage-only, no server retention): the whole
  * draft profile lives in `localStorage` via `lib/localStore.ts` and is never
@@ -260,10 +251,6 @@ export default function ProfileQuestionnaire({
   const [values, setValues] = useState<Record<string, string>>({});
   const [editingFields, setEditingFields] = useState<Set<string>>(new Set());
   const [showOptional, setShowOptional] = useState(false);
-  const [pasteOpen, setPasteOpen] = useState(false);
-  const [pasteText, setPasteText] = useState("");
-  const [extracting, setExtracting] = useState(false);
-  const [extractError, setExtractError] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
   // UX polish: which fields the user has actually blurred at least once —
   // gates inline "required" validation so a fresh form never opens already
@@ -401,45 +388,6 @@ export default function ProfileQuestionnaire({
     });
   }
 
-  async function runAutofill() {
-    const text = pasteText.trim();
-    if (text.length < 20) {
-      setExtractError("Add a bit more detail before autofilling — a sentence or two is enough.");
-      return;
-    }
-    setExtracting(true);
-    setExtractError(null);
-    try {
-      const res = await fetch("/api/extract-profile", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ description: text }),
-      });
-      const j = await res.json().catch(() => null);
-      if (!res.ok) {
-        setExtractError(j?.error ?? "Autofill didn't work — you can still fill the form by hand.");
-        return;
-      }
-      // The pasted text itself is user_stated (they wrote it); everything the
-      // extractor derived from it is model_inferred until confirmed/edited.
-      commitField("raw_text", text, "user_stated");
-      const sp = j?.profile as StartupProfile | null | undefined;
-      if (sp) {
-        const mapped = mapStartupProfileToValues(sp);
-        for (const [field, value] of Object.entries(mapped)) {
-          if (field === "raw_text") continue;
-          commitField(field, value, "model_inferred");
-        }
-      }
-      setPasteOpen(false);
-      setPasteText("");
-    } catch {
-      setExtractError("Autofill didn't work — you can still fill the form by hand.");
-    } finally {
-      setExtracting(false);
-    }
-  }
-
   function handleSubmit() {
     if (!canSubmit) return;
     onSubmit(buildDescriptionFromProfile(profile), { complete: isComplete });
@@ -524,9 +472,6 @@ export default function ProfileQuestionnaire({
   const clearLinkClass =
     "font-mono text-[11px] uppercase tracking-eyebrow text-foreground underline decoration-dotted underline-offset-2 transition hover:text-structure-on-canvas disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2";
 
-  const pasteTriggerClass = secondaryButtonClass;
-
-  const pastePanelClass = "mt-3 rounded-lg bg-canvas-alt p-4 shadow-card";
 
   // ---- field rendering ----
 
@@ -736,52 +681,6 @@ export default function ProfileQuestionnaire({
 
   return (
     <div>
-      {/* Free-text AUTOFILL — a secondary affordance behind a visual break,
-          same posture as IntakeForm's sample-company picker. */}
-      <div>
-        <button
-          type="button"
-          onClick={() => setPasteOpen((o) => !o)}
-          aria-expanded={pasteOpen}
-          aria-controls="pq-paste-panel"
-          disabled={disabled}
-          className={pasteTriggerClass}
-        >
-          {pasteOpen ? "Hide paste box" : "Paste a description to autofill"}
-        </button>
-
-        {pasteOpen && (
-          <div id="pq-paste-panel" className={pastePanelClass}>
-            <label htmlFor="pq-paste" className={fieldLabelClass}>
-              Paste your company description
-            </label>
-            <textarea
-              id="pq-paste"
-              rows={4}
-              value={pasteText}
-              disabled={disabled || extracting}
-              onChange={(e) => setPasteText(e.target.value)}
-              className={`${textareaBigClass} mt-1`}
-            />
-            <div className="mt-3 flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                onClick={runAutofill}
-                disabled={disabled || extracting || pasteText.trim().length < 20}
-                className={secondaryButtonClass}
-              >
-                {extracting ? "Reading…" : "Autofill fields"}
-              </button>
-              {extractError && (
-                <span role="alert" className={errorTextClass}>
-                  {extractError}
-                </span>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-
       {/* Required fields — the search needs these to route at all. Grid:
           single column on mobile (each field always full-width), two
           columns from `sm:` up, with the description box and any other
