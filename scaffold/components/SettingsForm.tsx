@@ -72,6 +72,10 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
 
   return (
     <form onSubmit={handleSave}>
+      <p className="mb-4 font-body text-[12px] leading-relaxed text-foreground opacity-80">
+        These details are self-reported and stored on this device. Granted never connects to
+        SAM.gov — the checkboxes are your own attestation, not a live check.
+      </p>
       <fieldset className={fieldWrapClass}>
         <legend className={legendClass}>Active SAM.gov registration</legend>
         <div className="mt-2 flex items-center gap-4">
@@ -140,7 +144,7 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
             checked={form.aorOnFile}
             onChange={(e) => update("aorOnFile", e.target.checked)}
           />
-          Confirm on file with SAM.gov
+          This AOR is on file in SAM.gov
         </label>
       </fieldset>
 
@@ -152,7 +156,7 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
             checked={form.eBizPocOnFile}
             onChange={(e) => update("eBizPocOnFile", e.target.checked)}
           />
-          Confirm the Electronic Business POC has delegated AOR authority
+          The E-Biz POC has delegated AOR authority in SAM.gov
         </label>
       </fieldset>
 
