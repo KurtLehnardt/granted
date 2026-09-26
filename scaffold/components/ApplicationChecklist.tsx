@@ -164,8 +164,8 @@ export function buildNextSteps(opportunity: Opportunity, allRegistrationsSatisfi
   );
   steps.push(
     allRegistrationsSatisfied
-      ? "Registrations below are marked satisfied — confirm they're still active/current in SAM.gov."
-      : "Complete the registrations checklist below — most federal portals block submission without them.",
+      ? "Your registrations in Settings are marked satisfied — confirm they're still active/current in SAM.gov."
+      : "Complete the registrations checklist in Settings — most federal portals block submission without them.",
   );
   steps.push("Draft answers to the questions below and gather the documents listed.");
   steps.push("Have your organization's AOR review the draft before anything is submitted.");
