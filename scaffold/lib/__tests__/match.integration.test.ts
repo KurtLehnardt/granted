@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import { buildOpportunityMap, type BuildDeps, type StepEvent } from "../match";
 import { screen as realScreen } from "../eligibility/screen";
-import type { Opportunity, StartupProfile } from "../types";
+import type { Opportunity, StartupProfile, Match } from "../types";
 
 /**
  * Hermetic pipeline tests for `buildOpportunityMap` (H6) + the C1 regression.
@@ -198,4 +198,75 @@ test("a screen() throw for one match never breaks the search: that match omits e
   assert.equal(sbir!.eligibility, undefined, "its eligibility field is simply omitted");
   assert.ok(other, "other matches are unaffected");
   assert.ok(other!.eligibility, "and keep their eligibility determination");
+});
+
+// --- Progressive rendering: onMatch fires per-batch, before the final result -
+
+test("onMatch: fires once per scored candidate, each preview matching its eventual final Match", async () => {
+  const previews: Match[] = [];
+  const map = await buildOpportunityMap(
+    fixtureProfile.description,
+    undefined,
+    deps({
+      // Real per-batch shape: call onBatch once per candidate (as if each were
+      // its own batch), handing back THIS batch's own assessments — exactly
+      // what the real explainMatches does, unlike the other fixtures in this
+      // file (which ignore onBatch entirely).
+      explainMatches: async (_p, candidates, _meter, onBatch) => {
+        const out = candidates.map((c) => assess(c.id));
+        for (let i = 0; i < out.length; i++) {
+          onBatch?.([out[i]], i + 1, out.length);
+        }
+        return out;
+      },
+    }),
+    undefined,
+    undefined,
+    undefined,
+    (m) => previews.push(m),
+  );
+
+  assert.equal(previews.length, fixtureCorpus.length, "one preview per scored candidate");
+  const previewIds = previews.map((m) => m.opportunity.id).sort();
+  const finalIds = map.matches.map((m) => m.opportunity.id).sort();
+  assert.deepEqual(previewIds, finalIds, "preview candidates match the final result exactly");
+  for (const p of previews) {
+    const final = map.matches.find((m) => m.opportunity.id === p.opportunity.id)!;
+    assert.equal(p.score, final.score, "a preview's score matches its final score");
+    assert.equal(p.tier, final.tier, "a preview's tier matches its final tier");
+    // Eligibility/discernment are added AFTER scoring (need the whole scored
+    // set / a shared CompanyProfile) — a preview must never carry them, so the
+    // UI can't mistake an early, incomplete Match for the fully-assembled one.
+    assert.equal(p.eligibility, undefined, "a preview never carries eligibility (added after scoring)");
+  }
+});
+
+test("onMatch is best-effort: a throwing callback never fails the search or drops candidates", async () => {
+  const map = await buildOpportunityMap(
+    fixtureProfile.description,
+    undefined,
+    deps({
+      explainMatches: async (_p, candidates, _meter, onBatch) => {
+        const out = candidates.map((c) => assess(c.id));
+        for (let i = 0; i < out.length; i++) onBatch?.([out[i]], i + 1, out.length);
+        return out;
+      },
+    }),
+    undefined,
+    undefined,
+    undefined,
+    () => { throw new Error("preview renderer boom"); },
+  );
+  assert.equal(map.matches.length, fixtureCorpus.length, "every candidate still lands in the final result");
+});
+
+test("onMatch is optional: omitting it changes nothing about the final result", async () => {
+  const map = await buildOpportunityMap(fixtureProfile.description, undefined, deps({
+    explainMatches: async (_p, candidates, _meter, onBatch) => {
+      const out = candidates.map((c) => assess(c.id));
+      for (let i = 0; i < out.length; i++) onBatch?.([out[i]], i + 1, out.length);
+      return out;
+    },
+  }));
+  assert.equal(map.matches.length, fixtureCorpus.length);
 });

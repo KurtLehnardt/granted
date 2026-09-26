@@ -1,8 +1,9 @@
 "use client";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import IntakeForm from "@/components/IntakeForm";
-import OpportunityMap from "@/components/OpportunityMap";
-import type { OpportunityMap as MapT } from "@/lib/types";
+import OpportunityMap, { CARD_CAP, Boundary } from "@/components/OpportunityMap";
+import OpportunityCard from "@/components/OpportunityCard";
+import type { OpportunityMap as MapT, Match } from "@/lib/types";
 import AppMenu from "@/components/AppMenu";
 import { isFlagEnabled } from "@/lib/flags";
 import { SidebarProvider, useSidebar } from "@/components/SidebarProvider";
@@ -34,6 +35,39 @@ function HomeShell({ sidebarOn }: { sidebarOn: boolean }) {
   // it unconditionally is safe and the flag-OFF render stays byte-identical.
   const { expanded, width, resizing } = useSidebar();
   const analytics = useAnalytics();
+
+  // Progressive results: while a search is running, cards stream in one match
+  // at a time (IntakeForm's onMatchPreview, fed by the server's per-batch
+  // "match" events) instead of the user staring at a bare progress bar until
+  // the whole candidate set finishes scoring. `loading` mirrors IntakeForm's
+  // own state (via onLoadingChange) so this component knows when to show the
+  // growing preview list + "finding more" spinner instead of the last
+  // completed `map` — and when to hand back off to it.
+  const [loading, setLoading] = useState(false);
+  const [previewMatches, setPreviewMatches] = useState<Match[]>([]);
+
+  function handleLoadingChange(isLoading: boolean) {
+    setLoading(isLoading);
+    // Reset at the START of every run (not the end): on success `map` is about
+    // to be replaced by the complete, authoritative result anyway; on failure
+    // IntakeForm's own error UI takes over and any partial preview from the
+    // failed attempt is stale, not a real result — either way it must not
+    // linger into the NEXT run.
+    if (isLoading) setPreviewMatches([]);
+  }
+
+  function handleMatchPreview(m: Match) {
+    setPreviewMatches((prev) => {
+      // A "none"-tier match would never make the finished map's card list
+      // either (OpportunityMap filters the same way) — skip it here so the
+      // preview never shows a card that's about to vanish once scoring
+      // finishes. Capped at the same CARD_CAP the finished map settles on, so
+      // the visible card count never visibly SHRINKS when the real map
+      // replaces this preview.
+      if (m.tier === "none" || prev.length >= CARD_CAP) return prev;
+      return [...prev, m];
+    });
+  }
 
   // Arch review MEDIUM: persist completed runs so a reload doesn't lose the
   // ~2-minute result. Restore the most recent run once on mount if the user
@@ -134,13 +168,59 @@ function HomeShell({ sidebarOn }: { sidebarOn: boolean }) {
         </p>
       </header>
 
-      <IntakeForm onResult={setMap} />
+      <IntakeForm
+        onResult={setMap}
+        onLoadingChange={handleLoadingChange}
+        onMatchPreview={handleMatchPreview}
+      />
 
-      {map && (
-        <div className="mt-14">
-          <OpportunityMap map={map} />
-        </div>
+      {/* While a search is running, show cards as they're scored instead of the
+          last completed map (which is about to be replaced anyway — showing it
+          alongside a growing, different set of incoming cards would just be
+          confusing). The instant loading ends, this hands off to the finished,
+          authoritative `map` below — on success that's the fresh result; on
+          failure it's simply whatever `map` already held before this run. */}
+      {loading ? (
+        previewMatches.length > 0 && (
+          <Boundary>
+            <div className="mt-14">
+              <p className="font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas">
+                Your opportunity map
+              </p>
+              <div className="mt-4 space-y-3">
+                {previewMatches.map((m, i) => (
+                  <OpportunityCard key={m.opportunity?.id ?? i} m={m} index={i} />
+                ))}
+              </div>
+              <div
+                className="mt-4 flex items-center gap-2 font-mono text-[12px] text-foreground"
+                role="status"
+                aria-live="polite"
+              >
+                <PreviewSpinner />
+                Finding more matching grants&hellip;
+              </div>
+            </div>
+          </Boundary>
+        )
+      ) : (
+        map && (
+          <div className="mt-14">
+            <OpportunityMap map={map} />
+          </div>
+        )
       )}
     </main>
+  );
+}
+
+/** Small inline spinner for the progressive-results "finding more" status row
+ *  (mirrors the loading-state spinner in CompetitorAnalysisModal.tsx). */
+function PreviewSpinner() {
+  return (
+    <svg className="h-3.5 w-3.5 animate-spin text-structure-on-canvas" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+      <path className="opacity-90" d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+    </svg>
   );
 }
