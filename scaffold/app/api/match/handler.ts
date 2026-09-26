@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { buildOpportunityMap, type StepEvent } from "@/lib/match";
+import type { Match } from "@/lib/types";
 import { rateLimit, clientKey } from "@/lib/security/rateLimit";
 import { OpportunityMapSchema } from "@/lib/contracts/opportunityMap";
 import precomputed from "@/data/precomputed.json";
@@ -151,6 +152,12 @@ export async function handleMatchRequest(
           ac.signal,
           companyFacts,
           maxCandidates,
+          // Progressive rendering: stream each match the instant its batch is
+          // scored, so the client can render cards as they're ready instead of
+          // waiting for the whole candidate set. Purely additive — the client
+          // still gets the authoritative, complete `result.map` at the end;
+          // these are only an early preview of matches that map will contain.
+          (m: Match) => send({ type: "match", match: m }),
         );
         // Log any boundary drift for visibility, but ALWAYS stream the real,
         // completed map — never dead-end a finished search on schema strictness.

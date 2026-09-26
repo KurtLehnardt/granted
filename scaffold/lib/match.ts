@@ -1,5 +1,5 @@
 import { embed, cosine, assertEmbeddingDimsMatch } from "./embed";
-import { extractProfile, explainMatches, explainMatchesTwoPass, explainWeakField } from "./claude";
+import { extractProfile, explainMatches, explainMatchesTwoPass, explainWeakField, type Assessment } from "./claude";
 import type { Opportunity, OpportunityMap, StartupProfile, Match, Tier, AwardHistory } from "./types";
 import { screen } from "./eligibility/screen";
 import { annotateFreshness } from "./eligibility/freshness";
@@ -232,6 +232,32 @@ export function clampCandidateCount(requested: number | null | undefined): numbe
   return Math.min(Math.max(4, Math.floor(requested)), def);
 }
 
+/**
+ * Build a `Match` from one scored candidate. Pure — no eligibility screening,
+ * no discernment verdict (both need context beyond a single assessment: a
+ * shared `companyProfile` / the whole scored set respectively) and no funding/
+ * summary aggregation (whole-set-only). This is deliberately the SAME shape
+ * used both for the final, authoritative `matches` array AND for the
+ * progressive per-batch preview emitted while scoring is still in flight, so
+ * a streamed-in card never has to change shape once the full map replaces it.
+ */
+function baseMatchFromAssessment(a: Assessment, opp: Opportunity, profile: StartupProfile): Match {
+  return {
+    opportunity: opp,
+    // Derive tier from the calibrated score thresholds so card tiers and the
+    // summary's high-potential count (score >= scoreFloor) stay consistent.
+    tier: tierFromScore(a.score),
+    score: a.score,
+    criteria: a.criteria ?? [],
+    whyCare: a.whyCare,
+    whyFit: a.whyFit,
+    whyIneligible: a.whyIneligible,
+    whatToVerify: a.whatToVerify,
+    whatToDoNext: a.whatToDoNext,
+    history: historyFor(opp.id, profile.location),
+  };
+}
+
 export async function buildOpportunityMap(
   description: string,
   onStep?: (e: StepEvent) => void,
@@ -239,6 +265,11 @@ export async function buildOpportunityMap(
   signal?: AbortSignal,
   companyFacts?: KnownCompanyFacts,
   maxCandidates?: number,
+  // Progressive rendering: fired with a preview Match as soon as ITS batch is
+  // scored, instead of the caller waiting for the whole candidate set. Optional
+  // and best-effort — never affects the authoritative `matches` this function
+  // returns, which is always built from the complete, awaited scorer result.
+  onMatch?: (m: Match) => void,
 ): Promise<OpportunityMap> {
   const d: BuildDeps = { ...REAL_DEPS, ...deps };
   // Progress is best-effort: a reporting error must never fail the search.
@@ -340,40 +371,52 @@ export async function buildOpportunityMap(
   // Per-batch progress: interpolate between the score milestone (52) and the
   // assemble milestone (90) as batches settle, so the ~83s scoring stage no
   // longer sits frozen at 52%.
-  const onScoreBatch = (done: number, total: number) => {
+  const emitScoreProgress = (done: number, total: number) => {
     const pct = total > 0 ? 52 + Math.round((done / total) * 36) : 52;
     step({ key: "score-progress", label: `Scored ${done} of ${total} programs`, pct, detail: `${done}/${total}` });
   };
+  // `byId` only depends on `scored` (already final), so it's built once here —
+  // used both by the progressive preview below (as each batch lands) and by
+  // the final `matches` assembly after every batch has settled.
+  const byId = new Map(scored.map((s) => [s.o.id, s.o]));
   // E3 (flag `e3_two_pass`, default OFF): when ON, run the cheap-then-narrative
   // two-pass scorer (Pass A scores all candidates on the cheap model; Pass B
   // writes full narratives only for those clearing the render threshold). When
   // OFF, the single-pass `explainMatches` runs exactly as before — identical
   // args, byte-unchanged behavior. Both return the same `Assessment[]` shape, so
   // everything below (tiering, eligibility, summary) is untouched.
+  //
+  // Progressive rendering is wired ONLY into the single-pass (default) path:
+  // its `onBatch` hands back the actual assessments a batch just produced (not
+  // just a running count), so we can build+emit a preview Match for each one
+  // the moment its batch lands. The two-pass path keeps its plain progress-only
+  // callback — e3_two_pass is default-off, so this doesn't affect the common
+  // case, and matches still arrive normally (all at once) at the end.
   const assessments = isFlagEnabled("e3_two_pass")
-    ? await d.explainMatchesTwoPass(profile, scored.map((s) => s.o), meter, onScoreBatch, signal)
-    : await d.explainMatches(profile, scored.map((s) => s.o), meter, onScoreBatch, signal);
+    ? await d.explainMatchesTwoPass(profile, scored.map((s) => s.o), meter, emitScoreProgress, signal)
+    : await d.explainMatches(
+        profile,
+        scored.map((s) => s.o),
+        meter,
+        (batchAssessments, done, total) => {
+          emitScoreProgress(done, total);
+          for (const a of batchAssessments) {
+            const opp = byId.get(a.id);
+            if (!opp) continue;
+            // Best-effort: this must never affect the authoritative `matches`
+            // built below from the complete, awaited `assessments` return —
+            // only ever an early, incomplete preview for the UI to render.
+            try { onMatch?.(baseMatchFromAssessment(a, opp, profile)); } catch { /* progressive rendering is best-effort */ }
+          }
+        },
+        signal,
+      );
   step({ key: "assemble", label: "Writing your opportunity map", pct: 90 });
-  const byId = new Map(scored.map((s) => [s.o.id, s.o]));
 
   const matches: Match[] = assessments
     .map((a) => {
       const opp = byId.get(a.id);
-      if (!opp) return null;
-      return {
-        opportunity: opp,
-        // Derive tier from the calibrated score thresholds so card tiers and the
-        // summary's high-potential count (score >= scoreFloor) stay consistent.
-        tier: tierFromScore(a.score),
-        score: a.score,
-        criteria: a.criteria ?? [],
-        whyCare: a.whyCare,
-        whyFit: a.whyFit,
-        whyIneligible: a.whyIneligible,
-        whatToVerify: a.whatToVerify,
-        whatToDoNext: a.whatToDoNext,
-        history: historyFor(opp.id, profile.location),
-      } as Match;
+      return opp ? baseMatchFromAssessment(a, opp, profile) : null;
     })
     .filter(Boolean) as Match[];
 

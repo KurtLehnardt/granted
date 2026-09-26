@@ -16,6 +16,7 @@ import ProfileQuestionnaire from "@/components/ProfileQuestionnaire";
 // type-only import is erased at compile time, so no server-only runtime
 // (or the OPENAI_API_KEY it reads) ever reaches this client bundle.
 import type { InterviewQuestion } from "@/lib/interview/generateQuestions";
+import type { Match } from "@/lib/types";
 
 // FE-02 (R7.1): one honest, non-numeric one-liner per sample so the picker
 // reads as "fictional example companies," not a filter on the user's own
@@ -29,7 +30,25 @@ const SAMPLE_BLURBS: Record<string, string> = {
   marketplace: "Fictional local marketplace startup — an intentionally hard case likely to return few or no strong matches.",
 };
 
-export default function IntakeForm({ onResult }: { onResult: (m: any) => void }) {
+export default function IntakeForm({
+  onResult,
+  onLoadingChange,
+  onMatchPreview,
+}: {
+  onResult: (m: any) => void;
+  /** Fires alongside every `setLoading` transition, so a parent can drive a
+   *  progressive-results UI (e.g. hiding a stale previous result the instant a
+   *  new search starts, then showing the freshly-completed one once this goes
+   *  false again). Optional — omitting it changes nothing about this
+   *  component's own behavior. */
+  onLoadingChange?: (loading: boolean) => void;
+  /** Streamed the instant EACH match is scored (server-sent `type:"match"`
+   *  lines), well before the full result arrives — lets a parent render cards
+   *  progressively instead of waiting for the whole candidate set. Optional;
+   *  every match still arrives again, complete and authoritative, inside the
+   *  final `onResult(map)` — this is purely an early, best-effort preview. */
+  onMatchPreview?: (m: Match) => void;
+}) {
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -123,6 +142,7 @@ export default function IntakeForm({ onResult }: { onResult: (m: any) => void })
 
   async function run(description: string) {
     setLoading(true);
+    onLoadingChange?.(true);
     setError(null);
     setProgress(null);
     setLastSearched(description);
@@ -190,6 +210,11 @@ export default function IntakeForm({ onResult }: { onResult: (m: any) => void })
           try { msg = JSON.parse(line); } catch { continue; }
           if (msg.type === "progress") {
             setProgress({ pct: msg.pct ?? 0, label: msg.label ?? "" });
+          } else if (msg.type === "match") {
+            // Best-effort progressive preview — never let a bad/malformed
+            // streamed match line (or a throwing callback) abort the search;
+            // the authoritative, complete result still arrives in `onResult`.
+            try { if (msg.match) onMatchPreview?.(msg.match); } catch { /* preview rendering is best-effort */ }
           } else if (msg.type === "result") {
             gotResult = true;
             // Record how long this successful run took so the NEXT search can show
@@ -218,6 +243,7 @@ export default function IntakeForm({ onResult }: { onResult: (m: any) => void })
       setError(e?.message ?? "The search didn't complete — please try again.");
     } finally {
       setLoading(false);
+      onLoadingChange?.(false);
       setProgress(null);
       // The run finished (result or error) — it can no longer be "abandoned".
       searchStartRef.current = null;

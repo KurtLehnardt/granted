@@ -320,6 +320,12 @@ function scorerPrompt(base: "explainMatches" | "scoreMatches"): string {
   return loadPrompt(isFlagEnabled("discernment_layer") ? anchored : base).template;
 }
 
+/** One scored+explained candidate — the shape `explainMatches`/`explainMatchesTwoPass`
+ *  both resolve to. Exported so `lib/match.ts` can build a `Match` preview from
+ *  a single batch's assessments (for progressive rendering) without waiting for
+ *  the full candidate set to finish scoring. */
+export type Assessment = { id: string; score: number; tier: Tier; criteria: CriterionCheck[]; whyCare: string; whyFit: string; whyIneligible: string; whatToVerify: string; whatToDoNext: string };
+
 /**
  * Stage 2 — explain. Given candidate opportunities that already passed rules
  * and similarity, score each and write the four-part explanation.
@@ -328,12 +334,11 @@ export async function explainMatches(
   profile: StartupProfile,
   candidates: Opportunity[],
   meter?: CostMeter,
-  onBatch?: (doneCandidates: number, totalCandidates: number) => void,
+  onBatch?: (batchAssessments: Assessment[], doneCandidates: number, totalCandidates: number) => void,
   signal?: AbortSignal,
-): Promise<Array<{ id: string; score: number; tier: Tier; criteria: CriterionCheck[]; whyCare: string; whyFit: string; whyIneligible: string; whatToVerify: string; whatToDoNext: string }>> {
+): Promise<Assessment[]> {
   const SYSTEM = scorerPrompt("explainMatches");
 
-  type Assessment = { id: string; score: number; tier: Tier; criteria: CriterionCheck[]; whyCare: string; whyFit: string; whyIneligible: string; whatToVerify: string; whatToDoNext: string };
 
   // Score in parallel batches. A single serial call over all candidates emits
   // ~700-900 output tokens each and dominates request latency (~3 min for 24
@@ -403,11 +408,27 @@ export async function explainMatches(
   // 52%->90% dead-zone).
   const fanOutStart = performance.now();
   let doneCandidates = 0;
+  // Two-arg `.then(onFulfilled, onRejected)` (not `.then().catch()`) so a throw
+  // inside `onBatch` can never be mistaken for `scoreGroup` itself having
+  // failed — each branch only reacts to ITS OWN outcome, then reproduces
+  // exactly what `.finally()` used to: doneCandidates advances either way, and
+  // the settle/reject value passes through unchanged. On success, `onBatch`
+  // ALSO receives this batch's own assessments (not just the running count) —
+  // that's what lets a caller (buildOpportunityMap) render each match the
+  // moment ITS batch is scored, instead of waiting for the whole candidate set.
   const runGroup = (group: Opportunity[]) =>
-    scoreGroup(group).finally(() => {
-      doneCandidates += group.length;
-      try { onBatch?.(doneCandidates, candidates.length); } catch { /* progress is best-effort */ }
-    });
+    scoreGroup(group).then(
+      (result) => {
+        doneCandidates += group.length;
+        try { onBatch?.(result, doneCandidates, candidates.length); } catch { /* progress is best-effort */ }
+        return result;
+      },
+      (reason) => {
+        doneCandidates += group.length;
+        try { onBatch?.([], doneCandidates, candidates.length); } catch { /* progress is best-effort */ }
+        throw reason;
+      },
+    );
   // A local single-GPU backend (Ollama) serves requests SERIALLY, so firing all
   // batches at once just makes the queued ones blow their own per-call timeout
   // while they wait. Run them one at a time when local (each timer then starts

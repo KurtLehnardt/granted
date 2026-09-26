@@ -14,16 +14,22 @@ import { aggregateSimilarCompanies } from "@/lib/similar/aggregate";
 import { fundingCell, closingSoonCount, expiredCount } from "@/lib/ui/opportunitySummary";
 import { corpusAsOf } from "@/lib/corpus/meta";
 
-/** Cards to render. We never wall the user with the 20+ "none" rows. */
-const CARD_CAP = 8;
+/** Cards to render. We never wall the user with the 20+ "none" rows. Exported
+ *  so the progressive preview list (app/page.tsx, while a search is still
+ *  streaming in matches) caps at the SAME number the finished map settles on —
+ *  one source of truth, so the card count never visibly shrinks when the
+ *  preview list is replaced by the final, complete map. */
+export const CARD_CAP = 8;
 
 /** FE-01: shared "eyebrow"-style mono label, token-driven. */
 function eyebrowClass(extra = "") {
   return `font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas ${extra}`.trim();
 }
 
-/** Small boundary so a malformed match can't white-screen the whole demo. */
-class Boundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+/** Small boundary so a malformed match can't white-screen the whole demo.
+ *  Exported so app/page.tsx's progressive preview list (streamed matches,
+ *  rendered before the full map has even validated) gets the same resilience. */
+export class Boundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false };
   static getDerivedStateFromError() {
     return { failed: true };
