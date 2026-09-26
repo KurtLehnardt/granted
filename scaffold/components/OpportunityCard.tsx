@@ -1,12 +1,9 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { TIER_LABEL, type Match, type Opportunity, type StartupProfile } from "@/lib/types";
-import { startupProfileToCompanyProfile } from "@/lib/apply/package";
 import type { EligibilityBucket } from "@/lib/contracts/eligibilityDetermination";
-import AutoFillModal from "@/components/AutoFillModal";
-import AutoFillFlow from "@/components/AutoFillFlow";
+import HowToApplyModal from "@/components/HowToApplyModal";
 import CompetitorAnalysisModal from "@/components/CompetitorAnalysisModal";
-import { useSettingsPanel } from "@/components/AppMenu";
 import { isFlagEnabled } from "@/lib/flags";
 import {
   opportunityAvailability,
@@ -131,31 +128,22 @@ export default function OpportunityCard({
 }: {
   m: Match;
   index: number;
-  /** G5: the user's extracted v1 profile (from `map.profile`), bridged to a
-   *  §3.1 CompanyProfile for the assisted-apply "Draft my application" flow.
-   *  Optional/additive — absent leaves the pre-G5 behavior unchanged. */
+  /** The user's extracted v1 profile (from `map.profile`), threaded into the
+   *  competitor-analysis modal below. Optional/additive — absent, the modal
+   *  just stays demo-only. */
   startupProfile?: StartupProfile;
 }) {
   // Expand the first three cards so criteria / ineligibility / history read at a glance.
   const [open, setOpen] = useState(index < 3);
-  // FE-06: locked "Auto Fill" stub — opens the Pro-upsell modal, never submits anything.
-  const [autoFillOpen, setAutoFillOpen] = useState(false);
-  // R6: when on, "Auto Fill" opens the assisted-apply DEMO stepper instead of
-  // the static upsell modal. Default OFF -> the FE-06 path below is unchanged.
-  // Still a preview: it never submits anything and gates nothing server-side.
-  const assistedApplyFlow = isFlagEnabled("r6_auto_fill");
-  // G5: bridge the user's extracted v1 profile to a §3.1 CompanyProfile once,
-  // so the assisted-apply flow can assemble a grounded package. Undefined when no
-  // profile was threaded down (the flow then simply doesn't offer "Draft my
-  // application"); never fabricated.
-  const companyProfile = useMemo(
-    () => (startupProfile ? startupProfileToCompanyProfile(startupProfile) : undefined),
-    [startupProfile],
-  );
+  // The assisted-apply flow (sign-in / requirements form / package assembly)
+  // was unreliable, so it's been pulled from the UI for now (code stays in
+  // place: AutoFillFlow.tsx, AutoFillModal.tsx, ApplicationPackage.tsx). This
+  // control is now a plain, read-only "how do I apply?" reference instead —
+  // nothing to submit, nothing that can break.
+  const [howToApplyOpen, setHowToApplyOpen] = useState(false);
   // PRO-01: locked "Analyze competing companies" stub — opens a Pro-upsell
   // modal from the award-history section, never runs any analysis.
   const [competitorOpen, setCompetitorOpen] = useState(false);
-  const { openSettings } = useSettingsPanel();
 
 
   const badgeClass = TIER_BADGE[m.tier] ?? TIER_BADGE.none;
@@ -306,22 +294,20 @@ export default function OpportunityCard({
   const headerToggleClass =
     "w-full px-4 py-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-inset sm:px-6 sm:py-5";
 
-  // FE-06: the locked Auto Fill control is a secondary/structure affordance —
-  // never bg-action (reserved for the primary CTA). Sits in its own row, own
+  // The "How can I apply?" control is a secondary/structure affordance — never
+  // bg-action (reserved for the primary CTA). Sits in its own row, own
   // <button>, outside the header's full-width toggle button (see below).
-  const autoFillRowClass =
+  const howToApplyRowClass =
     "flex flex-wrap items-center gap-2 border-t border-structure-on-canvas px-4 py-3 sm:px-6";
 
   // Polish: real hover + a 40px min hit target (dense-desktop control), plus
   // optical padding (icon side 2px tighter than the text side).
-  const autoFillBtnClass =
+  const howToApplyBtnClass =
     "inline-flex min-h-[40px] items-center gap-1.5 rounded-sm border border-structure-on-canvas bg-canvas pl-2 pr-2.5 py-1.5 font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas transition hover:bg-structure hover:text-token-white active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2";
 
-  const autoFillHintClass = "font-mono text-[10px] text-foreground";
-
   // PRO-01: locked "Analyze competing companies" control — same
-  // secondary/structure affordance as Auto Fill above, but lives inside
-  // the "Similar companies funded" history section rather than its own row.
+  // secondary/structure affordance as "How can I apply?" above, but lives
+  // inside the "Similar companies funded" history section rather than its own row.
   const competitorBtnClass =
     "inline-flex items-center gap-1.5 rounded-sm border border-structure-on-canvas bg-canvas px-2.5 py-1.5 font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2";
 
@@ -431,46 +417,26 @@ export default function OpportunityCard({
       </button>
 
       {/*
-        FE-06: rendered as its own row, its own <button>, OUTSIDE the header
-        toggle button above (which is already a full-width <button> — nesting
-        a second interactive button inside it would be invalid HTML). Visible
-        on every card regardless of expand state. Locked stub only: clicking
-        it never submits anything, it just opens the Pro-upsell modal.
+        Rendered as its own row, its own <button>, OUTSIDE the header toggle
+        button above (which is already a full-width <button> — nesting a
+        second interactive button inside it would be invalid HTML). Visible on
+        every card regardless of expand state. Read-only: opens a reference
+        modal, never submits anything.
       */}
-      <div className={autoFillRowClass}>
+      <div className={howToApplyRowClass}>
         <button
           type="button"
-          onClick={() => setAutoFillOpen(true)}
+          onClick={() => setHowToApplyOpen(true)}
           aria-haspopup="dialog"
-          className={autoFillBtnClass}
+          className={howToApplyBtnClass}
         >
-          Auto Fill
+          How can I apply?
         </button>
-        <span className={autoFillHintClass}>
-          {assistedApplyFlow ? "Assisted fill" : "Not live yet"}
-        </span>
       </div>
 
-      {autoFillOpen &&
-        (assistedApplyFlow ? (
-          // R6 ON: the walkable assisted-apply demo stepper. G5: thread the
-          // opportunity + bridged profile so "Draft my application" can assemble
-          // the submission-ready package end-to-end.
-          <AutoFillFlow
-            onClose={() => setAutoFillOpen(false)}
-            opportunity={o}
-            profile={companyProfile}
-          />
-        ) : (
-          // R6 OFF (default): the FE-06 static Pro-upsell modal, unchanged.
-          <AutoFillModal
-            onClose={() => setAutoFillOpen(false)}
-            onOpenSettings={() => {
-              setAutoFillOpen(false);
-              openSettings();
-            }}
-          />
-        ))}
+      {howToApplyOpen && (
+        <HowToApplyModal opportunity={o} onClose={() => setHowToApplyOpen(false)} />
+      )}
 
       {competitorOpen && (
         <CompetitorAnalysisModal
