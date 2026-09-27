@@ -41,7 +41,7 @@
  */
 import ts from "typescript";
 import { readFileSync, readdirSync, statSync, realpathSync } from "node:fs";
-import { join, relative, extname } from "node:path";
+import { join, relative, extname, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 // The pure, dependency-free banned-phrasings core lives in its own module so
 // runtime code (lib/apply/draft.ts, bundled by webpack) can import it without
@@ -64,7 +64,7 @@ export { BANNED_PHRASES, findBannedPhrases };
 function walk(dir, out = []) {
   for (const entry of readdirSync(dir)) {
     const full = join(dir, entry);
-    const rel = relative(ROOT, full);
+    const rel = relative(ROOT, full).split(sep).join("/");
     if (EXCLUDE_DIR_PARTS.some((p) => rel === p || rel.startsWith(p + "/"))) continue;
     const stat = statSync(full);
     if (stat.isDirectory()) {
