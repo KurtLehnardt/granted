@@ -28,7 +28,7 @@
  */
 import { readFileSync, writeFileSync, existsSync, copyFileSync } from "node:fs";
 import { createInterface } from "node:readline";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
 
@@ -617,7 +617,9 @@ async function main() {
   process.exit(0);
 }
 
-const isMainModule = import.meta.url === `file://${process.argv[1]}`;
+const isMainModule =
+  process.argv[1] !== undefined &&
+  import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isMainModule) {
   main().catch((err) => {
     console.error(c.r(`\nUnexpected error: ${err?.message || err}`));
