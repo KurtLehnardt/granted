@@ -1,12 +1,6 @@
 import { test, describe, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { GET, dynamic } from "../route";
-import { resetOllamaModelsCache } from "@/lib/llm/ollamaInfo";
-
-/**
- * GET /api/llm — Settings' local-only model picker backend. Hosted must never
- * call Ollama; local returns the active default + installed chat models.
- */
 
 const savedProvider = process.env.LLM_PROVIDER;
 const savedModel = process.env.LOCAL_LLM_MODEL;
@@ -18,14 +12,9 @@ afterEach(() => {
   if (savedModel === undefined) delete process.env.LOCAL_LLM_MODEL;
   else process.env.LOCAL_LLM_MODEL = savedModel;
   globalThis.fetch = realFetch;
-  resetOllamaModelsCache();
 });
 
 describe("GET /api/llm", () => {
-  // A no-argument GET with no segment config gets statically prerendered by
-  // Next 14 — freezing the Ollama model list (and hosted/local) at build
-  // time. This is the guard against that regression; a real `next build`
-  // is what actually verifies the route isn't emitted as `○ (Static)`.
   test("opts out of static prerendering", () => {
     assert.equal(dynamic, "force-dynamic");
   });

@@ -66,21 +66,12 @@ export type MatchDeps = {
 
 const REAL_DEPS: MatchDeps = { buildOpportunityMap, cached };
 
-/**
- * Resolve which backend/model this request actually uses. Hosted: `local:
- * false`, no Ollama call, ever. Local: `requestedModel` is honored only when
- * it's one of the installed chat models; otherwise (unset, unknown, or an
- * embedding model) it falls back to LOCAL_LLM_MODEL. `paramsB` is best-effort
- * from Ollama's own /api/tags — omitted for a non-Ollama OpenAI-compatible
- * server or if the lookup fails.
- */
+/** Hosted never touches Ollama; local honors `requestedModel` only if it's an installed chat model. */
 async function resolveLlmInfo(requestedModel: string | undefined): Promise<LlmInfo> {
   if (!isLocalLlm()) return { local: false };
   const installed = await listOllamaChatModels();
-  const requested = requestedModel ? installed.find((m) => m.name === requestedModel) : undefined;
-  const model = requested?.name ?? defaultLocalModel();
-  const paramsB = requested?.paramsB ?? installed.find((m) => m.name === model)?.paramsB;
-  return { local: true, model, paramsB };
+  const model = installed.find((m) => m.name === requestedModel)?.name ?? defaultLocalModel();
+  return { local: true, model, paramsB: installed.find((m) => m.name === model)?.paramsB };
 }
 
 export async function handleMatchRequest(
@@ -107,9 +98,6 @@ export async function handleMatchRequest(
   // scores. Passed through to buildOpportunityMap, which CLAMPS it to a safe
   // range — so a bad client value can never overrun the scorer's token budget.
   let maxCandidates: number | undefined;
-  // Local-only Settings model picker (Settings → model dropdown). Validated
-  // against the installed Ollama models below; hosted requests ignore this
-  // entirely, and an unrecognized value just falls back to LOCAL_LLM_MODEL.
   let requestedModel: string | undefined;
   try {
     const body = await req.json();
@@ -173,9 +161,6 @@ export async function handleMatchRequest(
           return;
         }
 
-        // Resolved once per request, before any LLM call: which backend/model
-        // this run actually uses. Surfaced on the "start" progress event and
-        // threaded to every LLM call below via withLocalModel.
         const llm = await resolveLlmInfo(requestedModel);
         const map = await withLocalModel(llm.local ? llm.model : undefined, () =>
           deps.buildOpportunityMap(

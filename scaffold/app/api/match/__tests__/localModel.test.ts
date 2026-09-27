@@ -3,15 +3,7 @@ import assert from "node:assert/strict";
 
 import { handleMatchRequest, type MatchDeps } from "../handler";
 import { currentLocalModel } from "@/lib/llm/modelContext";
-import { resetOllamaModelsCache } from "@/lib/llm/ollamaInfo";
 import type { OpportunityMap } from "@/lib/types";
-
-/**
- * Local-only Settings model picker: `body.model` is honored ONLY when local
- * AND it's one of the installed Ollama chat models; the "start" progress
- * event's `llm.model` reflects what's actually used; hosted is unaffected and
- * never calls Ollama.
- */
 
 const VALID_DESCRIPTION =
   "We build AI-assisted diagnostics for rural clinics and need federal funding.";
@@ -26,7 +18,6 @@ afterEach(() => {
   if (savedModel === undefined) delete process.env.LOCAL_LLM_MODEL;
   else process.env.LOCAL_LLM_MODEL = savedModel;
   globalThis.fetch = realFetch;
-  resetOllamaModelsCache();
 });
 
 function post(body: unknown): Request {
@@ -143,7 +134,7 @@ describe("/api/match local model selection", () => {
       },
     };
     const res = await handleMatchRequest(post({ description: VALID_DESCRIPTION, model: "qwen2.5:7b" }), deps);
-    await readLines(res); // drain the stream so `start()` (and buildOpportunityMap) actually runs
+    await readLines(res);
     assert.equal(seenDuringBuild, "qwen2.5:7b");
   });
 });

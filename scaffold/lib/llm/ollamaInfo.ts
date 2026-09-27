@@ -1,86 +1,36 @@
 import { normalizeOpenAiBaseUrl } from "./baseUrl";
 
-/**
- * Ollama's `GET /api/tags` — the installed-models list, used to (a) show the
- * active model's parameter size in SearchProgress's local-model estimate and
- * (b) populate the Settings model picker. Fails soft to `[]` for any error,
- * timeout, or non-Ollama OpenAI-compatible server — this is a nicety, never a
- * requirement for a search to run.
- */
-
 export type OllamaModel = { name: string; paramsB?: number };
 
 const TAGS_TIMEOUT_MS = 1_500;
 
-/** The bare host `/api/tags` lives on — LLM_BASE_URL with the OpenAI-compatible `/v1` stripped. */
 function ollamaHost(): string {
-  const base = normalizeOpenAiBaseUrl(process.env.LLM_BASE_URL || "http://localhost:11434/v1");
-  return base.replace(/\/v1$/, "");
+  return normalizeOpenAiBaseUrl(process.env.LLM_BASE_URL || "http://localhost:11434/v1").replace(/\/v1$/, "");
 }
 
-/** "3.1B" -> 3.1. Anything else (missing, "7M", malformed) -> undefined. */
+/** Ollama's `parameter_size` ("3.1B") in billions; anything else -> undefined. */
 export function parseParamsB(parameterSize: unknown): number | undefined {
   if (typeof parameterSize !== "string") return undefined;
   const m = /^([\d.]+)\s*B$/i.exec(parameterSize.trim());
-  if (!m) return undefined;
-  const n = Number(m[1]);
+  const n = m ? Number(m[1]) : NaN;
   return Number.isFinite(n) ? n : undefined;
 }
 
-/** Ollama's convention for embedding-only models (e.g. "nomic-embed-text"). */
-export function isEmbeddingModel(name: string): boolean {
-  return /embed/i.test(name);
-}
-
-async function fetchTags(): Promise<OllamaModel[]> {
-  const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), TAGS_TIMEOUT_MS);
+/** Installed Ollama chat models (embedding models excluded), fetched fresh each call;
+ *  [] on any error, timeout, or non-Ollama server. */
+export async function listOllamaChatModels(): Promise<OllamaModel[]> {
   try {
-    const res = await fetch(`${ollamaHost()}/api/tags`, { signal: ac.signal, cache: "no-store" });
+    const res = await fetch(`${ollamaHost()}/api/tags`, {
+      signal: AbortSignal.timeout(TAGS_TIMEOUT_MS),
+      cache: "no-store",
+    });
     if (!res.ok) return [];
     const json: any = await res.json();
-    const models = Array.isArray(json?.models) ? json.models : [];
+    const models: any[] = Array.isArray(json?.models) ? json.models : [];
     return models
-      .map((m: any) => ({
-        name: typeof m?.name === "string" ? m.name : "",
-        paramsB: parseParamsB(m?.details?.parameter_size),
-      }))
-      .filter((m: OllamaModel) => m.name.length > 0);
+      .filter((m) => typeof m?.name === "string" && m.name.length > 0 && !/embed/i.test(m.name))
+      .map((m) => ({ name: m.name, paramsB: parseParamsB(m.details?.parameter_size) }));
   } catch {
     return [];
-  } finally {
-    clearTimeout(timer);
   }
-}
-
-let tagsCache: Promise<OllamaModel[]> | null = null;
-
-/** All installed Ollama models (chat + embedding), cached for the life of the
- *  process — but ONLY a successful, non-empty result. A timeout, connection
- *  refusal, or empty list (Ollama not up yet, briefly down, or a server whose
- *  /api/tags 404s) is never cached, so the next call retries instead of
- *  failing soft forever; a newly pulled model also shows up on the next call
- *  rather than only after a restart. */
-export function listOllamaModels(): Promise<OllamaModel[]> {
-  if (tagsCache) return tagsCache;
-  const p = fetchTags();
-  tagsCache = p;
-  p.then((models) => {
-    if (models.length === 0 && tagsCache === p) tagsCache = null;
-  }).catch(() => {
-    if (tagsCache === p) tagsCache = null;
-  });
-  return p;
-}
-
-/** Test-only: drop the in-process cache so the next call re-fetches. */
-export function resetOllamaModelsCache(): void {
-  tagsCache = null;
-}
-
-/** Installed CHAT models only (embedding models excluded) — what the local-only
- *  Settings model picker offers, and the set /api/match validates `body.model` against. */
-export async function listOllamaChatModels(): Promise<OllamaModel[]> {
-  const all = await listOllamaModels();
-  return all.filter((m) => !isEmbeddingModel(m.name));
 }

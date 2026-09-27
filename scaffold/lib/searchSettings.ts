@@ -1,16 +1,16 @@
 /**
  * Client-only search preferences (localStorage): "search depth" (how many
- * candidates the model scores per search) and, on a local backend only, the
- * chosen model. Null/unset means "use the server default" (never pin a
- * specific number/model, so a server-side default change is picked up
- * automatically).
+ * candidates the model scores per search) and, on a local backend, the chosen
+ * model. Null means "use the server default" (never pin a specific value, so a
+ * future default change is picked up automatically).
  *
  * Device-local only, like the auto-fill requirements in lib/mockAuth.ts —
  * nothing here is sent anywhere except as fields on the user's own
- * /api/match request, and "Delete my data" can clear it.
+ * /api/match request.
  */
 const MAX_CANDIDATES_KEY = "granted:maxCandidates";
 const MODEL_KEY = "granted:model";
+export const LAST_SEARCH_MS_KEY = "granted:lastSearchMs";
 
 /** The saved candidate cap, or null when unset (→ server default). */
 export function getMaxCandidates(): number | null {
@@ -35,22 +35,23 @@ export function setMaxCandidates(value: number | null): void {
   }
 }
 
-/** The saved local-model choice, or null when unset (→ server default). Meaningless
- *  (and ignored server-side) on a hosted backend. */
+/** The saved local-model choice, or null when unset (→ server default). Ignored when hosted. */
 export function getModel(): string | null {
   try {
-    const raw = window.localStorage.getItem(MODEL_KEY);
-    return raw && raw.length > 0 ? raw : null;
+    return window.localStorage.getItem(MODEL_KEY) || null;
   } catch {
     return null;
   }
 }
 
-/** Persist the chosen local model; pass null to clear it (→ server default). */
+/** Persist the local model (null → server default). A change drops the last-search
+ *  duration, which was measured on the previous model. */
 export function setModel(value: string | null): void {
   try {
+    if (value === getModel()) return;
     if (value == null) window.localStorage.removeItem(MODEL_KEY);
     else window.localStorage.setItem(MODEL_KEY, value);
+    window.localStorage.removeItem(LAST_SEARCH_MS_KEY);
   } catch {
     /* localStorage unavailable — nothing to persist */
   }

@@ -31,9 +31,6 @@ function provider(): string {
   return (process.env.LLM_PROVIDER || "anthropic").toLowerCase();
 }
 
-/** The local model used when no per-request override is chosen — LOCAL_LLM_MODEL,
- *  or "gemma4:latest" when unset OR empty. Single source of truth: the shim,
- *  /api/llm, and the match handler all defer to this. */
 export function defaultLocalModel(): string {
   return process.env.LOCAL_LLM_MODEL || "gemma4:latest";
 }
@@ -74,9 +71,6 @@ function openAiCompatShim(opts: LlmClientOptions): LlmClient {
       // Signature-compatible with Anthropic's messages.create for the subset the
       // app uses: params.{model,max_tokens,system,messages}, options.{signal}.
       async create(params: any, options?: { signal?: AbortSignal }): Promise<any> {
-        // Read per-request so the Settings model picker (threaded via
-        // withLocalModel/AsyncLocalStorage) overrides the env default without
-        // this shim's construction site needing to know about it.
         const model = currentLocalModel() || defaultLocalModel();
         const messages: Array<{ role: string; content: string }> = [];
         // `system` may be a plain string OR Anthropic content blocks

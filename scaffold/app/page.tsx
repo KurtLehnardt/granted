@@ -46,10 +46,6 @@ function HomeShell({ sidebarOn }: { sidebarOn: boolean }) {
   // completed `map` — and when to hand back off to it.
   const [loading, setLoading] = useState(false);
   const [previewMatches, setPreviewMatches] = useState<Match[]>([]);
-  // How long the most recent search actually took (search start -> final
-  // result), for the "Search took Xm Ys" line near the results summary. Null
-  // for a cached/precomputed result (nothing to show) and reset on every new
-  // search.
   const [searchDuration, setSearchDuration] = useState<number | null>(null);
 
   function handleLoadingChange(isLoading: boolean) {

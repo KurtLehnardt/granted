@@ -6,7 +6,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { useAnalytics } from "@/components/AnalyticsProvider";
 import { useSearchDraft } from "@/components/SearchDraftProvider";
 import { clearAllLocalData, getAutoFillRequirements } from "@/lib/mockAuth";
-import { getMaxCandidates, getModel } from "@/lib/searchSettings";
+import { getMaxCandidates, getModel, LAST_SEARCH_MS_KEY } from "@/lib/searchSettings";
 import type { LlmInfo } from "@/lib/llm/types";
 import { BRAND } from "@/lib/brand";
 import Swal from "sweetalert2";
@@ -50,9 +50,7 @@ export default function IntakeForm({
    *  every match still arrives again, complete and authoritative, inside the
    *  final `onResult(map)` — this is purely an early, best-effort preview. */
   onMatchPreview?: (m: Match) => void;
-  /** Fires once, right before `onResult`, with how long the search actually
-   *  took (search start → final result) — or null for a cached/precomputed
-   *  result, which has no meaningful duration. Optional. */
+  /** Fires right before `onResult` with the search's duration, or null for a cached result. */
   onSearchDuration?: (ms: number | null) => void;
 }) {
   const [text, setText] = useState("");
@@ -64,8 +62,6 @@ export default function IntakeForm({
   const [lastSearched, setLastSearched] = useState("");
   // Real pipeline milestone streamed from /api/match (drives SearchProgress).
   const [progress, setProgress] = useState<{ pct: number; label: string; key?: string; detail?: string } | null>(null);
-  // Backend info from the "start" progress event — persists across later
-  // progress events (which don't repeat it), reset at the start of each run.
   const [llmInfo, setLlmInfo] = useState<LlmInfo | null>(null);
   // FE-02 (R7.1): sample-company picker is collapsed by default; it's a
   // secondary affordance behind a real visual break, not an inline filter row.
@@ -156,8 +152,6 @@ export default function IntakeForm({
     setProgress(null);
     setLlmInfo(null);
     setLastSearched(description);
-    // A cache/precomputed hit has no meaningful duration to report (task 4) —
-    // set once a "cached" progress line arrives, read when the result lands.
     let cacheHit = false;
     // H5: search start + mark a run in flight (for run_abandoned). No description
     // content is sent — the event is a name + timestamp only.
@@ -175,8 +169,6 @@ export default function IntakeForm({
         headers: { "Content-Type": "application/json" },
         // maxCandidates: the user's Settings "search depth" preference (null
         // when unset → server default). The server clamps it to a safe range.
-        // model: the Settings model picker's choice (local-only; hosted requests
-        // send it too, but the server ignores it and never calls Ollama).
         body: JSON.stringify({
           description,
           companyFacts,
@@ -242,17 +234,14 @@ export default function IntakeForm({
             // Record how long this successful run took so the NEXT search can show
             // an accurate "~this long" estimate — matters most for slow/variable
             // local models, where a fixed "up to two minutes" is simply wrong.
-            if (searchStartRef.current) {
+            // A cache hit is instant and would make that estimate a lie.
+            const tookMs = !cacheHit && searchStartRef.current ? Date.now() - searchStartRef.current : null;
+            if (tookMs != null) {
               try {
-                window.localStorage.setItem(
-                  "granted:lastSearchMs",
-                  String(Date.now() - searchStartRef.current),
-                );
+                window.localStorage.setItem(LAST_SEARCH_MS_KEY, String(tookMs));
               } catch { /* localStorage blocked (private mode) — just skip the estimate */ }
             }
-            onSearchDuration?.(
-              cacheHit || !searchStartRef.current ? null : Date.now() - searchStartRef.current,
-            );
+            onSearchDuration?.(tookMs);
             onResult(msg.map);
           } else if (msg.type === "error") {
             throw new Error(msg.error ?? "Matching failed.");

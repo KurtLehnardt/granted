@@ -6,8 +6,6 @@ import {
   localModelEstimateRange,
   localModelLabel,
   estimateRemainingMs,
-  formatRemaining,
-  nextLiveRemaining,
   parseScoreDetail,
 } from "../SearchProgress";
 
@@ -104,37 +102,14 @@ describe("estimateRemainingMs", () => {
     assert.equal(estimateRemainingMs(41, 40, 60_000), null);
   });
 
+  test("one-candidate-per-call: each reading extrapolates from time since the score step", () => {
+    // 3 of 32 scored, 90s since "score" -> 30s/call -> 29 left -> 870s
+    assert.equal(estimateRemainingMs(3, 32, 90_000), 870_000);
+  });
+
   test("no elapsed time or no total -> no estimate", () => {
     assert.equal(estimateRemainingMs(5, 40, 0), null);
     assert.equal(estimateRemainingMs(5, 0, 60_000), null);
-  });
-});
-
-describe("formatRemaining", () => {
-  test("minutes", () => {
-    assert.equal(formatRemaining(240_000), "About 4 minutes left");
-  });
-  test("about a minute", () => {
-    assert.equal(formatRemaining(60_000), "About a minute left");
-  });
-  test("seconds", () => {
-    assert.equal(formatRemaining(20_000), "About 20 seconds left");
-  });
-});
-
-describe("nextLiveRemaining", () => {
-  test("a real reading replaces the previous value", () => {
-    // 3 of 36 done in 30s (first batch of 3 already finished) -> 10s/item -> 33 left
-    assert.equal(nextLiveRemaining(null, 3, 36, 30_000), formatRemaining(330_000));
-  });
-
-  test("the terminal done==total event keeps the previous value instead of clearing it", () => {
-    assert.equal(nextLiveRemaining("About 2 minutes left", 36, 36, 300_000), "About 2 minutes left");
-  });
-
-  test("no signal yet (nothing scored) keeps the previous value", () => {
-    assert.equal(nextLiveRemaining(null, 0, 36, 0), null);
-    assert.equal(nextLiveRemaining("About a minute left", 0, 36, 0), "About a minute left");
   });
 });
 

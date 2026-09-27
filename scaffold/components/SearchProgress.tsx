@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import type { LlmInfo } from "@/lib/llm/types";
+import { LAST_SEARCH_MS_KEY } from "@/lib/searchSettings";
 
 /**
  * SearchProgress — the loading experience while /api/match runs (novel input can
@@ -54,9 +55,7 @@ export function formatDuration(ms: number): string {
   return m <= 1 ? "about a minute" : `about ${m} minutes`;
 }
 
-/** Precise "Search took Xm Ys" for the post-result duration line. Unlike
- *  formatDuration, this is exact/legible, not a rounded hedge — it's shown
- *  once the real elapsed time is known. */
+/** Exact "7m 33s" for the post-result "Search took" line. */
 export function formatSearchDuration(ms: number): string {
   const total = Math.max(0, Math.round(ms / 1000));
   const m = Math.floor(total / 60);
@@ -64,68 +63,34 @@ export function formatSearchDuration(ms: number): string {
   return m === 0 ? `${s}s` : `${m}m ${s}s`;
 }
 
-/**
- * Rough-range table for a local model's total run time, keyed by parameter
- * count. Calibrated from measured full-search runs (~32 candidates, one
- * scoring call each): a 3B model on a 4GB Quadro P1000 took 16–31 minutes
- * (~30s/candidate uncontended, ~60s under GPU contention), and a 14B model
- * on a 32GB Mac ran ~37s/candidate.
- */
+// Measured on ~32-candidate searches (one scoring call each): 3B on a 4GB Quadro P1000
+// took 16–31 min; 14B on a 32GB Mac ran ~37s/candidate.
 const LOCAL_ESTIMATE_RANGES: Array<{ maxB: number; range: string }> = [
   { maxB: 4, range: "15–30 minutes" },
   { maxB: 9, range: "20–40 minutes" },
   { maxB: 16, range: "20–45 minutes" },
 ];
-const LOCAL_ESTIMATE_LARGE = "30–60 minutes or more";
-const LOCAL_ESTIMATE_UNKNOWN = "15 minutes or more";
 
-/** The rough pre-search time range for a local model, by its parameter count
- *  (billions). Unknown/missing size -> the most hedged range. */
 export function localModelEstimateRange(paramsB?: number): string {
-  if (paramsB == null || !Number.isFinite(paramsB)) return LOCAL_ESTIMATE_UNKNOWN;
-  const hit = LOCAL_ESTIMATE_RANGES.find((r) => paramsB <= r.maxB);
-  return hit ? hit.range : LOCAL_ESTIMATE_LARGE;
+  if (paramsB == null || !Number.isFinite(paramsB)) return "15 minutes or more";
+  return LOCAL_ESTIMATE_RANGES.find((r) => paramsB <= r.maxB)?.range ?? "30–60 minutes or more";
 }
 
-/** "gemma3:12b (12B)" / "gemma3:12b" (size unknown) / "a local model" (name unknown). */
 export function localModelLabel(model?: string, paramsB?: number): string {
   if (!model) return "a local model";
-  const size = paramsB != null && Number.isFinite(paramsB) ? ` (${paramsB}B)` : "";
-  return `${model}${size}`;
+  return paramsB != null && Number.isFinite(paramsB) ? `${model} (${paramsB}B)` : model;
 }
 
-/** Extrapolate remaining scoring time (ms) from the observed rate so far —
- *  `done` of `total` items scored over `elapsedMs`. Null once there isn't
- *  enough signal yet (nothing scored, nothing left, or no elapsed time). */
+/** Linear extrapolation from the observed scoring rate; null when there's nothing to extrapolate. */
 export function estimateRemainingMs(done: number, total: number, elapsedMs: number): number | null {
-  if (!(done > 0) || !(total > 0) || !(elapsedMs > 0) || done >= total) return null;
-  const msPerItem = elapsedMs / done;
-  return Math.round((total - done) * msPerItem);
+  if (!(done > 0) || !(elapsedMs > 0) || done >= total) return null;
+  return Math.round(((total - done) * elapsedMs) / done);
 }
 
-/** "About 4 minutes left" / "About a minute left" / "About 20 seconds left". */
-export function formatRemaining(ms: number): string {
-  const s = Math.max(1, Math.round(ms / 1000));
-  if (s < 60) return `About ${s} seconds left`;
-  const m = Math.round(s / 60);
-  return m <= 1 ? "About a minute left" : `About ${m} minutes left`;
-}
-
-/** Sticky update for the live remaining-time estimate: a real reading
- *  (anything but the terminal done==total event) replaces `prev`; the
- *  terminal event's null keeps `prev` as-is instead of clearing it, so the
- *  status line doesn't fall back to the pre-search range once scoring ends. */
-export function nextLiveRemaining(prev: string | null, done: number, total: number, elapsedMs: number): string | null {
-  const remainingMs = estimateRemainingMs(done, total, elapsedMs);
-  return remainingMs == null ? prev : formatRemaining(remainingMs);
-}
-
-/** Parses the "score-progress" step's `detail: "done/total"` field. */
+/** The "score-progress" step's `detail: "done/total"`. */
 export function parseScoreDetail(detail: string | undefined): { done: number; total: number } | null {
-  if (!detail) return null;
-  const m = /^(\d+)\/(\d+)$/.exec(detail.trim());
-  if (!m) return null;
-  return { done: Number(m[1]), total: Number(m[2]) };
+  const m = /^(\d+)\/(\d+)$/.exec(detail?.trim() ?? "");
+  return m ? { done: Number(m[1]), total: Number(m[2]) } : null;
 }
 
 export default function SearchProgress({
@@ -137,27 +102,16 @@ export default function SearchProgress({
 }: {
   realPct?: number;
   realLabel?: string;
-  /** The current step's `key` (e.g. "start", "score-progress") — drives the
-   *  live remaining-time estimate once scoring is underway. */
   realKey?: string;
-  /** The current step's `detail` field, "done/total" on "score-progress". */
   realDetail?: string;
-  /** Backend info from /api/match's "start" progress event. Undefined until
-   *  that event arrives. */
   llm?: LlmInfo;
 }) {
   const [display, setDisplay] = useState(4);
   const [elapsed, setElapsed] = useState(0);
   const [factIndex, setFactIndex] = useState(0);
   const floorRef = useRef(0);
-  // Wall-clock time the "score" step began, so the live estimate extrapolates
-  // from the observed scoring rate, not from the whole search's elapsed time
-  // (which includes intake/embedding/retrieval before scoring even starts).
   const scoreStartRef = useRef<number | null>(null);
-  // Sticky: once a real remaining-time estimate lands, it's kept even once
-  // scoring's last event (done==total, so no remainder to estimate) or a
-  // later step arrives — never falls back to the pre-search range.
-  const [liveRemaining, setLiveRemaining] = useState<string | null>(null);
+  const [remainingMs, setRemainingMs] = useState<number | null>(null);
   // The duration of this browser's LAST successful search (ms), written by
   // IntakeForm on completion. It's the only honest per-machine predictor: hosted
   // and local runs differ by an order of magnitude, and this component can't read
@@ -165,34 +119,21 @@ export default function SearchProgress({
   const [lastMs, setLastMs] = useState<number | null>(null);
   useEffect(() => {
     try {
-      const n = Number(window.localStorage.getItem("granted:lastSearchMs"));
+      const n = Number(window.localStorage.getItem(LAST_SEARCH_MS_KEY));
       if (Number.isFinite(n) && n > 0) setLastMs(n);
     } catch { /* localStorage unavailable — fall back to the generic line */ }
   }, []);
 
-  // Scoring starts at the "score" step (lib/match.ts emits it right before the
-  // scorer is called) — NOT at the first "score-progress" event, which only
-  // fires once the first batch has already finished. Timing from that first
-  // event would divide the already-elapsed first-batch time out of the rate,
-  // undercounting the estimate by a factor of (k-1)/k at the k-th event.
+  // Time from the "score" step, not the first "score-progress" (which lands only after
+  // the first call finishes). The final done==total reading keeps the last estimate.
   useEffect(() => {
-    if (realKey === "score" && scoreStartRef.current == null) {
-      scoreStartRef.current = Date.now();
-    }
-  }, [realKey]);
-
-  // Live remaining-time estimate: extrapolate from the observed scoring rate
-  // once "score-progress" events (done/total) start arriving. The last event
-  // (done==total) yields no estimate (nothing left) — leave `liveRemaining` at
-  // its last known value rather than clearing it, so the status line doesn't
-  // fall back to the pre-search range for the rest of the run.
-  useEffect(() => {
+    if (realKey === "score" && scoreStartRef.current == null) scoreStartRef.current = Date.now();
     if (realKey !== "score-progress") return;
     const parsed = parseScoreDetail(realDetail);
     if (!parsed) return;
-    if (scoreStartRef.current == null) scoreStartRef.current = Date.now();
-    const elapsedMs = Date.now() - scoreStartRef.current;
-    setLiveRemaining((prev) => nextLiveRemaining(prev, parsed.done, parsed.total, elapsedMs));
+    scoreStartRef.current ??= Date.now();
+    const next = estimateRemainingMs(parsed.done, parsed.total, Date.now() - scoreStartRef.current);
+    if (next != null) setRemainingMs(next);
   }, [realKey, realDetail]);
 
   // A real milestone raises the monotonic floor and snaps the bar up to include it.
@@ -240,25 +181,14 @@ export default function SearchProgress({
   const label = realLabel || "Reading the federal register…";
   const fact = FACTS[factIndex];
   const estimate = lastMs ? formatDuration(lastMs) : null;
-  // Backend-aware status line. `llm` is undefined both before the "start"
-  // event arrives and on a "cached" hit (which has no llm at all) — neutral
-  // copy either way, never the hosted-specific line. Hosted never mentions
-  // local models; local names the model + a rough range before scoring, then
-  // switches to a live estimate once scoring progress arrives.
-  const statusMessage = !llm
-    ? "This scores your fit across the opportunities."
-    : !llm.local
-      ? "This scores your fit across the opportunities. Hosted models take about a minute or two."
-      : `Running ${localModelLabel(llm.model, llm.paramsB)} locally — this can take ${localModelEstimateRange(llm.paramsB)}, depending on your hardware.`;
-  // Once scoring is underway on a local backend, the live estimate is the
-  // most useful, current thing to say — it takes priority over BOTH the
-  // pre-search range and the historical "your last search took X" line
-  // (which otherwise wins on every search after the first, making the new
-  // backend-aware copy effectively unreachable for a returning user).
-  const localLive = llm?.local && liveRemaining
-    ? `Running ${localModelLabel(llm.model, llm.paramsB)} locally. ${liveRemaining}.`
+  const localLive = llm?.local && remainingMs != null
+    ? `Running ${localModelLabel(llm.model, llm.paramsB)} locally, ${formatDuration(remainingMs)} left.`
     : null;
-  const bodyMessage = localLive ?? statusMessage;
+  const statusMessage = localLive ?? (!llm
+    ? "This scores your fit across the candidate programs."
+    : !llm.local
+      ? "This scores your fit across the candidate programs and usually takes a minute or two."
+      : `Running ${localModelLabel(llm.model, llm.paramsB)} locally — this can take ${localModelEstimateRange(llm.paramsB)}, depending on your hardware.`);
   const mm = Math.floor(elapsed / 60);
   const ss = Math.floor(elapsed % 60).toString().padStart(2, "0");
   const pct = Math.round(display);
@@ -298,7 +228,7 @@ export default function SearchProgress({
       <p className={`mt-3 text-pretty ${mutedClass}`}>
         {!localLive && estimate
           ? `Your last search took ${estimate}, so this one should be similar. Hang tight.`
-          : `${bodyMessage} You can leave this tab open and check back — the search keeps running while it's open.`}
+          : `${statusMessage} You can leave this tab open and check back — the search keeps running while it's open.`}
       </p>
     </div>
   );

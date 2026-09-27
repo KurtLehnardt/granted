@@ -31,8 +31,7 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
   const [form, setForm] = useState<AutoFillRequirements>(() => getAutoFillRequirements());
   const [maxCandidates, setMaxCandidatesState] = useState<number | null>(() => getMaxCandidates());
   const [savedAt, setSavedAt] = useState<number | null>(null);
-  // Local-only model picker: null while /api/llm hasn't answered yet, or on a
-  // hosted backend, in which case the dropdown just never renders.
+  // Stays null when hosted, so the model picker never renders.
   const [localModels, setLocalModels] = useState<OllamaModel[] | null>(null);
   const [defaultModel, setDefaultModel] = useState<string | null>(null);
   const [model, setModelState] = useState<string | null>(() => getModel());
@@ -285,7 +284,7 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
             ))}
           </select>
           <p className="mt-1.5 font-body text-[12px] text-foreground opacity-80">
-            Which installed Ollama model scores your search. Larger models are more capable but
+            Which installed Ollama model runs your search. Larger models are more capable but
             slower.
           </p>
         </div>
