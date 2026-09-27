@@ -156,10 +156,11 @@ describe("buildKeyDates", () => {
     assert.match(dates[0].value ?? "", /forecasted/i);
   });
 
-  test("an evergreen (rolling/continuous/standing) opportunity with no deadline says so, using its own status", () => {
+  test("a continuous-status opportunity with no deadline shows an honest empty row, not an invented 'no deadline' claim", () => {
     const dates = buildKeyDates({ ...BARE_OPPORTUNITY, status: "continuous" });
     assert.equal(dates.length, 1);
-    assert.match(dates[0].value ?? "", /rolling/i);
+    assert.equal(dates[0].label, "Deadline");
+    assert.equal(dates[0].value, null);
   });
 });
 
@@ -293,7 +294,7 @@ describe("buildNextSteps", () => {
     assert.notEqual(grantsGovStep, samContractsStep);
   });
 
-  test("a SBIR/STTR step never claims SBIR/STTR is not submitted via grants.gov, and points to the awarding agency's program site", () => {
+  test("a SBIR/STTR step never claims SBIR/STTR is not submitted via grants.gov, and truthfully labels its link as the awardee's site, not a record of the award", () => {
     const step = buildNextSteps(
       asMatch({ ...RD_OPPORTUNITY, url: "https://www.some-awardee.example/" }),
       true,
@@ -302,9 +303,32 @@ describe("buildNextSteps", () => {
     assert.doesNotMatch(text, /this opportunity's page/i);
     assert.doesNotMatch(text, /not grants\.gov/i);
     assert.match(text, new RegExp(`${RD_OPPORTUNITY.agency}'s SBIR/STTR program site for the current solicitation`, "i"));
-    assert.match(text, /Record: /i);
+    assert.doesNotMatch(text, /Record: /i);
+    assert.match(text, /Awardee: /i);
     const linkPart = step.find((p) => typeof p !== "string") as { text: string; href: string } | undefined;
     assert.equal(linkPart?.href, "https://www.some-awardee.example/");
+  });
+
+  test("a SBIR/STTR step with the generic sbir.gov fallback URL labels it as the awards search, not the awardee", () => {
+    const step = buildNextSteps(
+      asMatch({ ...RD_OPPORTUNITY, url: "https://www.sbir.gov/awards" }),
+      true,
+    )[0];
+    const text = stepText(step);
+    assert.doesNotMatch(text, /Awardee: /i);
+    assert.match(text, /See /i);
+    const linkPart = step.find((p) => typeof p !== "string") as { text: string; href: string } | undefined;
+    assert.equal(linkPart?.text, "SBIR.gov awards search");
+  });
+
+  test("a bare-domain SBIR website (no http/https scheme) is rendered as plain text, never a broken relative link", () => {
+    const step = buildNextSteps(
+      asMatch({ ...RD_OPPORTUNITY, url: "www.aspectaerospace.com" }),
+      true,
+    )[0];
+    const linkPart = step.find((p) => typeof p !== "string");
+    assert.equal(linkPart, undefined);
+    assert.match(stepText(step), /source: sbir/i);
   });
 
   test("a forecasted grants.gov opportunity is described as not yet open, using its own flag — not a fixed deadline claim", () => {
