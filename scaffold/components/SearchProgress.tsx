@@ -65,17 +65,19 @@ export function formatSearchDuration(ms: number): string {
 }
 
 /**
- * Placeholder rough-range table for a local model's total run time, keyed by
- * parameter count — tune these once real hardware timing data exists. Ranges
- * grow with size since a bigger local model is straightforwardly slower.
+ * Rough-range table for a local model's total run time, keyed by parameter
+ * count. Calibrated from measured full-search runs (~32 candidates, one
+ * scoring call each): a 3B model on a 4GB Quadro P1000 took 16–31 minutes
+ * (~30s/candidate uncontended, ~60s under GPU contention), and a 14B model
+ * on a 32GB Mac ran ~37s/candidate.
  */
 const LOCAL_ESTIMATE_RANGES: Array<{ maxB: number; range: string }> = [
-  { maxB: 4, range: "10–20 minutes" },
-  { maxB: 9, range: "12–25 minutes" },
-  { maxB: 16, range: "15–30 minutes" },
+  { maxB: 4, range: "15–30 minutes" },
+  { maxB: 9, range: "20–40 minutes" },
+  { maxB: 16, range: "20–45 minutes" },
 ];
-const LOCAL_ESTIMATE_LARGE = "20–40 minutes or more";
-const LOCAL_ESTIMATE_UNKNOWN = "several minutes or more";
+const LOCAL_ESTIMATE_LARGE = "30–60 minutes or more";
+const LOCAL_ESTIMATE_UNKNOWN = "15 minutes or more";
 
 /** The rough pre-search time range for a local model, by its parameter count
  *  (billions). Unknown/missing size -> the most hedged range. */

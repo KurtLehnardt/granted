@@ -56,24 +56,24 @@ describe("formatSearchDuration", () => {
 
 describe("localModelEstimateRange", () => {
   test("small models get the tightest range", () => {
-    assert.equal(localModelEstimateRange(3), "10–20 minutes");
-    assert.equal(localModelEstimateRange(4), "10–20 minutes");
+    assert.equal(localModelEstimateRange(3), "15–30 minutes");
+    assert.equal(localModelEstimateRange(4), "15–30 minutes");
   });
 
   test("mid-size ranges by boundary", () => {
-    assert.equal(localModelEstimateRange(7), "12–25 minutes");
-    assert.equal(localModelEstimateRange(9), "12–25 minutes");
-    assert.equal(localModelEstimateRange(13), "15–30 minutes");
-    assert.equal(localModelEstimateRange(16), "15–30 minutes");
+    assert.equal(localModelEstimateRange(7), "20–40 minutes");
+    assert.equal(localModelEstimateRange(9), "20–40 minutes");
+    assert.equal(localModelEstimateRange(13), "20–45 minutes");
+    assert.equal(localModelEstimateRange(16), "20–45 minutes");
   });
 
   test("larger than the table -> the 'or more' range", () => {
-    assert.equal(localModelEstimateRange(27), "20–40 minutes or more");
+    assert.equal(localModelEstimateRange(27), "30–60 minutes or more");
   });
 
   test("unknown size (undefined/NaN) -> the hedged unknown range", () => {
-    assert.equal(localModelEstimateRange(undefined), "several minutes or more");
-    assert.equal(localModelEstimateRange(NaN), "several minutes or more");
+    assert.equal(localModelEstimateRange(undefined), "15 minutes or more");
+    assert.equal(localModelEstimateRange(NaN), "15 minutes or more");
   });
 });
 
