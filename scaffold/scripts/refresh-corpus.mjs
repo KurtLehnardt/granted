@@ -5,15 +5,22 @@
  * by lib/corpus/store.ts. The committed data/opportunities.json is never
  * touched.
  *
- * Reuses the existing fetchers unmodified as child processes (they only ever
- * write their own data/raw/*.json — see each script's header) with env knobs
- * for "everything open" / modestly-raised caps, then reuses the same
+ * Reuses the existing fetchers as child processes, redirected (RAW_DIR) into
+ * data/local/raw/ so this never overwrites data/raw/*.json — the standalone
+ * data:fetch/data:normalize/... pipeline's own working set — and skips
+ * 1-fetch.mjs's sbir()/usaspending() (GRANTS_ONLY=1; this script already runs
+ * the dedicated SBIR/procurement fetchers below, and 1-fetch.mjs's sbir()
+ * alone pulls a ~91MB CSV nothing here uses). Then reuses the same
  * normalizers 2-normalize.mjs / assemble-mvp-corpus.mjs call
  * (scripts/lib/normalize*.mjs) to build the fresh record set:
  *   - drops any record whose deadline has already passed
- *   - reuses embeddings for unchanged records, embeds only new/changed ones
- *     (lib/corpus/refresh.ts's planEmbedding — full re-embed if the
- *     configured EMBEDDINGS_MODEL differs from the prior corpus's)
+ *   - trims to the configured cap (lib/corpus/selection.ts), so a lowered cap
+ *     never re-embeds — it only ever drops records — and a raised cap only
+ *     embeds newly-included ones
+ *   - reuses embeddings for unchanged records at the same dimensionality,
+ *     embeds only new/changed ones (lib/corpus/refresh.ts's planEmbedding —
+ *     full re-embed if the configured EMBEDDINGS_MODEL differs from the
+ *     prior corpus's)
  *   - writes atomically (temp file + rename); never clobbers the existing
  *     local corpus on error
  * Single-flight via a lock file (lib/corpus/refreshStatus.ts) shared with
@@ -25,6 +32,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { embedBatch } from "../lib/embed.ts";
 import { dropExpiredOpportunities } from "../lib/corpus/expiry.ts";
+import { selectCorpusWithinCap } from "../lib/corpus/selection.ts";
 import {
   countBySource,
   countRemoved,
@@ -38,11 +46,28 @@ import { normalizeGrantsRecord, normalizeSbirSolicitation } from "./lib/normaliz
 import { normalizeSamRow, normalizeSbirAward, normalizeProcurementRecord } from "./lib/normalizeNewSources.mjs";
 
 const LOCAL_DIR = "data/local";
+const RAW_DIR = join(LOCAL_DIR, "raw"); // scratch fetch output — never data/raw/
 const LOCAL_OPPS = join(LOCAL_DIR, "opportunities.json");
 const LOCAL_META = join(LOCAL_DIR, "corpus-meta.json");
 const EMBED_MODEL = process.env.EMBEDDINGS_MODEL || "text-embedding-3-small";
 const EMBED_BATCH = 64;
+const MIN_CAP = 1000;
+const MAX_CAP = 20000;
+const DEFAULT_CAP = 1000;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** `--max <n>` (from POST /api/corpus/refresh) takes priority over
+ *  CORPUS_MAX (a CLI/env default for `npm run data:refresh` directly);
+ *  clamped to [1000, 20000], default 1000. */
+function resolveMaxCorpusSize(argv, env) {
+  const flagIdx = argv.indexOf("--max");
+  const raw = flagIdx !== -1 ? argv[flagIdx + 1] : env.CORPUS_MAX;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return DEFAULT_CAP;
+  return Math.min(MAX_CAP, Math.max(MIN_CAP, Math.floor(n)));
+}
+
+const MAX_CORPUS_SIZE = resolveMaxCorpusSize(process.argv.slice(2), process.env);
 
 /** Retries embedBatch with exponential backoff on 429/5xx, same policy as
  *  scripts/3-embed.mjs — a single transient rate limit or Ollama hiccup must
@@ -86,6 +111,7 @@ function run(label, script, env) {
 
 async function main() {
   const t0 = Date.now();
+  const attemptAt = new Date(t0).toISOString();
   await mkdir(LOCAL_DIR, { recursive: true });
   // When POST /api/corpus/refresh spawns us, it already claimed the lock
   // (and transferred it to our pid) before spawning, to close the race a
@@ -98,22 +124,39 @@ async function main() {
   }
 
   try {
-    await mkdir("data/raw", { recursive: true });
-    run("grants.gov (everything open)", "scripts/1-fetch.mjs", { GRANTS_FETCH_MODE: "all" });
-    run("SAM.gov assistance (everything open)", "scripts/1-fetch-sam-assistance.mjs", { SAM_FETCH_MODE: "all" });
-    run("SBIR/STTR", "scripts/1-fetch-sbir-corpus.mjs", { SBIR_CAP_TOTAL: "260", SBIR_CAP_PER_AGENCY: "60" });
-    run("Procurement", "scripts/1-fetch-procurement.mjs", { PROCUREMENT_PER_QUERY: "24", PROCUREMENT_UTAH_LIMIT: "40" });
+    await mkdir(RAW_DIR, { recursive: true });
+    const rawEnv = { RAW_DIR };
+    run("grants.gov (everything open)", "scripts/1-fetch.mjs", { ...rawEnv, GRANTS_FETCH_MODE: "all", GRANTS_ONLY: "1" });
+    run("SAM.gov assistance (everything open)", "scripts/1-fetch-sam-assistance.mjs", { ...rawEnv, SAM_FETCH_MODE: "all" });
+    run("SBIR/STTR", "scripts/1-fetch-sbir-corpus.mjs", { ...rawEnv, SBIR_CAP_TOTAL: "260", SBIR_CAP_PER_AGENCY: "60" });
+    run("Procurement", "scripts/1-fetch-procurement.mjs", { ...rawEnv, PROCUREMENT_PER_QUERY: "24", PROCUREMENT_UTAH_LIMIT: "40" });
 
     const [grants, sbirSolicitations, samAssistance, sbirAwards, procurement] = await Promise.all([
-      readJson("data/raw/grants.json", []),
-      readJson("data/raw/sbir-solicitations.json", []),
-      readJson("data/raw/sam-assistance.json", []),
-      readJson("data/raw/sbir-corpus.json", []),
-      readJson("data/raw/usaspending-contracts.json", []),
+      readJson(join(RAW_DIR, "grants.json"), []),
+      readJson(join(RAW_DIR, "sbir-solicitations.json"), []),
+      readJson(join(RAW_DIR, "sam-assistance.json"), []),
+      readJson(join(RAW_DIR, "sbir-corpus.json"), []),
+      readJson(join(RAW_DIR, "usaspending-contracts.json"), []),
     ]);
 
+    const existing = await readJson(LOCAL_OPPS, await readJson("data/opportunities.json", []));
+    const existingMeta = await readJson(LOCAL_META, await readJson("data/corpus-meta.json", {}));
+    const existingById = new Map(existing.map((o) => [o.id, o]));
+
+    // A grants.gov detail fetch can fail for an individual opportunity
+    // (scripts/1-fetch.mjs's fetchOpportunity retries then gives up) — that
+    // record normalizes "thin" (title only, no synopsis/eligibility). Rather
+    // than let a thin replacement clobber a previously-embedded full record,
+    // keep the prior version (text + embedding) verbatim when we already
+    // have one.
+    const normalizedGrants = grants.map((g) => {
+      const norm = normalizeGrantsRecord(g);
+      if (norm && !g._detail && existingById.has(norm.id)) return existingById.get(norm.id);
+      return norm;
+    });
+
     let fresh = [
-      ...grants.map(normalizeGrantsRecord),
+      ...normalizedGrants,
       ...sbirSolicitations.map(normalizeSbirSolicitation),
       ...samAssistance.map(normalizeSamRow),
       ...sbirAwards.map(normalizeSbirAward),
@@ -123,13 +166,14 @@ async function main() {
     fresh = dropExpiredOpportunities(fresh);
     console.log(`\nAssembled ${fresh.length} open records (expired deadlines dropped).`);
 
-    const existing = await readJson(LOCAL_OPPS, await readJson("data/opportunities.json", []));
-    const existingMeta = await readJson(LOCAL_META, await readJson("data/corpus-meta.json", {}));
-
     const unhealthy = findUnhealthySources(countBySource(existing), countBySource(fresh));
     if (unhealthy.length) {
       throw new Error(`refresh aborted — source count dropped sharply: ${unhealthy.join("; ")}`);
     }
+
+    fresh = selectCorpusWithinCap(fresh, MAX_CORPUS_SIZE);
+    console.log(`Capped to ${fresh.length} of the assembled set (max ${MAX_CORPUS_SIZE}).`);
+
     const priorById = new Map();
     for (const o of existing) {
       if (Array.isArray(o.embedding) && o.embedding.length > 0) {
@@ -137,7 +181,7 @@ async function main() {
       }
     }
 
-    const plan = planEmbedding(fresh, priorById, existingMeta.embeddingModel, EMBED_MODEL);
+    const plan = planEmbedding(fresh, priorById, existingMeta.embeddingModel, EMBED_MODEL, existingMeta.dims);
     console.log(
       `Embedding plan: ${plan.reused.length} reused, ${plan.toEmbed.length} to embed with ${EMBED_MODEL}` +
         (plan.fullReembed ? " (embedding model changed — full re-embed)" : ""),
@@ -172,10 +216,10 @@ async function main() {
       `\n→ corpus refreshed: ${final.length} total ` +
         `(+${plan.added} added, ~${plan.updated} updated, -${removed} removed) in ${durationS}s`,
     );
-    writeRefreshStatus({});
+    writeRefreshStatus({ lastCompletedAt: attemptAt });
   } catch (e) {
     console.error(`\ndata:refresh FAILED — ${e.message}`);
-    writeRefreshStatus({ lastError: e.message });
+    writeRefreshStatus({ lastAttemptAt: attemptAt, lastError: e.message });
     process.exitCode = 1;
   } finally {
     releaseRefreshLock();

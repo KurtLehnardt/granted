@@ -3,8 +3,14 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { handleRefreshPost } from "../handler";
 
-function fakeReq(): { headers: { get(name: string): string | null } } {
-  return { headers: { get: () => null } }; // no proxy headers -> loopback
+function fakeReq(body?: unknown): { headers: { get(name: string): string | null }; json: () => Promise<unknown> } {
+  return {
+    headers: { get: () => null }, // no proxy headers -> loopback
+    json: async () => {
+      if (body === undefined) throw new Error("no body");
+      return body;
+    },
+  };
 }
 
 function fakeChild() {
@@ -86,5 +92,58 @@ describe("POST /api/corpus/refresh (handler)", () => {
       }),
     );
     assert.equal(released, true);
+  });
+
+  test("clamps a client-supplied max into --max <n>", async () => {
+    let spawnedWith: string[] | null = null;
+    await handleRefreshPost(fakeReq({ max: 99999999 }), {
+      isLoopbackRequest: () => true,
+      acquireRefreshLock: () => true,
+      releaseRefreshLock: () => {},
+      transferRefreshLock: () => {},
+      spawn: (_command: string, args: string[]) => {
+        spawnedWith = args;
+        return fakeChild();
+      },
+    });
+    const args = spawnedWith as string[] | null;
+    assert.ok(args);
+    assert.deepEqual(args.slice(-2), ["--max", "20000"]);
+  });
+
+  test("no body / invalid max omits --max, letting the script use its own default", async () => {
+    let spawnedWith: string[] | null = null;
+    await handleRefreshPost(fakeReq(), {
+      isLoopbackRequest: () => true,
+      acquireRefreshLock: () => true,
+      releaseRefreshLock: () => {},
+      transferRefreshLock: () => {},
+      spawn: (_command: string, args: string[]) => {
+        spawnedWith = args;
+        return fakeChild();
+      },
+    });
+    assert.ok(!(spawnedWith as string[] | null)?.includes("--max"));
+  });
+
+  test("a spawn 'error' event (async failure) releases the lock and records lastError", async () => {
+    let released = false;
+    let recordedStatus: unknown = null;
+    const child = fakeChild();
+    await handleRefreshPost(fakeReq(), {
+      isLoopbackRequest: () => true,
+      acquireRefreshLock: () => true,
+      releaseRefreshLock: () => {
+        released = true;
+      },
+      transferRefreshLock: () => {},
+      writeRefreshStatus: (status) => {
+        recordedStatus = status;
+      },
+      spawn: () => child,
+    });
+    child.emit("error", new Error("spawn ENOENT"));
+    assert.equal(released, true);
+    assert.equal((recordedStatus as { lastError?: string })?.lastError, "spawn ENOENT");
   });
 });

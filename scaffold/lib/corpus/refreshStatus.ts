@@ -99,6 +99,10 @@ export function releaseRefreshLock(baseDir: string = process.cwd()): void {
 export interface RefreshStatus {
   lastError?: string;
   lastCompletedAt?: string;
+  /** When the most recent refresh attempt started — set alongside `lastError`
+   *  on failure so auto-update (components/CorpusAutoUpdate.tsx) can back off
+   *  instead of retrying every page load. */
+  lastAttemptAt?: string;
 }
 
 export function readRefreshStatus(baseDir: string = process.cwd()): RefreshStatus {
