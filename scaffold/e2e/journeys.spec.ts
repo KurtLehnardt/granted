@@ -21,6 +21,27 @@ test("sample-pick: choosing a sample company runs the search and shows results",
   await expect(page.getByText(FIXTURE_PROGRAM)).toBeVisible();
 });
 
+// Optional-details section must stay collapsed once the required fields are
+// filled, and only expand on an explicit click of the toggle.
+test("intake: optional details stay collapsed after required fields are filled, and expand on toggle click", async ({ page }) => {
+  await stubBackend(page);
+  await page.goto("/");
+
+  await page.getByLabel("Company description").fill("AI diagnostics for rural clinics");
+  await page.getByLabel("Industry / market").fill("Health IT");
+  await page.getByLabel("Core technology").fill("Diagnostic imaging software");
+  await page.getByLabel("Primary US location").fill("Boise, Idaho");
+  await page.getByLabel("Use of funds").fill("Hire two engineers");
+  await page.getByLabel("Use of funds").blur();
+
+  const toggle = page.getByRole("button", { name: /add optional details/i });
+  await expect(toggle).toBeVisible();
+  await expect(page.getByText("A few more details (optional)")).not.toBeVisible();
+
+  await toggle.click();
+  await expect(page.getByText("A few more details (optional)")).toBeVisible();
+});
+
 // Journey 3 — Interview (needs r1_interview on + a short description).
 test.fixme("interview: a short description shows the pre-search interview before results", async ({ page }) => {
   await page.route("**/api/interview", (route) =>
