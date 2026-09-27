@@ -1,14 +1,6 @@
 "use client";
 
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { createContext, useCallback, useContext, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { isFlagEnabled } from "@/lib/flags";
 import { useAuth } from "@/components/AuthProvider";
@@ -61,8 +53,8 @@ export function SettingsPanelProvider({ children }: { children: ReactNode }) {
 
 export default function AppMenu() {
   // FE-07: when on, the hamburger opens a left slide-out drawer (AppSidebar)
-  // instead of the dropdown, and the dropdown's "Settings" button is dropped
-  // (Settings lives inside the drawer). Default OFF -> today's dropdown.
+  // instead of Settings directly (Settings lives inside the drawer).
+  // Default OFF -> the hamburger opens the Settings modal directly.
   const sidebar = isFlagEnabled("left_sidebar");
   // Show the sign-in surface when EITHER auth backend is live: the real
   // Supabase flag (R9) or the interim mock flag (R9.0). Checking only the mock
@@ -71,41 +63,9 @@ export default function AppMenu() {
   const { user, loading } = useAuth();
   const { openSettings } = useSettingsPanel();
 
-  const [menuOpen, setMenuOpen] = useState(false);
-  const wrapRef = useRef<HTMLDivElement>(null);
-
-  // Close on outside click and on Esc — this is a lightweight dropdown, not
-  // a modal dialog, so it gets simple dismiss behavior rather than the full
-  // focus-trap treatment AutoFillModal/SettingsPanel use.
-  useEffect(() => {
-    // In sidebar mode the drawer (AppSidebar) supplies its own focus-trap/Esc
-    // via useDialogA11y, so this dropdown-only dismiss handler is skipped.
-    if (!menuOpen || sidebar) return;
-    function onPointerDown(e: MouseEvent) {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setMenuOpen(false);
-    }
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") setMenuOpen(false);
-    }
-    document.addEventListener("mousedown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [menuOpen, sidebar]);
-
   // Polish: real hover fill + press feedback on the icon control (44px target).
   const hamburgerBtnClass =
     "flex min-h-[44px] min-w-[44px] items-center justify-center rounded-sm border border-structure-on-canvas p-2 text-structure-on-canvas transition hover:bg-structure hover:text-token-white active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2";
-
-  // Dropdown: elevated surface (rounded + overlay shadow) over a definition border.
-  const menuClass =
-    "absolute right-0 top-full z-40 mt-2 w-48 overflow-hidden rounded-md border border-structure-on-canvas bg-canvas py-1 text-foreground shadow-overlay";
-
-  // Menu items get a full 44px hit height.
-  const menuItemClass =
-    "flex min-h-[44px] w-full items-center px-4 py-2 text-left font-mono text-[11px] uppercase tracking-eyebrow text-foreground transition hover:bg-canvas-alt focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-inset";
 
   const signInLinkClass =
     "inline-flex min-h-[44px] items-center rounded-sm border border-structure-on-canvas px-4 font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas transition hover:bg-structure hover:text-token-white active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2";
@@ -118,37 +78,18 @@ export default function AppMenu() {
     return <AppSidebar />;
   }
 
-  // FE-07 OFF (default, unchanged): the original hamburger dropdown + the
-  // top-right mock-auth surface.
+  // FE-07 OFF (default): the hamburger opens the Settings modal directly
+  // (no intermediate dropdown) + the top-right mock-auth surface.
   return (
     <div className="flex items-center justify-between gap-3">
-      <div ref={wrapRef} className="relative">
-        <button
-          type="button"
-          onClick={() => setMenuOpen((o) => !o)}
-          aria-haspopup="menu"
-          aria-expanded={menuOpen}
-          aria-label="Open menu"
-          className={hamburgerBtnClass}
-        >
-          <HamburgerIcon className="h-4 w-4" />
-        </button>
-        {menuOpen && (
-          <div role="menu" aria-label="App menu" className={menuClass}>
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setMenuOpen(false);
-                openSettings();
-              }}
-              className={menuItemClass}
-            >
-              Settings
-            </button>
-          </div>
-        )}
-      </div>
+      <button
+        type="button"
+        onClick={openSettings}
+        aria-label="Open settings"
+        className={hamburgerBtnClass}
+      >
+        <HamburgerIcon className="h-4 w-4" />
+      </button>
 
       {authOn && !loading && (
         user ? (

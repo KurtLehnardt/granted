@@ -150,6 +150,42 @@ export function buildQuestions(opportunity: Opportunity): string[] {
   return questions;
 }
 
+/** Where to read the full listing — the opportunity's own URL when we have
+ *  one, otherwise an honest pointer to its source system (never fabricated). */
+function sourcePointer(opportunity: Opportunity): string {
+  return opportunity.url
+    ? `this opportunity's page: ${opportunity.url}`
+    : `the full listing (source: ${opportunity.source})`;
+}
+
+/**
+ * The apply-path step differs by *source*, not just kind — a Grants.gov
+ * competition, an SBIR/STTR solicitation, a SAM.gov assistance listing, and a
+ * SAM.gov contract opportunity are applied to in genuinely different ways.
+ * Everything here is generic guidance for that source, paired with the
+ * opportunity's own agency/url — never an invented fact about this posting.
+ */
+function sourceApplyStep(opportunity: Opportunity): string {
+  const pointer = sourcePointer(opportunity);
+  switch (opportunity.source) {
+    case "grants.gov":
+      return `Register on grants.gov (an Active SAM.gov registration + UEI are required), then read and apply through ${pointer} before its deadline.`;
+    case "sbir":
+    case "sbir.gov":
+      return `Read ${opportunity.agency}'s SBIR/STTR solicitation topic and apply through the agency's own SBIR portal — not grants.gov. Start at ${pointer}.`;
+    case "assistance-listings":
+    case "sam.gov":
+      return `This is a SAM.gov assistance listing, not a competed application — contact ${opportunity.agency}'s program office to ask how to apply. Details: ${pointer}.`;
+    case "sam-contracts":
+      return `Respond through SAM.gov Contract Opportunities, following ${opportunity.agency}'s solicitation instructions. Details: ${pointer}.`;
+    case "usaspending":
+      return `This reflects past awards from USAspending, not an open call — confirm with ${opportunity.agency} whether the program is currently accepting applications. Details: ${pointer}.`;
+    case "agency-feed":
+    default:
+      return `Read the full opportunity listing at ${pointer} before drafting anything.`;
+  }
+}
+
 /**
  * Ordered next actions. The LAST step always restates the honesty boundary:
  * this tool never submits anything — a human AOR does, through the official
@@ -157,11 +193,7 @@ export function buildQuestions(opportunity: Opportunity): string[] {
  */
 export function buildNextSteps(opportunity: Opportunity, allRegistrationsSatisfied: boolean): string[] {
   const steps: string[] = [];
-  steps.push(
-    opportunity.url
-      ? `Read the full opportunity listing at ${opportunity.url} before drafting anything.`
-      : `Locate the full opportunity listing (source: ${opportunity.source}) and read it before drafting anything.`,
-  );
+  steps.push(sourceApplyStep(opportunity));
   steps.push(
     allRegistrationsSatisfied
       ? "Your registrations in Settings are marked satisfied — confirm they're still active/current in SAM.gov."

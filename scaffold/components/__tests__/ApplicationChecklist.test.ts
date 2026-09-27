@@ -157,6 +157,26 @@ describe("buildNextSteps", () => {
     assert.ok(withUrl[0].includes(RD_OPPORTUNITY.url as string));
     assert.ok(withoutUrl[0].includes(GRANT_OPPORTUNITY.source));
   });
+
+  test("apply-path step is source-specific, not a shared template", () => {
+    const sbirStep = buildNextSteps(RD_OPPORTUNITY, true)[0];
+    const grantsGovStep = buildNextSteps(GRANT_OPPORTUNITY, true)[0];
+    const samContractsStep = buildNextSteps(
+      { ...BARE_OPPORTUNITY, source: "sam-contracts", kind: "procurement" },
+      true,
+    )[0];
+    const assistanceStep = buildNextSteps(BARE_OPPORTUNITY, true)[0];
+
+    assert.match(sbirStep, /SBIR\/STTR solicitation topic/i);
+    assert.match(grantsGovStep, /grants\.gov \(an Active SAM\.gov registration/i);
+    assert.match(samContractsStep, /SAM\.gov Contract Opportunities/i);
+    assert.match(assistanceStep, /assistance listing, not a competed application/i);
+
+    assert.notEqual(sbirStep, grantsGovStep);
+    assert.notEqual(sbirStep, samContractsStep);
+    assert.notEqual(sbirStep, assistanceStep);
+    assert.notEqual(grantsGovStep, samContractsStep);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -180,6 +200,20 @@ describe("buildApplicationChecklist", () => {
     assert.notEqual(rdModel.title, grantModel.title);
     assert.notEqual(JSON.stringify(rdModel.keyDates), JSON.stringify(grantModel.keyDates));
     assert.notEqual(JSON.stringify(rdModel.documents), JSON.stringify(grantModel.documents));
+    assert.notEqual(JSON.stringify(rdModel.nextSteps), JSON.stringify(grantModel.nextSteps));
+  });
+
+  test("two opportunities of the SAME kind but different sources still get different apply guidance", () => {
+    const sameKindDifferentSource: Opportunity = {
+      ...GRANT_OPPORTUNITY,
+      id: "opp-grant-2",
+      source: "assistance-listings",
+      program: "Rural Assistance Program",
+    };
+    const grantsGovModel = buildApplicationChecklist(GRANT_OPPORTUNITY, true);
+    const assistanceModel = buildApplicationChecklist(sameKindDifferentSource, true);
+    assert.equal(grantsGovModel.documents.join(), assistanceModel.documents.join()); // same kind -> same docs
+    assert.notEqual(grantsGovModel.nextSteps[0], assistanceModel.nextSteps[0]); // different source -> different apply step
   });
 });
 
