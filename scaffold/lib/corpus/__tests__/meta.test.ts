@@ -1,6 +1,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { parseBuiltAt, corpusAsOf } from "../meta";
+import { parseBuiltAt } from "../meta";
+import { corpusAsOf } from "../serverMeta";
 
 /**
  * Data-freshness: the corpus "as of" stamp. Pure/hermetic (node:test + assert,

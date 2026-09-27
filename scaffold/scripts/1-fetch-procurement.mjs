@@ -32,8 +32,8 @@ const KEYWORD_QUERIES = [
   "aerospace", "water treatment", "environmental monitoring",
   "health information technology",
 ];
-const PER_QUERY = 12;
-const UTAH_LIMIT = 20;
+const PER_QUERY = Number(process.env.PROCUREMENT_PER_QUERY) || 12;
+const UTAH_LIMIT = Number(process.env.PROCUREMENT_UTAH_LIMIT) || 20;
 
 async function search(filters, limit) {
   const body = { filters, fields: FIELDS, page: 1, limit, sort: "Award Amount", order: "desc" };

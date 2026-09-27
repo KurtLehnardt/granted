@@ -94,6 +94,9 @@ await writeFile(
     {
       builtAt,
       note: "When this committed opportunity snapshot was built (written by scripts/3-embed.mjs on every data:embed). Read by lib/corpus/meta.ts to surface an honest 'Opportunities as of <date>' caveat.",
+      count: opps.length,
+      embeddingModel: MODEL,
+      dims: opps.find((o) => Array.isArray(o.embedding) && o.embedding.length > 0)?.embedding?.length,
     },
     null,
     2,

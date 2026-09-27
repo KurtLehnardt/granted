@@ -26,7 +26,7 @@
  */
 import "./_loadEnvLocal.mjs"; // honor scaffold/.env.local when run as plain `node`
 import { readFile, writeFile } from "node:fs/promises";
-import { createHash } from "node:crypto";
+import { normalizeSamRow, normalizeSbirAward, normalizeProcurementRecord } from "./lib/normalizeNewSources.mjs";
 
 const KEY = process.env.OPENAI_API_KEY;
 if (!KEY) {
@@ -38,16 +38,6 @@ const read = async (p, fallback = []) => {
   try { return JSON.parse(await readFile(p, "utf8")); } catch { return fallback; }
 };
 
-/** Light text cleanup — the new sources are largely plain text, but strip any
- *  stray tags and collapse whitespace so descriptions embed/read cleanly. */
-const clean = (s) =>
-  (s ?? "")
-    .replace(/<\/?[a-zA-Z][^>]*>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-const shortId = (s) => createHash("sha1").update(s).digest("hex").slice(0, 10);
-
 // ---- Load the existing (already-embedded) corpus and the new raw sources ----
 const existing = await read("data/opportunities.json");
 const existingIds = new Set(existing.map((o) => o.id));
@@ -55,93 +45,11 @@ const sam = await read("data/raw/sam-assistance.json");
 const sbir = await read("data/raw/sbir-corpus.json");
 const procurement = await read("data/raw/usaspending-contracts.json");
 
-const newRecords = [];
-
-// ---- SAM.gov Assistance Listings (evergreen programs) ----
-for (const p of sam) {
-  const title = clean(p.title);
-  if (!title) continue;
-  const description = [title, clean(p.objectives), clean(p.uses)]
-    .filter(Boolean).join(". ").slice(0, 4000);
-  newRecords.push({
-    id: `sam-${p.programNumber || shortId(title)}`,
-    source: "assistance-listings",
-    kind: p.kind, // assistance | loan | scholarship (set by the fetcher)
-    program: title,
-    agency: clean(p.agency) || "Federal agency",
-    description,
-    eligibility: clean(p.eligibility) || undefined,
-    // Evergreen (I5): no deadline, no funding floor/ceiling. Status marks it as
-    // a standing program so nothing reads "closing soon" or zeroes the summary.
-    status: "continuous",
-    forecasted: false,
-    industryTags: p._keywords ?? [],
-    url: clean(p.url) || clean(p.website) || undefined,
-  });
-}
-
-// ---- SBIR/STTR (source:sbir, kind:rd) ----
-for (const a of sbir) {
-  const title = clean(a.title);
-  if (!title) continue;
-  const yr = a.year ? `FY${a.year}` : "recently";
-  const framing =
-    `Recent SBIR/STTR award (${yr})` +
-    (a.state ? ` to a ${a.state} small business` : "") +
-    `; ${clean(a.agency)} funds R&D in this area under its ongoing SBIR/STTR program.`;
-  const description = [title, framing, clean(a.abstract)]
-    .filter(Boolean).join(" ").slice(0, 4000);
-  newRecords.push({
-    id: `sbir-award-${shortId(`${a.company}|${a.year}|${title}`)}`,
-    source: "sbir",
-    kind: "rd",
-    program: title,
-    agency: clean(a.agency) || "SBIR/STTR agency",
-    description,
-    eligibility: "US small business, generally under 500 employees (SBIR/STTR).",
-    // SBIR/STTR agencies solicit continuously; this record reflects a funded
-    // topic area, not a dated solicitation — so no deadline (honest, per degrade
-    // note in 1-fetch-sbir-corpus.mjs).
-    status: "continuous",
-    forecasted: false,
-    industryTags: a._keywords ?? [],
-    url: clean(a.website) || "https://www.sbir.gov/awards",
-  });
-}
-
-// ---- USAspending contract awards (kind:procurement, gov-as-customer) ----
-for (const c of procurement) {
-  const recipient = clean(c["Recipient Name"]);
-  const rawDesc = clean(c["Description"]);
-  const naics = c["NAICS"] || {};
-  const naicsDesc = clean(naics.description);
-  const agency = clean(c["Awarding Agency"]) || "Federal agency";
-  const subAgency = clean(c["Awarding Sub Agency"]) || agency;
-  const amount = Number(c["Award Amount"]) || 0;
-  const startDate = clean(c["Start Date"]);
-  const program = (rawDesc || `${naicsDesc || "Federal"} contract`).slice(0, 120);
-  const amountStr = amount ? `$${amount.toLocaleString("en-US")}` : "an undisclosed amount";
-  const description = [
-    rawDesc,
-    `Federal ${naicsDesc ? `(${naicsDesc}) ` : ""}contract awarded to ${recipient || "a contractor"} for ${amountStr}` +
-      (startDate ? ` (start ${startDate})` : "") + ".",
-    `Government-as-customer signal: ${subAgency} buys in this area — this is a procurement / business-development path (government as a customer), not a grant. Verify current solicitations on SAM.gov.`,
-  ].filter(Boolean).join(" ").slice(0, 4000);
-  const internalId = clean(c.generated_internal_id);
-  newRecords.push({
-    id: `usasp-${clean(c["Award ID"]) || shortId(internalId || program)}`,
-    source: "usaspending",
-    kind: "procurement",
-    program,
-    agency,
-    description,
-    eligibility: "Open to firms able to perform the contract scope and holding the required registrations (active SAM.gov / UEI).",
-    status: "closed", // a specific past award; the signal is the buying pattern
-    forecasted: false,
-    industryTags: [c._keyword, clean(naics.code)].filter(Boolean),
-    url: internalId ? `https://www.usaspending.gov/award/${internalId}` : undefined,
-  });
-}
+const newRecords = [
+  ...sam.map(normalizeSamRow),
+  ...sbir.map(normalizeSbirAward),
+  ...procurement.map(normalizeProcurementRecord),
+].filter(Boolean);
 
 // ---- Dedup (never collide with an existing id; drop thin/dup new records) ----
 const seen = new Set(existingIds);

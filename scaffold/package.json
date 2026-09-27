@@ -26,6 +26,7 @@
     "data:fetch:procurement": "node scripts/1-fetch-procurement.mjs",
     "data:assemble": "node scripts/assemble-mvp-corpus.mjs",
     "data:mvp": "npm run data:fetch:sam && npm run data:fetch:sbir-corpus && npm run data:fetch:procurement && npm run data:assemble",
+    "data:refresh": "node --import tsx scripts/refresh-corpus.mjs",
     "check:hex": "node scripts/design/check-hex.mjs",
     "check:contrast": "node scripts/design/contrast-check.mjs",
     "test": "tsx --test \"lib/**/__tests__/**/*.test.ts\" \"app/**/__tests__/**/*.test.ts\" \"scripts/**/__tests__/**/*.test.ts\" \"components/**/__tests__/**/*.test.ts\"",

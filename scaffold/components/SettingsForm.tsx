@@ -1,13 +1,32 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import {
   getAutoFillRequirements,
   setAutoFillRequirements,
   type AutoFillRequirements,
 } from "@/lib/mockAuth";
-import { getMaxCandidates, setMaxCandidates, getModel, setModel } from "@/lib/searchSettings";
+import {
+  getAutoUpdateCorpus,
+  getMaxCandidates,
+  getMaxCorpusSize,
+  getModel,
+  setAutoUpdateCorpus,
+  setMaxCandidates,
+  setMaxCorpusSize,
+  setModel,
+  MIN_CORPUS_SIZE,
+  MAX_CORPUS_SIZE,
+} from "@/lib/searchSettings";
 import type { OllamaModel } from "@/lib/llm/ollamaInfo";
+
+interface CorpusStatus {
+  builtAt: string | null;
+  count: number;
+  stale: boolean;
+  refreshing: boolean;
+  lastError?: string;
+}
 
 /**
  * SettingsForm.tsx — the auto-fill requirements form body, extracted from
@@ -48,6 +67,51 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
       .catch(() => { /* hosted, or the lookup failed — no picker */ });
     return () => { cancelled = true; };
   }, []);
+  const [autoUpdate, setAutoUpdate] = useState(() => getAutoUpdateCorpus());
+  const [maxCorpusSize, setMaxCorpusSizeState] = useState(() => getMaxCorpusSize());
+  const [corpusStatus, setCorpusStatus] = useState<CorpusStatus | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  async function fetchCorpusStatus() {
+    try {
+      const res = await fetch("/api/corpus");
+      if (res.ok) setCorpusStatus(await res.json());
+    } catch {
+      /* offline / unreachable — leave the last known status showing */
+    }
+  }
+
+  useEffect(() => {
+    fetchCorpusStatus();
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!corpusStatus?.refreshing) {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+      return;
+    }
+    if (pollRef.current) return;
+    pollRef.current = setInterval(fetchCorpusStatus, 3000);
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+      pollRef.current = null;
+    };
+  }, [corpusStatus?.refreshing]);
+
+  async function handleRefreshCorpus() {
+    try {
+      const res = await fetch("/api/corpus/refresh", { method: "POST" });
+      if (res.status === 202 || res.status === 409) await fetchCorpusStatus();
+    } catch {
+      /* offline / unreachable — nothing to do, status just won't update */
+    }
+  }
   // Instance-unique ids / radio-group name (useId) so two mounted instances —
   // the drawer's inline Settings section and the SettingsPanel modal — never
   // share DOM ids or a radio `name` and cross-wire each other (frontend review
@@ -64,12 +128,15 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
   const stateId = `${uid}-state`;
   const zipId = `${uid}-zip`;
   const cdId = `${uid}-cd`;
+  const corpusSizeId = `${uid}-corpus-size`;
 
   function handleSave(e: React.FormEvent) {
     e.preventDefault();
     setAutoFillRequirements(form);
     setMaxCandidates(maxCandidates);
     setModel(model);
+    setAutoUpdateCorpus(autoUpdate);
+    setMaxCorpusSize(maxCorpusSize);
     setSavedAt(Date.now());
   }
 
@@ -289,6 +356,67 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
           </p>
         </div>
       )}
+
+      <div className={fieldWrapClass}>
+        <span className={legendClass}>Cached grant data</span>
+        <p className="mt-1.5 font-body text-[12px] text-foreground opacity-80">
+          {corpusStatus == null
+            ? "Checking…"
+            : `${corpusStatus.count.toLocaleString("en-US")} opportunities, as of ${
+                corpusStatus.builtAt ? new Date(corpusStatus.builtAt).toLocaleDateString() : "unknown"
+              }${corpusStatus.stale ? " (over a day old)" : ""}.`}
+          {corpusStatus?.lastError ? ` Last refresh failed: ${corpusStatus.lastError}` : ""}
+        </p>
+        <button
+          type="button"
+          onClick={handleRefreshCorpus}
+          disabled={corpusStatus?.refreshing}
+          className={`${saveBtnClass} mt-2 disabled:opacity-50`}
+        >
+          {corpusStatus?.refreshing ? "Refreshing…" : "Refresh cached grants"}
+        </button>
+        <label className={`mt-3 flex items-center gap-2 ${labelTextClass}`}>
+          <input
+            type="checkbox"
+            checked={autoUpdate}
+            onChange={(e) => {
+              setSavedAt(null);
+              setAutoUpdate(e.target.checked);
+            }}
+          />
+          Auto-update: refresh cached grants in the background when they're stale
+        </label>
+        <label className={`mt-3 block ${labelTextClass}`} htmlFor={corpusSizeId}>
+          <span className="inline-flex items-center gap-1">
+            Max cached opportunities
+            <span
+              title="Lower numbers (like 1,000) refresh and search faster. Higher numbers give more comprehensive, accurate matches."
+              aria-label="Lower numbers (like 1,000) refresh and search faster. Higher numbers give more comprehensive, accurate matches."
+              className="cursor-help font-mono text-[11px] text-foreground opacity-60"
+            >
+              ⓘ
+            </span>
+          </span>
+          <input
+            id={corpusSizeId}
+            type="range"
+            min={MIN_CORPUS_SIZE}
+            max={MAX_CORPUS_SIZE}
+            step={500}
+            value={maxCorpusSize}
+            onChange={(e) => {
+              setSavedAt(null);
+              setMaxCorpusSizeState(Number(e.target.value));
+            }}
+            className="mt-1.5 w-full"
+          />
+          <span className="mt-1 block font-body text-[12px] text-foreground opacity-80">
+            {maxCorpusSize.toLocaleString("en-US")}
+            {corpusStatus != null ? ` (currently cached: ${corpusStatus.count.toLocaleString("en-US")})` : ""} — applies
+            on the next refresh.
+          </span>
+        </label>
+      </div>
 
       <div className="mt-6 flex flex-wrap items-center gap-4">
         <button type="submit" className={saveBtnClass}>

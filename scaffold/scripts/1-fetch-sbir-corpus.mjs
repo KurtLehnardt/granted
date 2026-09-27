@@ -39,8 +39,8 @@ const DOMAIN_KEYWORDS = [
   "workforce", "autonomy", "autonomous",
 ];
 const RECENT_MIN_YEAR = 2022;
-const CAP_TOTAL = 130;
-const CAP_PER_AGENCY = 30;
+const CAP_TOTAL = Number(process.env.SBIR_CAP_TOTAL) || 130;
+const CAP_PER_AGENCY = Number(process.env.SBIR_CAP_PER_AGENCY) || 30;
 
 /** Streaming RFC4180-ish parser: feed chunks, get complete rows via onRow.
  *  Bounds memory — we never hold the whole 108MB file as one array. */

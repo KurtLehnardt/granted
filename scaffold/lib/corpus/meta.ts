@@ -1,5 +1,3 @@
-import rawCorpusMeta from "@/data/corpus-meta.json";
-
 /**
  * corpus/meta.ts — the committed corpus's "as of" stamp (data-freshness surface).
  *
@@ -24,6 +22,9 @@ import rawCorpusMeta from "@/data/corpus-meta.json";
 /** Shape of `data/corpus-meta.json`. `builtAt` is the only field the app reads. */
 export interface CorpusMeta {
   builtAt?: unknown;
+  count?: number;
+  embeddingModel?: string;
+  dims?: number;
   [key: string]: unknown;
 }
 
@@ -74,10 +75,9 @@ export function parseBuiltAt(meta: CorpusMeta | null | undefined): CorpusAsOf | 
 }
 
 /**
- * The committed corpus's "as of" surface, read from `data/corpus-meta.json`.
- * `null` when the stamp is missing/invalid (safe fallback). Reads only the
- * committed file — no network, no request-time state.
+ * This module is imported by client components (components/OpportunityMap.tsx
+ * fetches GET /api/corpus and formats the result with `parseBuiltAt` above),
+ * so it stays free of `node:fs`/server-only imports. The server-side reader —
+ * `corpusAsOf()`, backed by lib/corpus/store.ts — lives in
+ * lib/corpus/serverMeta.ts instead.
  */
-export function corpusAsOf(): CorpusAsOf | null {
-  return parseBuiltAt(rawCorpusMeta as CorpusMeta);
-}

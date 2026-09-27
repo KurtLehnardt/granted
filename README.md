@@ -234,6 +234,8 @@ npm run data:embed      # embed everything (~1 min, <$1 of OpenAI)
 npm run data:precompute # (optional) freeze the demo test cases for instant renders
 ```
 
+For a self-hoster who wants to stay current, `npm run data:refresh` instead fetches every open grants.gov/SAM.gov/SBIR/procurement listing, drops expired deadlines, and embeds only new/changed records into a local, gitignored `scaffold/data/local/` copy — picked up by the running app without a restart. No API key needed for local embeddings (Ollama); also reachable from Settings ("Refresh cached grants").
+
 ---
 
 ## How it works

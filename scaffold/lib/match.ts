@@ -4,7 +4,8 @@ import type { Opportunity, OpportunityMap, StartupProfile, Match, Tier, AwardHis
 import { screen } from "./eligibility/screen";
 import { annotateFreshness } from "./eligibility/freshness";
 import { toCompanyProfile, toScreenableOpportunity, type KnownCompanyFacts } from "./eligibility/bridge";
-import corpus from "@/data/opportunities.json";
+import { getCorpus } from "./corpus/store";
+import { dropExpiredOpportunities } from "./corpus/expiry";
 import awards from "@/data/awards.json";
 import { createCostMeter, type CostMeter } from "./metering/meter";
 import { CURRENT_OPPORTUNITY_MAP_VERSION } from "./contracts/opportunityMap";
@@ -108,7 +109,7 @@ const REAL_DEPS: BuildDeps = {
   explainMatchesTwoPass,
   explainWeakField,
   screen,
-  corpus: corpus as unknown as Opportunity[],
+  corpus: getCorpus() as unknown as Opportunity[],
 };
 
 export function tierFromScore(score: number): Tier {
@@ -271,7 +272,7 @@ export async function buildOpportunityMap(
   // returns, which is always built from the complete, awaited scorer result.
   onMatch?: (m: Match) => void,
 ): Promise<OpportunityMap> {
-  const d: BuildDeps = { ...REAL_DEPS, ...deps };
+  const d: BuildDeps = { ...REAL_DEPS, corpus: dropExpiredOpportunities(getCorpus()) as unknown as Opportunity[], ...deps };
   // Progress is best-effort: a reporting error must never fail the search.
   const step = (e: StepEvent) => { try { onStep?.(e); } catch { /* ignore */ } };
   step({ key: "start", label: "Reading the federal register…", pct: 5 });

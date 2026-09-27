@@ -62,23 +62,63 @@ function parseCsv(text) {
   return rows;
 }
 
-async function grantsGov() {
+/** `GRANTS_FETCH_MODE=all` (npm run data:refresh): every posted+forecasted
+ *  opportunity, not just the 15 demo keywords — paginated via startRecordNum
+ *  until a page comes back short of a full page (bounded by a safety cap so a
+ *  misbehaving API can't loop forever). */
+const FETCH_ALL = process.env.GRANTS_FETCH_MODE === "all";
+const ALL_PAGE_SIZE = 1000;
+const ALL_MAX_PAGES = 50;
+
+async function fetchAllPostedForecasted() {
   const out = [];
-  for (const kw of KEYWORDS) {
+  for (let page = 0; page < ALL_MAX_PAGES; page++) {
+    let hits = [];
     try {
       const res = await fetch("https://api.grants.gov/v1/api/search2", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rows: 50, keyword: kw, oppStatuses: "forecasted|posted" }),
+        body: JSON.stringify({
+          rows: ALL_PAGE_SIZE,
+          startRecordNum: page * ALL_PAGE_SIZE,
+          oppStatuses: "forecasted|posted",
+        }),
       });
       const json = await res.json();
-      const hits = json?.data?.oppHits ?? [];
-      out.push(...hits.map((h) => ({ ...h, _keyword: kw })));
-      console.log(`grants.gov  ${kw.padEnd(32)} ${hits.length}`);
+      hits = json?.data?.oppHits ?? [];
     } catch (e) {
-      console.warn(`grants.gov  ${kw} FAILED — ${e.message}`);
+      console.warn(`grants.gov  page ${page} FAILED — ${e.message}`);
+      break;
     }
+    out.push(...hits);
+    console.log(`grants.gov  page ${page}  ${hits.length} (${out.length} total)`);
+    if (hits.length < ALL_PAGE_SIZE) break;
     await new Promise((r) => setTimeout(r, 250));
+  }
+  return out;
+}
+
+async function grantsGov() {
+  let out = [];
+  if (FETCH_ALL) {
+    out = await fetchAllPostedForecasted();
+  } else {
+    for (const kw of KEYWORDS) {
+      try {
+        const res = await fetch("https://api.grants.gov/v1/api/search2", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ rows: 50, keyword: kw, oppStatuses: "forecasted|posted" }),
+        });
+        const json = await res.json();
+        const hits = json?.data?.oppHits ?? [];
+        out.push(...hits.map((h) => ({ ...h, _keyword: kw })));
+        console.log(`grants.gov  ${kw.padEnd(32)} ${hits.length}`);
+      } catch (e) {
+        console.warn(`grants.gov  ${kw} FAILED — ${e.message}`);
+      }
+      await new Promise((r) => setTimeout(r, 250));
+    }
   }
 
   // search2 only returns search-hit summaries: id/number/title/agency/
@@ -93,20 +133,25 @@ async function grantsGov() {
   const uniqueIds = [...new Set(out.map((o) => o.id).filter(Boolean))];
   console.log(`grants.gov  fetching detail for ${uniqueIds.length} unique opportunities...`);
   let doneDetail = 0;
-  const pairs = await mapWithConcurrency(uniqueIds, 8, async (id) => {
+  const detailConcurrency = FETCH_ALL ? 16 : 8;
+  const pairs = await mapWithConcurrency(uniqueIds, detailConcurrency, async (id) => {
     let detail = null;
-    try {
-      const res = await fetch("https://api.grants.gov/v1/api/fetchOpportunity", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ opportunityId: Number(id) }),
-      });
-      if (res.ok) {
-        const json = await res.json();
-        detail = json?.data?.synopsis ?? json?.data?.forecast ?? null;
+    for (let attempt = 0; attempt <= 2 && detail == null; attempt++) {
+      try {
+        const res = await fetch("https://api.grants.gov/v1/api/fetchOpportunity", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ opportunityId: Number(id) }),
+        });
+        if (res.ok) {
+          const json = await res.json();
+          detail = json?.data?.synopsis ?? json?.data?.forecast ?? null;
+        } else if (attempt < 2) {
+          await new Promise((r) => setTimeout(r, 500 * 2 ** attempt));
+        }
+      } catch {
+        if (attempt < 2) await new Promise((r) => setTimeout(r, 500 * 2 ** attempt));
       }
-    } catch {
-      detail = null;
     }
     doneDetail++;
     if (doneDetail % 50 === 0) process.stdout.write(`\r  detail ${doneDetail}/${uniqueIds.length}`);
