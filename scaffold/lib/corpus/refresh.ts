@@ -69,6 +69,36 @@ export function countRemoved(priorIds: Iterable<string>, finalIds: Set<string>):
   return removed;
 }
 
+/** Per-source record counts, e.g. `{ "grants.gov": 476, sbir: 130 }`. */
+export function countBySource(records: { source: string }[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const r of records) counts[r.source] = (counts[r.source] ?? 0) + 1;
+  return counts;
+}
+
+/**
+ * Guards against a fetcher swallowing an upstream failure and quietly
+ * writing partial data (e.g. an HTML 5xx page during a network outage) —
+ * flags any source that had a meaningful count before but comes back empty,
+ * or drops by more than `dropThreshold`. Sources too small to begin with
+ * (<5 records) are exempt: normal day-to-day variance there isn't a signal.
+ */
+export function findUnhealthySources(
+  prior: Record<string, number>,
+  fresh: Record<string, number>,
+  dropThreshold = 0.5,
+): string[] {
+  const issues: string[] = [];
+  for (const [source, priorCount] of Object.entries(prior)) {
+    if (priorCount < 5) continue;
+    const freshCount = fresh[source] ?? 0;
+    if (freshCount < priorCount * dropThreshold) {
+      issues.push(`${source}: had ${priorCount}, now ${freshCount}`);
+    }
+  }
+  return issues;
+}
+
 /** Dedup a freshly-assembled record list by id — the last occurrence wins
  *  (later sources in the assembly order are the more specific normalizers). */
 export function dedupeById(records: Opportunity[]): Opportunity[] {

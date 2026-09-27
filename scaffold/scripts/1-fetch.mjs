@@ -70,10 +70,8 @@ const FETCH_ALL = process.env.GRANTS_FETCH_MODE === "all";
 const ALL_PAGE_SIZE = 1000;
 const ALL_MAX_PAGES = 50;
 
-async function fetchAllPostedForecasted() {
-  const out = [];
-  for (let page = 0; page < ALL_MAX_PAGES; page++) {
-    let hits = [];
+async function fetchSearch2Page(page) {
+  for (let attempt = 0; attempt <= 3; attempt++) {
     try {
       const res = await fetch("https://api.grants.gov/v1/api/search2", {
         method: "POST",
@@ -84,16 +82,31 @@ async function fetchAllPostedForecasted() {
           oppStatuses: "forecasted|posted",
         }),
       });
-      const json = await res.json();
-      hits = json?.data?.oppHits ?? [];
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
     } catch (e) {
-      console.warn(`grants.gov  page ${page} FAILED — ${e.message}`);
-      break;
+      if (attempt === 3) throw new Error(`grants.gov page ${page} failed after retries — ${e.message}`);
+      console.warn(`grants.gov  page ${page} attempt ${attempt + 1} FAILED — ${e.message}, retrying`);
+      await new Promise((r) => setTimeout(r, 500 * 2 ** attempt));
     }
+  }
+}
+
+async function fetchAllPostedForecasted() {
+  const out = [];
+  let hitCount = null;
+  for (let page = 0; page < ALL_MAX_PAGES; page++) {
+    const json = await fetchSearch2Page(page);
+    const hits = json?.data?.oppHits ?? [];
+    if (hitCount == null && typeof json?.data?.hitCount === "number") hitCount = json.data.hitCount;
     out.push(...hits);
     console.log(`grants.gov  page ${page}  ${hits.length} (${out.length} total)`);
     if (hits.length < ALL_PAGE_SIZE) break;
     await new Promise((r) => setTimeout(r, 250));
+  }
+  const uniqueCount = new Set(out.map((o) => o.id)).size;
+  if (hitCount != null && uniqueCount < hitCount) {
+    throw new Error(`grants.gov returned only ${uniqueCount} of ${hitCount} reported opportunities`);
   }
   return out;
 }

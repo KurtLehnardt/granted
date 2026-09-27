@@ -4,6 +4,8 @@ import {
   opportunityEmbedText,
   planEmbedding,
   countRemoved,
+  countBySource,
+  findUnhealthySources,
   dedupeById,
   LEGACY_EMBEDDING_MODEL,
 } from "../refresh";
@@ -77,6 +79,32 @@ describe("countRemoved", () => {
   test("counts prior ids absent from the final set", () => {
     assert.equal(countRemoved(["a", "b", "c"], new Set(["a", "c"])), 1);
     assert.equal(countRemoved([], new Set()), 0);
+  });
+});
+
+describe("countBySource", () => {
+  test("tallies records per source", () => {
+    const counts = countBySource([opp("a"), { ...opp("b"), source: "sbir" }, opp("c")]);
+    assert.deepEqual(counts, { "grants.gov": 2, sbir: 1 });
+  });
+});
+
+describe("findUnhealthySources", () => {
+  test("flags a source that had records before and comes back empty", () => {
+    const issues = findUnhealthySources({ "grants.gov": 476, sbir: 130 }, { "grants.gov": 0, sbir: 130 });
+    assert.equal(issues.length, 1);
+    assert.match(issues[0], /grants\.gov/);
+  });
+  test("flags a source that drops by more than half", () => {
+    const issues = findUnhealthySources({ "grants.gov": 1000 }, { "grants.gov": 300 });
+    assert.equal(issues.length, 1);
+  });
+  test("does not flag a small source or a modest drop", () => {
+    assert.deepEqual(findUnhealthySources({ procurement: 4 }, { procurement: 0 }), []);
+    assert.deepEqual(findUnhealthySources({ "grants.gov": 1000 }, { "grants.gov": 900 }), []);
+  });
+  test("a brand-new source with no prior count is never flagged", () => {
+    assert.deepEqual(findUnhealthySources({}, { sbir: 130 }), []);
   });
 });
 
