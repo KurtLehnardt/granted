@@ -1,7 +1,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join, extname } from "node:path";
+import { join, extname, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { AssembledPackage } from "../../apply/package";
@@ -403,7 +403,7 @@ describe("HR-6 — no forbidden symbols in the wired lib/s2s path", () => {
   test("the scan actually covers the wired modules (sanity — protects against a silently empty scan)", () => {
     assert.ok(files.length >= 6, `expected several lib/s2s modules, found ${files.length}`);
     for (const name of ["types.ts", "meta.ts", "xml.ts", "transport.ts", "authorize.ts", "client.ts"]) {
-      assert.ok(files.some((f) => f.endsWith(`/${name}`)), `scan includes ${name}`);
+      assert.ok(files.some((f) => basename(f) === name), `scan includes ${name}`);
     }
   });
 
