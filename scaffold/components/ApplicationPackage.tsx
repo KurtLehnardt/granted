@@ -8,7 +8,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { applyGapInputs, gapFieldId, gapHint, USER_PROVIDED_SOURCE } from "@/lib/apply/fillGaps";
 import { FIELD_HELP } from "@/lib/apply/fieldHelp";
 
-import ApplicationChecklist from "@/components/ApplicationChecklist";
+import ApplicationChecklist, { opportunityOnlyMatch } from "@/components/ApplicationChecklist";
 import type { Opportunity } from "@/lib/types";
 import type { CompanyProfile } from "@/lib/contracts/companyProfile";
 import type { AutoFillRequirements } from "@/lib/mockAuth";
@@ -537,7 +537,7 @@ export function ApplicationPackageView({
       <section>
         <h3 className={sectionHeadingClass}>4 · Preparation checklist</h3>
         <ApplicationChecklist
-          opportunity={opportunity}
+          match={opportunityOnlyMatch(opportunity)}
           allRegistrationsSatisfied={pkg.checklist.allRegistrationsSatisfied}
         />
       </section>

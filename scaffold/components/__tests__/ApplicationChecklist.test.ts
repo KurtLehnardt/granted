@@ -2,14 +2,20 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { renderToStaticMarkup } from "react-dom/server";
 import React from "react";
-import type { Opportunity } from "../../lib/types";
+import type { Match, Opportunity } from "../../lib/types";
 import ApplicationChecklist, {
   buildApplicationChecklist,
   buildDocumentChecklist,
+  buildFundingRange,
   buildKeyDates,
   buildNextSteps,
   buildQuestions,
+  opportunityOnlyMatch,
+  stepText,
 } from "../ApplicationChecklist";
+
+// Fixed "now" so deadline-relative assertions don't depend on the actual clock.
+const NOW = Date.parse("2026-09-27T00:00:00.000Z");
 
 /**
  * D6 — Application Assistant checklist. Covers:
@@ -26,6 +32,10 @@ import ApplicationChecklist, {
  * Wiring components/** into the `test` script is outside D6's file scope
  * (package.json isn't in the allowed file list) — see the D6 report.
  */
+
+function asMatch(opportunity: Opportunity, overrides: Partial<Match> = {}): Match {
+  return { ...opportunityOnlyMatch(opportunity), ...overrides };
+}
 
 const RD_OPPORTUNITY: Opportunity = {
   id: "opp-rd-1",
@@ -65,6 +75,49 @@ const BARE_OPPORTUNITY: Opportunity = {
   description: "No dates on file.",
 };
 
+// Two grants.gov grants — same source and kind, different dates/funding.
+const GRANTS_GOV_OPEN: Opportunity = {
+  id: "grants-open-1",
+  source: "grants.gov",
+  kind: "grant",
+  program: "Mathematical Foundations of Artificial Intelligence",
+  agency: "U.S. National Science Foundation",
+  description: "Research collaborations on the mathematical foundations of AI.",
+  eligibility: "Institutions of higher education and non-profit research organizations.",
+  fundingLow: 500_000,
+  fundingHigh: 1_500_000,
+  deadline: "10/09/2026",
+  forecasted: false,
+  url: "https://www.grants.gov/search-results-detail/353936",
+};
+
+// Same record as GRANTS_GOV_OPEN but its deadline is behind NOW.
+const GRANTS_GOV_PASSED: Opportunity = {
+  ...GRANTS_GOV_OPEN,
+  id: "grants-passed-1",
+  deadline: "09/11/2026",
+};
+
+const GRANTS_GOV_CLOSED: Opportunity = {
+  ...GRANTS_GOV_OPEN,
+  id: "grants-closed-1",
+  status: "closed",
+};
+
+const GRANTS_GOV_FORECASTED: Opportunity = {
+  id: "grants-forecast-1",
+  source: "grants.gov",
+  kind: "grant",
+  program: "Annual Program Statement (APS) For Fiscal Year 2026",
+  agency: "U.S. Mission to Tunisia",
+  description: "Public diplomacy small grants for FY2026.",
+  eligibility: "Not-for-profit organizations and educational institutions.",
+  fundingLow: 10_000,
+  fundingHigh: 200_000,
+  forecasted: true,
+  url: "https://www.grants.gov/search-results-detail/362086",
+};
+
 // ---------------------------------------------------------------------------
 // buildKeyDates
 // ---------------------------------------------------------------------------
@@ -85,11 +138,43 @@ describe("buildKeyDates", () => {
     assert.ok(dates[0].value?.includes("2026"));
   });
 
-  test("never fabricates a date — an opportunity with no dates on file shows an honest empty row", () => {
+  test("never fabricates a date — an opportunity with no dates, forecasted flag, or status shows an honest empty row", () => {
     const dates = buildKeyDates(BARE_OPPORTUNITY);
     assert.equal(dates.length, 1);
     assert.equal(dates[0].label, "Deadline");
     assert.equal(dates[0].value, null);
+  });
+
+  test("a forecasted opportunity with no deadline says so, using its own flag", () => {
+    const dates = buildKeyDates(GRANTS_GOV_FORECASTED);
+    assert.equal(dates.length, 1);
+    assert.match(dates[0].value ?? "", /forecasted/i);
+  });
+
+  test("a continuous-status opportunity with no deadline shows an honest empty row, not an invented 'no deadline' claim", () => {
+    const dates = buildKeyDates({ ...BARE_OPPORTUNITY, status: "continuous" });
+    assert.equal(dates.length, 1);
+    assert.equal(dates[0].label, "Deadline");
+    assert.equal(dates[0].value, null);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildFundingRange
+// ---------------------------------------------------------------------------
+
+describe("buildFundingRange", () => {
+  test("formats a low+high range", () => {
+    assert.equal(buildFundingRange(GRANTS_GOV_OPEN), "$500K–$1.5M");
+  });
+
+  test("never fabricates a range when neither bound is present", () => {
+    assert.equal(buildFundingRange(BARE_OPPORTUNITY), null);
+  });
+
+  test("a one-sided range never reads as $X–$0", () => {
+    assert.equal(buildFundingRange({ ...BARE_OPPORTUNITY, fundingHigh: 250_000 }), "up to $250K");
+    assert.equal(buildFundingRange({ ...BARE_OPPORTUNITY, fundingLow: 500_000, fundingHigh: 0 }), "$500K+");
   });
 });
 
@@ -131,6 +216,11 @@ describe("buildQuestions", () => {
     const questions = buildQuestions(GRANT_OPPORTUNITY);
     assert.ok(!questions.some((q) => q.startsWith('The listing states:')));
   });
+
+  test("states the actual funding range in the budget question when known", () => {
+    const questions = buildQuestions(GRANTS_GOV_OPEN);
+    assert.ok(questions.some((q) => q.includes("$500K–$1.5M")));
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -139,23 +229,166 @@ describe("buildQuestions", () => {
 
 describe("buildNextSteps", () => {
   test("always ends with the honesty boundary: this checklist never submits anything", () => {
-    const steps = buildNextSteps(RD_OPPORTUNITY, true);
-    assert.match(steps[steps.length - 1], /never submits anything on your behalf/i);
+    const steps = buildNextSteps(asMatch(RD_OPPORTUNITY), true);
+    assert.match(stepText(steps[steps.length - 1]), /never submits anything on your behalf/i);
   });
 
   test("wording reflects whether registrations are satisfied, without changing the honesty boundary step", () => {
-    const satisfiedSteps = buildNextSteps(RD_OPPORTUNITY, true);
-    const unsatisfiedSteps = buildNextSteps(RD_OPPORTUNITY, false);
-    assert.notEqual(satisfiedSteps[1], unsatisfiedSteps[1]);
-    assert.match(unsatisfiedSteps[1], /complete the registrations/i);
-    assert.match(satisfiedSteps[1], /marked satisfied/i);
+    const satisfiedSteps = buildNextSteps(asMatch(RD_OPPORTUNITY), true).map(stepText);
+    const unsatisfiedSteps = buildNextSteps(asMatch(RD_OPPORTUNITY), false).map(stepText);
+    assert.notEqual(satisfiedSteps.join(), unsatisfiedSteps.join());
+    assert.ok(unsatisfiedSteps.some((s) => /complete the registrations/i.test(s)));
+    assert.ok(satisfiedSteps.some((s) => /marked satisfied/i.test(s)));
   });
 
-  test("points at the opportunity's own URL when present, else names the source", () => {
-    const withUrl = buildNextSteps(RD_OPPORTUNITY, true);
-    const withoutUrl = buildNextSteps(GRANT_OPPORTUNITY, true);
-    assert.ok(withUrl[0].includes(RD_OPPORTUNITY.url as string));
-    assert.ok(withoutUrl[0].includes(GRANT_OPPORTUNITY.source));
+  test("points at the opportunity's own URL as a real link when present, else names the source", () => {
+    const withUrl = buildNextSteps(asMatch(RD_OPPORTUNITY), true);
+    const withoutUrl = buildNextSteps(asMatch(GRANT_OPPORTUNITY), true);
+    const linkPart = withUrl[0].find((p) => typeof p !== "string") as { text: string; href: string } | undefined;
+    assert.ok(linkPart);
+    assert.equal(linkPart!.href, RD_OPPORTUNITY.url);
+    assert.ok(withoutUrl[0].every((p) => typeof p === "string"));
+    assert.ok(stepText(withoutUrl[0]).includes(GRANT_OPPORTUNITY.source));
+  });
+
+  test("threads the match's own whatToVerify/whatToDoNext into the steps, without inventing them, labeled as the match assessment", () => {
+    const withNarrative = buildNextSteps(
+      asMatch(RD_OPPORTUNITY, { whatToVerify: "Confirm your NAICS code matches this topic.", whatToDoNext: "Reach out to the program manager listed on the topic page." }),
+      true,
+    ).map(stepText);
+    const withoutNarrative = buildNextSteps(asMatch(RD_OPPORTUNITY), true).map(stepText);
+    assert.ok(
+      withNarrative.some(
+        (s) => s.startsWith("From your match assessment, before applying verify: ") && s.includes("Confirm your NAICS code matches this topic."),
+      ),
+    );
+    assert.ok(
+      withNarrative.some(
+        (s) => s.startsWith("From your match assessment: ") && s.includes("Reach out to the program manager listed on the topic page."),
+      ),
+    );
+    assert.notEqual(withNarrative.length, withoutNarrative.length);
+  });
+
+  test("apply-path step is source-specific, not a shared template", () => {
+    const sbirStep = stepText(buildNextSteps(asMatch(RD_OPPORTUNITY), true)[0]);
+    const grantsGovStep = stepText(buildNextSteps(asMatch(GRANT_OPPORTUNITY), true)[0]);
+    const samContractsStep = stepText(
+      buildNextSteps(
+        asMatch({ ...BARE_OPPORTUNITY, source: "sam-contracts", kind: "procurement" }),
+        true,
+      )[0],
+    );
+    const assistanceStep = stepText(buildNextSteps(asMatch(BARE_OPPORTUNITY), true)[0]);
+
+    assert.match(sbirStep, /SBIR\/STTR program site for the current solicitation/i);
+    assert.doesNotMatch(sbirStep, /not grants\.gov/i);
+    assert.match(grantsGovStep, /grants\.gov \(an Active SAM\.gov registration/i);
+    assert.match(samContractsStep, /SAM\.gov Contract Opportunities/i);
+    assert.match(assistanceStep, /assistance listing describes a program/i);
+    assert.doesNotMatch(assistanceStep, /not a competed application/i);
+
+    assert.notEqual(sbirStep, grantsGovStep);
+    assert.notEqual(sbirStep, samContractsStep);
+    assert.notEqual(sbirStep, assistanceStep);
+    assert.notEqual(grantsGovStep, samContractsStep);
+  });
+
+  test("a SBIR/STTR step never claims SBIR/STTR is not submitted via grants.gov, and truthfully labels its link as the awardee's site, not a record of the award", () => {
+    const step = buildNextSteps(
+      asMatch({ ...RD_OPPORTUNITY, url: "https://www.some-awardee.example/" }),
+      true,
+    )[0];
+    const text = stepText(step);
+    assert.doesNotMatch(text, /this opportunity's page/i);
+    assert.doesNotMatch(text, /not grants\.gov/i);
+    assert.match(text, new RegExp(`${RD_OPPORTUNITY.agency}'s SBIR/STTR program site for the current solicitation`, "i"));
+    assert.doesNotMatch(text, /Record: /i);
+    assert.match(text, /Awardee: /i);
+    const linkPart = step.find((p) => typeof p !== "string") as { text: string; href: string } | undefined;
+    assert.equal(linkPart?.href, "https://www.some-awardee.example/");
+  });
+
+  test("a SBIR/STTR step with the generic sbir.gov fallback URL labels it as the awards search, not the awardee", () => {
+    const step = buildNextSteps(
+      asMatch({ ...RD_OPPORTUNITY, url: "https://www.sbir.gov/awards" }),
+      true,
+    )[0];
+    const text = stepText(step);
+    assert.doesNotMatch(text, /Awardee: /i);
+    assert.match(text, /See /i);
+    const linkPart = step.find((p) => typeof p !== "string") as { text: string; href: string } | undefined;
+    assert.equal(linkPart?.text, "SBIR.gov awards search");
+  });
+
+  test("a bare-domain SBIR website (no http/https scheme) is rendered as plain text, never a broken relative link or a mislabeled listing", () => {
+    const step = buildNextSteps(
+      asMatch({ ...RD_OPPORTUNITY, url: "www.aspectaerospace.com" }),
+      true,
+    )[0];
+    const linkPart = step.find((p) => typeof p !== "string");
+    assert.equal(linkPart, undefined);
+    const text = stepText(step);
+    assert.match(text, /www\.aspectaerospace\.com/);
+    assert.doesNotMatch(text, /Awardee: the full listing/i);
+  });
+
+  test("a SBIR/STTR record with no URL ends at the program-site guidance, with no dangling listing pointer", () => {
+    const step = buildNextSteps(asMatch({ ...RD_OPPORTUNITY, url: undefined }), true)[0];
+    assert.equal(
+      stepText(step),
+      `Search ${RD_OPPORTUNITY.agency}'s SBIR/STTR program site for the current solicitation and where to submit. This record is background, not an application portal.`,
+    );
+  });
+
+  test("a USAspending record is described as a past award pointing to SAM.gov, never as open for applications", () => {
+    const url = "https://www.usaspending.gov/award/CONT_AWD_W911QX25C0002_9700_-NONE-_-NONE-";
+    const step = buildNextSteps(
+      asMatch({ ...BARE_OPPORTUNITY, source: "usaspending", kind: "procurement", status: "closed", url }),
+      true,
+    )[0];
+    assert.equal(
+      stepText(step),
+      `This is a record of a past award from USAspending, not an open opportunity — check SAM.gov for any current solicitation from ${BARE_OPPORTUNITY.agency}. Details: this past award record.`,
+    );
+    assert.deepEqual(step.find((p) => typeof p !== "string"), { text: "this past award record", href: url });
+  });
+
+  test("a forecasted grants.gov opportunity is described as not yet open, using its own flag — not a fixed deadline claim", () => {
+    const step = stepText(buildNextSteps(asMatch(GRANTS_GOV_FORECASTED), true)[0]);
+    assert.match(step, /forecasted/i);
+    assert.match(step, /not yet open/i);
+    assert.doesNotMatch(step, /before its deadline/i);
+  });
+
+  test("an open grants.gov opportunity with a real deadline states it, linked to its own page", () => {
+    const rawStep = buildNextSteps(asMatch(GRANTS_GOV_OPEN), true, NOW)[0];
+    const step = stepText(rawStep);
+    assert.match(step, /before its deadline/i);
+    assert.doesNotMatch(step, /forecasted/i);
+    assert.doesNotMatch(step, /has already passed/i);
+    const linkPart = rawStep.find((p) => typeof p !== "string") as { text: string; href: string } | undefined;
+    assert.equal(linkPart?.href, GRANTS_GOV_OPEN.url);
+  });
+
+  test("a grants.gov opportunity that's open but has no listed deadline says so honestly", () => {
+    const step = stepText(buildNextSteps(asMatch({ ...GRANTS_GOV_OPEN, deadline: undefined }), true, NOW)[0]);
+    assert.match(step, /no deadline is listed/i);
+  });
+
+  test("a grants.gov opportunity whose deadline has already passed says so and points at checking for a reissue, not 'apply before'", () => {
+    const step = stepText(buildNextSteps(asMatch(GRANTS_GOV_PASSED), true, NOW)[0]);
+    assert.match(step, /deadline of .* has already passed/i);
+    assert.match(step, /reissue/i);
+    assert.doesNotMatch(step, /Register on grants\.gov \(an Active/i);
+    assert.doesNotMatch(step, /before its deadline/i);
+  });
+
+  test("a grants.gov opportunity marked closed says so, distinctly from a passed-deadline one", () => {
+    const step = stepText(buildNextSteps(asMatch(GRANTS_GOV_CLOSED), true, NOW)[0]);
+    assert.match(step, /marked closed/i);
+    assert.match(step, /reissue/i);
+    assert.doesNotMatch(step, /has already passed/i);
   });
 });
 
@@ -165,21 +398,66 @@ describe("buildNextSteps", () => {
 
 describe("buildApplicationChecklist", () => {
   test("prefers the §3.4 `title` field over the legacy `program` field", () => {
-    const model = buildApplicationChecklist(RD_OPPORTUNITY, true);
+    const model = buildApplicationChecklist(asMatch(RD_OPPORTUNITY), true);
     assert.equal(model.title, RD_OPPORTUNITY.title);
   });
 
   test("falls back to `program` when `title` is absent", () => {
-    const model = buildApplicationChecklist(GRANT_OPPORTUNITY, true);
+    const model = buildApplicationChecklist(asMatch(GRANT_OPPORTUNITY), true);
     assert.equal(model.title, GRANT_OPPORTUNITY.program);
   });
 
   test("different opportunities produce different checklists (per-opportunity, not a shared template)", () => {
-    const rdModel = buildApplicationChecklist(RD_OPPORTUNITY, true);
-    const grantModel = buildApplicationChecklist(GRANT_OPPORTUNITY, true);
+    const rdModel = buildApplicationChecklist(asMatch(RD_OPPORTUNITY), true);
+    const grantModel = buildApplicationChecklist(asMatch(GRANT_OPPORTUNITY), true);
     assert.notEqual(rdModel.title, grantModel.title);
     assert.notEqual(JSON.stringify(rdModel.keyDates), JSON.stringify(grantModel.keyDates));
     assert.notEqual(JSON.stringify(rdModel.documents), JSON.stringify(grantModel.documents));
+    assert.notEqual(JSON.stringify(rdModel.nextSteps), JSON.stringify(grantModel.nextSteps));
+  });
+
+  test("two opportunities of the SAME kind but different sources still get different apply guidance", () => {
+    const sameKindDifferentSource: Opportunity = {
+      ...GRANT_OPPORTUNITY,
+      id: "opp-grant-2",
+      source: "assistance-listings",
+      program: "Rural Assistance Program",
+    };
+    const grantsGovModel = buildApplicationChecklist(asMatch(GRANT_OPPORTUNITY), true);
+    const assistanceModel = buildApplicationChecklist(asMatch(sameKindDifferentSource), true);
+    assert.equal(grantsGovModel.documents.join(), assistanceModel.documents.join()); // same kind -> same docs
+    assert.notEqual(stepText(grantsGovModel.nextSteps[0]), stepText(assistanceModel.nextSteps[0])); // different source -> different apply step
+  });
+
+  // Same source and kind must still produce meaningfully different content.
+  test("two SAME-SOURCE, SAME-KIND grants.gov opportunities produce meaningfully different content", () => {
+    const openModel = buildApplicationChecklist(
+      asMatch(GRANTS_GOV_OPEN, { whatToVerify: "Your PI holds a qualifying faculty appointment." }),
+      true,
+      NOW,
+    );
+    const forecastedModel = buildApplicationChecklist(
+      asMatch(GRANTS_GOV_FORECASTED, { whatToVerify: "Your programming has an American cultural element." }),
+      true,
+      NOW,
+    );
+    const openStep0 = stepText(openModel.nextSteps[0]);
+    const forecastedStep0 = stepText(forecastedModel.nextSteps[0]);
+
+    assert.notEqual(openModel.fundingRange, forecastedModel.fundingRange);
+    assert.notEqual(JSON.stringify(openModel.keyDates), JSON.stringify(forecastedModel.keyDates));
+    assert.notEqual(openModel.questions.join(), forecastedModel.questions.join());
+    assert.notEqual(openStep0, forecastedStep0);
+    assert.notEqual(openModel.nextSteps.map(stepText).join(), forecastedModel.nextSteps.map(stepText).join());
+
+    // Strip the title/url so the remaining diff isn't just those two fields.
+    const stripIdentity = (s: string) =>
+      s
+        .replaceAll(GRANTS_GOV_OPEN.program, "")
+        .replaceAll(GRANTS_GOV_FORECASTED.program, "")
+        .replaceAll(GRANTS_GOV_OPEN.url as string, "")
+        .replaceAll(GRANTS_GOV_FORECASTED.url as string, "");
+    assert.notEqual(stripIdentity(openStep0), stripIdentity(forecastedStep0));
   });
 });
 
@@ -191,7 +469,7 @@ describe("buildApplicationChecklist", () => {
 describe("<ApplicationChecklist/> render", () => {
   test("renders the selected opportunity's own title and agency", () => {
     const html = renderToStaticMarkup(
-      React.createElement(ApplicationChecklist, { opportunity: RD_OPPORTUNITY, allRegistrationsSatisfied: false }),
+      React.createElement(ApplicationChecklist, { match: asMatch(RD_OPPORTUNITY), allRegistrationsSatisfied: false }),
     );
     assert.ok(html.includes(RD_OPPORTUNITY.title as string));
     assert.ok(html.includes(RD_OPPORTUNITY.agency));
@@ -199,7 +477,7 @@ describe("<ApplicationChecklist/> render", () => {
 
   test("is honestly labeled as a preparation checklist, not a submission", () => {
     const html = renderToStaticMarkup(
-      React.createElement(ApplicationChecklist, { opportunity: RD_OPPORTUNITY, allRegistrationsSatisfied: false }),
+      React.createElement(ApplicationChecklist, { match: asMatch(RD_OPPORTUNITY), allRegistrationsSatisfied: false }),
     );
     assert.match(html, /preparation checklist/i);
     assert.match(html, /not a submission/i);
@@ -208,7 +486,7 @@ describe("<ApplicationChecklist/> render", () => {
   test("never claims a submission happened or an award was won, for any opportunity", () => {
     for (const opp of [RD_OPPORTUNITY, GRANT_OPPORTUNITY, BARE_OPPORTUNITY]) {
       const html = renderToStaticMarkup(
-        React.createElement(ApplicationChecklist, { opportunity: opp, allRegistrationsSatisfied: true }),
+        React.createElement(ApplicationChecklist, { match: asMatch(opp), allRegistrationsSatisfied: true }),
       );
       assert.doesNotMatch(html, /application (has been |was )?submitted\b/i);
       assert.doesNotMatch(html, /we (have |)submitted/i);
@@ -217,5 +495,22 @@ describe("<ApplicationChecklist/> render", () => {
       assert.doesNotMatch(html, /you (are|'re) eligible/i);
       assert.doesNotMatch(html, /you qualify/i);
     }
+  });
+
+  test("renders the opportunity's url as a real clickable link, not plain text", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ApplicationChecklist, { match: asMatch(RD_OPPORTUNITY), allRegistrationsSatisfied: false }),
+    );
+    assert.match(html, new RegExp(`<a[^>]*href="${RD_OPPORTUNITY.url}"`));
+  });
+
+  test("labels the match's whatToDoNext as coming from the match assessment", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ApplicationChecklist, {
+        match: asMatch(RD_OPPORTUNITY, { whatToDoNext: "Reach out to the program manager listed on the topic page." }),
+        allRegistrationsSatisfied: false,
+      }),
+    );
+    assert.match(html, /From your match assessment: Reach out to the program manager/i);
   });
 });

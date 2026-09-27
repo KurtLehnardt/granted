@@ -6,7 +6,7 @@ import { useDialogA11y } from "@/components/useDialogA11y";
 import { getAutoFillRequirements } from "@/lib/mockAuth";
 import { allRegistrationsSatisfied } from "@/lib/apply/package";
 import ApplicationChecklist from "@/components/ApplicationChecklist";
-import type { Opportunity } from "@/lib/types";
+import type { Match } from "@/lib/types";
 
 /**
  * Replaces the (broken) assisted-apply flow's entry point with a plain,
@@ -17,10 +17,10 @@ import type { Opportunity } from "@/lib/types";
  * server round-trip, nothing to submit. There is nothing here to break.
  */
 export default function HowToApplyModal({
-  opportunity,
+  match,
   onClose,
 }: {
-  opportunity: Opportunity;
+  match: Match;
   onClose: () => void;
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -72,12 +72,12 @@ export default function HowToApplyModal({
           What you'll need
         </h2>
         <p id="how-to-apply-modal-desc" className={bodyClass}>
-          Everything below is either read straight off this program's own listing, or generic
-          guidance for this kind of opportunity. Confirm specifics on the official listing before
-          you invest time in an application.
+          Everything below is read straight off this program's own listing, generic guidance for
+          this kind of opportunity, or (labeled as such) from your match assessment. Confirm
+          specifics on the official listing before you invest time in an application.
         </p>
 
-        <ApplicationChecklist opportunity={opportunity} allRegistrationsSatisfied={satisfied} />
+        <ApplicationChecklist match={match} allRegistrationsSatisfied={satisfied} />
 
         <div className="mt-6 flex flex-wrap items-center gap-4">
           <button type="button" onClick={onClose} className={closeTextBtnClass}>
