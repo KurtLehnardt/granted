@@ -2,13 +2,7 @@
 
 import { useEffect } from "react";
 import { getAutoUpdateCorpus, getMaxCorpusSize } from "@/lib/searchSettings";
-
-/** A failed refresh never updates `builtAt`, so GET keeps reporting
- *  `stale: true` — without a backoff, every page load would spawn another
- *  full refresh that's likely to fail the same way (retry storm). Skip
- *  auto-triggering for this long after a failed attempt; the Settings
- *  "Refresh cached grants" button is unaffected and always allowed. */
-const RETRY_BACKOFF_MS = 12 * 60 * 60 * 1000;
+import { shouldAutoRefresh } from "@/lib/corpus/autoUpdate";
 
 /**
  * Always-on, no-UI effect (mounted once in app/layout.tsx, alongside the
@@ -28,9 +22,7 @@ export default function CorpusAutoUpdate() {
         const res = await fetch("/api/corpus");
         if (!res.ok) return;
         const status = await res.json();
-        if (!status.stale || status.refreshing) return;
-        const lastAttemptMs = status.lastError ? Date.parse(status.lastAttemptAt) : NaN;
-        if (!Number.isNaN(lastAttemptMs) && Date.now() - lastAttemptMs < RETRY_BACKOFF_MS) return;
+        if (!shouldAutoRefresh(status)) return;
         await fetch("/api/corpus/refresh", {
           method: "POST",
           headers: { "Content-Type": "application/json" },

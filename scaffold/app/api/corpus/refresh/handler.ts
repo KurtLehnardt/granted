@@ -61,6 +61,12 @@ export async function handleRefreshPost(
   if (!d.acquireRefreshLock()) {
     return NextResponse.json({ error: "Refresh already running" }, { status: 409 });
   }
+  // Record the attempt now, not only on failure — a child that's killed,
+  // OOM'd, or fails before it can write its own status would otherwise leave
+  // no trace, and auto-update would retry every page load forever. A
+  // successful run's wholesale writeRefreshStatus({lastCompletedAt}) clears
+  // this.
+  d.writeRefreshStatus({ lastAttemptAt: new Date().toISOString() });
 
   const args = ["--import", "tsx", "scripts/refresh-corpus.mjs"];
   if (max != null) args.push("--max", String(max));

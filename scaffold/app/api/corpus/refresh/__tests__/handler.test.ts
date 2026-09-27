@@ -63,6 +63,7 @@ describe("POST /api/corpus/refresh (handler)", () => {
       transferRefreshLock: (pid) => {
         transferredPid = pid;
       },
+      writeRefreshStatus: () => {},
       spawn: (command: string, args: string[]) => {
         spawnedWith = [command, args];
         return fakeChild();
@@ -86,6 +87,7 @@ describe("POST /api/corpus/refresh (handler)", () => {
           released = true;
         },
         transferRefreshLock: () => {},
+        writeRefreshStatus: () => {},
         spawn: () => {
           throw new Error("ENOENT");
         },
@@ -101,6 +103,7 @@ describe("POST /api/corpus/refresh (handler)", () => {
       acquireRefreshLock: () => true,
       releaseRefreshLock: () => {},
       transferRefreshLock: () => {},
+      writeRefreshStatus: () => {},
       spawn: (_command: string, args: string[]) => {
         spawnedWith = args;
         return fakeChild();
@@ -118,12 +121,30 @@ describe("POST /api/corpus/refresh (handler)", () => {
       acquireRefreshLock: () => true,
       releaseRefreshLock: () => {},
       transferRefreshLock: () => {},
+      writeRefreshStatus: () => {},
       spawn: (_command: string, args: string[]) => {
         spawnedWith = args;
         return fakeChild();
       },
     });
     assert.ok(!(spawnedWith as string[] | null)?.includes("--max"));
+  });
+
+  test("records lastAttemptAt synchronously when the refresh starts, before the child can fail", async () => {
+    let recordedStatus: unknown = null;
+    await handleRefreshPost(fakeReq(), {
+      isLoopbackRequest: () => true,
+      acquireRefreshLock: () => true,
+      releaseRefreshLock: () => {},
+      transferRefreshLock: () => {},
+      writeRefreshStatus: (status) => {
+        recordedStatus = status;
+      },
+      spawn: () => fakeChild(),
+    });
+    const status = recordedStatus as { lastAttemptAt?: string } | null;
+    assert.ok(status?.lastAttemptAt);
+    assert.ok(!Number.isNaN(Date.parse(status.lastAttemptAt as string)));
   });
 
   test("a spawn 'error' event (async failure) releases the lock and records lastError", async () => {
