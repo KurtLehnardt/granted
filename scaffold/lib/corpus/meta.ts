@@ -22,9 +22,6 @@
 /** Shape of `data/corpus-meta.json`. `builtAt` is the only field the app reads. */
 export interface CorpusMeta {
   builtAt?: unknown;
-  count?: number;
-  embeddingModel?: string;
-  dims?: number;
   [key: string]: unknown;
 }
 
@@ -73,11 +70,3 @@ export function parseBuiltAt(meta: CorpusMeta | null | undefined): CorpusAsOf | 
   const d = new Date(t);
   return { iso: d.toISOString(), label: formatUtcDate(d) };
 }
-
-/**
- * This module is imported by client components (components/OpportunityMap.tsx
- * fetches GET /api/corpus and formats the result with `parseBuiltAt` above),
- * so it stays free of `node:fs`/server-only imports. The server-side reader —
- * `corpusAsOf()`, backed by lib/corpus/store.ts — lives in
- * lib/corpus/serverMeta.ts instead.
- */

@@ -102,19 +102,13 @@ export type BuildDeps = {
   corpus: Opportunity[];
 };
 
-// `corpus` is always overwritten with a fresh `getCorpus()` call at the
-// buildOpportunityMap call site below (or by an injected test fixture) — this
-// placeholder must stay empty, never eagerly call getCorpus() here, or every
-// import of this module (even one that never calls buildOpportunityMap)
-// force-parses the corpus file at module-load time.
-const REAL_DEPS: BuildDeps = {
+const REAL_DEPS: Omit<BuildDeps, "corpus"> = {
   extractProfile,
   embed,
   explainMatches,
   explainMatchesTwoPass,
   explainWeakField,
   screen,
-  corpus: [],
 };
 
 export function tierFromScore(score: number): Tier {
@@ -277,7 +271,7 @@ export async function buildOpportunityMap(
   // returns, which is always built from the complete, awaited scorer result.
   onMatch?: (m: Match) => void,
 ): Promise<OpportunityMap> {
-  const d: BuildDeps = { ...REAL_DEPS, corpus: dropExpiredOpportunities(getCorpus()) as unknown as Opportunity[], ...deps };
+  const d: BuildDeps = { ...REAL_DEPS, ...deps, corpus: deps.corpus ?? dropExpiredOpportunities(getCorpus()) };
   // Progress is best-effort: a reporting error must never fail the search.
   const step = (e: StepEvent) => { try { onStep?.(e); } catch { /* ignore */ } };
   step({ key: "start", label: "Reading the federal register…", pct: 5 });
