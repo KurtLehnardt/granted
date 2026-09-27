@@ -339,7 +339,7 @@ test(
       }
     }
 
-    // --- Report (goes into ELG-03-findings.md) -------------------------------
+    // --- Diagnostic summary (bucket distribution across the sample) ----------
     const dist =
       `eligible=${buckets.eligible} ` +
       `conditionally_eligible=${buckets.conditionally_eligible} ` +

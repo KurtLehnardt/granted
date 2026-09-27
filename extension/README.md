@@ -12,11 +12,9 @@ session, with their own credentials.
 > **Nothing has been submitted.** This extension is an assistive form-filler,
 > like a password manager — not a submission service.
 
-This extension is the browser-side half of the "thin assisted-apply slice"
-described in the architecture spec
-(`docs/grant-autofill-extension-spec.md` in the parent repo) and the R6
-feasibility memo. See §9 below for how it relates to the separate, legally
-gated server-to-server (S2S) enterprise path.
+This extension is deliberately the *assisted-fill-only* half of applying: it
+runs in your own authenticated session, fills what it can ground, and stops
+before any submit control. See §9 below for why it stops there.
 
 ---
 
@@ -152,7 +150,7 @@ The Granted app exports a self-contained `.granted.json` file (or pastable
 text) — an integrity-checked envelope wrapping the `AssembledPackage` your
 package screen assembled. You import it here via a file picker or paste box;
 there is **no** live channel between the app's web origin and this extension
-(`externally_connectable` is deliberately not declared — see the spec §6.2).
+(`externally_connectable` is deliberately not declared).
 Import validates, in order: size cap (512 KB) → JSON parse → envelope schema
 → canonical-JSON SHA-256 digest match → the vendored `PrefilledFormsSchema`
 honesty contract → a final defense-in-depth honesty guard. Any failure
@@ -230,17 +228,11 @@ extension/
   test/                  # Vitest specs (jsdom) for every module above
 ```
 
-## 9. The S2S boundary — why this extension stops where it does
+## 9. Why this extension stops where it does
 
-The R6 feasibility memo describes two apply paths. This extension is
-**exclusively** the browser-side, human-submits one: it runs in the
-user's own authenticated session, fills and navigates, and stops before
-submit. No credentials, no network, no submission calls, no third-party
-submitter designation. The separate server-to-server (S2S) enterprise path
-(the gatekept SOAP `Authenticate AOR` + `Submit Application As Third Party`
-integration) is an escalation-flagged future decision that Granted does not
-pursue without a separate legal-review gate — and this extension must never
-drift toward it. The shared invariant across both paths: **the human AOR
-submits, in their own authenticated session, and Granted never holds the AOR
-or E-Biz POC role.** This extension is the honest, shippable realization of
-that invariant on the browser side.
+This extension runs in the user's own authenticated portal session, fills and
+navigates, and stops before submit. No credentials leave the browser, no
+network calls beyond the portal you're already logged into, no submission
+calls, no third-party submitter designation. **The human AOR submits, in
+their own authenticated session — Granted never holds the AOR or E-Biz POC
+role, and never files anything on anyone's behalf.**

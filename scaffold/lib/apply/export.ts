@@ -4,9 +4,8 @@ import type { AssembledPackage } from "./package";
  * WS-G / T7 — client-side signed export of the ALREADY-ASSEMBLED `AssembledPackage`
  * into the `.granted.json` envelope the browser autofill extension imports.
  *
- * Spec: `docs/grant-autofill-extension-spec.md` §6 (handoff) + §6.3 (envelope
- * schema + canonical-JSON digest). This module is the APP side (T7); the
- * extension's importer (T3, `extension/src/lib/envelope.ts`) implements the
+ * This module is the APP side of the handoff; the extension's importer
+ * (`extension/src/lib/envelope.ts`) implements the
  * IDENTICAL canonical-JSON + SHA-256 algorithm so the two sides agree
  * byte-for-byte on the digest without ever sharing code across the two npm
  * packages.
