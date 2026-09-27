@@ -608,7 +608,7 @@ async function main() {
   console.log(
     c.dim(
       "  Local scoring is slower than hosted Claude (a single GPU serves batches serially).\n" +
-        "  See the README 'Run on a local model' section for the tradeoffs.\n",
+        "  See the README's 'The honest tradeoff' section for the details.\n",
     ),
   );
   if (!IS_TTY && !YES) {
