@@ -532,7 +532,7 @@ export async function buildOpportunityMap(
     weakFieldFinding: weak,
     agencyIntelligence: agencies.slice(0, 5).map((agency) => ({
       agency,
-      why: strong.find((m) => m.opportunity.agency === agency)?.whyFit.slice(0, 180) ?? "",
+      why: strong.find((m) => m.opportunity.agency === agency)?.whyFit?.slice(0, 180) ?? "",
       opportunityCount: strong.filter((m) => m.opportunity.agency === agency).length,
     })),
   };

@@ -200,6 +200,20 @@ test("a screen() throw for one match never breaks the search: that match omits e
   assert.ok(other!.eligibility, "and keep their eligibility determination");
 });
 
+// --- Degrades on a missing narrative field (weak/local-model output) --------
+
+test("agencyIntelligence never throws when an assessment's whyFit is missing (weak local-model output)", async () => {
+  const map = await buildOpportunityMap(fixtureProfile.description, undefined, deps({
+    explainMatches: async (_p, candidates) =>
+      candidates.map((c) => ({ ...assess(c.id), whyFit: undefined }) as unknown as ReturnType<typeof assess>),
+  }));
+
+  assert.ok(map.agencyIntelligence.length > 0, "agencies still surface even without a whyFit narrative");
+  for (const entry of map.agencyIntelligence) {
+    assert.equal(entry.why, "", "a missing whyFit degrades to an empty string, never crashes the map");
+  }
+});
+
 // --- Progressive rendering: onMatch fires per-batch, before the final result -
 
 test("onMatch: fires once per scored candidate, each preview matching its eventual final Match", async () => {
