@@ -21,8 +21,6 @@ test("sample-pick: choosing a sample company runs the search and shows results",
   await expect(page.getByText(FIXTURE_PROGRAM)).toBeVisible();
 });
 
-// Optional-details section must stay collapsed once the required fields are
-// filled, and only expand on an explicit click of the toggle.
 test("intake: optional details stay collapsed after required fields are filled, and expand on toggle click", async ({ page }) => {
   await stubBackend(page);
   await page.goto("/");
@@ -33,6 +31,7 @@ test("intake: optional details stay collapsed after required fields are filled, 
   await page.getByLabel("Primary US location").fill("Boise, Idaho");
   await page.getByLabel("Use of funds").fill("Hire two engineers");
   await page.getByLabel("Use of funds").blur();
+  await expect(page.getByRole("button", { name: "Find opportunities" })).toBeEnabled();
 
   const toggle = page.getByRole("button", { name: /add optional details/i });
   await expect(toggle).toBeVisible();

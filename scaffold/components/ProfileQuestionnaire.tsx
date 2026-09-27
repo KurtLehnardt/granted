@@ -19,9 +19,8 @@ import { readJSON, writeJSON } from "@/lib/localStore";
  *
  * Replaces the free-text box as the PRIMARY way users give FundFinder the
  * 13 B1a profile fields (`PROFILE_FIELD_META`, `lib/contracts/companyProfile.ts`)
- * — 5 required + 8 optional-but-material, required first, then progressive
- * disclosure of the material fields once required is complete (or the user
- * opts in early).
+ * — 5 required + 8 optional-but-material, required first, material fields
+ * behind an opt-in toggle.
  *
  * THE CORE GUARANTEE ("never re-ask a provided field"): a field the profile
  * already provides (`isFieldProvided`) NEVER renders as an input — it renders
