@@ -4,7 +4,8 @@
 // back to the classic runtime per this repo's tsconfig `"jsx": "preserve"`,
 // and needs `React` in scope to call React.createElement).
 import React from "react";
-import type { Opportunity } from "@/lib/types";
+import type { Match, Opportunity } from "@/lib/types";
+import { isEvergreen, isForecasted } from "@/lib/ui/opportunitySummary";
 
 /**
  * D6 — Application Assistant checklist (honest, per-opportunity).
@@ -91,11 +92,36 @@ export function buildKeyDates(opportunity: Opportunity): KeyDateItem[] {
     });
   }
 
+  // No explicit deadline on the record — say what the record's own
+  // forecasted/status flags actually tell us, rather than a blanket
+  // "not listed" for a program that's either not open yet or evergreen.
   if (items.length === 0) {
-    items.push({ label: "Deadline", value: null });
+    if (isForecasted(opportunity)) {
+      items.push({ label: "Deadline", value: "Forecasted — not yet open for applications" });
+    } else if (isEvergreen(opportunity)) {
+      items.push({ label: "Deadline", value: "Rolling — no fixed deadline" });
+    } else {
+      items.push({ label: "Deadline", value: null });
+    }
   }
 
   return items;
+}
+
+const money = (n: number) => (n >= 1e6 ? `$${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `$${Math.round(n / 1e3)}K` : `$${n}`);
+
+/** This program's award/funding range, from whichever field the record
+ *  carries (legacy `fundingLow`/`fundingHigh` or the §3.4 `award_range`) —
+ *  never fabricated when neither is present. */
+export function buildFundingRange(opportunity: Opportunity): string | null {
+  const low = opportunity.award_range?.floor ?? opportunity.fundingLow;
+  const high = opportunity.award_range?.ceiling ?? opportunity.fundingHigh;
+  const hasLow = typeof low === "number" && low > 0;
+  const hasHigh = typeof high === "number" && high > 0;
+  if (hasLow && hasHigh) return `${money(low!)}–${money(high!)}`;
+  if (hasHigh) return `up to ${money(high!)}`;
+  if (hasLow) return `${money(low!)}+`;
+  return null;
 }
 
 const BASE_DOCUMENTS = [
@@ -141,11 +167,14 @@ export function buildQuestions(opportunity: Opportunity): string[] {
       `The listing states: "${opportunity.eligibility.trim()}" — in your own honest assessment, does your organization satisfy this?`,
     );
   }
+  const fundingRange = buildFundingRange(opportunity);
   questions.push(
     `Have you re-checked ${opportunity.agency}'s official eligibility requirements on the current listing? This checklist doesn't determine eligibility for you.`,
     "Who is your organization's AOR, and have they reviewed this specific opportunity?",
     "What outcome or deliverable would you propose, in one or two sentences?",
-    "What budget request fits within the program's funding range and your actual project scope?",
+    fundingRange
+      ? `What budget request fits within this program's funding range (${fundingRange}) and your actual project scope?`
+      : "What budget request fits within the program's funding range and your actual project scope?",
   );
   return questions;
 }
@@ -168,14 +197,29 @@ function sourcePointer(opportunity: Opportunity): string {
 function sourceApplyStep(opportunity: Opportunity): string {
   const pointer = sourcePointer(opportunity);
   switch (opportunity.source) {
-    case "grants.gov":
-      return `Register on grants.gov (an Active SAM.gov registration + UEI are required), then read and apply through ${pointer} before its deadline.`;
+    case "grants.gov": {
+      const register = "Register on grants.gov (an Active SAM.gov registration + UEI are required)";
+      if (isForecasted(opportunity)) {
+        return `${register}, then watch ${pointer} — it's forecasted and not yet open for applications.`;
+      }
+      const deadline = formatDate(opportunity.deadline);
+      return deadline
+        ? `${register}, then read and apply through ${pointer} before its deadline of ${deadline}.`
+        : `${register}, then read and apply through ${pointer}. No deadline is listed — confirm the application window on the listing.`;
+    }
     case "sbir":
     case "sbir.gov":
-      return `Read ${opportunity.agency}'s SBIR/STTR solicitation topic and apply through the agency's own SBIR portal — not grants.gov. Start at ${pointer}.`;
+      // The corpus's SBIR/STTR records are past-award listings, not open
+      // solicitations — this never claims a solicitation topic this record
+      // doesn't have, and never sends the user to the awardee's own site
+      // (often what `url` points at here) as if it were an application portal.
+      return `SBIR/STTR funding is awarded through each agency's own solicitation process, not grants.gov — search ${opportunity.agency}'s SBIR/STTR program site for current open topics. This record is background, not an application portal: ${pointer}.`;
     case "assistance-listings":
     case "sam.gov":
-      return `This is a SAM.gov assistance listing, not a competed application — contact ${opportunity.agency}'s program office to ask how to apply. Details: ${pointer}.`;
+      // Many assistance listings ARE reached through a competed NOFO posted
+      // on grants.gov, so this never claims otherwise — it points the user
+      // at both real paths instead of asserting one.
+      return `An assistance listing describes a program, not one fixed application — check for a current funding notice (often posted on grants.gov), or contact the program office at ${opportunity.agency} to ask how to apply. Details: ${pointer}.`;
     case "sam-contracts":
       return `Respond through SAM.gov Contract Opportunities, following ${opportunity.agency}'s solicitation instructions. Details: ${pointer}.`;
     case "usaspending":
@@ -189,17 +233,25 @@ function sourceApplyStep(opportunity: Opportunity): string {
 /**
  * Ordered next actions. The LAST step always restates the honesty boundary:
  * this tool never submits anything — a human AOR does, through the official
- * portal.
+ * portal. `whatToVerify`/`whatToDoNext` are the match's own already-computed
+ * narrative fields (lib/match.ts) — read here, never generated by this file.
  */
-export function buildNextSteps(opportunity: Opportunity, allRegistrationsSatisfied: boolean): string[] {
+export function buildNextSteps(match: Match, allRegistrationsSatisfied: boolean): string[] {
+  const opportunity = match.opportunity;
   const steps: string[] = [];
   steps.push(sourceApplyStep(opportunity));
+  if (match.whatToVerify?.trim()) {
+    steps.push(`Before applying, verify: ${match.whatToVerify.trim()}`);
+  }
   steps.push(
     allRegistrationsSatisfied
       ? "Your registrations in Settings are marked satisfied — confirm they're still active/current in SAM.gov."
       : "Complete the registrations checklist in Settings — most federal portals block submission without them.",
   );
   steps.push("Draft answers to the questions below and gather the documents listed.");
+  if (match.whatToDoNext?.trim()) {
+    steps.push(match.whatToDoNext.trim());
+  }
   steps.push("Have your organization's AOR review the draft before anything is submitted.");
   steps.push(
     "Submit only through the opportunity's official portal (e.g., Grants.gov or SAM.gov) — this checklist never submits anything on your behalf.",
@@ -207,26 +259,46 @@ export function buildNextSteps(opportunity: Opportunity, allRegistrationsSatisfi
   return steps;
 }
 
+/** Wraps a bare `Opportunity` as a placeholder `Match` for the legacy,
+ *  currently-unmounted assisted-apply flow (AutoFillFlow/ApplicationPackage —
+ *  see HowToApplyModal's doc comment), which only ever has the opportunity,
+ *  never a real scored match. */
+export function opportunityOnlyMatch(opportunity: Opportunity): Match {
+  return {
+    opportunity,
+    tier: "verify",
+    score: 0,
+    criteria: [],
+    whyCare: "",
+    whyFit: "",
+    whyIneligible: "",
+    whatToVerify: "",
+    whatToDoNext: "",
+  };
+}
+
 export type ApplicationChecklistModel = {
   title: string;
   agency: string;
+  fundingRange: string | null;
+  referenceId: string | null;
   keyDates: KeyDateItem[];
   documents: string[];
   questions: string[];
   nextSteps: string[];
 };
 
-export function buildApplicationChecklist(
-  opportunity: Opportunity,
-  allRegistrationsSatisfied: boolean,
-): ApplicationChecklistModel {
+export function buildApplicationChecklist(match: Match, allRegistrationsSatisfied: boolean): ApplicationChecklistModel {
+  const opportunity = match.opportunity;
   return {
     title: opportunity.title?.trim() || opportunity.program,
     agency: opportunity.agency,
+    fundingRange: buildFundingRange(opportunity),
+    referenceId: opportunity.source_id ?? null,
     keyDates: buildKeyDates(opportunity),
     documents: buildDocumentChecklist(opportunity),
     questions: buildQuestions(opportunity),
-    nextSteps: buildNextSteps(opportunity, allRegistrationsSatisfied),
+    nextSteps: buildNextSteps(match, allRegistrationsSatisfied),
   };
 }
 
@@ -235,13 +307,13 @@ export function buildApplicationChecklist(
  * ------------------------------------------------------------------------ */
 
 export default function ApplicationChecklist({
-  opportunity,
+  match,
   allRegistrationsSatisfied,
 }: {
-  opportunity: Opportunity;
+  match: Match;
   allRegistrationsSatisfied: boolean;
 }) {
-  const model = buildApplicationChecklist(opportunity, allRegistrationsSatisfied);
+  const model = buildApplicationChecklist(match, allRegistrationsSatisfied);
 
   const eyebrowClass = "font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas";
   const titleClass = "mt-1 font-display text-[18px] font-bold leading-snug text-foreground";
@@ -256,7 +328,11 @@ export default function ApplicationChecklist({
       <h3 id="application-checklist-heading" className={titleClass}>
         {model.title}
       </h3>
-      <p className={agencyClass}>{model.agency}</p>
+      <p className={agencyClass}>
+        {model.agency}
+        {model.fundingRange && <> &middot; {model.fundingRange}</>}
+        {model.referenceId && <> &middot; Opportunity #{model.referenceId}</>}
+      </p>
 
       <h4 className={sectionHeadingClass}>Key dates</h4>
       <ul className="mt-2 space-y-1">

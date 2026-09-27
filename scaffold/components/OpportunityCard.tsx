@@ -442,7 +442,7 @@ export default function OpportunityCard({
       </div>
 
       {howToApplyOpen && (
-        <HowToApplyModal opportunity={o} onClose={() => setHowToApplyOpen(false)} />
+        <HowToApplyModal match={m} onClose={() => setHowToApplyOpen(false)} />
       )}
 
       {competitorOpen && (

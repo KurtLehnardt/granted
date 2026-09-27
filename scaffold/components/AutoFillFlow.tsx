@@ -10,7 +10,11 @@ import {
 import { useAuth } from "@/components/AuthProvider";
 import { isFlagEnabled } from "@/lib/flags";
 import { useDialogA11y } from "@/components/useDialogA11y";
-import ApplicationChecklist, { REQUIREMENTS, type RequirementKey } from "@/components/ApplicationChecklist";
+import ApplicationChecklist, {
+  REQUIREMENTS,
+  opportunityOnlyMatch,
+  type RequirementKey,
+} from "@/components/ApplicationChecklist";
 import ApplicationPackage from "@/components/ApplicationPackage";
 import type { Opportunity } from "@/lib/types";
 import type { CompanyProfile } from "@/lib/contracts/companyProfile";
@@ -303,7 +307,7 @@ export default function AutoFillFlow({
                 `satisfied` map the list below renders, so the two sections never
                 disagree about what's on file. */}
             {opportunity && (
-              <ApplicationChecklist opportunity={opportunity} allRegistrationsSatisfied={allSatisfied} />
+              <ApplicationChecklist match={opportunityOnlyMatch(opportunity)} allRegistrationsSatisfied={allSatisfied} />
             )}
 
             {/* G5: assemble a submission-ready package (G1→G2→G3→G4→D6). Only
