@@ -2,80 +2,112 @@
 
 **Granted** turns a plain-English description of your business or research into a map of real **federal funding opportunities**: grants, SBIR/STTR R&D, procurement, loans, assistance, scholarships. Each match is scored for fit on the criteria a program officer would apply, and screened for eligibility.
 
-Run it with your own API keys or a fully local model — see Quick start below.
+Run it with your own API keys or a fully local model — see **Run it yourself** below.
 
 ---
 
 # Run it yourself
 
-## Quick start (≈ 5 minutes)
-
-**No API keys? Still works.** `git clone` → `npm install` → `npm run dev` and you can immediately try the 5 built-in sample companies — their results are served from cache, so they need no API keys at all. You only need API keys (or a local model) to search your *own* company description.
+**No API keys? Still works.** Clone it, install, run it, and try the 5 built-in sample companies — their results are cached, so they need no keys at all. You only need API keys (or a local model) to search your *own* company description.
 
 **Even faster: no input at all.** Visit `/demo` for a static, pre-baked sample opportunity map (and `/demo/eligibility` for the eligibility view).
 
-To search your own description you need [Node 20 LTS](https://nodejs.org) (18.17+ works) and two API keys (OpenAI + Anthropic), or a local model installed (steps below).
+Every OS below ends up running the exact same `npm` commands — the setup scripts detect your platform automatically. Only the prerequisite installs (Node, git, Ollama) differ, so pick yours:
 
+## Install on macOS
+
+**1. Prerequisites**
+- [Node 20+](https://nodejs.org), or `brew install node`. (Node 22+ avoids an `EBADENGINE` warning one dependency now emits on 20 — the app runs fine either way.)
+- git — already present if you have Xcode Command Line Tools (`xcode-select --install`), or `brew install git`.
+
+**2. Clone and try it with zero keys**
 ```bash
 git clone https://github.com/KurtLehnardt/granted.git
 cd granted/scaffold
-npm run setup      # interactive: scaffolds .env.local, collects your keys, installs deps
+npm install
 npm run dev        # → http://localhost:3000
 ```
+Try the 5 sample companies now — no keys needed.
 
-`npm run setup` never prints or commits your keys (they go into `scaffold/.env.local`, which is gitignored). Prefer to do it by hand? See **Manual setup** below.
-
-## Run on a local model (Ollama: no API keys, can be fully offline)
-
-Don't want to pay for or send data to a hosted model? Point the reasoning at a local LLM. The scoring, explanations, and honest verdicts then run entirely on your machine.
-
-### Guided setup (one command)
+**3. Search your own company — hosted (OpenAI + Anthropic)**
 ```bash
-cd scaffold
-npm run setup:local        # add --yes for non-interactive defaults
+npm run setup      # interactive: writes .env.local, collects your keys
+npm run dev
 ```
-Detects your OS + available memory/GPU, recommends and pulls an Ollama chat model (or lets you pick one you already have), **always** pulls the separate embeddings model (`nomic-embed-text` — the seam people forget), writes the env into `scaffold/.env.local` without clobbering values you've set, and offers to re-embed the corpus so retrieval actually works. It never installs Ollama itself — if Ollama or its daemon is missing it prints the install/start command for your platform and exits. Prefer to do it by hand? The manual steps are below.
+Or by hand: `cp .env.example .env.local`, then edit `scaffold/.env.local` and set `OPENAI_API_KEY` + `ANTHROPIC_API_KEY` — see **What you need** below for where to get them.
 
-1. Install [Ollama](https://ollama.com) and pull a capable instruction model:
-   ```bash
-   ollama pull gemma4        # or qwen2.5, llama3.1 — pick one that follows JSON well
-   ```
-2. In `scaffold/.env.local`:
-   ```bash
-   LLM_PROVIDER=ollama
-   LOCAL_LLM_MODEL=gemma4:latest
-   # ANTHROPIC_API_KEY is no longer needed.
-   ```
-3. `npm run dev`. Every scoring/explanation call now routes to Ollama's OpenAI-compatible endpoint, with grammar-constrained JSON so a local model stays parseable. Any OpenAI-compatible server works (LM Studio, vLLM, llama.cpp). Set `LLM_BASE_URL` to its `/v1` URL.
-
-### Fully offline
-**Embeddings are a SEPARATE setting from the LLM.** `LLM_PROVIDER=ollama` (above) only moves the scoring/explanation calls — it does **not** move the query embedding. By default that tiny embedding still uses OpenAI (the corpus ships pre-embedded at 512 dims; it costs fractions of a cent), and if `OPENAI_API_KEY` is missing or still the `.env.example` placeholder you'll get a clear error rather than a hosted call. To remove that last hosted call and go fully local, you must ALSO set `EMBEDDINGS_BASE_URL`/`EMBEDDINGS_MODEL`, pull a local embedding model, and re-embed the corpus with that model:
+**3, alternative — fully local (Ollama, no API keys)**
 ```bash
-ollama pull nomic-embed-text
-# add these two lines to scaffold/.env.local:
-EMBEDDINGS_BASE_URL=http://localhost:11434/v1
-EMBEDDINGS_MODEL=nomic-embed-text
-# then just run (data:embed reads scaffold/.env.local — no inline env needed):
-npm run data:embed        # re-embeds the 968-opportunity corpus locally (~1–2 min)
+brew install ollama                 # or https://ollama.com/download
+npm run setup:local -- --yes        # picks a model sized for your RAM, pulls it, re-embeds the corpus
+npm run dev
 ```
-Now nothing leaves your machine.
+Verified end to end on this flow: a 32GB Mac auto-picked `qwen2.5:14b` and completed a full novel-company search (18 candidates, fully local, zero API calls) in **3 minutes 43 seconds**.
 
-## Manual setup (instead of the script)
+## Install on Windows
 
-```bash
-cd scaffold
-cp .env.example .env.local
+*This section is written from Ollama/Node's documented Windows support and this project's own (already-unit-tested) Windows memory-detection code — it hasn't been run end-to-end on real Windows hardware yet in this repo. If something's off, please open an issue.*
+
+**1. Prerequisites**
+- [Node 20+](https://nodejs.org), or `winget install OpenJS.NodeJS.LTS`. (Node 22+ avoids an `EBADENGINE` warning one dependency now emits on 20 — the app runs fine either way.)
+- [git](https://git-scm.com/download/win), or `winget install Git.Git`.
+- PowerShell (default on Windows 10/11) or Git Bash — both work with everything below.
+
+**2. Clone and try it with zero keys**
+```powershell
+git clone https://github.com/KurtLehnardt/granted.git
+cd granted/scaffold
 npm install
+npm run dev        # → http://localhost:3000
+```
+Try the 5 sample companies now — no keys needed.
+
+**3. Search your own company — hosted (OpenAI + Anthropic)**
+```powershell
+npm run setup      # interactive: writes .env.local, collects your keys
+npm run dev
+```
+Or by hand: `Copy-Item .env.example .env.local` (PowerShell) or `cp .env.example .env.local` (Git Bash), then edit `scaffold/.env.local` and set `OPENAI_API_KEY` + `ANTHROPIC_API_KEY` — see **What you need** below.
+
+**3, alternative — fully local (Ollama, no API keys)**
+```powershell
+# Install Ollama first: https://ollama.com/download — it runs as a background app once installed.
+npm run setup:local -- --yes        # picks a model sized for your RAM/VRAM, pulls it, re-embeds the corpus
+npm run dev
 ```
 
-Then edit `scaffold/.env.local` and set at least:
+## Install on Linux
 
+**1. Prerequisites** (Debian/Ubuntu shown — swap in your distro's package manager otherwise)
 ```bash
-OPENAI_API_KEY=sk-...
-ANTHROPIC_API_KEY=sk-ant-...
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt-get install -y nodejs git
 ```
+This installs Node 20, which throws a harmless `EBADENGINE` warning during `npm install` (one dependency now wants 22+; the app runs fine on 20 regardless). Use `setup_22.x` above instead if you'd rather avoid the warning.
 
-Everything else in `.env.example` is optional and documented inline. Start with `npm run dev`.
+**2. Clone and try it with zero keys**
+```bash
+git clone https://github.com/KurtLehnardt/granted.git
+cd granted/scaffold
+npm install
+npm run dev        # → http://localhost:3000
+```
+Try the 5 sample companies now — no keys needed.
+
+**3. Search your own company — hosted (OpenAI + Anthropic)**
+```bash
+npm run setup      # interactive: writes .env.local, collects your keys
+npm run dev
+```
+Or by hand: `cp .env.example .env.local`, then edit `scaffold/.env.local` and set `OPENAI_API_KEY` + `ANTHROPIC_API_KEY` — see **What you need** below.
+
+**3, alternative — fully local (Ollama, no API keys)**
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+npm run setup:local -- --yes        # picks a model sized for your RAM, pulls it, re-embeds the corpus
+npm run dev
+```
+Verified end to end on the smallest realistic box (2 vCPU, 8GB RAM, no GPU): auto-picked `llama3.2:1b` and completed a full novel-company search (21 candidates, fully local) in **20 minutes 43 seconds**. A machine with a GPU or more cores will be dramatically faster — the macOS number above is the same engine, just more hardware.
 
 ## What you need (and where to get it)
 
@@ -88,9 +120,42 @@ Everything else in `.env.example` is optional and documented inline. Start with 
 | **Google OAuth credentials** | Optional | [Google Cloud Console](https://console.cloud.google.com) | Only if you enable real sign-in (see below). |
 | **Vercel account** | Optional | [vercel.com](https://vercel.com) | Only to deploy. Local dev needs none of it. |
 
+### Picking a local model manually
+
+`npm run setup:local` picks a model tier from your available memory/VRAM automatically. Choosing one by hand instead? Match it to your machine — `ollama pull gemma4` alone, for instance, pulls a 9.6GB model that won't run on an 8GB machine:
+
+| Memory / VRAM | Recommended model | Note |
+|---|---|---|
+| 32GB+ | `qwen2.5:14b` | Best local quality. |
+| 16–32GB | `qwen2.5:7b` | Strong, well-calibrated default. |
+| 8–16GB | `llama3.2:3b` | Good balance. |
+| Under 8GB | `llama3.2:1b` | Runs on modest RAM (verified CPU-only, no GPU); rougher quality, slow scoring. |
+
+Then in `scaffold/.env.local`:
+```bash
+LLM_PROVIDER=ollama
+LOCAL_LLM_MODEL=<the tag you pulled>
+# ANTHROPIC_API_KEY is no longer needed.
+```
+Every scoring/explanation call now routes to Ollama's OpenAI-compatible endpoint, with grammar-constrained JSON so a local model stays parseable. Any OpenAI-compatible server works (LM Studio, vLLM, llama.cpp) — set `LLM_BASE_URL` to its `/v1` URL.
+
+### Fully offline
+
+**Embeddings are a SEPARATE setting from the LLM.** `LLM_PROVIDER=ollama` only moves the scoring/explanation calls — it does **not** move the query embedding. By default that tiny embedding still uses OpenAI (the corpus ships pre-embedded at 512 dims; it costs fractions of a cent), and if `OPENAI_API_KEY` is missing or still the `.env.example` placeholder you'll get a clear error rather than a hosted call. `npm run setup:local` sets this up for you; to do it by hand, pull a local embedding model and re-embed the corpus with it:
+```bash
+ollama pull nomic-embed-text
+# add these two lines to scaffold/.env.local:
+EMBEDDINGS_BASE_URL=http://localhost:11434/v1
+EMBEDDINGS_MODEL=nomic-embed-text
+# then just run (data:embed reads scaffold/.env.local — no inline env needed):
+npm run data:embed        # re-embeds the 968-opportunity corpus locally
+```
+Now nothing leaves your machine.
+
 ### The honest tradeoff
-Hosted Claude is faster and more reliable at the strict, structured JSON this pipeline asks for, and its scoring is better calibrated. A capable local model still handles it. In testing, gemma4 ran the full pipeline end to end and reached the *same headline verdict* as hosted Claude on the same input (a genuine strong fit, with the right NIH SBIR grant as its top recommendation). Two caveats:
-- **It's much slower.** A single local GPU serves the scoring batches one at a time, so a full 24-candidate search can take several minutes (vs. ~90s hosted). Batches run serially and smaller when local (`LLM_BATCH_SIZE`, default 3) to stay under the per-call timeout; raise `ANTHROPIC_TIMEOUT_MS` if a big model needs longer.
+
+Hosted Claude is faster and more reliable at the strict, structured JSON this pipeline asks for, and its scoring is better calibrated. A capable local model still handles it — verified end to end on both macOS (`qwen2.5:14b`, 32GB RAM: 3:43 for an 18-candidate search) and Linux (`llama3.2:1b`, 2 vCPU/8GB/no GPU: 20:43 for 21 candidates), both fully local with real matches. Two caveats:
+- **It's much slower on modest hardware.** A CPU-only, small-memory box serves scoring batches one at a time — the Linux number above is close to worst-case. A GPU or more RAM (the macOS number) closes most of that gap. Batches run serially and smaller when local (`LLM_BATCH_SIZE`, default 3) to stay under the per-call timeout; raise `ANTHROPIC_TIMEOUT_MS` if a big model needs longer.
 - **Quality is rougher.** Smaller or older models score less consistently and occasionally emit JSON even the repair layer can't recover. Use a strong instruction-following model, and expect a coarser result than the hosted default.
 
 It's a real option for privacy or zero-cost runs, just not the fast path.
