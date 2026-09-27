@@ -344,10 +344,12 @@ export async function explainMatches(
   // ~700-900 output tokens each and dominates request latency (~3 min for 24
   // candidates); concurrent batches cut wall-clock ~3x with identical per-
   // candidate scoring. max_tokens per batch stays well clear of truncation.
-  // Hosted: 8/batch, run concurrently. Local: smaller batches (less output per
-  // call → each finishes faster on a slow single-GPU model) run serially. Both
-  // env-overridable via LLM_BATCH_SIZE.
-  const BATCH = Number(process.env.LLM_BATCH_SIZE) || (isLocalLlm() ? 3 : 8);
+  // Hosted: 8/batch, run concurrently. Local: batches of 1, run serially — a
+  // local batch call is also the unit `onMatch` (buildOpportunityMap) streams
+  // a card per, so a bigger local batch directly delays the FIRST card by
+  // however long it takes the slow single-GPU model to finish that whole
+  // group, not just one candidate. Both env-overridable via LLM_BATCH_SIZE.
+  const BATCH = Number(process.env.LLM_BATCH_SIZE) || (isLocalLlm() ? 1 : 8);
   const groups: Opportunity[][] = [];
   for (let i = 0; i < candidates.length; i += BATCH) groups.push(candidates.slice(i, i + BATCH));
 
