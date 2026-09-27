@@ -25,7 +25,14 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { embedBatch } from "../lib/embed.ts";
 import { dropExpiredOpportunities } from "../lib/corpus/expiry.ts";
-import { countRemoved, dedupeById, opportunityEmbedText, planEmbedding } from "../lib/corpus/refresh.ts";
+import {
+  countBySource,
+  countRemoved,
+  dedupeById,
+  findUnhealthySources,
+  opportunityEmbedText,
+  planEmbedding,
+} from "../lib/corpus/refresh.ts";
 import { acquireRefreshLock, releaseRefreshLock, writeRefreshStatus } from "../lib/corpus/refreshStatus.ts";
 import { normalizeGrantsRecord, normalizeSbirSolicitation } from "./lib/normalizeGrants.mjs";
 import { normalizeSamRow, normalizeSbirAward, normalizeProcurementRecord } from "./lib/normalizeNewSources.mjs";
@@ -35,6 +42,23 @@ const LOCAL_OPPS = join(LOCAL_DIR, "opportunities.json");
 const LOCAL_META = join(LOCAL_DIR, "corpus-meta.json");
 const EMBED_MODEL = process.env.EMBEDDINGS_MODEL || "text-embedding-3-small";
 const EMBED_BATCH = 64;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** Retries embedBatch with exponential backoff on 429/5xx, same policy as
+ *  scripts/3-embed.mjs — a single transient rate limit or Ollama hiccup must
+ *  not discard a run of up to ~30 minutes of prior embedding work. */
+async function embedBatchWithRetry(texts, attempt = 0) {
+  try {
+    return await embedBatch(texts);
+  } catch (e) {
+    const status = Number(String(e.message).match(/\((\d+)\)/)?.[1]);
+    if (!(status === 429 || status >= 500) || attempt >= 7) throw e;
+    const wait = Math.min(60000, 1000 * 2 ** attempt);
+    console.warn(`\n  embedding batch failed (${status}) — backing off ${Math.round(wait / 1000)}s (retry ${attempt + 1}/7)`);
+    await sleep(wait);
+    return embedBatchWithRetry(texts, attempt + 1);
+  }
+}
 
 async function readJson(path, fallback) {
   try {
@@ -59,7 +83,11 @@ function run(label, script, env) {
 async function main() {
   const t0 = Date.now();
   await mkdir(LOCAL_DIR, { recursive: true });
-  if (!acquireRefreshLock()) {
+  // When POST /api/corpus/refresh spawns us, it already claimed the lock
+  // (and transferred it to our pid) before spawning, to close the race a
+  // second POST could otherwise slip through — don't re-claim it here.
+  const lockHeld = process.env.GRANTED_REFRESH_LOCK_HELD === "1";
+  if (!lockHeld && !acquireRefreshLock()) {
     console.log("data:refresh — another refresh is already running (lock held). Exiting.");
     process.exitCode = 1;
     return;
@@ -93,6 +121,11 @@ async function main() {
 
     const existing = await readJson(LOCAL_OPPS, await readJson("data/opportunities.json", []));
     const existingMeta = await readJson(LOCAL_META, await readJson("data/corpus-meta.json", {}));
+
+    const unhealthy = findUnhealthySources(countBySource(existing), countBySource(fresh));
+    if (unhealthy.length) {
+      throw new Error(`refresh aborted — source count dropped sharply: ${unhealthy.join("; ")}`);
+    }
     const priorById = new Map();
     for (const o of existing) {
       if (Array.isArray(o.embedding) && o.embedding.length > 0) {
@@ -109,7 +142,7 @@ async function main() {
     const embedded = [];
     for (let i = 0; i < plan.toEmbed.length; i += EMBED_BATCH) {
       const slice = plan.toEmbed.slice(i, i + EMBED_BATCH);
-      const vectors = await embedBatch(slice.map((o) => opportunityEmbedText(o)));
+      const vectors = await embedBatchWithRetry(slice.map((o) => opportunityEmbedText(o)));
       slice.forEach((o, k) => embedded.push({ ...o, embedding: vectors[k].map((v) => Math.round(v * 1e5) / 1e5) }));
       process.stdout.write(`\rembedded ${Math.min(i + EMBED_BATCH, plan.toEmbed.length)}/${plan.toEmbed.length}`);
     }

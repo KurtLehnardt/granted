@@ -107,6 +107,7 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
   async function handleRefreshCorpus() {
     try {
       const res = await fetch("/api/corpus/refresh", { method: "POST" });
+      if (res.status === 202) setCorpusStatus((s) => (s ? { ...s, refreshing: true } : s));
       if (res.status === 202 || res.status === 409) await fetchCorpusStatus();
     } catch {
       /* offline / unreachable — nothing to do, status just won't update */

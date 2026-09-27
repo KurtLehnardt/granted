@@ -9,6 +9,7 @@ function fakeReq(): { headers: { get(name: string): string | null } } {
 
 function fakeChild() {
   const child = new EventEmitter() as any;
+  child.pid = 4321;
   child.unref = () => {};
   return child;
 }
@@ -18,7 +19,9 @@ describe("POST /api/corpus/refresh (handler)", () => {
     let spawned = false;
     const res = await handleRefreshPost(fakeReq(), {
       isLoopbackRequest: () => false,
-      isRefreshing: () => false,
+      acquireRefreshLock: () => true,
+      releaseRefreshLock: () => {},
+      transferRefreshLock: () => {},
       spawn: () => {
         spawned = true;
         return fakeChild();
@@ -32,7 +35,9 @@ describe("POST /api/corpus/refresh (handler)", () => {
     let spawned = false;
     const res = await handleRefreshPost(fakeReq(), {
       isLoopbackRequest: () => true,
-      isRefreshing: () => true,
+      acquireRefreshLock: () => false,
+      releaseRefreshLock: () => {},
+      transferRefreshLock: () => {},
       spawn: () => {
         spawned = true;
         return fakeChild();
@@ -44,9 +49,14 @@ describe("POST /api/corpus/refresh (handler)", () => {
 
   test("202 and spawns the refresh script when loopback and idle", async () => {
     let spawnedWith: [string, string[]] | null = null;
+    let transferredPid: number | null = null;
     const res = await handleRefreshPost(fakeReq(), {
       isLoopbackRequest: () => true,
-      isRefreshing: () => false,
+      acquireRefreshLock: () => true,
+      releaseRefreshLock: () => {},
+      transferRefreshLock: (pid) => {
+        transferredPid = pid;
+      },
       spawn: (command: string, args: string[]) => {
         spawnedWith = [command, args];
         return fakeChild();
@@ -57,5 +67,24 @@ describe("POST /api/corpus/refresh (handler)", () => {
     const call = spawnedWith as [string, string[]] | null;
     assert.ok(call);
     assert.ok(call[1].includes("scripts/refresh-corpus.mjs"));
+    assert.equal(transferredPid, 4321); // hands the lock to the child's real pid
+  });
+
+  test("releases the lock and rethrows when spawn itself throws", async () => {
+    let released = false;
+    await assert.rejects(
+      handleRefreshPost(fakeReq(), {
+        isLoopbackRequest: () => true,
+        acquireRefreshLock: () => true,
+        releaseRefreshLock: () => {
+          released = true;
+        },
+        transferRefreshLock: () => {},
+        spawn: () => {
+          throw new Error("ENOENT");
+        },
+      }),
+    );
+    assert.equal(released, true);
   });
 });
