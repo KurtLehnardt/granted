@@ -72,7 +72,7 @@ function walk(dir: string, out: string[] = []): string[] {
 }
 
 function isUnderTestsDir(relPath: string): boolean {
-  return relPath.split("/").includes("__tests__");
+  return relPath.split(/[\\/]/).includes("__tests__");
 }
 
 // ---------------------------------------------------------------------------
