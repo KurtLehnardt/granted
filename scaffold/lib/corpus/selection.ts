@@ -11,11 +11,11 @@ export const DEFAULT_SOURCE_WEIGHTS: Record<string, number> = {
 };
 
 /**
- * Splits `cap` across the given sources proportionally to weight, capped by
- * each source's `available` count, and redistributes any share a source
- * can't use. Every source with `available > 0` gets at least one slot (so
- * long as `cap` covers the number of sources) — a low-weight source is never
- * squeezed out entirely.
+ * Splits `cap` across the given sources proportionally to weight ×
+ * availability, capped by each source's `available` count, and redistributes
+ * any share a source can't use. Every source with `available > 0` gets at
+ * least one slot (so long as `cap` covers the number of sources) — a
+ * low-weight source is never squeezed out entirely.
  */
 export function allocateCap(
   available: Record<string, number>,
@@ -26,13 +26,16 @@ export function allocateCap(
   const alloc: Record<string, number> = Object.fromEntries(names.map((n) => [n, 0]));
   if (names.length === 0 || cap <= 0) return alloc;
 
+  const score = (n: string) => (weights[n] ?? 1) * available[n];
+
   const totalAvailable = names.reduce((s, n) => s + available[n], 0);
   let remaining = Math.min(cap, totalAvailable);
   let left: Record<string, number> = Object.fromEntries(names.map((n) => [n, available[n]]));
 
-  // Guarantee representation first, in weight order (heaviest first), so a
-  // cap smaller than the source count still favors the intended weighting.
-  for (const n of [...names].sort((a, b) => (weights[b] ?? 1) - (weights[a] ?? 1))) {
+  // Guarantee representation first, in weight×availability order (largest
+  // first), so a cap smaller than the source count still favors the intended
+  // weighting.
+  for (const n of [...names].sort((a, b) => score(b) - score(a))) {
     if (remaining <= 0) break;
     alloc[n] += 1;
     left[n] -= 1;
@@ -41,19 +44,20 @@ export function allocateCap(
 
   let pool = names.filter((n) => left[n] > 0);
   while (remaining > 0 && pool.length > 0) {
-    const totalWeight = pool.reduce((s, n) => s + (weights[n] ?? 1), 0);
+    const totalWeight = pool.reduce((s, n) => s + score(n), 0);
     const shares: Record<string, number> = {};
     let given = 0;
     for (const n of pool) {
-      const raw = (remaining * (weights[n] ?? 1)) / totalWeight;
+      const raw = (remaining * score(n)) / totalWeight;
       const share = Math.min(left[n], Math.floor(raw));
       shares[n] = share;
       given += share;
     }
     // Rounding can leave every share at 0 while capacity remains — break the
-    // tie by giving the single largest-weight source in the pool one slot.
+    // tie by giving the single largest weight×availability source in the
+    // pool one slot.
     if (given === 0) {
-      const top = pool.slice().sort((a, b) => (weights[b] ?? 1) - (weights[a] ?? 1))[0];
+      const top = pool.slice().sort((a, b) => score(b) - score(a))[0];
       shares[top] = Math.min(left[top], remaining);
       given = shares[top];
     }

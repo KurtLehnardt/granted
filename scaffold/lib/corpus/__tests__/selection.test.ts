@@ -26,9 +26,29 @@ describe("allocateCap", () => {
   });
 
   test("never exceeds a source's availability and redistributes the rest", () => {
-    const alloc = allocateCap({ "grants.gov": 5, sbir: 1000, usaspending: 1000, "assistance-listings": 1000 }, 1000);
+    // Weighted heavily enough that its weight x availability share would
+    // otherwise exceed its 5 available records.
+    const alloc = allocateCap(
+      { "grants.gov": 5, sbir: 1000, usaspending: 1000, "assistance-listings": 1000 },
+      1000,
+      { "grants.gov": 100, sbir: 1, usaspending: 1, "assistance-listings": 1 },
+    );
     assert.equal(alloc["grants.gov"], 5);
     assert.equal(alloc["grants.gov"] + alloc.sbir + alloc.usaspending + alloc["assistance-listings"], 1000);
+  });
+
+  test("splits by weight x availability, not weight alone", () => {
+    // A low-availability, high-weight source shouldn't out-earn a
+    // high-availability, low-weight one just because of its weight.
+    const alloc = allocateCap({ "grants.gov": 1521, sbir: 260, usaspending: 106, "assistance-listings": 2872 }, 1000);
+    assert.ok(alloc["grants.gov"] > alloc["assistance-listings"]);
+    assert.ok(alloc["assistance-listings"] > alloc.sbir);
+    assert.ok(alloc.sbir > alloc.usaspending);
+    // Weight alone (2:2:1:1) would starve assistance-listings near its 1-slot
+    // floor; weight x availability keeps it close to grants.gov's share.
+    assert.ok(alloc["assistance-listings"] > 300);
+    const total = alloc["grants.gov"] + alloc.sbir + alloc.usaspending + alloc["assistance-listings"];
+    assert.equal(total, 1000);
   });
 
   test("every present source gets at least one slot when the cap allows", () => {

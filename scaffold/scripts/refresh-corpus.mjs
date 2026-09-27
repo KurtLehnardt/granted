@@ -8,9 +8,12 @@
  * Reuses the existing fetchers as child processes, redirected (RAW_DIR) into
  * data/local/raw/ so this never overwrites data/raw/*.json — the standalone
  * data:fetch/data:normalize/... pipeline's own working set — and skips
- * 1-fetch.mjs's sbir()/usaspending() (GRANTS_ONLY=1; this script already runs
- * the dedicated SBIR/procurement fetchers below, and 1-fetch.mjs's sbir()
- * alone pulls a ~91MB CSV nothing here uses). Then reuses the same
+ * 1-fetch.mjs's awards-CSV/usaspending() (GRANTS_ONLY=1; this script already
+ * runs the dedicated SBIR/procurement fetchers below, and 1-fetch.mjs's
+ * awards CSV alone pulls a ~91MB file nothing here uses). 1-fetch.mjs's small
+ * sbir-solicitations.json fetch still runs under GRANTS_ONLY, since selection
+ * ordering favors an open solicitation over a historical award. Then reuses
+ * the same
  * normalizers 2-normalize.mjs / assemble-mvp-corpus.mjs call
  * (scripts/lib/normalize*.mjs) to build the fresh record set:
  *   - drops any record whose deadline has already passed

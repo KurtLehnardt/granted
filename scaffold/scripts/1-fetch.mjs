@@ -194,15 +194,15 @@ async function grantsGov() {
   console.log(`\n→ ${out.length} grants.gov records\n`);
 }
 
-async function sbir() {
+async function sbirSolicitations() {
   const out = [];
-  // Solicitations: as of this run, api.www.sbir.gov returns 403 Forbidden on
-  // every variant we tried (bare, open=1, agency=, keyword=) — this matches
-  // SBIR.gov's own posted notice that its public APIs are "currently
-  // undergoing maintenance" (checked live + via web search, Aug 2026). Left
-  // in place so it self-heals automatically if the outage clears before the
-  // demo; the Array.isArray guard prevents the "Spread syntax requires
-  // ...iterable" crash that a 403's {"message":"Forbidden"} body caused.
+  // As of this run, api.www.sbir.gov returns 403 Forbidden on every variant
+  // we tried (bare, open=1, agency=, keyword=) — this matches SBIR.gov's own
+  // posted notice that its public APIs are "currently undergoing
+  // maintenance" (checked live + via web search, Aug 2026). Left in place so
+  // it self-heals automatically if the outage clears before the demo; the
+  // Array.isArray guard prevents the "Spread syntax requires ...iterable"
+  // crash that a 403's {"message":"Forbidden"} body caused.
   try {
     const res = await fetch("https://api.www.sbir.gov/public/api/solicitations?open=1&rows=200");
     const json = await res.json();
@@ -216,7 +216,9 @@ async function sbir() {
     console.warn(`sbir solicitations FAILED — ${e.message}`);
   }
   await writeFile(rawPath("sbir-solicitations.json"), JSON.stringify(out, null, 2));
+}
 
+async function sbirAwardsCsv() {
   // Historical awards: the awards API is down for the same reason. Pull the
   // public bulk CSV export instead — data.www.sbir.gov is a different host
   // than the blocked api.www.sbir.gov and is unaffected — then filter locally
@@ -293,8 +295,9 @@ async function usaspending() {
 }
 
 await grantsGov();
+await sbirSolicitations();
 if (!GRANTS_ONLY) {
-  await sbir();
+  await sbirAwardsCsv();
   await usaspending();
 }
 console.log(`Raw data in ${RAW_DIR}/. Next: npm run data:normalize`);
