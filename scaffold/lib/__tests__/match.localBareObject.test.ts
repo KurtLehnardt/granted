@@ -37,40 +37,33 @@ const corpus: Opportunity[] = [
 const profile: StartupProfile = { description: "We build sensing hardware.", employees: 12 };
 
 const savedProvider = process.env.LLM_PROVIDER;
-const savedModel = process.env.LOCAL_LLM_MODEL;
 const savedBatch = process.env.LLM_BATCH_SIZE;
 const realFetch = globalThis.fetch;
 
 afterEach(() => {
   if (savedProvider === undefined) delete process.env.LLM_PROVIDER;
   else process.env.LLM_PROVIDER = savedProvider;
-  if (savedModel === undefined) delete process.env.LOCAL_LLM_MODEL;
-  else process.env.LOCAL_LLM_MODEL = savedModel;
   if (savedBatch === undefined) delete process.env.LLM_BATCH_SIZE;
   else process.env.LLM_BATCH_SIZE = savedBatch;
   globalThis.fetch = realFetch;
 });
 
-function deps(over: Partial<BuildDeps> = {}): Partial<BuildDeps> {
-  return {
-    corpus,
-    extractProfile: async () => ({ profile, followUps: [] }),
-    embed: async () => QUERY_VEC,
-    explainMatches,
-    explainWeakField: async () => ({
-      headline: "No strong federal match yet",
-      reasoning: "Your work is early for the programs in scope.",
-      redirects: [],
-    }),
-    screen: realScreen,
-    ...over,
-  };
-}
+const deps: Partial<BuildDeps> = {
+  corpus,
+  extractProfile: async () => ({ profile, followUps: [] }),
+  embed: async () => QUERY_VEC,
+  explainMatches,
+  explainWeakField: async () => ({
+    headline: "No strong federal match yet",
+    reasoning: "Your work is early for the programs in scope.",
+    redirects: [],
+  }),
+  screen: realScreen,
+};
 
 test("local bare-object scoring response: onMatch still fires per candidate and no match is dropped", async () => {
   process.env.LLM_PROVIDER = "ollama";
-  process.env.LOCAL_LLM_MODEL = "qwen2.5:3b";
-  delete process.env.LLM_BATCH_SIZE; // local default is 1/batch
+  delete process.env.LLM_BATCH_SIZE;
 
   let call = 0;
   globalThis.fetch = (async (_url: string, init: any) => {
@@ -102,7 +95,7 @@ test("local bare-object scoring response: onMatch still fires per candidate and 
   const map = await buildOpportunityMap(
     profile.description,
     undefined,
-    deps(),
+    deps,
     undefined,
     undefined,
     undefined,
