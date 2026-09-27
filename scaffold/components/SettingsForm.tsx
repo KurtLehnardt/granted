@@ -1,12 +1,13 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import {
   getAutoFillRequirements,
   setAutoFillRequirements,
   type AutoFillRequirements,
 } from "@/lib/mockAuth";
-import { getMaxCandidates, setMaxCandidates } from "@/lib/searchSettings";
+import { getMaxCandidates, setMaxCandidates, getModel, setModel } from "@/lib/searchSettings";
+import type { OllamaModel } from "@/lib/llm/ollamaInfo";
 
 /**
  * SettingsForm.tsx — the auto-fill requirements form body, extracted from
@@ -30,6 +31,23 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
   const [form, setForm] = useState<AutoFillRequirements>(() => getAutoFillRequirements());
   const [maxCandidates, setMaxCandidatesState] = useState<number | null>(() => getMaxCandidates());
   const [savedAt, setSavedAt] = useState<number | null>(null);
+  // Stays null when hosted, so the model picker never renders.
+  const [localModels, setLocalModels] = useState<OllamaModel[] | null>(null);
+  const [defaultModel, setDefaultModel] = useState<string | null>(null);
+  const [model, setModelState] = useState<string | null>(() => getModel());
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/llm")
+      .then((res) => res.json())
+      .then((j) => {
+        if (cancelled || !j?.local) return;
+        setLocalModels(Array.isArray(j.models) ? j.models : []);
+        setDefaultModel(typeof j.model === "string" ? j.model : null);
+      })
+      .catch(() => { /* hosted, or the lookup failed — no picker */ });
+    return () => { cancelled = true; };
+  }, []);
   // Instance-unique ids / radio-group name (useId) so two mounted instances —
   // the drawer's inline Settings section and the SettingsPanel modal — never
   // share DOM ids or a radio `name` and cross-wire each other (frontend review
@@ -39,6 +57,7 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
   const aorNameId = `${uid}-aor-name`;
   const samRadioName = `${uid}-samRegistered`;
   const depthId = `${uid}-search-depth`;
+  const modelId = `${uid}-model`;
   const orgNameId = `${uid}-org-name`;
   const streetId = `${uid}-street`;
   const cityId = `${uid}-city`;
@@ -50,6 +69,7 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
     e.preventDefault();
     setAutoFillRequirements(form);
     setMaxCandidates(maxCandidates);
+    setModel(model);
     setSavedAt(Date.now());
   }
 
@@ -237,6 +257,38 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
           local model — but may surface fewer matches.
         </p>
       </div>
+
+      {localModels && localModels.length > 0 && (
+        <div className={fieldWrapClass}>
+          <label className={legendClass} htmlFor={modelId}>
+            Local model
+          </label>
+          <select
+            id={modelId}
+            value={model ?? ""}
+            onChange={(e) => {
+              setSavedAt(null);
+              const v = e.target.value;
+              setModelState(v === "" ? null : v);
+            }}
+            className={inputClass}
+          >
+            <option value="">
+              Default{defaultModel ? ` (${defaultModel})` : ""}
+            </option>
+            {localModels.map((m) => (
+              <option key={m.name} value={m.name}>
+                {m.name}
+                {m.paramsB != null ? ` (${m.paramsB}B)` : ""}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1.5 font-body text-[12px] text-foreground opacity-80">
+            Which installed Ollama model runs your search. Larger models are more capable but
+            slower.
+          </p>
+        </div>
+      )}
 
       <div className="mt-6 flex flex-wrap items-center gap-4">
         <button type="submit" className={saveBtnClass}>

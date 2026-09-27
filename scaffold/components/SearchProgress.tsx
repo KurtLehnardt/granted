@@ -1,5 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import type { LlmInfo } from "@/lib/llm/types";
+import { LAST_SEARCH_MS_KEY } from "@/lib/searchSettings";
 
 /**
  * SearchProgress — the loading experience while /api/match runs (novel input can
@@ -53,17 +55,63 @@ export function formatDuration(ms: number): string {
   return m <= 1 ? "about a minute" : `about ${m} minutes`;
 }
 
+/** Exact "7m 33s" for the post-result "Search took" line. */
+export function formatSearchDuration(ms: number): string {
+  const total = Math.max(0, Math.round(ms / 1000));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return m === 0 ? `${s}s` : `${m}m ${s}s`;
+}
+
+// Measured on ~32-candidate searches (one scoring call each): 3B on a 4GB Quadro P1000
+// took 16–31 min; 14B on a 32GB Mac ran ~37s/candidate.
+const LOCAL_ESTIMATE_RANGES: Array<{ maxB: number; range: string }> = [
+  { maxB: 4, range: "15–30 minutes" },
+  { maxB: 9, range: "20–40 minutes" },
+  { maxB: 16, range: "20–45 minutes" },
+];
+
+export function localModelEstimateRange(paramsB?: number): string {
+  if (paramsB == null || !Number.isFinite(paramsB)) return "15 minutes or more";
+  return LOCAL_ESTIMATE_RANGES.find((r) => paramsB <= r.maxB)?.range ?? "30–60 minutes or more";
+}
+
+export function localModelLabel(model?: string, paramsB?: number): string {
+  if (!model) return "a local model";
+  return paramsB != null && Number.isFinite(paramsB) ? `${model} (${paramsB}B)` : model;
+}
+
+/** Linear extrapolation from the observed scoring rate; null when there's nothing to extrapolate. */
+export function estimateRemainingMs(done: number, total: number, elapsedMs: number): number | null {
+  if (!(done > 0) || !(elapsedMs > 0) || done >= total) return null;
+  return Math.round(((total - done) * elapsedMs) / done);
+}
+
+/** The "score-progress" step's `detail: "done/total"`. */
+export function parseScoreDetail(detail: string | undefined): { done: number; total: number } | null {
+  const m = /^(\d+)\/(\d+)$/.exec(detail?.trim() ?? "");
+  return m ? { done: Number(m[1]), total: Number(m[2]) } : null;
+}
+
 export default function SearchProgress({
   realPct,
   realLabel,
+  realKey,
+  realDetail,
+  llm,
 }: {
   realPct?: number;
   realLabel?: string;
+  realKey?: string;
+  realDetail?: string;
+  llm?: LlmInfo;
 }) {
   const [display, setDisplay] = useState(4);
   const [elapsed, setElapsed] = useState(0);
   const [factIndex, setFactIndex] = useState(0);
   const floorRef = useRef(0);
+  const scoreStartRef = useRef<number | null>(null);
+  const [remainingMs, setRemainingMs] = useState<number | null>(null);
   // The duration of this browser's LAST successful search (ms), written by
   // IntakeForm on completion. It's the only honest per-machine predictor: hosted
   // and local runs differ by an order of magnitude, and this component can't read
@@ -71,10 +119,22 @@ export default function SearchProgress({
   const [lastMs, setLastMs] = useState<number | null>(null);
   useEffect(() => {
     try {
-      const n = Number(window.localStorage.getItem("granted:lastSearchMs"));
+      const n = Number(window.localStorage.getItem(LAST_SEARCH_MS_KEY));
       if (Number.isFinite(n) && n > 0) setLastMs(n);
     } catch { /* localStorage unavailable — fall back to the generic line */ }
   }, []);
+
+  // Time from the "score" step, not the first "score-progress" (which lands only after
+  // the first call finishes). The final done==total reading keeps the last estimate.
+  useEffect(() => {
+    if (realKey === "score" && scoreStartRef.current == null) scoreStartRef.current = Date.now();
+    if (realKey !== "score-progress") return;
+    const parsed = parseScoreDetail(realDetail);
+    if (!parsed) return;
+    scoreStartRef.current ??= Date.now();
+    const next = estimateRemainingMs(parsed.done, parsed.total, Date.now() - scoreStartRef.current);
+    if (next != null) setRemainingMs(next);
+  }, [realKey, realDetail]);
 
   // A real milestone raises the monotonic floor and snaps the bar up to include it.
   useEffect(() => {
@@ -121,6 +181,14 @@ export default function SearchProgress({
   const label = realLabel || "Reading the federal register…";
   const fact = FACTS[factIndex];
   const estimate = lastMs ? formatDuration(lastMs) : null;
+  const localLive = llm?.local && remainingMs != null
+    ? `Running ${localModelLabel(llm.model, llm.paramsB)} locally, ${formatDuration(remainingMs)} left.`
+    : null;
+  const statusMessage = localLive ?? (!llm
+    ? "This scores your fit across the candidate programs."
+    : !llm.local
+      ? "This scores your fit across the candidate programs and usually takes a minute or two."
+      : `Running ${localModelLabel(llm.model, llm.paramsB)} locally — this can take ${localModelEstimateRange(llm.paramsB)}, depending on your hardware.`);
   const mm = Math.floor(elapsed / 60);
   const ss = Math.floor(elapsed % 60).toString().padStart(2, "0");
   const pct = Math.round(display);
@@ -158,9 +226,9 @@ export default function SearchProgress({
       </p>
 
       <p className={`mt-3 text-pretty ${mutedClass}`}>
-        {estimate
+        {!localLive && estimate
           ? `Your last search took ${estimate}, so this one should be similar. Hang tight.`
-          : "This scores your fit across 968 opportunities. Hosted models take about a minute or two; a large local model is much slower — a 27B model on an Apple-silicon Mac can take 10 minutes or more. You can leave this tab open and check back — the search keeps running while it's open."}
+          : `${statusMessage} You can leave this tab open and check back — the search keeps running while it's open.`}
       </p>
     </div>
   );

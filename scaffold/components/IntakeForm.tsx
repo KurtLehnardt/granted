@@ -6,7 +6,8 @@ import { useAuth } from "@/components/AuthProvider";
 import { useAnalytics } from "@/components/AnalyticsProvider";
 import { useSearchDraft } from "@/components/SearchDraftProvider";
 import { clearAllLocalData, getAutoFillRequirements } from "@/lib/mockAuth";
-import { getMaxCandidates } from "@/lib/searchSettings";
+import { getMaxCandidates, getModel, LAST_SEARCH_MS_KEY } from "@/lib/searchSettings";
+import type { LlmInfo } from "@/lib/llm/types";
 import { BRAND } from "@/lib/brand";
 import Swal from "sweetalert2";
 import SearchProgress from "@/components/SearchProgress";
@@ -34,6 +35,7 @@ export default function IntakeForm({
   onResult,
   onLoadingChange,
   onMatchPreview,
+  onSearchDuration,
 }: {
   onResult: (m: any) => void;
   /** Fires alongside every `setLoading` transition, so a parent can drive a
@@ -48,6 +50,8 @@ export default function IntakeForm({
    *  every match still arrives again, complete and authoritative, inside the
    *  final `onResult(map)` — this is purely an early, best-effort preview. */
   onMatchPreview?: (m: Match) => void;
+  /** Fires right before `onResult` with the search's duration, or null for a cached result. */
+  onSearchDuration?: (ms: number | null) => void;
 }) {
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(false);
@@ -57,7 +61,8 @@ export default function IntakeForm({
   // edits to `text`, and correct for the sample-pick / interview-enriched paths).
   const [lastSearched, setLastSearched] = useState("");
   // Real pipeline milestone streamed from /api/match (drives SearchProgress).
-  const [progress, setProgress] = useState<{ pct: number; label: string } | null>(null);
+  const [progress, setProgress] = useState<{ pct: number; label: string; key?: string; detail?: string } | null>(null);
+  const [llmInfo, setLlmInfo] = useState<LlmInfo | null>(null);
   // FE-02 (R7.1): sample-company picker is collapsed by default; it's a
   // secondary affordance behind a real visual break, not an inline filter row.
   const [samplesOpen, setSamplesOpen] = useState(false);
@@ -145,7 +150,9 @@ export default function IntakeForm({
     onLoadingChange?.(true);
     setError(null);
     setProgress(null);
+    setLlmInfo(null);
     setLastSearched(description);
+    let cacheHit = false;
     // H5: search start + mark a run in flight (for run_abandoned). No description
     // content is sent — the event is a name + timestamp only.
     searchStartRef.current = Date.now();
@@ -162,7 +169,12 @@ export default function IntakeForm({
         headers: { "Content-Type": "application/json" },
         // maxCandidates: the user's Settings "search depth" preference (null
         // when unset → server default). The server clamps it to a safe range.
-        body: JSON.stringify({ description, companyFacts, maxCandidates: getMaxCandidates() ?? undefined }),
+        body: JSON.stringify({
+          description,
+          companyFacts,
+          maxCandidates: getMaxCandidates() ?? undefined,
+          model: getModel() ?? undefined,
+        }),
       });
 
       // H1: ANY non-OK response is an error, regardless of content-type. A
@@ -209,7 +221,9 @@ export default function IntakeForm({
           let msg: any;
           try { msg = JSON.parse(line); } catch { continue; }
           if (msg.type === "progress") {
-            setProgress({ pct: msg.pct ?? 0, label: msg.label ?? "" });
+            setProgress({ pct: msg.pct ?? 0, label: msg.label ?? "", key: msg.key, detail: msg.detail });
+            if (msg.key === "cached") cacheHit = true;
+            if (msg.llm) setLlmInfo(msg.llm);
           } else if (msg.type === "match") {
             // Best-effort progressive preview — never let a bad/malformed
             // streamed match line (or a throwing callback) abort the search;
@@ -220,14 +234,14 @@ export default function IntakeForm({
             // Record how long this successful run took so the NEXT search can show
             // an accurate "~this long" estimate — matters most for slow/variable
             // local models, where a fixed "up to two minutes" is simply wrong.
-            if (searchStartRef.current) {
+            // A cache hit is instant and would make that estimate a lie.
+            const tookMs = !cacheHit && searchStartRef.current ? Date.now() - searchStartRef.current : null;
+            if (tookMs != null) {
               try {
-                window.localStorage.setItem(
-                  "granted:lastSearchMs",
-                  String(Date.now() - searchStartRef.current),
-                );
+                window.localStorage.setItem(LAST_SEARCH_MS_KEY, String(tookMs));
               } catch { /* localStorage blocked (private mode) — just skip the estimate */ }
             }
+            onSearchDuration?.(tookMs);
             onResult(msg.map);
           } else if (msg.type === "error") {
             throw new Error(msg.error ?? "Matching failed.");
@@ -497,7 +511,13 @@ export default function IntakeForm({
       )}
 
       {loading && (
-        <SearchProgress realPct={progress?.pct} realLabel={progress?.label} />
+        <SearchProgress
+          realPct={progress?.pct}
+          realLabel={progress?.label}
+          realKey={progress?.key}
+          realDetail={progress?.detail}
+          llm={llmInfo ?? undefined}
+        />
       )}
 
       {/* FE-02 (R7.1): sample-company picker — a real visual break (border-t

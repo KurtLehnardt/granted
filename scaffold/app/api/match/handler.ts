@@ -4,6 +4,10 @@ import type { Match } from "@/lib/types";
 import { rateLimit, clientKey } from "@/lib/security/rateLimit";
 import { OpportunityMapSchema } from "@/lib/contracts/opportunityMap";
 import precomputed from "@/data/precomputed.json";
+import { isLocalLlm, defaultLocalModel } from "@/lib/llm/client";
+import { withLocalModel } from "@/lib/llm/modelContext";
+import { listOllamaChatModels } from "@/lib/llm/ollamaInfo";
+import type { LlmInfo } from "@/lib/llm/types";
 
 /**
  * Boundary validation is OBSERVABILITY ONLY (arch review MEDIUM — the payload
@@ -62,6 +66,14 @@ export type MatchDeps = {
 
 const REAL_DEPS: MatchDeps = { buildOpportunityMap, cached };
 
+/** Hosted never touches Ollama; local honors `requestedModel` only if it's an installed chat model. */
+async function resolveLlmInfo(requestedModel: string | undefined): Promise<LlmInfo> {
+  if (!isLocalLlm()) return { local: false };
+  const installed = await listOllamaChatModels();
+  const model = installed.find((m) => m.name === requestedModel)?.name ?? defaultLocalModel();
+  return { local: true, model, paramsB: installed.find((m) => m.name === model)?.paramsB };
+}
+
 export async function handleMatchRequest(
   req: Request,
   deps: MatchDeps = REAL_DEPS,
@@ -86,6 +98,7 @@ export async function handleMatchRequest(
   // scores. Passed through to buildOpportunityMap, which CLAMPS it to a safe
   // range — so a bad client value can never overrun the scorer's token budget.
   let maxCandidates: number | undefined;
+  let requestedModel: string | undefined;
   try {
     const body = await req.json();
     description = body?.description;
@@ -99,6 +112,9 @@ export async function handleMatchRequest(
     }
     if (typeof body?.maxCandidates === "number" && Number.isFinite(body.maxCandidates)) {
       maxCandidates = body.maxCandidates;
+    }
+    if (typeof body?.model === "string" && body.model.trim().length > 0) {
+      requestedModel = body.model.trim();
     }
   } catch {
     return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
@@ -145,19 +161,22 @@ export async function handleMatchRequest(
           return;
         }
 
-        const map = await deps.buildOpportunityMap(
-          description,
-          (e: StepEvent) => send({ type: "progress", ...e }),
-          undefined,
-          ac.signal,
-          companyFacts,
-          maxCandidates,
-          // Progressive rendering: stream each match the instant its batch is
-          // scored, so the client can render cards as they're ready instead of
-          // waiting for the whole candidate set. Purely additive — the client
-          // still gets the authoritative, complete `result.map` at the end;
-          // these are only an early preview of matches that map will contain.
-          (m: Match) => send({ type: "match", match: m }),
+        const llm = await resolveLlmInfo(requestedModel);
+        const map = await withLocalModel(llm.local ? llm.model : undefined, () =>
+          deps.buildOpportunityMap(
+            description,
+            (e: StepEvent) => send(e.key === "start" ? { type: "progress", ...e, llm } : { type: "progress", ...e }),
+            undefined,
+            ac.signal,
+            companyFacts,
+            maxCandidates,
+            // Progressive rendering: stream each match the instant its batch is
+            // scored, so the client can render cards as they're ready instead of
+            // waiting for the whole candidate set. Purely additive — the client
+            // still gets the authoritative, complete `result.map` at the end;
+            // these are only an early preview of matches that map will contain.
+            (m: Match) => send({ type: "match", match: m }),
+          ),
         );
         // Log any boundary drift for visibility, but ALWAYS stream the real,
         // completed map — never dead-end a finished search on schema strictness.

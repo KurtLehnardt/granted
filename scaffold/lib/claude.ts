@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { makeLlmClient, isLocalLlm, type LlmClient } from "./llm/client";
+import { makeLlmClient, isLocalLlm, defaultLocalModel, type LlmClient } from "./llm/client";
+import { currentLocalModel } from "./llm/modelContext";
 import type { StartupProfile, Opportunity, Match, CriterionCheck, Tier } from "./types";
 import type { EligibilityBucket } from "./contracts/eligibilityDetermination";
 import { loadPrompt } from "./prompts";
@@ -253,7 +254,7 @@ function recordUsage(meter: CostMeter | undefined, stage: string, usage: Anthrop
     // Local runs go through the OpenAI-compatible shim at $0; record the real
     // local model name (not the hosted Anthropic model) so the cost log is honest.
     provider: local ? "openai" : "anthropic",
-    model: local ? (process.env.LOCAL_LLM_MODEL || "local") : model,
+    model: local ? (currentLocalModel() || defaultLocalModel()) : model,
     inputTokens: usage?.input_tokens ?? 0,
     outputTokens: usage?.output_tokens ?? 0,
     cacheCreationInputTokens: usage?.cache_creation_input_tokens ?? undefined,
