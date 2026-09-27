@@ -5,7 +5,7 @@
 // and needs `React` in scope to call React.createElement).
 import React from "react";
 import type { Match, Opportunity } from "@/lib/types";
-import { isEvergreen, isForecasted } from "@/lib/ui/opportunitySummary";
+import { isDeadlinePassed, isEvergreen, isForecasted } from "@/lib/ui/opportunitySummary";
 
 /**
  * D6 — Application Assistant checklist (honest, per-opportunity).
@@ -19,7 +19,10 @@ import { isEvergreen, isForecasted } from "@/lib/ui/opportunitySummary";
  *   (b) generic, clearly-labeled "typical for this kind of program" guidance
  *       that tells the user to confirm specifics on the official listing —
  *       never presented as a fact about *this* opportunity that we don't
- *       actually have.
+ *       actually have, or
+ *   (c) the match's own already-computed AI assessment (`whatToVerify` /
+ *       `whatToDoNext`, lib/match.ts), labeled as coming from that
+ *       assessment rather than blended in as (a) or (b).
  * The four SAM.gov / UEI / AOR / E-Biz registration facts are self-reported by
  * the user elsewhere (lib/mockAuth.ts, unchanged by this file) — this
  * component only reads the already-computed `satisfied` map, it never invents
@@ -179,12 +182,28 @@ export function buildQuestions(opportunity: Opportunity): string[] {
   return questions;
 }
 
-/** Where to read the full listing — the opportunity's own URL when we have
- *  one, otherwise an honest pointer to its source system (never fabricated). */
-function sourcePointer(opportunity: Opportunity): string {
-  return opportunity.url
-    ? `this opportunity's page: ${opportunity.url}`
-    : `the full listing (source: ${opportunity.source})`;
+/** A next-step is rendered as this sequence of parts: plain text interleaved
+ *  with real links, so a URL from the data is never spliced into prose as
+ *  inert text. */
+export type StepPart = string | { text: string; href: string };
+export type Step = StepPart[];
+
+/** Textual content of a step, for tests and anywhere plain text is needed. */
+export function stepText(step: Step): string {
+  return step.map((p) => (typeof p === "string" ? p : p.text)).join("");
+}
+
+/** Adds a scheme for display/href purposes only when the stored url is
+ *  missing one (e.g. a bare "www.example.com") — never mutates the record. */
+function withScheme(url: string): string {
+  return /^[a-z][a-z0-9+.-]*:\/\//i.test(url) ? url : `https://${url}`;
+}
+
+/** A clickable pointer at the opportunity's own URL, labeled `label`, or an
+ *  honest text fallback naming its source system when no URL is on record
+ *  (never fabricated). */
+function sourcePointer(opportunity: Opportunity, label: string): StepPart {
+  return opportunity.url ? { text: label, href: withScheme(opportunity.url) } : `the full listing (source: ${opportunity.source})`;
 }
 
 /**
@@ -194,39 +213,69 @@ function sourcePointer(opportunity: Opportunity): string {
  * Everything here is generic guidance for that source, paired with the
  * opportunity's own agency/url — never an invented fact about this posting.
  */
-function sourceApplyStep(opportunity: Opportunity): string {
-  const pointer = sourcePointer(opportunity);
+function sourceApplyStep(opportunity: Opportunity, now?: number): Step {
   switch (opportunity.source) {
     case "grants.gov": {
+      const pointer = sourcePointer(opportunity, "this opportunity's page");
       const register = "Register on grants.gov (an Active SAM.gov registration + UEI are required)";
       if (isForecasted(opportunity)) {
-        return `${register}, then watch ${pointer} — it's forecasted and not yet open for applications.`;
+        return [`${register}, then watch `, pointer, ` — it's forecasted and not yet open for applications.`];
+      }
+      if (opportunity.status === "closed") {
+        return [`This listing is marked closed on grants.gov — check `, pointer, ` for a reissue or renewed solicitation before assuming it's still open.`];
+      }
+      if (isDeadlinePassed(opportunity, { now })) {
+        const deadline = formatDate(opportunity.deadline);
+        return [`Its listed deadline of ${deadline} has already passed — check `, pointer, ` for a reissue or renewed solicitation before assuming it's still open.`];
       }
       const deadline = formatDate(opportunity.deadline);
       return deadline
-        ? `${register}, then read and apply through ${pointer} before its deadline of ${deadline}.`
-        : `${register}, then read and apply through ${pointer}. No deadline is listed — confirm the application window on the listing.`;
+        ? [`${register}, then read and apply through `, pointer, ` before its deadline of ${deadline}.`]
+        : [`${register}, then read and apply through `, pointer, `. No deadline is listed — confirm the application window on the listing.`];
     }
     case "sbir":
-    case "sbir.gov":
+    case "sbir.gov": {
       // The corpus's SBIR/STTR records are past-award listings, not open
       // solicitations — this never claims a solicitation topic this record
-      // doesn't have, and never sends the user to the awardee's own site
-      // (often what `url` points at here) as if it were an application portal.
-      return `SBIR/STTR funding is awarded through each agency's own solicitation process, not grants.gov — search ${opportunity.agency}'s SBIR/STTR program site for current open topics. This record is background, not an application portal: ${pointer}.`;
+      // doesn't have, and never labels the record's own url (often the
+      // awardee's homepage, not a grants.gov-style listing page) as "this
+      // opportunity's page" — it's linked plainly as background.
+      const record = sourcePointer(opportunity, opportunity.url ?? `source: ${opportunity.source}`);
+      return [
+        `SBIR/STTR funding is awarded through each agency's own solicitation process, not grants.gov — search ${opportunity.agency}'s SBIR/STTR program site for current open topics. This record is background, not an application portal. Record: `,
+        record,
+        `.`,
+      ];
+    }
     case "assistance-listings":
-    case "sam.gov":
+    case "sam.gov": {
       // Many assistance listings ARE reached through a competed NOFO posted
       // on grants.gov, so this never claims otherwise — it points the user
       // at both real paths instead of asserting one.
-      return `An assistance listing describes a program, not one fixed application — check for a current funding notice (often posted on grants.gov), or contact the program office at ${opportunity.agency} to ask how to apply. Details: ${pointer}.`;
-    case "sam-contracts":
-      return `Respond through SAM.gov Contract Opportunities, following ${opportunity.agency}'s solicitation instructions. Details: ${pointer}.`;
-    case "usaspending":
-      return `This reflects past awards from USAspending, not an open call — confirm with ${opportunity.agency} whether the program is currently accepting applications. Details: ${pointer}.`;
+      const pointer = sourcePointer(opportunity, "this opportunity's page");
+      return [
+        `An assistance listing describes a program, not one fixed application — check for a current funding notice (often posted on grants.gov), or contact the program office at ${opportunity.agency} to ask how to apply. Details: `,
+        pointer,
+        `.`,
+      ];
+    }
+    case "sam-contracts": {
+      const pointer = sourcePointer(opportunity, "this opportunity's page");
+      return [`Respond through SAM.gov Contract Opportunities, following ${opportunity.agency}'s solicitation instructions. Details: `, pointer, `.`];
+    }
+    case "usaspending": {
+      const pointer = sourcePointer(opportunity, "this opportunity's page");
+      return [
+        `This reflects past awards from USAspending, not an open call — confirm with ${opportunity.agency} whether the program is currently accepting applications. Details: `,
+        pointer,
+        `.`,
+      ];
+    }
     case "agency-feed":
-    default:
-      return `Read the full opportunity listing at ${pointer} before drafting anything.`;
+    default: {
+      const pointer = sourcePointer(opportunity, "this opportunity's page");
+      return [`Read the full opportunity listing at `, pointer, ` before drafting anything.`];
+    }
   }
 }
 
@@ -234,28 +283,30 @@ function sourceApplyStep(opportunity: Opportunity): string {
  * Ordered next actions. The LAST step always restates the honesty boundary:
  * this tool never submits anything — a human AOR does, through the official
  * portal. `whatToVerify`/`whatToDoNext` are the match's own already-computed
- * narrative fields (lib/match.ts) — read here, never generated by this file.
+ * narrative fields (lib/match.ts) — read here, never generated by this file,
+ * and both are labeled as coming from the match assessment rather than
+ * blending in as facts read off the listing.
  */
-export function buildNextSteps(match: Match, allRegistrationsSatisfied: boolean): string[] {
+export function buildNextSteps(match: Match, allRegistrationsSatisfied: boolean, now?: number): Step[] {
   const opportunity = match.opportunity;
-  const steps: string[] = [];
-  steps.push(sourceApplyStep(opportunity));
+  const steps: Step[] = [];
+  steps.push(sourceApplyStep(opportunity, now));
   if (match.whatToVerify?.trim()) {
-    steps.push(`Before applying, verify: ${match.whatToVerify.trim()}`);
+    steps.push([`Before applying, verify: ${match.whatToVerify.trim()}`]);
   }
-  steps.push(
+  steps.push([
     allRegistrationsSatisfied
       ? "Your registrations in Settings are marked satisfied — confirm they're still active/current in SAM.gov."
       : "Complete the registrations checklist in Settings — most federal portals block submission without them.",
-  );
-  steps.push("Draft answers to the questions below and gather the documents listed.");
+  ]);
+  steps.push(["Draft answers to the questions below and gather the documents listed."]);
   if (match.whatToDoNext?.trim()) {
-    steps.push(match.whatToDoNext.trim());
+    steps.push([`From your match assessment: ${match.whatToDoNext.trim()}`]);
   }
-  steps.push("Have your organization's AOR review the draft before anything is submitted.");
-  steps.push(
+  steps.push(["Have your organization's AOR review the draft before anything is submitted."]);
+  steps.push([
     "Submit only through the opportunity's official portal (e.g., Grants.gov or SAM.gov) — this checklist never submits anything on your behalf.",
-  );
+  ]);
   return steps;
 }
 
@@ -285,10 +336,10 @@ export type ApplicationChecklistModel = {
   keyDates: KeyDateItem[];
   documents: string[];
   questions: string[];
-  nextSteps: string[];
+  nextSteps: Step[];
 };
 
-export function buildApplicationChecklist(match: Match, allRegistrationsSatisfied: boolean): ApplicationChecklistModel {
+export function buildApplicationChecklist(match: Match, allRegistrationsSatisfied: boolean, now?: number): ApplicationChecklistModel {
   const opportunity = match.opportunity;
   return {
     title: opportunity.title?.trim() || opportunity.program,
@@ -298,7 +349,7 @@ export function buildApplicationChecklist(match: Match, allRegistrationsSatisfie
     keyDates: buildKeyDates(opportunity),
     documents: buildDocumentChecklist(opportunity),
     questions: buildQuestions(opportunity),
-    nextSteps: buildNextSteps(match, allRegistrationsSatisfied),
+    nextSteps: buildNextSteps(match, allRegistrationsSatisfied, now),
   };
 }
 
@@ -321,6 +372,8 @@ export default function ApplicationChecklist({
   const sectionHeadingClass = "mt-4 font-mono text-[11px] uppercase tracking-eyebrow text-foreground";
   const itemClass = "font-body text-[13px] leading-relaxed text-foreground";
   const mutedItemClass = "font-body text-[13px] italic leading-relaxed text-foreground";
+  const linkClass =
+    "text-structure-on-canvas underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2";
 
   return (
     <section aria-labelledby="application-checklist-heading" className="mt-4">
@@ -364,9 +417,17 @@ export default function ApplicationChecklist({
 
       <h4 className={sectionHeadingClass}>Next steps</h4>
       <ol className="mt-2 list-decimal space-y-1 pl-4">
-        {model.nextSteps.map((step) => (
-          <li key={step} className={itemClass}>
-            {step}
+        {model.nextSteps.map((step, i) => (
+          <li key={i} className={itemClass}>
+            {step.map((part, j) =>
+              typeof part === "string" ? (
+                <React.Fragment key={j}>{part}</React.Fragment>
+              ) : (
+                <a key={j} href={part.href} target="_blank" rel="noreferrer" className={linkClass}>
+                  {part.text}
+                </a>
+              ),
+            )}
           </li>
         ))}
       </ol>

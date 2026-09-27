@@ -72,9 +72,9 @@ export default function HowToApplyModal({
           What you'll need
         </h2>
         <p id="how-to-apply-modal-desc" className={bodyClass}>
-          Everything below is either read straight off this program's own listing, or generic
-          guidance for this kind of opportunity. Confirm specifics on the official listing before
-          you invest time in an application.
+          Everything below is read straight off this program's own listing, generic guidance for
+          this kind of opportunity, or (labeled as such) from your match assessment. Confirm
+          specifics on the official listing before you invest time in an application.
         </p>
 
         <ApplicationChecklist match={match} allRegistrationsSatisfied={satisfied} />
