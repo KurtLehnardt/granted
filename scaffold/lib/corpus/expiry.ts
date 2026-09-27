@@ -1,10 +1,37 @@
 import type { Opportunity, OpportunityMap } from "../types";
 
+const ISO_DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+const US_DATE_ONLY = /^\d{1,2}\/\d{1,2}\/\d{4}$/;
+
+function startOfLocalDay(t: number): number {
+  const d = new Date(t);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
 /** Whether a deadline has already passed as of `now`. A missing/unparseable
- *  deadline (evergreen assistance, SBIR, procurement) is never expired. */
+ *  deadline (evergreen assistance, SBIR, procurement) is never expired.
+ *
+ *  A date-only deadline (grants.gov closeDate 'MM/DD/YYYY', SBIR close_date
+ *  'YYYY-MM-DD') names a whole calendar day, not an instant — `Date.parse`
+ *  reads the US form as local midnight and the ISO form as UTC midnight, so
+ *  comparing either directly against `now` drops a grant on the morning (or,
+ *  in US timezones, the evening before) of its own closing day. Compare the
+ *  deadline's local calendar date against today's instead: expired only once
+ *  today is past it. */
 export function isExpiredDeadline(deadline: unknown, now: number = Date.now()): boolean {
   if (typeof deadline !== "string" || !deadline) return false;
-  const t = Date.parse(deadline);
+  const trimmed = deadline.trim();
+  const todayStart = startOfLocalDay(now);
+  if (ISO_DATE_ONLY.test(trimmed)) {
+    const [y, m, d] = trimmed.split("-").map(Number);
+    return new Date(y, m - 1, d).getTime() < todayStart;
+  }
+  if (US_DATE_ONLY.test(trimmed)) {
+    const [m, d, y] = trimmed.split("/").map(Number);
+    return new Date(y, m - 1, d).getTime() < todayStart;
+  }
+  const t = Date.parse(trimmed);
   if (Number.isNaN(t)) return false;
   return t < now;
 }

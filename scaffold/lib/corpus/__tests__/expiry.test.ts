@@ -18,6 +18,21 @@ describe("isExpiredDeadline", () => {
   test("false for an unparseable deadline (never fabricate expiry)", () => {
     assert.equal(isExpiredDeadline("not-a-date", NOW), false);
   });
+  test("a grants.gov MM/DD/YYYY deadline is not expired until its day is over", () => {
+    const today = new Date();
+    const mmddyyyy = `${today.getMonth() + 1}/${today.getDate()}/${today.getFullYear()}`;
+    assert.equal(isExpiredDeadline(mmddyyyy, Date.now()), false);
+  });
+  test("an ISO date-only deadline is not expired until its day is over, in any US timezone", () => {
+    const today = new Date();
+    const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+    assert.equal(isExpiredDeadline(iso, Date.now()), false);
+  });
+  test("a date-only deadline from yesterday is expired", () => {
+    const yesterday = new Date(Date.now() - 864e5);
+    const iso = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, "0")}-${String(yesterday.getDate()).padStart(2, "0")}`;
+    assert.equal(isExpiredDeadline(iso, Date.now()), true);
+  });
 });
 
 describe("dropExpiredOpportunities", () => {
