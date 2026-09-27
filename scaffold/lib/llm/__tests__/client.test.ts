@@ -1,6 +1,6 @@
 import { test, describe, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { makeLlmClient, isLocalLlm } from "../client";
+import { makeLlmClient, isLocalLlm, defaultLocalModel } from "../client";
 import { withLocalModel } from "../modelContext";
 import { unwrapArrayEnvelope, coerceProfileStrings, coerceEmployees } from "../../claude";
 
@@ -34,6 +34,19 @@ describe("isLocalLlm — provider detection", () => {
     assert.equal(isLocalLlm(), false);
     process.env.LLM_PROVIDER = "ollama";
     assert.equal(isLocalLlm(), true);
+  });
+});
+
+describe("defaultLocalModel — the single shared fallback", () => {
+  test("uses LOCAL_LLM_MODEL when set", () => {
+    process.env.LOCAL_LLM_MODEL = "qwen2.5:7b";
+    assert.equal(defaultLocalModel(), "qwen2.5:7b");
+  });
+  test("falls back to gemma4:latest when unset OR set to an empty string", () => {
+    delete process.env.LOCAL_LLM_MODEL;
+    assert.equal(defaultLocalModel(), "gemma4:latest");
+    process.env.LOCAL_LLM_MODEL = "";
+    assert.equal(defaultLocalModel(), "gemma4:latest"); // `??` would wrongly keep ""
   });
 });
 

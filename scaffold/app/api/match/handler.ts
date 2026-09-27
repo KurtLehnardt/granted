@@ -4,7 +4,7 @@ import type { Match } from "@/lib/types";
 import { rateLimit, clientKey } from "@/lib/security/rateLimit";
 import { OpportunityMapSchema } from "@/lib/contracts/opportunityMap";
 import precomputed from "@/data/precomputed.json";
-import { isLocalLlm } from "@/lib/llm/client";
+import { isLocalLlm, defaultLocalModel } from "@/lib/llm/client";
 import { withLocalModel } from "@/lib/llm/modelContext";
 import { listOllamaChatModels } from "@/lib/llm/ollamaInfo";
 import type { LlmInfo } from "@/lib/llm/types";
@@ -78,7 +78,7 @@ async function resolveLlmInfo(requestedModel: string | undefined): Promise<LlmIn
   if (!isLocalLlm()) return { local: false };
   const installed = await listOllamaChatModels();
   const requested = requestedModel ? installed.find((m) => m.name === requestedModel) : undefined;
-  const model = requested?.name ?? process.env.LOCAL_LLM_MODEL ?? "gemma4:latest";
+  const model = requested?.name ?? defaultLocalModel();
   const paramsB = requested?.paramsB ?? installed.find((m) => m.name === model)?.paramsB;
   return { local: true, model, paramsB };
 }

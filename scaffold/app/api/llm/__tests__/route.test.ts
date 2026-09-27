@@ -1,6 +1,6 @@
 import { test, describe, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { GET } from "../route";
+import { GET, dynamic } from "../route";
 import { resetOllamaModelsCache } from "@/lib/llm/ollamaInfo";
 
 /**
@@ -22,6 +22,14 @@ afterEach(() => {
 });
 
 describe("GET /api/llm", () => {
+  // A no-argument GET with no segment config gets statically prerendered by
+  // Next 14 — freezing the Ollama model list (and hosted/local) at build
+  // time. This is the guard against that regression; a real `next build`
+  // is what actually verifies the route isn't emitted as `○ (Static)`.
+  test("opts out of static prerendering", () => {
+    assert.equal(dynamic, "force-dynamic");
+  });
+
   test("hosted -> { local: false }, no Ollama call", async () => {
     delete process.env.LLM_PROVIDER;
     let fetched = false;

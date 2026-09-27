@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
-import { isLocalLlm } from "@/lib/llm/client";
+import { isLocalLlm, defaultLocalModel } from "@/lib/llm/client";
 import { listOllamaChatModels } from "@/lib/llm/ollamaInfo";
+
+// Must be evaluated per-request, not baked into the build: this reflects
+// whichever backend/Ollama models are live when the server is running, not
+// whatever was true when `next build` ran (Next 14 otherwise statically
+// prerenders a no-argument GET handler with no segment config).
+export const dynamic = "force-dynamic";
 
 /**
  * GET /api/llm — backend info for Settings' local-only model picker. Hosted
@@ -11,6 +17,5 @@ import { listOllamaChatModels } from "@/lib/llm/ollamaInfo";
 export async function GET() {
   if (!isLocalLlm()) return NextResponse.json({ local: false });
   const models = await listOllamaChatModels();
-  const model = process.env.LOCAL_LLM_MODEL || "gemma4:latest";
-  return NextResponse.json({ local: true, model, models });
+  return NextResponse.json({ local: true, model: defaultLocalModel(), models });
 }

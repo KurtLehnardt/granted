@@ -7,6 +7,7 @@ import {
   localModelLabel,
   estimateRemainingMs,
   formatRemaining,
+  nextLiveRemaining,
   parseScoreDetail,
 } from "../SearchProgress";
 
@@ -118,6 +119,22 @@ describe("formatRemaining", () => {
   });
   test("seconds", () => {
     assert.equal(formatRemaining(20_000), "About 20 seconds left");
+  });
+});
+
+describe("nextLiveRemaining", () => {
+  test("a real reading replaces the previous value", () => {
+    // 3 of 36 done in 30s (first batch of 3 already finished) -> 10s/item -> 33 left
+    assert.equal(nextLiveRemaining(null, 3, 36, 30_000), formatRemaining(330_000));
+  });
+
+  test("the terminal done==total event keeps the previous value instead of clearing it", () => {
+    assert.equal(nextLiveRemaining("About 2 minutes left", 36, 36, 300_000), "About 2 minutes left");
+  });
+
+  test("no signal yet (nothing scored) keeps the previous value", () => {
+    assert.equal(nextLiveRemaining(null, 0, 36, 0), null);
+    assert.equal(nextLiveRemaining("About a minute left", 0, 36, 0), "About a minute left");
   });
 });
 

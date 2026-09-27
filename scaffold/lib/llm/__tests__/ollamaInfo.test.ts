@@ -83,4 +83,22 @@ describe("listOllamaModels / listOllamaChatModels", () => {
     globalThis.fetch = (async () => { throw new Error("ECONNREFUSED"); }) as unknown as typeof fetch;
     assert.deepEqual(await listOllamaModels(), []);
   });
+
+  test("a failed/empty lookup is NOT cached — the next call retries instead of failing forever", async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      return { ok: false };
+    }) as unknown as typeof fetch;
+    assert.deepEqual(await listOllamaModels(), []);
+    assert.deepEqual(await listOllamaModels(), []);
+    assert.equal(calls, 2, "an empty result must not be cached");
+
+    // Once Ollama comes up, the very next call (no manual cache reset) succeeds.
+    globalThis.fetch = (async () => ({
+      ok: true,
+      json: async () => ({ models: [{ name: "gemma3:12b", details: { parameter_size: "12B" } }] }),
+    })) as unknown as typeof fetch;
+    assert.deepEqual(await listOllamaModels(), [{ name: "gemma3:12b", paramsB: 12 }]);
+  });
 });

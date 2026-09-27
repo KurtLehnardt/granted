@@ -31,6 +31,13 @@ function provider(): string {
   return (process.env.LLM_PROVIDER || "anthropic").toLowerCase();
 }
 
+/** The local model used when no per-request override is chosen — LOCAL_LLM_MODEL,
+ *  or "gemma4:latest" when unset OR empty. Single source of truth: the shim,
+ *  /api/llm, and the match handler all defer to this. */
+export function defaultLocalModel(): string {
+  return process.env.LOCAL_LLM_MODEL || "gemma4:latest";
+}
+
 /** True when a local / OpenAI-compatible backend is selected (not Anthropic). */
 export function isLocalLlm(): boolean {
   return provider() !== "anthropic";
@@ -70,7 +77,7 @@ function openAiCompatShim(opts: LlmClientOptions): LlmClient {
         // Read per-request so the Settings model picker (threaded via
         // withLocalModel/AsyncLocalStorage) overrides the env default without
         // this shim's construction site needing to know about it.
-        const model = currentLocalModel() || process.env.LOCAL_LLM_MODEL || "gemma4:latest";
+        const model = currentLocalModel() || defaultLocalModel();
         const messages: Array<{ role: string; content: string }> = [];
         // `system` may be a plain string OR Anthropic content blocks
         // (`[{ type:"text", text, cache_control }]`, used for prompt caching).

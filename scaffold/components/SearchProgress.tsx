@@ -109,6 +109,15 @@ export function formatRemaining(ms: number): string {
   return m <= 1 ? "About a minute left" : `About ${m} minutes left`;
 }
 
+/** Sticky update for the live remaining-time estimate: a real reading
+ *  (anything but the terminal done==total event) replaces `prev`; the
+ *  terminal event's null keeps `prev` as-is instead of clearing it, so the
+ *  status line doesn't fall back to the pre-search range once scoring ends. */
+export function nextLiveRemaining(prev: string | null, done: number, total: number, elapsedMs: number): string | null {
+  const remainingMs = estimateRemainingMs(done, total, elapsedMs);
+  return remainingMs == null ? prev : formatRemaining(remainingMs);
+}
+
 /** Parses the "score-progress" step's `detail: "done/total"` field. */
 export function parseScoreDetail(detail: string | undefined): { done: number; total: number } | null {
   if (!detail) return null;
@@ -139,11 +148,13 @@ export default function SearchProgress({
   const [elapsed, setElapsed] = useState(0);
   const [factIndex, setFactIndex] = useState(0);
   const floorRef = useRef(0);
-  // Wall-clock time of the FIRST score-progress event, so the live estimate
-  // extrapolates from the observed scoring rate, not from the whole search's
-  // elapsed time (which includes intake/embedding/retrieval before scoring
-  // even starts).
+  // Wall-clock time the "score" step began, so the live estimate extrapolates
+  // from the observed scoring rate, not from the whole search's elapsed time
+  // (which includes intake/embedding/retrieval before scoring even starts).
   const scoreStartRef = useRef<number | null>(null);
+  // Sticky: once a real remaining-time estimate lands, it's kept even once
+  // scoring's last event (done==total, so no remainder to estimate) or a
+  // later step arrives — never falls back to the pre-search range.
   const [liveRemaining, setLiveRemaining] = useState<string | null>(null);
   // The duration of this browser's LAST successful search (ms), written by
   // IntakeForm on completion. It's the only honest per-machine predictor: hosted
@@ -157,16 +168,29 @@ export default function SearchProgress({
     } catch { /* localStorage unavailable — fall back to the generic line */ }
   }, []);
 
+  // Scoring starts at the "score" step (lib/match.ts emits it right before the
+  // scorer is called) — NOT at the first "score-progress" event, which only
+  // fires once the first batch has already finished. Timing from that first
+  // event would divide the already-elapsed first-batch time out of the rate,
+  // undercounting the estimate by a factor of (k-1)/k at the k-th event.
+  useEffect(() => {
+    if (realKey === "score" && scoreStartRef.current == null) {
+      scoreStartRef.current = Date.now();
+    }
+  }, [realKey]);
+
   // Live remaining-time estimate: extrapolate from the observed scoring rate
-  // once "score-progress" events (done/total) start arriving.
+  // once "score-progress" events (done/total) start arriving. The last event
+  // (done==total) yields no estimate (nothing left) — leave `liveRemaining` at
+  // its last known value rather than clearing it, so the status line doesn't
+  // fall back to the pre-search range for the rest of the run.
   useEffect(() => {
     if (realKey !== "score-progress") return;
     const parsed = parseScoreDetail(realDetail);
     if (!parsed) return;
     if (scoreStartRef.current == null) scoreStartRef.current = Date.now();
     const elapsedMs = Date.now() - scoreStartRef.current;
-    const remainingMs = estimateRemainingMs(parsed.done, parsed.total, elapsedMs);
-    setLiveRemaining(remainingMs == null ? null : formatRemaining(remainingMs));
+    setLiveRemaining((prev) => nextLiveRemaining(prev, parsed.done, parsed.total, elapsedMs));
   }, [realKey, realDetail]);
 
   // A real milestone raises the monotonic floor and snaps the bar up to include it.
@@ -214,14 +238,25 @@ export default function SearchProgress({
   const label = realLabel || "Reading the federal register…";
   const fact = FACTS[factIndex];
   const estimate = lastMs ? formatDuration(lastMs) : null;
-  // Backend-aware status line: hosted never mentions local models; local names
-  // the model + a rough range, then swaps that range for a live estimate once
-  // scoring progress arrives. `estimate` (above) takes priority when known.
-  const statusMessage = !llm || !llm.local
-    ? "This scores your fit across the opportunities. Hosted models take about a minute or two."
-    : liveRemaining
-      ? `Running ${localModelLabel(llm.model, llm.paramsB)} locally. ${liveRemaining}.`
+  // Backend-aware status line. `llm` is undefined both before the "start"
+  // event arrives and on a "cached" hit (which has no llm at all) — neutral
+  // copy either way, never the hosted-specific line. Hosted never mentions
+  // local models; local names the model + a rough range before scoring, then
+  // switches to a live estimate once scoring progress arrives.
+  const statusMessage = !llm
+    ? "This scores your fit across the opportunities."
+    : !llm.local
+      ? "This scores your fit across the opportunities. Hosted models take about a minute or two."
       : `Running ${localModelLabel(llm.model, llm.paramsB)} locally — this can take ${localModelEstimateRange(llm.paramsB)}, depending on your hardware.`;
+  // Once scoring is underway on a local backend, the live estimate is the
+  // most useful, current thing to say — it takes priority over BOTH the
+  // pre-search range and the historical "your last search took X" line
+  // (which otherwise wins on every search after the first, making the new
+  // backend-aware copy effectively unreachable for a returning user).
+  const localLive = llm?.local && liveRemaining
+    ? `Running ${localModelLabel(llm.model, llm.paramsB)} locally. ${liveRemaining}.`
+    : null;
+  const bodyMessage = localLive ?? statusMessage;
   const mm = Math.floor(elapsed / 60);
   const ss = Math.floor(elapsed % 60).toString().padStart(2, "0");
   const pct = Math.round(display);
@@ -259,9 +294,9 @@ export default function SearchProgress({
       </p>
 
       <p className={`mt-3 text-pretty ${mutedClass}`}>
-        {estimate
+        {!localLive && estimate
           ? `Your last search took ${estimate}, so this one should be similar. Hang tight.`
-          : `${statusMessage} You can leave this tab open and check back — the search keeps running while it's open.`}
+          : `${bodyMessage} You can leave this tab open and check back — the search keeps running while it's open.`}
       </p>
     </div>
   );

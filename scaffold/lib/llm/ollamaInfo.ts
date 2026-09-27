@@ -36,7 +36,7 @@ async function fetchTags(): Promise<OllamaModel[]> {
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), TAGS_TIMEOUT_MS);
   try {
-    const res = await fetch(`${ollamaHost()}/api/tags`, { signal: ac.signal });
+    const res = await fetch(`${ollamaHost()}/api/tags`, { signal: ac.signal, cache: "no-store" });
     if (!res.ok) return [];
     const json: any = await res.json();
     const models = Array.isArray(json?.models) ? json.models : [];
@@ -55,10 +55,22 @@ async function fetchTags(): Promise<OllamaModel[]> {
 
 let tagsCache: Promise<OllamaModel[]> | null = null;
 
-/** All installed Ollama models (chat + embedding), cached for the life of the process. */
+/** All installed Ollama models (chat + embedding), cached for the life of the
+ *  process — but ONLY a successful, non-empty result. A timeout, connection
+ *  refusal, or empty list (Ollama not up yet, briefly down, or a server whose
+ *  /api/tags 404s) is never cached, so the next call retries instead of
+ *  failing soft forever; a newly pulled model also shows up on the next call
+ *  rather than only after a restart. */
 export function listOllamaModels(): Promise<OllamaModel[]> {
-  if (!tagsCache) tagsCache = fetchTags();
-  return tagsCache;
+  if (tagsCache) return tagsCache;
+  const p = fetchTags();
+  tagsCache = p;
+  p.then((models) => {
+    if (models.length === 0 && tagsCache === p) tagsCache = null;
+  }).catch(() => {
+    if (tagsCache === p) tagsCache = null;
+  });
+  return p;
 }
 
 /** Test-only: drop the in-process cache so the next call re-fetches. */
