@@ -2,8 +2,7 @@
 
 **Granted** turns a plain-English description of your business or research into a map of real **federal funding opportunities**: grants, SBIR/STTR R&D, procurement, loans, assistance, scholarships. Each match is scored for fit on the criteria a program officer would apply, and screened for eligibility.
 
-**Run it with your own API keys or a fully local model. See the Quick start below.
-Granted scores your business or research against federal programs and traces every match to award records.
+Run it with your own API keys or a fully local model — see Quick start below.
 
 ---
 
@@ -11,9 +10,9 @@ Granted scores your business or research against federal programs and traces eve
 
 ## Quick start (≈ 5 minutes)
 
-**No Cloud LLM keys or subscription? Still works.** `git clone` → `npm install` → `npm run dev` and you can immediately try the 5 built-in sample companies — their results are served from cache, so they need no API keys at all. You only need API keys (or a local model) to search your *own* company description.
+**No API keys? Still works.** `git clone` → `npm install` → `npm run dev` and you can immediately try the 5 built-in sample companies — their results are served from cache, so they need no API keys at all. You only need API keys (or a local model) to search your *own* company description.
 
-**Even faster: no input at all.** Visit `/demo` for a static, pre-baked sample opportunity map (and `/demo/eligibility` for the eligibility view)
+**Even faster: no input at all.** Visit `/demo` for a static, pre-baked sample opportunity map (and `/demo/eligibility` for the eligibility view).
 
 To search your own description you need [Node 20 LTS](https://nodejs.org) (18.17+ works) and two API keys (OpenAI + Anthropic), or a local model installed (steps below).
 
@@ -49,6 +48,18 @@ Detects your OS + available memory/GPU, recommends and pulls an Ollama chat mode
    ```
 3. `npm run dev`. Every scoring/explanation call now routes to Ollama's OpenAI-compatible endpoint, with grammar-constrained JSON so a local model stays parseable. Any OpenAI-compatible server works (LM Studio, vLLM, llama.cpp). Set `LLM_BASE_URL` to its `/v1` URL.
 
+### Fully offline
+**Embeddings are a SEPARATE setting from the LLM.** `LLM_PROVIDER=ollama` (above) only moves the scoring/explanation calls — it does **not** move the query embedding. By default that tiny embedding still uses OpenAI (the corpus ships pre-embedded at 512 dims; it costs fractions of a cent), and if `OPENAI_API_KEY` is missing or still the `.env.example` placeholder you'll get a clear error rather than a hosted call. To remove that last hosted call and go fully local, you must ALSO set `EMBEDDINGS_BASE_URL`/`EMBEDDINGS_MODEL`, pull a local embedding model, and re-embed the corpus with that model:
+```bash
+ollama pull nomic-embed-text
+# add these two lines to scaffold/.env.local:
+EMBEDDINGS_BASE_URL=http://localhost:11434/v1
+EMBEDDINGS_MODEL=nomic-embed-text
+# then just run (data:embed reads scaffold/.env.local — no inline env needed):
+npm run data:embed        # re-embeds the 968-opportunity corpus locally (~1–2 min)
+```
+Now nothing leaves your machine.
+
 ## Manual setup (instead of the script)
 
 ```bash
@@ -76,18 +87,6 @@ Everything else in `.env.example` is optional and documented inline. Start with 
 | **Supabase project** | Optional | [supabase.com](https://supabase.com) | Only for **real Google sign-in**. The core app runs fine without any auth. |
 | **Google OAuth credentials** | Optional | [Google Cloud Console](https://console.cloud.google.com) | Only if you enable real sign-in (see below). |
 | **Vercel account** | Optional | [vercel.com](https://vercel.com) | Only to deploy. Local dev needs none of it. |
-
-### Fully offline
-**Embeddings are a SEPARATE setting from the LLM.** `LLM_PROVIDER=ollama` (above) only moves the scoring/explanation calls — it does **not** move the query embedding. By default that tiny embedding still uses OpenAI (the corpus ships pre-embedded at 512 dims; it costs fractions of a cent), and if `OPENAI_API_KEY` is missing or still the `.env.example` placeholder you'll get a clear error rather than a hosted call. To remove that last hosted call and go fully local, you must ALSO set `EMBEDDINGS_BASE_URL`/`EMBEDDINGS_MODEL`, pull a local embedding model, and re-embed the corpus with that model:
-```bash
-ollama pull nomic-embed-text
-# add these two lines to scaffold/.env.local:
-EMBEDDINGS_BASE_URL=http://localhost:11434/v1
-EMBEDDINGS_MODEL=nomic-embed-text
-# then just run (data:embed reads scaffold/.env.local — no inline env needed):
-npm run data:embed        # re-embeds the 968-opportunity corpus locally (~1–2 min)
-```
-Now nothing leaves your machine.
 
 ### The honest tradeoff
 Hosted Claude is faster and more reliable at the strict, structured JSON this pipeline asks for, and its scoring is better calibrated. A capable local model still handles it. In testing, gemma4 ran the full pipeline end to end and reached the *same headline verdict* as hosted Claude on the same input (a genuine strong fit, with the right NIH SBIR grant as its top recommendation). Two caveats:
@@ -156,6 +155,8 @@ npm install
 npm run build            # emits a loadable extension into extension/dist/
 ```
 Then in Chrome (or any Chromium browser): open `chrome://extensions` → turn on **Developer mode** (top-right) → **Load unpacked** → select **`extension/dist/`** (the *build output* — **not** the `extension/` folder itself; the manifest is generated into `dist/` by the build, so pointing Chrome at `extension/` gives *"manifest file not found or unreadable"*). The "Granted Assisted Fill" icon appears in the toolbar. After code changes, re-run `npm run build` and hit reload on the extension's card.
+
+Portal field selectors (grants.gov, NIH ASSIST, Research.gov, SBIR.gov) are still `TODO:` placeholders, so today the extension loads and validates a package but fills nothing. Test the import with the bundled sample, [`extension/example.granted.json`](extension/example.granted.json).
 
 ## Refreshing the data (optional)
 
