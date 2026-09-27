@@ -106,7 +106,11 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
 
   async function handleRefreshCorpus() {
     try {
-      const res = await fetch("/api/corpus/refresh", { method: "POST" });
+      const res = await fetch("/api/corpus/refresh", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ max: maxCorpusSize }),
+      });
       if (res.status === 202) setCorpusStatus((s) => (s ? { ...s, refreshing: true } : s));
       if (res.status === 202 || res.status === 409) await fetchCorpusStatus();
     } catch {
