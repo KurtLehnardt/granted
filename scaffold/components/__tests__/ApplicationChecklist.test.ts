@@ -171,6 +171,11 @@ describe("buildFundingRange", () => {
   test("never fabricates a range when neither bound is present", () => {
     assert.equal(buildFundingRange(BARE_OPPORTUNITY), null);
   });
+
+  test("a one-sided range never reads as $X–$0", () => {
+    assert.equal(buildFundingRange({ ...BARE_OPPORTUNITY, fundingHigh: 250_000 }), "up to $250K");
+    assert.equal(buildFundingRange({ ...BARE_OPPORTUNITY, fundingLow: 500_000, fundingHigh: 0 }), "$500K+");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -326,6 +331,27 @@ describe("buildNextSteps", () => {
     const text = stepText(step);
     assert.match(text, /www\.aspectaerospace\.com/);
     assert.doesNotMatch(text, /Awardee: the full listing/i);
+  });
+
+  test("a SBIR/STTR record with no URL ends at the program-site guidance, with no dangling listing pointer", () => {
+    const step = buildNextSteps(asMatch({ ...RD_OPPORTUNITY, url: undefined }), true)[0];
+    assert.equal(
+      stepText(step),
+      `Search ${RD_OPPORTUNITY.agency}'s SBIR/STTR program site for the current solicitation and where to submit. This record is background, not an application portal.`,
+    );
+  });
+
+  test("a USAspending record is described as a past award pointing to SAM.gov, never as open for applications", () => {
+    const url = "https://www.usaspending.gov/award/CONT_AWD_W911QX25C0002_9700_-NONE-_-NONE-";
+    const step = buildNextSteps(
+      asMatch({ ...BARE_OPPORTUNITY, source: "usaspending", kind: "procurement", status: "closed", url }),
+      true,
+    )[0];
+    assert.equal(
+      stepText(step),
+      `This is a record of a past award from USAspending, not an open opportunity — check SAM.gov for any current solicitation from ${BARE_OPPORTUNITY.agency}. Details: this past award record.`,
+    );
+    assert.deepEqual(step.find((p) => typeof p !== "string"), { text: "this past award record", href: url });
   });
 
   test("a forecasted grants.gov opportunity is described as not yet open, using its own flag — not a fixed deadline claim", () => {

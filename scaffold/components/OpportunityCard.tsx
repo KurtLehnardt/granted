@@ -1,8 +1,9 @@
 "use client";
 import { useState } from "react";
-import { TIER_LABEL, type Match, type Opportunity, type StartupProfile } from "@/lib/types";
+import { TIER_LABEL, type Match, type StartupProfile } from "@/lib/types";
 import type { EligibilityBucket } from "@/lib/contracts/eligibilityDetermination";
 import HowToApplyModal from "@/components/HowToApplyModal";
+import { buildFundingRange, money } from "@/components/ApplicationChecklist";
 import CompetitorAnalysisModal from "@/components/CompetitorAnalysisModal";
 import { isFlagEnabled } from "@/lib/flags";
 import {
@@ -11,9 +12,6 @@ import {
   isDeadlinePassed,
   type OpportunityAvailabilityKind,
 } from "@/lib/ui/opportunitySummary";
-
-const money = (n: number) =>
-  n >= 1e6 ? `$${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `$${Math.round(n / 1e3)}K` : `$${n}`;
 
 /** Friendly labels so we never render "Rd". */
 const KIND_LABEL: Record<string, string> = {
@@ -110,17 +108,6 @@ function eyebrowClass(extra = "") {
   return `font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas ${extra}`.trim();
 }
 
-/** One-sided ranges must never read "$500K–$0". */
-function fundingRange(o: Opportunity): string | null {
-  const { fundingLow: low, fundingHigh: high } = o;
-  const hasLow = typeof low === "number" && low > 0;
-  const hasHigh = typeof high === "number" && high > 0;
-  if (hasLow && hasHigh) return `${money(low!)}–${money(high!)}`;
-  if (hasHigh) return `up to ${money(high!)}`;
-  if (hasLow) return `${money(low!)}+`;
-  return null;
-}
-
 export default function OpportunityCard({
   m,
   index,
@@ -148,7 +135,7 @@ export default function OpportunityCard({
 
   const badgeClass = TIER_BADGE[m.tier] ?? TIER_BADGE.none;
   const o = m.opportunity;
-  const value = fundingRange(o);
+  const value = buildFundingRange(o);
   const kindLabel = KIND_LABEL[o.kind] ?? o.kind;
 
   // F1 — forecasted-vs-current (N3): the single honest availability read for

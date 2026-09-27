@@ -106,7 +106,7 @@ export function buildKeyDates(opportunity: Opportunity): KeyDateItem[] {
   return items;
 }
 
-const money = (n: number) => (n >= 1e6 ? `$${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `$${Math.round(n / 1e3)}K` : `$${n}`);
+export const money = (n: number) => (n >= 1e6 ? `$${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `$${Math.round(n / 1e3)}K` : `$${n}`);
 
 /** This program's award/funding range, never fabricated when absent. */
 export function buildFundingRange(opportunity: Opportunity): string | null {
@@ -184,9 +184,11 @@ export function stepText(step: Step): string {
   return step.map((p) => (typeof p === "string" ? p : p.text)).join("");
 }
 
+const isHttpUrl = (url: string | undefined): url is string => !!url && /^https?:\/\//i.test(url);
+
 /** A clickable link at the URL if it's http(s), else a plain-text fallback naming the source. */
 function sourcePointer(opportunity: Opportunity, label: string): StepPart {
-  return opportunity.url && /^https?:\/\//i.test(opportunity.url)
+  return isHttpUrl(opportunity.url)
     ? { text: label, href: opportunity.url }
     : `the full listing (source: ${opportunity.source})`;
 }
@@ -215,18 +217,14 @@ function sourceApplyStep(opportunity: Opportunity, now?: number): Step {
     case "sbir":
     case "sbir.gov": {
       // Past-award listing, not an open solicitation — background only, never labeled as this award's own page.
-      const isGenericFallback = opportunity.url === "https://www.sbir.gov/awards";
-      const isHttpUrl = !!opportunity.url && /^https?:\/\//i.test(opportunity.url);
-      const intro = `Search ${opportunity.agency}'s SBIR/STTR program site for the current solicitation and where to submit. This record is background, not an application portal. `;
-      if (isGenericFallback) {
-        return [intro, "See ", sourcePointer(opportunity, "SBIR.gov awards search"), "."];
+      const intro = `Search ${opportunity.agency}'s SBIR/STTR program site for the current solicitation and where to submit. This record is background, not an application portal.`;
+      if (!opportunity.url) return [intro];
+      if (opportunity.url === "https://www.sbir.gov/awards") {
+        return [`${intro} See `, sourcePointer(opportunity, "SBIR.gov awards search"), "."];
       }
-      if (isHttpUrl) {
-        return [intro, "Awardee: ", sourcePointer(opportunity, "the awardee's website"), "."];
-      }
-      return opportunity.url
-        ? [intro, `Awardee website: ${opportunity.url}.`]
-        : [intro, sourcePointer(opportunity, "the awardee's website"), "."];
+      return isHttpUrl(opportunity.url)
+        ? [`${intro} Awardee: `, sourcePointer(opportunity, "the awardee's website"), "."]
+        : [`${intro} Awardee website: ${opportunity.url}.`];
     }
     case "assistance-listings":
     case "sam.gov": {
