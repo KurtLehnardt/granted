@@ -10,6 +10,7 @@ import ApplicationChecklist, {
   buildKeyDates,
   buildNextSteps,
   buildQuestions,
+  opportunityOnlyMatch,
   stepText,
 } from "../ApplicationChecklist";
 
@@ -34,18 +35,7 @@ const NOW = Date.parse("2026-09-27T00:00:00.000Z");
  */
 
 function asMatch(opportunity: Opportunity, overrides: Partial<Match> = {}): Match {
-  return {
-    opportunity,
-    tier: "verify",
-    score: 0,
-    criteria: [],
-    whyCare: "",
-    whyFit: "",
-    whyIneligible: "",
-    whatToVerify: "",
-    whatToDoNext: "",
-    ...overrides,
-  };
+  return { ...opportunityOnlyMatch(opportunity), ...overrides };
 }
 
 const RD_OPPORTUNITY: Opportunity = {
@@ -260,24 +250,17 @@ describe("buildNextSteps", () => {
     assert.ok(stepText(withoutUrl[0]).includes(GRANT_OPPORTUNITY.source));
   });
 
-  test("adds a scheme to a bare url for the link href without altering the displayed text", () => {
-    const step = buildNextSteps(
-      asMatch({ ...RD_OPPORTUNITY, source: "sbir", url: "www.some-awardee.example" }),
-      true,
-    )[0];
-    const linkPart = step.find((p) => typeof p !== "string") as { text: string; href: string } | undefined;
-    assert.ok(linkPart);
-    assert.equal(linkPart!.text, "www.some-awardee.example");
-    assert.equal(linkPart!.href, "https://www.some-awardee.example");
-  });
-
   test("threads the match's own whatToVerify/whatToDoNext into the steps, without inventing them, labeled as the match assessment", () => {
     const withNarrative = buildNextSteps(
       asMatch(RD_OPPORTUNITY, { whatToVerify: "Confirm your NAICS code matches this topic.", whatToDoNext: "Reach out to the program manager listed on the topic page." }),
       true,
     ).map(stepText);
     const withoutNarrative = buildNextSteps(asMatch(RD_OPPORTUNITY), true).map(stepText);
-    assert.ok(withNarrative.some((s) => s.includes("Confirm your NAICS code matches this topic.")));
+    assert.ok(
+      withNarrative.some(
+        (s) => s.startsWith("From your match assessment, before applying verify: ") && s.includes("Confirm your NAICS code matches this topic."),
+      ),
+    );
     assert.ok(
       withNarrative.some(
         (s) => s.startsWith("From your match assessment: ") && s.includes("Reach out to the program manager listed on the topic page."),
@@ -297,8 +280,8 @@ describe("buildNextSteps", () => {
     );
     const assistanceStep = stepText(buildNextSteps(asMatch(BARE_OPPORTUNITY), true)[0]);
 
-    assert.match(sbirStep, /SBIR\/STTR funding is awarded through each agency's own solicitation process/i);
-    assert.doesNotMatch(sbirStep, /solicitation topic/i);
+    assert.match(sbirStep, /SBIR\/STTR program site for the current solicitation/i);
+    assert.doesNotMatch(sbirStep, /not grants\.gov/i);
     assert.match(grantsGovStep, /grants\.gov \(an Active SAM\.gov registration/i);
     assert.match(samContractsStep, /SAM\.gov Contract Opportunities/i);
     assert.match(assistanceStep, /assistance listing describes a program/i);
@@ -310,14 +293,15 @@ describe("buildNextSteps", () => {
     assert.notEqual(grantsGovStep, samContractsStep);
   });
 
-  test("a SBIR/STTR step never labels the record's own url as 'this opportunity's page', and links it as background instead", () => {
+  test("a SBIR/STTR step never claims SBIR/STTR is not submitted via grants.gov, and points to the awarding agency's program site", () => {
     const step = buildNextSteps(
       asMatch({ ...RD_OPPORTUNITY, url: "https://www.some-awardee.example/" }),
       true,
     )[0];
     const text = stepText(step);
-    assert.doesNotMatch(text, /Start at/i);
     assert.doesNotMatch(text, /this opportunity's page/i);
+    assert.doesNotMatch(text, /not grants\.gov/i);
+    assert.match(text, new RegExp(`${RD_OPPORTUNITY.agency}'s SBIR/STTR program site for the current solicitation`, "i"));
     assert.match(text, /Record: /i);
     const linkPart = step.find((p) => typeof p !== "string") as { text: string; href: string } | undefined;
     assert.equal(linkPart?.href, "https://www.some-awardee.example/");

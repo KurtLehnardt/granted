@@ -21,8 +21,7 @@ import { isDeadlinePassed, isEvergreen, isForecasted } from "@/lib/ui/opportunit
  *       never presented as a fact about *this* opportunity that we don't
  *       actually have, or
  *   (c) the match's own already-computed AI assessment (`whatToVerify` /
- *       `whatToDoNext`, lib/match.ts), labeled as coming from that
- *       assessment rather than blended in as (a) or (b).
+ *       `whatToDoNext`), labeled as coming from that assessment.
  * The four SAM.gov / UEI / AOR / E-Biz registration facts are self-reported by
  * the user elsewhere (lib/mockAuth.ts, unchanged by this file) — this
  * component only reads the already-computed `satisfied` map, it never invents
@@ -95,9 +94,7 @@ export function buildKeyDates(opportunity: Opportunity): KeyDateItem[] {
     });
   }
 
-  // No explicit deadline on the record — say what the record's own
-  // forecasted/status flags actually tell us, rather than a blanket
-  // "not listed" for a program that's either not open yet or evergreen.
+  // No explicit deadline — fall back to the record's forecasted/evergreen status.
   if (items.length === 0) {
     if (isForecasted(opportunity)) {
       items.push({ label: "Deadline", value: "Forecasted — not yet open for applications" });
@@ -113,9 +110,7 @@ export function buildKeyDates(opportunity: Opportunity): KeyDateItem[] {
 
 const money = (n: number) => (n >= 1e6 ? `$${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `$${Math.round(n / 1e3)}K` : `$${n}`);
 
-/** This program's award/funding range, from whichever field the record
- *  carries (legacy `fundingLow`/`fundingHigh` or the §3.4 `award_range`) —
- *  never fabricated when neither is present. */
+/** This program's award/funding range, never fabricated when absent. */
 export function buildFundingRange(opportunity: Opportunity): string | null {
   const low = opportunity.award_range?.floor ?? opportunity.fundingLow;
   const high = opportunity.award_range?.ceiling ?? opportunity.fundingHigh;
@@ -183,8 +178,7 @@ export function buildQuestions(opportunity: Opportunity): string[] {
 }
 
 /** A next-step is rendered as this sequence of parts: plain text interleaved
- *  with real links, so a URL from the data is never spliced into prose as
- *  inert text. */
+ *  with real links, so a URL from the data is never spliced into prose as inert text. */
 export type StepPart = string | { text: string; href: string };
 export type Step = StepPart[];
 
@@ -193,26 +187,12 @@ export function stepText(step: Step): string {
   return step.map((p) => (typeof p === "string" ? p : p.text)).join("");
 }
 
-/** Adds a scheme for display/href purposes only when the stored url is
- *  missing one (e.g. a bare "www.example.com") — never mutates the record. */
-function withScheme(url: string): string {
-  return /^[a-z][a-z0-9+.-]*:\/\//i.test(url) ? url : `https://${url}`;
-}
-
-/** A clickable pointer at the opportunity's own URL, labeled `label`, or an
- *  honest text fallback naming its source system when no URL is on record
- *  (never fabricated). */
+/** A clickable pointer at the opportunity's own URL, or an honest fallback naming its source. */
 function sourcePointer(opportunity: Opportunity, label: string): StepPart {
-  return opportunity.url ? { text: label, href: withScheme(opportunity.url) } : `the full listing (source: ${opportunity.source})`;
+  return opportunity.url ? { text: label, href: opportunity.url } : `the full listing (source: ${opportunity.source})`;
 }
 
-/**
- * The apply-path step differs by *source*, not just kind — a Grants.gov
- * competition, an SBIR/STTR solicitation, a SAM.gov assistance listing, and a
- * SAM.gov contract opportunity are applied to in genuinely different ways.
- * Everything here is generic guidance for that source, paired with the
- * opportunity's own agency/url — never an invented fact about this posting.
- */
+/** The apply-path step differs by *source*, not just kind. */
 function sourceApplyStep(opportunity: Opportunity, now?: number): Step {
   switch (opportunity.source) {
     case "grants.gov": {
@@ -235,23 +215,17 @@ function sourceApplyStep(opportunity: Opportunity, now?: number): Step {
     }
     case "sbir":
     case "sbir.gov": {
-      // The corpus's SBIR/STTR records are past-award listings, not open
-      // solicitations — this never claims a solicitation topic this record
-      // doesn't have, and never labels the record's own url (often the
-      // awardee's homepage, not a grants.gov-style listing page) as "this
-      // opportunity's page" — it's linked plainly as background.
+      // Past-award listing, not an open solicitation — record is background only.
       const record = sourcePointer(opportunity, opportunity.url ?? `source: ${opportunity.source}`);
       return [
-        `SBIR/STTR funding is awarded through each agency's own solicitation process, not grants.gov — search ${opportunity.agency}'s SBIR/STTR program site for current open topics. This record is background, not an application portal. Record: `,
+        `Search ${opportunity.agency}'s SBIR/STTR program site for the current solicitation and where to submit. This record is background, not an application portal. Record: `,
         record,
         `.`,
       ];
     }
     case "assistance-listings":
     case "sam.gov": {
-      // Many assistance listings ARE reached through a competed NOFO posted
-      // on grants.gov, so this never claims otherwise — it points the user
-      // at both real paths instead of asserting one.
+      // Many assistance listings are reached through a NOFO posted on grants.gov.
       const pointer = sourcePointer(opportunity, "this opportunity's page");
       return [
         `An assistance listing describes a program, not one fixed application — check for a current funding notice (often posted on grants.gov), or contact the program office at ${opportunity.agency} to ask how to apply. Details: `,
@@ -264,9 +238,9 @@ function sourceApplyStep(opportunity: Opportunity, now?: number): Step {
       return [`Respond through SAM.gov Contract Opportunities, following ${opportunity.agency}'s solicitation instructions. Details: `, pointer, `.`];
     }
     case "usaspending": {
-      const pointer = sourcePointer(opportunity, "this opportunity's page");
+      const pointer = sourcePointer(opportunity, "this past award record");
       return [
-        `This reflects past awards from USAspending, not an open call — confirm with ${opportunity.agency} whether the program is currently accepting applications. Details: `,
+        `This is a record of a past award from USAspending, not an open opportunity — check SAM.gov for any current solicitation from ${opportunity.agency}. Details: `,
         pointer,
         `.`,
       ];
@@ -279,20 +253,14 @@ function sourceApplyStep(opportunity: Opportunity, now?: number): Step {
   }
 }
 
-/**
- * Ordered next actions. The LAST step always restates the honesty boundary:
- * this tool never submits anything — a human AOR does, through the official
- * portal. `whatToVerify`/`whatToDoNext` are the match's own already-computed
- * narrative fields (lib/match.ts) — read here, never generated by this file,
- * and both are labeled as coming from the match assessment rather than
- * blending in as facts read off the listing.
- */
+/** Ordered next actions. The LAST step always restates the honesty boundary: this
+ *  tool never submits anything — a human AOR does, through the official portal. */
 export function buildNextSteps(match: Match, allRegistrationsSatisfied: boolean, now?: number): Step[] {
   const opportunity = match.opportunity;
   const steps: Step[] = [];
   steps.push(sourceApplyStep(opportunity, now));
   if (match.whatToVerify?.trim()) {
-    steps.push([`Before applying, verify: ${match.whatToVerify.trim()}`]);
+    steps.push([`From your match assessment, before applying verify: ${match.whatToVerify.trim()}`]);
   }
   steps.push([
     allRegistrationsSatisfied
@@ -310,10 +278,7 @@ export function buildNextSteps(match: Match, allRegistrationsSatisfied: boolean,
   return steps;
 }
 
-/** Wraps a bare `Opportunity` as a placeholder `Match` for the legacy,
- *  currently-unmounted assisted-apply flow (AutoFillFlow/ApplicationPackage —
- *  see HowToApplyModal's doc comment), which only ever has the opportunity,
- *  never a real scored match. */
+/** Wraps a bare `Opportunity` as a placeholder `Match` for callers with no real scored match. */
 export function opportunityOnlyMatch(opportunity: Opportunity): Match {
   return {
     opportunity,
@@ -332,7 +297,6 @@ export type ApplicationChecklistModel = {
   title: string;
   agency: string;
   fundingRange: string | null;
-  referenceId: string | null;
   keyDates: KeyDateItem[];
   documents: string[];
   questions: string[];
@@ -345,7 +309,6 @@ export function buildApplicationChecklist(match: Match, allRegistrationsSatisfie
     title: opportunity.title?.trim() || opportunity.program,
     agency: opportunity.agency,
     fundingRange: buildFundingRange(opportunity),
-    referenceId: opportunity.source_id ?? null,
     keyDates: buildKeyDates(opportunity),
     documents: buildDocumentChecklist(opportunity),
     questions: buildQuestions(opportunity),
@@ -384,7 +347,6 @@ export default function ApplicationChecklist({
       <p className={agencyClass}>
         {model.agency}
         {model.fundingRange && <> &middot; {model.fundingRange}</>}
-        {model.referenceId && <> &middot; Opportunity #{model.referenceId}</>}
       </p>
 
       <h4 className={sectionHeadingClass}>Key dates</h4>
