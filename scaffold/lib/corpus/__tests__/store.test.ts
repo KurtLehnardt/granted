@@ -98,14 +98,21 @@ describe("CorpusStore", () => {
   test("meta write lagging behind opportunities write invalidates the cache once meta catches up", () => {
     const baseDir = makeBaseDir();
     writeLocal(baseDir, [{ id: "local-1" }], { builtAt: "2026-01-01T00:00:00.000Z" });
+    const metaPath = join(baseDir, "data", "local", "corpus-meta.json");
+    const fixed = new Date(2026, 0, 1);
+    utimesSync(metaPath, fixed, fixed);
     const store = new CorpusStore(baseDir);
     const first = store.load();
     assert.equal(first.meta.builtAt, "2026-01-01T00:00:00.000Z");
 
     // Simulate the script's write order: opportunities.json lands first, its
     // mtime unchanged from what we already cached (same content-free write in
-    // this test), while corpus-meta.json is rewritten after.
-    writeFileSync(join(baseDir, "data", "local", "corpus-meta.json"), JSON.stringify({ builtAt: "2026-09-01T00:00:00.000Z" }));
+    // this test), while corpus-meta.json is rewritten after — with its mtime
+    // explicitly moved forward, since back-to-back writes can land on the
+    // same mtime on some filesystems.
+    writeFileSync(metaPath, JSON.stringify({ builtAt: "2026-09-01T00:00:00.000Z" }));
+    const future = new Date(fixed.getTime() + 60_000);
+    utimesSync(metaPath, future, future);
     const afterMetaWrite = store.load();
     assert.equal(afterMetaWrite.meta.builtAt, "2026-09-01T00:00:00.000Z");
     rmSync(baseDir, { recursive: true, force: true });
