@@ -745,7 +745,38 @@ async function narratePassB(
  * module load) so a per-request/test override takes effect.
  */
 function e3TwoPassTopN(): number {
-  return Number(process.env.E3_TWO_PASS_TOP_N) || 8;
+  const envN = Number(process.env.E3_TWO_PASS_TOP_N);
+  if (Number.isFinite(envN) && envN > 0) return envN;
+  // Hosted must stay unchanged from its pre-existing flag-controlled behavior:
+  // narrate every candidate that clears PROMOTION_FLOOR, uncapped (this is
+  // what `assembleTwoPass`/`lib/scoring/twoPass.ts`'s PROMOTION_FLOOR invariant
+  // assumes). The top-N cap is a LOCAL-only necessity — a small local model's
+  // ~30s/candidate narrative is too slow to run over every promoted candidate.
+  return isLocalLlm() ? 8 : Infinity;
+}
+
+/**
+ * How many Pass-A ("score-only") units one Pass-B ("full narrative") candidate
+ * costs, wall-clock. Measured on local models: ~2s/candidate for Pass A vs
+ * ~30s/candidate for Pass B's ~800-token narrative — about 15x. Counting both
+ * as one flat unit (the pre-fix behavior) made `done/total` race far ahead of
+ * real elapsed time once Pass A finished, since the still-narrating handful of
+ * Pass-B candidates is where nearly all the remaining wall-clock time lives.
+ */
+const PASS_B_COST_WEIGHT = Number(process.env.E3_TWO_PASS_PASS_B_WEIGHT) || 15;
+
+/**
+ * Cost-weighted `done` for the two-pass progress bar, scaled back onto the
+ * original `0..total` candidate-count range so callers (`lib/match.ts`'s
+ * `onBatch`, and `SearchProgress`'s linear extrapolation off it) don't need to
+ * change how they read it. `promotedCount` candidates each cost 1 (already
+ * counted via `passAScored`) plus `PASS_B_COST_WEIGHT - 1` extra units as Pass
+ * B narrates them.
+ */
+export function twoPassProgress(passAScored: number, promotedCount: number, passBScored: number, total: number): number {
+  const totalUnits = total + promotedCount * (PASS_B_COST_WEIGHT - 1);
+  const doneUnits = passAScored + passBScored * (PASS_B_COST_WEIGHT - 1);
+  return totalUnits > 0 ? Math.min(total, Math.round((doneUnits / totalUnits) * total)) : 0;
 }
 
 /** The floor-clearing candidates, ranked by Pass-A score and capped at `topN`. */
@@ -789,20 +820,16 @@ export async function explainMatchesTwoPass(
   onAssessment?: (a: TwoPassAssessment) => void,
 ): Promise<TwoPassAssessment[]> {
   const total = candidates.length;
-  // Pass B narrates at most this many candidates, so it can never leave more
-  // than `total - reserved` candidates undone by the time Pass A alone
-  // finishes — used to give the progress bar real movement DURING Pass A
-  // (previously it sat frozen at the "score" milestone until Pass A as a whole
-  // resolved) without letting `done` overshoot once the actual (<= reserved)
-  // promoted count is known.
+  // Pass B narrates at most this many candidates; used as the promoted-count
+  // estimate for the cost-weighted progress bar DURING Pass A, before the
+  // actual (<= reserved) promoted set is known.
   const topN = e3TwoPassTopN();
   const reserved = Math.min(topN, total);
-  const passAFloor = total - reserved;
   let passAScored = 0;
 
   const passA = await scorePassA(profile, candidates, meter, signal, (scores) => {
     passAScored += scores.length;
-    try { onBatch?.(Math.min(passAScored, passAFloor), total); } catch { /* best-effort */ }
+    try { onBatch?.(twoPassProgress(passAScored, reserved, 0, total), total); } catch { /* best-effort */ }
     for (const s of scores) {
       try { onAssessment?.(scoreOnlyAssessment(s.id, clampScore(s.score))); } catch { /* best-effort */ }
     }
@@ -810,18 +837,16 @@ export async function explainMatchesTwoPass(
 
   const promoted = selectPassBCandidates(candidates, passA, topN);
 
-  // Progress: every candidate NOT selected for narration is already "done"
-  // (it keeps its Pass-A score); the selected ones complete as their Pass-B
-  // batches settle. This keeps `done` monotonic and reaching `total` at the end.
-  const alreadyDone = total - promoted.length;
-  try { onBatch?.(Math.min(alreadyDone, total), total); } catch { /* best-effort */ }
+  // Pass A is fully done; re-anchor the estimate on the ACTUAL promoted count
+  // (may be < `reserved`) now that it's known.
+  try { onBatch?.(twoPassProgress(total, promoted.length, 0, total), total); } catch { /* best-effort */ }
 
   const passB = await narratePassB(
     profile,
     promoted,
     meter,
     (doneInPassB, batch) => {
-      try { onBatch?.(Math.min(alreadyDone + doneInPassB, total), total); } catch { /* best-effort */ }
+      try { onBatch?.(twoPassProgress(total, promoted.length, doneInPassB, total), total); } catch { /* best-effort */ }
       for (const a of batch) {
         try { onAssessment?.(a); } catch { /* best-effort */ }
       }

@@ -43,9 +43,14 @@ export type PassAScore = { id: string; score: number };
  *
  * Tied to `tierFromScore`'s ADJACENT boundary (25) — the LOWEST band that
  * renders as a real tier (adjacent/verify/likely all render; only `none` < 25
- * does not). So every candidate that could render as a real tier still gets a
- * full narrative under two-pass, and only the non-rendering `none` bulk is
- * skipped — which is exactly where the cost/latency is saved. Kept as a literal
+ * does not). On HOSTED (`lib/claude.ts`'s `e3TwoPassTopN`, uncapped there),
+ * every candidate that could render as a real tier still gets a full narrative
+ * under two-pass, and only the non-rendering `none` bulk is skipped — which is
+ * exactly where the cost/latency is saved. On LOCAL, Pass B additionally caps
+ * narration to the top `E3_TWO_PASS_TOP_N` promoted candidates by Pass-A score
+ * (a small local model is too slow to narrate every promoted candidate) — a
+ * promoted candidate past that cap still renders its real tier, just with a
+ * blank narrative, via `scoreOnlyAssessment`'s Pass-A score. Kept as a literal
  * (not imported from `lib/match.ts`) to avoid a circular import; the value must
  * stay equal to that adjacent boundary. If `tierFromScore`'s adjacent boundary
  * ever moves, move this with it.

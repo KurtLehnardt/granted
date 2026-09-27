@@ -118,7 +118,7 @@ test("an excluded candidate is filtered before scoring, costs no LLM call, but s
   assert.equal(map.matches.length, 3, "no candidate is dropped");
   const excluded = byId.get("excluded-1")!;
   assert.equal(excluded.eligibility?.determination.bucket, "excluded");
-  assert.equal(typeof excluded.whyIneligible, "string");
+  assert.equal(excluded.whyIneligible, "Individuals are not eligible for this program.");
   assert.equal(excluded.score, 0, "never scored — carries a neutral score, not a fabricated one");
 
   // The other two were scored normally and carry the mock's narrative.

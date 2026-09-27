@@ -470,7 +470,10 @@ export async function buildOpportunityMap(
   // determination already computed above), never silently dropped.
   const allAssessments: Assessment[] = [
     ...assessments,
-    ...preExcluded.map(({ o }) => scoreOnlyAssessment(o.id, 0)),
+    ...preExcluded.map(({ o, determination }) => ({
+      ...scoreOnlyAssessment(o.id, 0),
+      whyIneligible: determination.failed_rules.map((r) => r.description).join(" "),
+    })),
   ];
 
   const matches: Match[] = allAssessments

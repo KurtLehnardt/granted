@@ -21,6 +21,27 @@ import { useCorpusAsOf } from "@/lib/corpus/useCorpusAsOf";
  *  preview list is replaced by the final, complete map. */
 export const CARD_CAP = 8;
 
+/**
+ * Cards to render: real fits (tier != none), best-scored first, capped at
+ * `CARD_CAP` — plus any eligibility-EXCLUDED candidate, which must stay
+ * VISIBLE (a reviewed, rule-based `excluded` determination — C1's own
+ * comment, R8.2) rather than silently vanish behind the tier-`none` filter
+ * that hides the rest of the `none` bulk. Excluded matches are appended
+ * outside the cap (they don't compete with real fits for the 8 card slots)
+ * and kept OUT of `real` so header stats (closingSoon/funding/expired) never
+ * count a program the user was screened out of. Exported for unit testing.
+ */
+export function selectShownMatches(matches: Match[]): { real: Match[]; excluded: Match[] } {
+  const real = matches
+    .filter((m) => m && m.tier !== "none")
+    .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+    .slice(0, CARD_CAP);
+  const excluded = matches.filter(
+    (m) => m && m.tier === "none" && m.eligibility?.determination?.bucket === "excluded",
+  );
+  return { real, excluded };
+}
+
 /** FE-01: shared "eyebrow"-style mono label, token-driven. */
 function eyebrowClass(extra = "") {
   return `font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas ${extra}`.trim();
@@ -67,25 +88,25 @@ export default function OpportunityMap({ map }: { map: MapT }) {
   // CompetitorResults deep-analysis flow, which this never reads or affects.
   const similarRecipients = aggregateSimilarCompanies(matches, { limit: 10 });
 
-  // Cards: real fits only (likely / verify / adjacent), best first, capped.
-  const shown = matches
-    .filter((m) => m && m.tier !== "none")
-    .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
-    .slice(0, CARD_CAP);
+  // Cards: real fits (likely / verify / adjacent), best first, capped — plus
+  // any visible `excluded` candidate (see `selectShownMatches`).
+  const { real: shownReal, excluded: excludedShown } = selectShownMatches(matches);
+  const shown = [...shownReal, ...excludedShown];
 
-  // Header stats derived from what we render — keeps them honest and consistent.
-  const highPotential = shown.filter((m) => m.tier === "likely" || m.tier === "verify").length;
+  // Header stats derived from REAL fits only — an excluded candidate isn't a
+  // program the user can pursue, so it never inflates these counts.
+  const highPotential = shownReal.filter((m) => m.tier === "likely" || m.tier === "verify").length;
   // Evergreen-safe (F1): a rolling/continuous/standing program is never
   // counted here, even if a stray deadline-shaped value is present on the
   // record — see closingSoonCount/isClosingSoon in lib/ui/opportunitySummary.
-  const closingSoon = closingSoonCount(shown);
-  const funding = fundingCell(shown);
+  const closingSoon = closingSoonCount(shownReal);
+  const funding = fundingCell(shownReal);
   // Data-freshness: how many of the shown cards have a deadline now in the past
   // (evergreen/forecasted-safe). The committed corpus is a point-in-time
   // snapshot; when it has aged, say so plainly instead of presenting stale
   // deadlines as current. Works on cached/precomputed maps too — it reads only
   // `m.opportunity.deadline`, which every map shape carries.
-  const expired = expiredCount(shown);
+  const expired = expiredCount(shownReal);
   // The corpus "as of" stamp (GET /api/corpus). `null` when the
   // stamp is absent/invalid — the footer then degrades to a date-free caveat.
   const asOf = useCorpusAsOf();

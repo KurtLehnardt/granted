@@ -57,11 +57,24 @@ const SCORES: Record<string, number> = {
 };
 const candidates = Object.keys(SCORES).map(opp);
 
-function fakeFetch(calls: { passA: string[]; passB: string[] }): typeof fetch {
+/** Optional `delayMs` + `inFlight` tracker let a test prove calls run SERIALLY
+ *  (never more than one in flight at once) rather than merely counting them —
+ *  a concurrent `Promise.allSettled` fan-out still passes a plain call-count
+ *  assertion but would push `inFlight` above 1. */
+function fakeFetch(
+  calls: { passA: string[]; passB: string[] },
+  opts: { delayMs?: number; inFlight?: { current: number; max: number }; pool?: Opportunity[] } = {},
+): typeof fetch {
+  const pool = opts.pool ?? candidates;
   return (async (_url: string, init: any) => {
+    if (opts.inFlight) {
+      opts.inFlight.current += 1;
+      opts.inFlight.max = Math.max(opts.inFlight.max, opts.inFlight.current);
+    }
+    if (opts.delayMs) await new Promise((r) => setTimeout(r, opts.delayMs));
     const body = JSON.parse(init.body);
     const userContent: string = body.messages.find((m: any) => m.role === "user")?.content ?? "";
-    const id = candidates.find((c) => userContent.includes(`"${c.id}"`))?.id;
+    const id = pool.find((c) => userContent.includes(`"${c.id}"`))?.id;
     if (!id) throw new Error("test fixture could not identify the candidate in the request body");
     // Pass A's score-only prompt asks for a tiny max_tokens (1024); Pass B's
     // full-narrative prompt asks for 8000 — route the stub response the same
@@ -85,6 +98,7 @@ function fakeFetch(calls: { passA: string[]; passB: string[] }): typeof fetch {
         whatToDoNext: `next ${id}`,
       };
     }
+    if (opts.inFlight) opts.inFlight.current -= 1;
     return {
       ok: true,
       json: async () => ({
@@ -127,6 +141,43 @@ test("local: Pass A and Pass B each run one candidate per call, serially", async
   const below = result.find((r) => r.id === "opp-d")!;
   assert.equal(below.score, 10);
   assert.equal(below.whyFit, "", "below the floor: score-only, no narrative spend");
+});
+
+test("local: Pass A and Pass B calls never overlap (truly serial, not a concurrent fan-out)", async () => {
+  process.env.LLM_PROVIDER = "ollama";
+  process.env.E3_TWO_PASS_TOP_N = "8";
+  delete process.env.LLM_PASS_A_BATCH_SIZE;
+  delete process.env.LLM_PASS_B_BATCH_SIZE;
+
+  const calls = { passA: [] as string[], passB: [] as string[] };
+  const inFlight = { current: 0, max: 0 };
+  globalThis.fetch = fakeFetch(calls, { delayMs: 5, inFlight });
+
+  await explainMatchesTwoPass(profile, candidates);
+
+  assert.equal(inFlight.max, 1, "a concurrent (Promise.allSettled) fan-out would push this above 1");
+  assert.equal(calls.passA.length, candidates.length);
+  assert.equal(calls.passB.length, 3);
+});
+
+test("local: Pass B narrates promoted candidates in score order, independent of the input candidate order", async () => {
+  process.env.LLM_PROVIDER = "ollama";
+  process.env.E3_TWO_PASS_TOP_N = "8";
+  delete process.env.LLM_PASS_A_BATCH_SIZE;
+  delete process.env.LLM_PASS_B_BATCH_SIZE;
+
+  // Deliberately NOT in score order (unlike the module-level `candidates`,
+  // whose insertion order happens to already match score-descending) — a
+  // regression that dropped the `.sort()` in `selectPassBCandidates` would
+  // narrate in THIS (input) order instead and fail the assertion below.
+  const shuffled = [opp("opp-c"), opp("opp-d"), opp("opp-a"), opp("opp-b")];
+
+  const calls = { passA: [] as string[], passB: [] as string[] };
+  globalThis.fetch = fakeFetch(calls, { pool: shuffled });
+
+  await explainMatchesTwoPass(profile, shuffled);
+
+  assert.deepEqual(calls.passB, ["opp-a", "opp-b", "opp-c"], "narrated highest Pass-A score first, regardless of input order");
 });
 
 test("local: Pass B narrates only the top N promoted candidates, in score order", async () => {
