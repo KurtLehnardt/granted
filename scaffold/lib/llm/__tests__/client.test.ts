@@ -1,6 +1,7 @@
 import { test, describe, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { makeLlmClient, isLocalLlm } from "../client";
+import { withLocalModel } from "../modelContext";
 import { unwrapArrayEnvelope, coerceProfileStrings, coerceEmployees } from "../../claude";
 
 /**
@@ -74,6 +75,29 @@ describe("openAI-compatible shim — request + response translation", () => {
     assert.equal(msg.content[0].text, '{"ok":true}');
     assert.equal(msg.usage.input_tokens, 11);
     assert.equal(msg.usage.output_tokens, 7);
+  });
+
+  test("withLocalModel overrides LOCAL_LLM_MODEL for calls made inside its scope", async () => {
+    process.env.LLM_PROVIDER = "ollama";
+    process.env.LOCAL_LLM_MODEL = "gemma4:latest";
+    let sentBody: any = null;
+    globalThis.fetch = (async (_url: string, init: any) => {
+      sentBody = JSON.parse(init.body);
+      return { ok: true, json: async () => ({ choices: [{ message: { content: "{}" } }], usage: {} }) };
+    }) as unknown as typeof fetch;
+
+    const client = makeLlmClient({ timeout: 5000 });
+    const msg: any = await withLocalModel("qwen2.5:7b", () =>
+      client.messages.create({ model: "ignored", max_tokens: 10, messages: [{ role: "user", content: "hi" }] }),
+    );
+
+    assert.equal(sentBody.model, "qwen2.5:7b");
+    assert.equal(msg.model, "qwen2.5:7b");
+
+    // outside the scope, the env default is used again
+    sentBody = null;
+    await client.messages.create({ model: "ignored", max_tokens: 10, messages: [{ role: "user", content: "hi" }] });
+    assert.equal(sentBody.model, "gemma4:latest");
   });
 });
 

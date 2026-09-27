@@ -10,6 +10,7 @@ import { SidebarProvider, useSidebar } from "@/components/SidebarProvider";
 import WelcomeTour from "@/components/WelcomeTour";
 import { useAnalytics } from "@/components/AnalyticsProvider";
 import { latestRun, saveRun } from "@/lib/runs/runsStore";
+import { formatSearchDuration } from "@/components/SearchProgress";
 
 // FE-01 / design revamp: the CON-02 USWDS 60/30/10 restyle is now the DEFAULT
 // look on this A/B branch (previously gated behind r7_design). The token
@@ -45,6 +46,11 @@ function HomeShell({ sidebarOn }: { sidebarOn: boolean }) {
   // completed `map` — and when to hand back off to it.
   const [loading, setLoading] = useState(false);
   const [previewMatches, setPreviewMatches] = useState<Match[]>([]);
+  // How long the most recent search actually took (search start -> final
+  // result), for the "Search took Xm Ys" line near the results summary. Null
+  // for a cached/precomputed result (nothing to show) and reset on every new
+  // search.
+  const [searchDuration, setSearchDuration] = useState<number | null>(null);
 
   function handleLoadingChange(isLoading: boolean) {
     setLoading(isLoading);
@@ -53,7 +59,10 @@ function HomeShell({ sidebarOn }: { sidebarOn: boolean }) {
     // IntakeForm's own error UI takes over and any partial preview from the
     // failed attempt is stale, not a real result — either way it must not
     // linger into the NEXT run.
-    if (isLoading) setPreviewMatches([]);
+    if (isLoading) {
+      setPreviewMatches([]);
+      setSearchDuration(null);
+    }
   }
 
   function handleMatchPreview(m: Match) {
@@ -172,6 +181,7 @@ function HomeShell({ sidebarOn }: { sidebarOn: boolean }) {
         onResult={setMap}
         onLoadingChange={handleLoadingChange}
         onMatchPreview={handleMatchPreview}
+        onSearchDuration={setSearchDuration}
       />
 
       {/* While a search is running, show cards as they're scored instead of the
@@ -206,6 +216,11 @@ function HomeShell({ sidebarOn }: { sidebarOn: boolean }) {
       ) : (
         map && (
           <div className="mt-14">
+            {searchDuration != null && (
+              <p className="mb-2 font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas">
+                Search took {formatSearchDuration(searchDuration)}
+              </p>
+            )}
             <OpportunityMap map={map} />
           </div>
         )

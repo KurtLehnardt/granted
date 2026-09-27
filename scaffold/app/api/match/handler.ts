@@ -4,6 +4,10 @@ import type { Match } from "@/lib/types";
 import { rateLimit, clientKey } from "@/lib/security/rateLimit";
 import { OpportunityMapSchema } from "@/lib/contracts/opportunityMap";
 import precomputed from "@/data/precomputed.json";
+import { isLocalLlm } from "@/lib/llm/client";
+import { withLocalModel } from "@/lib/llm/modelContext";
+import { listOllamaChatModels } from "@/lib/llm/ollamaInfo";
+import type { LlmInfo } from "@/lib/llm/types";
 
 /**
  * Boundary validation is OBSERVABILITY ONLY (arch review MEDIUM — the payload
@@ -62,6 +66,23 @@ export type MatchDeps = {
 
 const REAL_DEPS: MatchDeps = { buildOpportunityMap, cached };
 
+/**
+ * Resolve which backend/model this request actually uses. Hosted: `local:
+ * false`, no Ollama call, ever. Local: `requestedModel` is honored only when
+ * it's one of the installed chat models; otherwise (unset, unknown, or an
+ * embedding model) it falls back to LOCAL_LLM_MODEL. `paramsB` is best-effort
+ * from Ollama's own /api/tags — omitted for a non-Ollama OpenAI-compatible
+ * server or if the lookup fails.
+ */
+async function resolveLlmInfo(requestedModel: string | undefined): Promise<LlmInfo> {
+  if (!isLocalLlm()) return { local: false };
+  const installed = await listOllamaChatModels();
+  const requested = requestedModel ? installed.find((m) => m.name === requestedModel) : undefined;
+  const model = requested?.name ?? process.env.LOCAL_LLM_MODEL ?? "gemma4:latest";
+  const paramsB = requested?.paramsB ?? installed.find((m) => m.name === model)?.paramsB;
+  return { local: true, model, paramsB };
+}
+
 export async function handleMatchRequest(
   req: Request,
   deps: MatchDeps = REAL_DEPS,
@@ -86,6 +107,10 @@ export async function handleMatchRequest(
   // scores. Passed through to buildOpportunityMap, which CLAMPS it to a safe
   // range — so a bad client value can never overrun the scorer's token budget.
   let maxCandidates: number | undefined;
+  // Local-only Settings model picker (Settings → model dropdown). Validated
+  // against the installed Ollama models below; hosted requests ignore this
+  // entirely, and an unrecognized value just falls back to LOCAL_LLM_MODEL.
+  let requestedModel: string | undefined;
   try {
     const body = await req.json();
     description = body?.description;
@@ -99,6 +124,9 @@ export async function handleMatchRequest(
     }
     if (typeof body?.maxCandidates === "number" && Number.isFinite(body.maxCandidates)) {
       maxCandidates = body.maxCandidates;
+    }
+    if (typeof body?.model === "string" && body.model.trim().length > 0) {
+      requestedModel = body.model.trim();
     }
   } catch {
     return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
@@ -145,19 +173,25 @@ export async function handleMatchRequest(
           return;
         }
 
-        const map = await deps.buildOpportunityMap(
-          description,
-          (e: StepEvent) => send({ type: "progress", ...e }),
-          undefined,
-          ac.signal,
-          companyFacts,
-          maxCandidates,
-          // Progressive rendering: stream each match the instant its batch is
-          // scored, so the client can render cards as they're ready instead of
-          // waiting for the whole candidate set. Purely additive — the client
-          // still gets the authoritative, complete `result.map` at the end;
-          // these are only an early preview of matches that map will contain.
-          (m: Match) => send({ type: "match", match: m }),
+        // Resolved once per request, before any LLM call: which backend/model
+        // this run actually uses. Surfaced on the "start" progress event and
+        // threaded to every LLM call below via withLocalModel.
+        const llm = await resolveLlmInfo(requestedModel);
+        const map = await withLocalModel(llm.local ? llm.model : undefined, () =>
+          deps.buildOpportunityMap(
+            description,
+            (e: StepEvent) => send(e.key === "start" ? { type: "progress", ...e, llm } : { type: "progress", ...e }),
+            undefined,
+            ac.signal,
+            companyFacts,
+            maxCandidates,
+            // Progressive rendering: stream each match the instant its batch is
+            // scored, so the client can render cards as they're ready instead of
+            // waiting for the whole candidate set. Purely additive — the client
+            // still gets the authoritative, complete `result.map` at the end;
+            // these are only an early preview of matches that map will contain.
+            (m: Match) => send({ type: "match", match: m }),
+          ),
         );
         // Log any boundary drift for visibility, but ALWAYS stream the real,
         // completed map — never dead-end a finished search on schema strictness.

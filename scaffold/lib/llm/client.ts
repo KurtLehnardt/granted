@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { normalizeOpenAiBaseUrl } from "./baseUrl";
+import { currentLocalModel } from "./modelContext";
 
 /**
  * LLM provider seam. `makeLlmClient()` returns something that walks and talks
@@ -58,7 +59,6 @@ function openAiCompatShim(opts: LlmClientOptions): LlmClient {
   // Accept a bare host (e.g. http://localhost:11434) by auto-appending /v1 —
   // the OpenAI-compatible path all these servers use. See ./baseUrl.
   const base = normalizeOpenAiBaseUrl(process.env.LLM_BASE_URL || "http://localhost:11434/v1");
-  const model = process.env.LOCAL_LLM_MODEL || "gemma4:latest";
   const apiKey = process.env.LLM_API_KEY || "local"; // Ollama ignores this
   const timeoutMs = opts.timeout ?? 120_000;
 
@@ -67,6 +67,10 @@ function openAiCompatShim(opts: LlmClientOptions): LlmClient {
       // Signature-compatible with Anthropic's messages.create for the subset the
       // app uses: params.{model,max_tokens,system,messages}, options.{signal}.
       async create(params: any, options?: { signal?: AbortSignal }): Promise<any> {
+        // Read per-request so the Settings model picker (threaded via
+        // withLocalModel/AsyncLocalStorage) overrides the env default without
+        // this shim's construction site needing to know about it.
+        const model = currentLocalModel() || process.env.LOCAL_LLM_MODEL || "gemma4:latest";
         const messages: Array<{ role: string; content: string }> = [];
         // `system` may be a plain string OR Anthropic content blocks
         // (`[{ type:"text", text, cache_control }]`, used for prompt caching).

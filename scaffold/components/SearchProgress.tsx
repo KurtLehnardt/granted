@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import type { LlmInfo } from "@/lib/llm/types";
 
 /**
  * SearchProgress — the loading experience while /api/match runs (novel input can
@@ -53,17 +54,97 @@ export function formatDuration(ms: number): string {
   return m <= 1 ? "about a minute" : `about ${m} minutes`;
 }
 
+/** Precise "Search took Xm Ys" for the post-result duration line. Unlike
+ *  formatDuration, this is exact/legible, not a rounded hedge — it's shown
+ *  once the real elapsed time is known. */
+export function formatSearchDuration(ms: number): string {
+  const total = Math.max(0, Math.round(ms / 1000));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return m === 0 ? `${s}s` : `${m}m ${s}s`;
+}
+
+/**
+ * Placeholder rough-range table for a local model's total run time, keyed by
+ * parameter count — tune these once real hardware timing data exists. Ranges
+ * grow with size since a bigger local model is straightforwardly slower.
+ */
+const LOCAL_ESTIMATE_RANGES: Array<{ maxB: number; range: string }> = [
+  { maxB: 4, range: "10–20 minutes" },
+  { maxB: 9, range: "12–25 minutes" },
+  { maxB: 16, range: "15–30 minutes" },
+];
+const LOCAL_ESTIMATE_LARGE = "20–40 minutes or more";
+const LOCAL_ESTIMATE_UNKNOWN = "several minutes or more";
+
+/** The rough pre-search time range for a local model, by its parameter count
+ *  (billions). Unknown/missing size -> the most hedged range. */
+export function localModelEstimateRange(paramsB?: number): string {
+  if (paramsB == null || !Number.isFinite(paramsB)) return LOCAL_ESTIMATE_UNKNOWN;
+  const hit = LOCAL_ESTIMATE_RANGES.find((r) => paramsB <= r.maxB);
+  return hit ? hit.range : LOCAL_ESTIMATE_LARGE;
+}
+
+/** "gemma3:12b (12B)" / "gemma3:12b" (size unknown) / "a local model" (name unknown). */
+export function localModelLabel(model?: string, paramsB?: number): string {
+  if (!model) return "a local model";
+  const size = paramsB != null && Number.isFinite(paramsB) ? ` (${paramsB}B)` : "";
+  return `${model}${size}`;
+}
+
+/** Extrapolate remaining scoring time (ms) from the observed rate so far —
+ *  `done` of `total` items scored over `elapsedMs`. Null once there isn't
+ *  enough signal yet (nothing scored, nothing left, or no elapsed time). */
+export function estimateRemainingMs(done: number, total: number, elapsedMs: number): number | null {
+  if (!(done > 0) || !(total > 0) || !(elapsedMs > 0) || done >= total) return null;
+  const msPerItem = elapsedMs / done;
+  return Math.round((total - done) * msPerItem);
+}
+
+/** "About 4 minutes left" / "About a minute left" / "About 20 seconds left". */
+export function formatRemaining(ms: number): string {
+  const s = Math.max(1, Math.round(ms / 1000));
+  if (s < 60) return `About ${s} seconds left`;
+  const m = Math.round(s / 60);
+  return m <= 1 ? "About a minute left" : `About ${m} minutes left`;
+}
+
+/** Parses the "score-progress" step's `detail: "done/total"` field. */
+export function parseScoreDetail(detail: string | undefined): { done: number; total: number } | null {
+  if (!detail) return null;
+  const m = /^(\d+)\/(\d+)$/.exec(detail.trim());
+  if (!m) return null;
+  return { done: Number(m[1]), total: Number(m[2]) };
+}
+
 export default function SearchProgress({
   realPct,
   realLabel,
+  realKey,
+  realDetail,
+  llm,
 }: {
   realPct?: number;
   realLabel?: string;
+  /** The current step's `key` (e.g. "start", "score-progress") — drives the
+   *  live remaining-time estimate once scoring is underway. */
+  realKey?: string;
+  /** The current step's `detail` field, "done/total" on "score-progress". */
+  realDetail?: string;
+  /** Backend info from /api/match's "start" progress event. Undefined until
+   *  that event arrives. */
+  llm?: LlmInfo;
 }) {
   const [display, setDisplay] = useState(4);
   const [elapsed, setElapsed] = useState(0);
   const [factIndex, setFactIndex] = useState(0);
   const floorRef = useRef(0);
+  // Wall-clock time of the FIRST score-progress event, so the live estimate
+  // extrapolates from the observed scoring rate, not from the whole search's
+  // elapsed time (which includes intake/embedding/retrieval before scoring
+  // even starts).
+  const scoreStartRef = useRef<number | null>(null);
+  const [liveRemaining, setLiveRemaining] = useState<string | null>(null);
   // The duration of this browser's LAST successful search (ms), written by
   // IntakeForm on completion. It's the only honest per-machine predictor: hosted
   // and local runs differ by an order of magnitude, and this component can't read
@@ -75,6 +156,18 @@ export default function SearchProgress({
       if (Number.isFinite(n) && n > 0) setLastMs(n);
     } catch { /* localStorage unavailable — fall back to the generic line */ }
   }, []);
+
+  // Live remaining-time estimate: extrapolate from the observed scoring rate
+  // once "score-progress" events (done/total) start arriving.
+  useEffect(() => {
+    if (realKey !== "score-progress") return;
+    const parsed = parseScoreDetail(realDetail);
+    if (!parsed) return;
+    if (scoreStartRef.current == null) scoreStartRef.current = Date.now();
+    const elapsedMs = Date.now() - scoreStartRef.current;
+    const remainingMs = estimateRemainingMs(parsed.done, parsed.total, elapsedMs);
+    setLiveRemaining(remainingMs == null ? null : formatRemaining(remainingMs));
+  }, [realKey, realDetail]);
 
   // A real milestone raises the monotonic floor and snaps the bar up to include it.
   useEffect(() => {
@@ -121,6 +214,14 @@ export default function SearchProgress({
   const label = realLabel || "Reading the federal register…";
   const fact = FACTS[factIndex];
   const estimate = lastMs ? formatDuration(lastMs) : null;
+  // Backend-aware status line: hosted never mentions local models; local names
+  // the model + a rough range, then swaps that range for a live estimate once
+  // scoring progress arrives. `estimate` (above) takes priority when known.
+  const statusMessage = !llm || !llm.local
+    ? "This scores your fit across the opportunities. Hosted models take about a minute or two."
+    : liveRemaining
+      ? `Running ${localModelLabel(llm.model, llm.paramsB)} locally. ${liveRemaining}.`
+      : `Running ${localModelLabel(llm.model, llm.paramsB)} locally — this can take ${localModelEstimateRange(llm.paramsB)}, depending on your hardware.`;
   const mm = Math.floor(elapsed / 60);
   const ss = Math.floor(elapsed % 60).toString().padStart(2, "0");
   const pct = Math.round(display);
@@ -160,7 +261,7 @@ export default function SearchProgress({
       <p className={`mt-3 text-pretty ${mutedClass}`}>
         {estimate
           ? `Your last search took ${estimate}, so this one should be similar. Hang tight.`
-          : "This scores your fit across 968 opportunities. Hosted models take about a minute or two; a large local model is much slower — a 27B model on an Apple-silicon Mac can take 10 minutes or more. You can leave this tab open and check back — the search keeps running while it's open."}
+          : `${statusMessage} You can leave this tab open and check back — the search keeps running while it's open.`}
       </p>
     </div>
   );
