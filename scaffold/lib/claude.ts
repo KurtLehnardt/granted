@@ -132,19 +132,6 @@ function parseJson<T>(raw: string): T {
   }
 }
 
-/**
- * Local models (lib/llm/client.ts forces `response_format: json_object` for
- * the OpenAI-compat shim) sometimes return a single bare `{id, score, ...}`
- * object for a batch instead of the requested array — observed live against
- * Ollama even with `unwrapArrayEnvelope` in place, since a bare object has no
- * enclosing single-key wrapper to unwrap. A caller doing `for (const a of
- * batchAssessments)` then throws "not iterable", which `runGroup`'s
- * best-effort try/catch silently swallows — so scoring progress keeps
- * advancing while zero preview cards stream (matches only appear once
- * `explainMatches` resolves and `ok.flat()` happens to keep the bare object).
- * Every parsed-array call site wraps its result through this so a lone
- * id-bearing object is always treated as a one-item array.
- */
 function asArray<T>(value: T | T[]): T[] {
   return Array.isArray(value) ? value : [value];
 }
@@ -361,11 +348,7 @@ export async function explainMatches(
   // ~700-900 output tokens each and dominates request latency (~3 min for 24
   // candidates); concurrent batches cut wall-clock ~3x with identical per-
   // candidate scoring. max_tokens per batch stays well clear of truncation.
-  // Hosted: 8/batch, run concurrently. Local: batches of 1, run serially — a
-  // local batch call is also the unit `onMatch` (buildOpportunityMap) streams
-  // a card per, so a bigger local batch directly delays the FIRST card by
-  // however long it takes the slow single-GPU model to finish that whole
-  // group, not just one candidate. Both env-overridable via LLM_BATCH_SIZE.
+  // Hosted: 8/batch, concurrent. Local: 1/batch, serial, so cards stream sooner.
   const BATCH = Number(process.env.LLM_BATCH_SIZE) || (isLocalLlm() ? 1 : 8);
   const groups: Opportunity[][] = [];
   for (let i = 0; i < candidates.length; i += BATCH) groups.push(candidates.slice(i, i + BATCH));

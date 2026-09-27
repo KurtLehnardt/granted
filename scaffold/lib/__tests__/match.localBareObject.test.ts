@@ -6,22 +6,8 @@ import { explainMatches } from "../claude";
 import { screen as realScreen } from "../eligibility/screen";
 import type { Opportunity, StartupProfile, Match } from "../types";
 
-/**
- * Regression for the local-model "bare object" bug: with `LLM_PROVIDER=ollama`,
- * the OpenAI-compat shim forces `response_format: json_object`
- * (lib/llm/client.ts), and a small local model (observed live against
- * qwen2.5:3b) sometimes answers a scoring batch with ONE bare
- * `{id,score,...}` object instead of the requested array — even for a
- * single-candidate batch (`LLM_BATCH_SIZE`/local default is 1). Before the
- * `asArray` fix in lib/claude.ts, `for (const a of batchAssessments)` in
- * `buildOpportunityMap` then threw "not iterable", which `runGroup`'s
- * best-effort try/catch silently swallowed — so `onMatch` never fired for
- * that candidate even though the final `assessments` array (via `ok.flat()`)
- * still happened to include it.
- *
- * This exercises the REAL `explainMatches` (not a stub) through the real
- * local shim, with `fetch` stubbed to return exactly that bare-object shape.
- */
+// Regression: a local model answering with a bare {id,score,...} object
+// instead of an array must still yield an assessment and a streamed match.
 
 const QUERY_VEC = [1, 0, 0];
 
@@ -90,11 +76,8 @@ test("local bare-object scoring response: onMatch still fires per candidate and 
   globalThis.fetch = (async (_url: string, init: any) => {
     const body = JSON.parse(init.body);
     const userContent: string = body.messages.find((m: any) => m.role === "user")?.content ?? "";
-    // Local batches are 1 candidate/call, serial and in corpus order — recover
-    // which candidate this call is for from its own request body.
     const id = corpus.find((c) => userContent.includes(`"${c.id}"`))?.id ?? `unknown-${call}`;
     call++;
-    // The observed live failure mode: a BARE object, not `[{...}]`.
     const bareAssessment = {
       id,
       score: 80,
