@@ -19,9 +19,8 @@ import { readJSON, writeJSON } from "@/lib/localStore";
  *
  * Replaces the free-text box as the PRIMARY way users give FundFinder the
  * 13 B1a profile fields (`PROFILE_FIELD_META`, `lib/contracts/companyProfile.ts`)
- * — 5 required + 8 optional-but-material, required first, then progressive
- * disclosure of the material fields once required is complete (or the user
- * opts in early).
+ * — 5 required + 8 optional-but-material, required first, material fields
+ * behind an opt-in toggle.
  *
  * THE CORE GUARANTEE ("never re-ask a provided field"): a field the profile
  * already provides (`isFieldProvided`) NEVER renders as an input — it renders
@@ -267,10 +266,8 @@ export default function ProfileQuestionnaire({
   const pendingFocusFieldRef = useRef<string | null>(null);
 
   // Same idea for the optional-details section: a manual click on "+ Add
-  // optional details" should move focus into the newly-revealed heading. The
-  // automatic reveal-on-required-complete effect below must NOT steal focus
-  // the same way (it can fire mid-keystroke in a required field), so only a
-  // real click sets `manualOpenRef`.
+  // optional details" should move focus into the newly-revealed heading, so
+  // only a real click sets `manualOpenRef`.
   const materialHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const manualOpenRef = useRef(false);
 
@@ -330,14 +327,6 @@ export default function ProfileQuestionnaire({
   const isComplete = gaps.length === 0;
   const canSubmit = requiredGaps.length === 0;
 
-  // Progressive disclosure: once every required field is in, open the
-  // optional section automatically (still opt-out-able via the toggle below
-  // isn't needed — nothing forces the user to fill it; "Find opportunities"
-  // is already enabled at this point).
-  useEffect(() => {
-    if (requiredGaps.length === 0) setShowOptional(true);
-  }, [requiredGaps.length]);
-
   // Focus the newly-revealed input after an "Edit" click (see
   // `pendingFocusFieldRef` above) — fires once per edit, right after the
   // field's editable markup actually lands in the DOM.
@@ -349,8 +338,7 @@ export default function ProfileQuestionnaire({
     }
   }, [editingFields]);
 
-  // Focus the "A few more details" heading after a MANUAL reveal only (never
-  // on the automatic reveal-on-required-complete above) — see
+  // Focus the "A few more details" heading after a MANUAL reveal only — see
   // `manualOpenRef`'s comment.
   useEffect(() => {
     if (showOptional && manualOpenRef.current) {
@@ -695,10 +683,10 @@ export default function ProfileQuestionnaire({
         </div>
       </div>
 
-      {/* Optional-but-material fields — progressive disclosure: revealed once
-          the required set is complete, or on demand via the toggle. Grouped
-          under two user-facing headings (Company & product / Financials)
-          so the list reads as organized sections, not one long form. */}
+      {/* Optional-but-material fields — progressive disclosure: revealed on
+          demand via the toggle. Grouped under two user-facing headings
+          (Company & product / Financials) so the list reads as organized
+          sections, not one long form. */}
       <div className="mt-5 border-t border-structure-on-canvas pt-4">
         {!showOptional ? (
           <button
