@@ -55,7 +55,7 @@ export function allocateCap(
     }
     // Rounding can leave every share at 0 while capacity remains — break the
     // tie by giving the single largest weight×availability source in the
-    // pool one slot.
+    // pool as much of the remainder as it can take.
     if (given === 0) {
       const top = pool.slice().sort((a, b) => score(b) - score(a))[0];
       shares[top] = Math.min(left[top], remaining);
