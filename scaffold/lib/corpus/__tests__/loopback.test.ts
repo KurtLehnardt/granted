@@ -2,12 +2,11 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { isLoopbackIp, isLoopbackRequest } from "../loopback";
 
-function reqWithHeaders(headers: Record<string, string>, ip?: string) {
-  return {
-    headers: { get: (name: string) => headers[name.toLowerCase()] ?? null },
-    ip,
-  };
+function reqWithHeaders(headers: Record<string, string>) {
+  return { headers: { get: (name: string) => headers[name.toLowerCase()] ?? null } };
 }
+
+const LOCAL = { "x-forwarded-for": "127.0.0.1", host: "localhost:3000" };
 
 describe("isLoopbackIp", () => {
   test("accepts loopback forms", () => {
@@ -25,36 +24,63 @@ describe("isLoopbackIp", () => {
 });
 
 describe("isLoopbackRequest", () => {
-  test("a spoofed X-Forwarded-For claiming loopback is NOT trusted on its own", () => {
-    assert.equal(isLoopbackRequest(reqWithHeaders({ "x-forwarded-for": "127.0.0.1" })), false);
+  test("the real SettingsForm same-origin fetch() -> true", () => {
+    assert.equal(isLoopbackRequest(reqWithHeaders({ ...LOCAL, "sec-fetch-site": "same-origin" })), true);
   });
-  test("a spoofed X-Real-IP claiming loopback is NOT trusted on its own", () => {
-    assert.equal(isLoopbackRequest(reqWithHeaders({ "x-real-ip": "::1" })), false);
+  test("no X-Forwarded-For at all -> denied, not assumed local", () => {
+    assert.equal(isLoopbackRequest(reqWithHeaders({ host: "localhost:3000", "sec-fetch-site": "same-origin" })), false);
   });
-  test("no address info at all -> denied, not assumed local", () => {
-    assert.equal(isLoopbackRequest(reqWithHeaders({})), false);
-  });
-  test("same-origin Sec-Fetch-Site (the real SettingsForm fetch()) -> true", () => {
-    assert.equal(isLoopbackRequest(reqWithHeaders({ "sec-fetch-site": "same-origin" })), true);
-  });
-  test("cross-site Sec-Fetch-Site (another tab's page POSTing here) -> false", () => {
-    assert.equal(isLoopbackRequest(reqWithHeaders({ "sec-fetch-site": "cross-site" })), false);
-    assert.equal(isLoopbackRequest(reqWithHeaders({ "sec-fetch-site": "same-site" })), false);
-  });
-  test("Origin that doesn't match Host -> false even with a loopback IP", () => {
+  test("X-Forwarded-For first hop not loopback -> false", () => {
     assert.equal(
-      isLoopbackRequest(reqWithHeaders({ origin: "http://evil.example", host: "localhost:3000" }, "127.0.0.1")),
+      isLoopbackRequest(
+        reqWithHeaders({ "x-forwarded-for": "192.168.1.20", host: "localhost:3000", "sec-fetch-site": "same-origin" }),
+      ),
       false,
     );
   });
+  test("a LAN browser opening the app by its LAN IP -> false (Host isn't loopback)", () => {
+    assert.equal(
+      isLoopbackRequest(
+        reqWithHeaders({
+          "x-forwarded-for": "127.0.0.1",
+          host: "192.168.1.5:3000",
+          origin: "http://192.168.1.5:3000",
+          "sec-fetch-site": "same-origin",
+        }),
+      ),
+      false,
+    );
+  });
+  test("DNS rebinding (Host/Origin point at the attacker's domain) -> false", () => {
+    assert.equal(
+      isLoopbackRequest(
+        reqWithHeaders({
+          "x-forwarded-for": "127.0.0.1",
+          host: "evil.example:3000",
+          origin: "http://evil.example:3000",
+          "sec-fetch-site": "same-origin",
+        }),
+      ),
+      false,
+    );
+  });
+  test("cross-site Sec-Fetch-Site, no matching Origin -> false", () => {
+    assert.equal(isLoopbackRequest(reqWithHeaders({ ...LOCAL, "sec-fetch-site": "cross-site" })), false);
+    assert.equal(isLoopbackRequest(reqWithHeaders({ ...LOCAL, "sec-fetch-site": "same-site" })), false);
+  });
+  test("Origin that doesn't match Host -> false even with loopback XFF/Host", () => {
+    assert.equal(isLoopbackRequest(reqWithHeaders({ ...LOCAL, origin: "http://evil.example" })), false);
+  });
   test("Origin matching Host -> true", () => {
     assert.equal(
-      isLoopbackRequest(reqWithHeaders({ origin: "http://localhost:3000", host: "localhost:3000" })),
+      isLoopbackRequest(reqWithHeaders({ ...LOCAL, origin: "http://localhost:3000" })),
       true,
     );
   });
-  test("trusts req.ip (platform-supplied, not client headers) directly", () => {
-    assert.equal(isLoopbackRequest(reqWithHeaders({}, "203.0.113.9")), false);
-    assert.equal(isLoopbackRequest(reqWithHeaders({}, "127.0.0.1")), true);
+  test("neither Sec-Fetch-Site nor Origin present -> false", () => {
+    assert.equal(isLoopbackRequest(reqWithHeaders(LOCAL)), false);
+  });
+  test("Sec-Fetch-Site: none (browser-initiated navigation) -> true", () => {
+    assert.equal(isLoopbackRequest(reqWithHeaders({ ...LOCAL, "sec-fetch-site": "none" })), true);
   });
 });

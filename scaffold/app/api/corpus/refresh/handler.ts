@@ -20,7 +20,7 @@ const REAL_DEPS: RefreshDeps = {
 };
 
 export async function handleRefreshPost(
-  req: { headers: { get(name: string): string | null }; ip?: string },
+  req: { headers: { get(name: string): string | null } },
   deps: Partial<RefreshDeps> = {},
 ) {
   const d = { ...REAL_DEPS, ...deps };
