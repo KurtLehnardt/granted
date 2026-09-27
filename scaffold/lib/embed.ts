@@ -27,6 +27,7 @@ const DIMENSIONS = process.env.EMBEDDINGS_DIMENSIONS
   : IS_OPENAI
     ? 512
     : undefined;
+export { MODEL as EMBEDDINGS_MODEL, DIMENSIONS as EMBEDDINGS_DIMENSIONS };
 
 /**
  * Conservative placeholder detector: real `sk-`/`sk-proj-` keys are dozens of

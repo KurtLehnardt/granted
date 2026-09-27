@@ -113,6 +113,10 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
       });
       if (res.status === 202) setCorpusStatus((s) => (s ? { ...s, refreshing: true } : s));
       if (res.status === 202 || res.status === 409) await fetchCorpusStatus();
+      else {
+        const { error } = await res.json().catch(() => ({}));
+        setCorpusStatus((s) => (s ? { ...s, lastError: error ?? `HTTP ${res.status}` } : s));
+      }
     } catch {
       /* offline / unreachable — nothing to do, status just won't update */
     }

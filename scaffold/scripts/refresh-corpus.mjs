@@ -33,7 +33,8 @@ import "./_loadEnvLocal.mjs"; // honor scaffold/.env.local when run as plain `no
 import { spawnSync } from "node:child_process";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { embedBatch } from "../lib/embed.ts";
+import { embedBatch, EMBEDDINGS_DIMENSIONS, EMBEDDINGS_MODEL } from "../lib/embed.ts";
+import { clampCorpusSize, DEFAULT_CORPUS_SIZE } from "../lib/searchSettings.ts";
 import { dropExpiredOpportunities } from "../lib/corpus/expiry.ts";
 import { selectCorpusWithinCap } from "../lib/corpus/selection.ts";
 import {
@@ -52,25 +53,12 @@ const LOCAL_DIR = "data/local";
 const RAW_DIR = join(LOCAL_DIR, "raw"); // scratch fetch output — never data/raw/
 const LOCAL_OPPS = join(LOCAL_DIR, "opportunities.json");
 const LOCAL_META = join(LOCAL_DIR, "corpus-meta.json");
-const EMBED_MODEL = process.env.EMBEDDINGS_MODEL || "text-embedding-3-small";
 const EMBED_BATCH = 64;
-const MIN_CAP = 1000;
-const MAX_CAP = 20000;
-const DEFAULT_CAP = 1000;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/** `--max <n>` (from POST /api/corpus/refresh) takes priority over
- *  CORPUS_MAX (a CLI/env default for `npm run data:refresh` directly);
- *  clamped to [1000, 20000], default 1000. */
-function resolveMaxCorpusSize(argv, env) {
-  const flagIdx = argv.indexOf("--max");
-  const raw = flagIdx !== -1 ? argv[flagIdx + 1] : env.CORPUS_MAX;
-  const n = Number(raw);
-  if (!Number.isFinite(n)) return DEFAULT_CAP;
-  return Math.min(MAX_CAP, Math.max(MIN_CAP, Math.floor(n)));
-}
-
-const MAX_CORPUS_SIZE = resolveMaxCorpusSize(process.argv.slice(2), process.env);
+const maxFlag = process.argv.indexOf("--max");
+const requestedMax = Number(maxFlag !== -1 ? process.argv[maxFlag + 1] : process.env.CORPUS_MAX);
+const MAX_CORPUS_SIZE = Number.isFinite(requestedMax) ? clampCorpusSize(requestedMax) : DEFAULT_CORPUS_SIZE;
 
 /** Retries embedBatch with exponential backoff on 429/5xx, same policy as
  *  scripts/3-embed.mjs — a single transient rate limit or Ollama hiccup must
@@ -146,16 +134,11 @@ async function main() {
     const existingMeta = await readJson(LOCAL_META, await readJson("data/corpus-meta.json", {}));
     const existingById = new Map(existing.map((o) => [o.id, o]));
 
-    // A grants.gov detail fetch can fail for an individual opportunity
-    // (scripts/1-fetch.mjs's fetchOpportunity retries then gives up) — that
-    // record normalizes "thin" (title only, no synopsis/eligibility). Rather
-    // than let a thin replacement clobber a previously-embedded full record,
-    // keep the prior version (text + embedding) verbatim when we already
-    // have one.
+    // A failed detail fetch normalizes to a title-only record; keep the prior full one, with current dates.
     const normalizedGrants = grants.map((g) => {
       const norm = normalizeGrantsRecord(g);
-      if (norm && !g._detail && existingById.has(norm.id)) return existingById.get(norm.id);
-      return norm;
+      const prior = !g._detail && existingById.get(norm.id);
+      return prior ? { ...prior, deadline: norm.deadline, forecasted: norm.forecasted } : norm;
     });
 
     let fresh = [
@@ -184,9 +167,9 @@ async function main() {
       }
     }
 
-    const plan = planEmbedding(fresh, priorById, existingMeta.embeddingModel, EMBED_MODEL, existingMeta.dims);
+    const plan = planEmbedding(fresh, priorById, existingMeta.embeddingModel, EMBEDDINGS_MODEL, EMBEDDINGS_DIMENSIONS ?? existingMeta.dims);
     console.log(
-      `Embedding plan: ${plan.reused.length} reused, ${plan.toEmbed.length} to embed with ${EMBED_MODEL}` +
+      `Embedding plan: ${plan.reused.length} reused, ${plan.toEmbed.length} to embed with ${EMBEDDINGS_MODEL}` +
         (plan.fullReembed ? " (embedding model changed — full re-embed)" : ""),
     );
 
@@ -207,7 +190,7 @@ async function main() {
       builtAt: new Date().toISOString(),
       note: "Local corpus refresh (npm run data:refresh) — gitignored, never committed. Read by lib/corpus/store.ts.",
       count: final.length,
-      embeddingModel: EMBED_MODEL,
+      embeddingModel: EMBEDDINGS_MODEL,
       dims: dims ?? existingMeta.dims,
     };
 

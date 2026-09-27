@@ -92,7 +92,7 @@ export const MIN_CORPUS_SIZE = 1000;
 export const MAX_CORPUS_SIZE = 20000;
 export const DEFAULT_CORPUS_SIZE = 1000;
 
-function clampCorpusSize(n: number): number {
+export function clampCorpusSize(n: number): number {
   return Math.min(MAX_CORPUS_SIZE, Math.max(MIN_CORPUS_SIZE, Math.floor(n)));
 }
 

@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { NextResponse } from "next/server";
 import { isLoopbackRequest } from "@/lib/corpus/loopback";
+import { clampCorpusSize } from "@/lib/searchSettings";
 import {
   acquireRefreshLock,
   releaseRefreshLock,
@@ -26,17 +27,6 @@ const REAL_DEPS: RefreshDeps = {
   spawn,
 };
 
-const MIN_CAP = 1000;
-const MAX_CAP = 20000;
-
-/** Clamp the client-supplied cap to [1000, 20000]; anything else (missing,
- *  non-numeric, NaN) falls back to `undefined` — the script's own default. */
-function clampMax(value: unknown): number | undefined {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return undefined;
-  return Math.min(MAX_CAP, Math.max(MIN_CAP, Math.floor(n)));
-}
-
 export async function handleRefreshPost(
   req: { headers: { get(name: string): string | null }; json?: () => Promise<unknown> },
   deps: Partial<RefreshDeps> = {},
@@ -44,13 +34,13 @@ export async function handleRefreshPost(
   const d = { ...REAL_DEPS, ...deps };
 
   if (!d.isLoopbackRequest(req)) {
-    return NextResponse.json({ error: "Forbidden — loopback only" }, { status: 403 });
+    return NextResponse.json({ error: "Refresh is only available from localhost" }, { status: 403 });
   }
 
   let max: number | undefined;
   try {
-    const body = (await req.json?.()) as { max?: unknown } | undefined;
-    max = clampMax(body?.max);
+    const n = Number(((await req.json?.()) as { max?: unknown } | undefined)?.max);
+    if (Number.isFinite(n)) max = clampCorpusSize(n);
   } catch {
     /* no/invalid JSON body — use the script's own default */
   }
