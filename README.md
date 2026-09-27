@@ -2,15 +2,8 @@
 
 **Granted** turns a plain-English description of your business or research into a map of real **federal funding opportunities**: grants, SBIR/STTR R&D, procurement, loans, assistance, scholarships. Each match is scored for fit on the criteria a program officer would apply, and screened for eligibility.
 
-Nothing is fabricated. Every match traces to a real award record, and a schema layer *throws* on any invented program, amount, or citation.
-
-**Run it yourself in ~5 minutes** — with your own API keys or a fully local model. See the Quick start below.
-
-> Originally built for the GOED bounty at AI Builder Day (Aug 2026). It's a working prototype, not enterprise software. But you can run the whole thing on your own keys and deploy it to your own Vercel + Supabase in ~15 minutes. This README is the guide.
-
-## Why this matters
-
-Grounding is the product. Any system can return five matches for any input. Granted scores your fit against a corpus of 968 real federal programs and traces every match to a real award record; when the fit genuinely isn't there, it says so instead of padding the list. A system that fabricates matches for a company that doesn't align with federal grant mechanics fails the people using it.
+**Run it with your own API keys or a fully local model. See the Quick start below.
+Granted scores your business or research against federal programs and traces every match to award records.
 
 ---
 
@@ -18,11 +11,11 @@ Grounding is the product. Any system can return five matches for any input. Gran
 
 ## Quick start (≈ 5 minutes)
 
-**No keys? Still works.** `git clone` → `npm install` → `npm run dev` and you can immediately try the 5 built-in sample companies — their results are served from cache, so they need no API keys at all. You only need API keys (or a local model) to search your *own* company description.
+**No Cloud LLM keys or subscription? Still works.** `git clone` → `npm install` → `npm run dev` and you can immediately try the 5 built-in sample companies — their results are served from cache, so they need no API keys at all. You only need API keys (or a local model) to search your *own* company description.
 
-**Even faster: no input at all.** Visit `/demo` for a static, pre-baked sample opportunity map (and `/demo/eligibility` for the eligibility view) — no keys, no form, loads instantly.
+**Even faster: no input at all.** Visit `/demo` for a static, pre-baked sample opportunity map (and `/demo/eligibility` for the eligibility view)
 
-To search your own description you need [Node 20 LTS](https://nodejs.org) (18.17+ works) and two API keys (OpenAI + Anthropic). The 968-opportunity corpus ships committed, so there's no data pipeline to run before you can start.
+To search your own description you need [Node 20 LTS](https://nodejs.org) (18.17+ works) and two API keys (OpenAI + Anthropic), or a local model installed (steps below).
 
 ```bash
 git clone https://github.com/KurtLehnardt/granted.git
@@ -32,36 +25,6 @@ npm run dev        # → http://localhost:3000
 ```
 
 `npm run setup` never prints or commits your keys (they go into `scaffold/.env.local`, which is gitignored). Prefer to do it by hand? See **Manual setup** below.
-
-## What you need (and where to get it)
-
-| Thing | Required? | Where | Notes |
-|---|---|---|---|
-| **OpenAI API key** | For your own searches (the 5 samples work without any keys) | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) | Embeddings (`text-embedding-3-small`). Pennies per search. |
-| **Anthropic API key** | For your own searches (the 5 samples work without any keys) | [console.anthropic.com](https://console.anthropic.com/settings/keys) | Claude: scoring + explanations. A novel search runs ~$0.05–0.33. |
-| **Exa API key** | Optional | [dashboard.exa.ai](https://dashboard.exa.ai) | Only for the deep competitor analysis' *live web* results. Without it, that feature degrades honestly to federal awardees only. |
-| **Supabase project** | Optional | [supabase.com](https://supabase.com) | Only for **real Google sign-in**. The core app runs fine without any auth. |
-| **Google OAuth credentials** | Optional | [Google Cloud Console](https://console.cloud.google.com) | Only if you enable real sign-in (see below). |
-| **Vercel account** | Optional | [vercel.com](https://vercel.com) | Only to deploy. Local dev needs none of it. |
-
-> **Cost:** every search spends real OpenAI + Anthropic credits. Keep an eye on your Anthropic balance. A heavy batch of searches can burn several dollars and will 400 with *"credit balance too low"* if you run dry.
-
-## Manual setup (instead of the script)
-
-```bash
-cd scaffold
-cp .env.example .env.local
-npm install
-```
-
-Then edit `scaffold/.env.local` and set at least:
-
-```bash
-OPENAI_API_KEY=sk-...
-ANTHROPIC_API_KEY=sk-ant-...
-```
-
-Everything else in `.env.example` is optional and documented inline. Start with `npm run dev`.
 
 ## Run on a local model (Ollama: no API keys, can be fully offline)
 
@@ -85,6 +48,34 @@ Detects your OS + available memory/GPU, recommends and pulls an Ollama chat mode
    # ANTHROPIC_API_KEY is no longer needed.
    ```
 3. `npm run dev`. Every scoring/explanation call now routes to Ollama's OpenAI-compatible endpoint, with grammar-constrained JSON so a local model stays parseable. Any OpenAI-compatible server works (LM Studio, vLLM, llama.cpp). Set `LLM_BASE_URL` to its `/v1` URL.
+
+## Manual setup (instead of the script)
+
+```bash
+cd scaffold
+cp .env.example .env.local
+npm install
+```
+
+Then edit `scaffold/.env.local` and set at least:
+
+```bash
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+Everything else in `.env.example` is optional and documented inline. Start with `npm run dev`.
+
+## What you need (and where to get it)
+
+| Thing | Required? | Where | Notes |
+|---|---|---|---|
+| **OpenAI API key** | For your own searches (the 5 samples work without any keys) | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) | Embeddings (`text-embedding-3-small`). Pennies per search. |
+| **Anthropic API key** | For your own searches (the 5 samples work without any keys) | [console.anthropic.com](https://console.anthropic.com/settings/keys) | Claude: scoring + explanations. A novel search runs ~$0.05–0.33. |
+| **Exa API key** | Optional | [dashboard.exa.ai](https://dashboard.exa.ai) | Only for the deep competitor analysis' *live web* results. Without it, that feature degrades honestly to federal awardees only. |
+| **Supabase project** | Optional | [supabase.com](https://supabase.com) | Only for **real Google sign-in**. The core app runs fine without any auth. |
+| **Google OAuth credentials** | Optional | [Google Cloud Console](https://console.cloud.google.com) | Only if you enable real sign-in (see below). |
+| **Vercel account** | Optional | [vercel.com](https://vercel.com) | Only to deploy. Local dev needs none of it. |
 
 ### Fully offline
 **Embeddings are a SEPARATE setting from the LLM.** `LLM_PROVIDER=ollama` (above) only moves the scoring/explanation calls — it does **not** move the query embedding. By default that tiny embedding still uses OpenAI (the corpus ships pre-embedded at 512 dims; it costs fractions of a cent), and if `OPENAI_API_KEY` is missing or still the `.env.example` placeholder you'll get a clear error rather than a hosted call. To remove that last hosted call and go fully local, you must ALSO set `EMBEDDINGS_BASE_URL`/`EMBEDDINGS_MODEL`, pull a local embedding model, and re-embed the corpus with that model:
@@ -166,10 +157,6 @@ npm run build            # emits a loadable extension into extension/dist/
 ```
 Then in Chrome (or any Chromium browser): open `chrome://extensions` → turn on **Developer mode** (top-right) → **Load unpacked** → select **`extension/dist/`** (the *build output* — **not** the `extension/` folder itself; the manifest is generated into `dist/` by the build, so pointing Chrome at `extension/` gives *"manifest file not found or unreadable"*). The "Granted Assisted Fill" icon appears in the toolbar. After code changes, re-run `npm run build` and hit reload on the extension's card.
 
-**Two honest gaps, for now:**
-- **The app can't generate a real package yet.** The in-app flow that used to assemble and export a `.granted.json` was unreliable, so it's disabled — the app's own "How can I apply?" button opens a plain, read-only checklist instead. To see the extension's import mechanics, use the bundled sample **[`extension/example.granted.json`](extension/example.granted.json)** (still tamper-evident and digest-verified, so you can't hand-edit it).
-- **Every portal field selector is a `TODO:` placeholder.** The initial recon couldn't reach the four target portals (grants.gov, NIH ASSIST, Research.gov, SBIR.gov) — they sit behind login and an **Active SAM.gov registration** (which can take ~2 weeks to become Active). So today the extension loads and validates an imported package, but fills nothing. `extension/README.md` documents the selector-capture procedure for anyone who wants to finish this.
-
 ## Refreshing the data (optional)
 
 The corpus (`scaffold/data/opportunities.json`, 968 opportunities across grants.gov, SAM.gov, SBIR, USAspending) is committed, so you don't need this to run. To rebuild it from the live public sources:
@@ -180,8 +167,6 @@ npm run data:mvp        # fetch SAM assistance + SBIR + procurement, assemble
 npm run data:embed      # embed everything (~1 min, <$1 of OpenAI)
 npm run data:precompute # (optional) freeze the demo test cases for instant renders
 ```
-
-All sources are keyless. There is a Supabase-backed corpus store (`supabase/migrations/00001_*.sql`) for a future dynamic pipeline, but the app reads the static JSON by default, so you can ignore it.
 
 ---
 
@@ -195,13 +180,6 @@ All sources are keyless. There is a Supabase-backed corpus store (`supabase/migr
 6. **When nothing fits.** That's a first-class finding with real redirects, so even a weak-field run points you somewhere useful.
 
 Results **stream**. Progress and grounded evidence appear in seconds rather than behind a frozen spinner.
-
-## Design philosophy
-
-- **Say no plainly.** Honesty is the differentiator, not a failure state.
-- **Ground everything.** Every claim traces to a real record; the schema throws on fabrication.
-- **Translate government.** Plain language first; jargon only when necessary.
-- **Ship risky things dark.** Every feature is flag-gated and default-off.
 
 ## Project structure
 
