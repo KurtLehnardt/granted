@@ -155,7 +155,7 @@ Now nothing leaves your machine.
 ### The honest tradeoff
 
 Hosted Claude is faster and more reliable at the strict, structured JSON this pipeline asks for, and its scoring is better calibrated. A capable local model still handles it — verified end to end on both macOS (`qwen2.5:14b`, 32GB RAM: 3:43 for an 18-candidate search) and Linux (`llama3.2:1b`, 2 vCPU/8GB/no GPU: 20:43 for 21 candidates), both fully local with real matches. Two caveats:
-- **It's much slower on modest hardware.** A CPU-only, small-memory box serves scoring batches one at a time — the Linux number above is close to worst-case. A GPU or more RAM (the macOS number) closes most of that gap. Batches run serially and smaller when local (`LLM_BATCH_SIZE`, default 3) to stay under the per-call timeout; raise `ANTHROPIC_TIMEOUT_MS` if a big model needs longer.
+- **It's much slower on modest hardware.** A CPU-only, small-memory box serves scoring batches one at a time — the Linux number above is close to worst-case. A GPU or more RAM (the macOS number) closes most of that gap. Local scoring runs one candidate per call, serially (`LLM_BATCH_SIZE` overrides), so each card appears as soon as it's scored; raise `LOCAL_LLM_TIMEOUT_MS` (default 30 min per call) if a big model needs longer.
 - **Quality is rougher.** Smaller or older models score less consistently and occasionally emit JSON even the repair layer can't recover. Use a strong instruction-following model, and expect a coarser result than the hosted default.
 
 It's a real option for privacy or zero-cost runs, just not the fast path.
