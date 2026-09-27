@@ -76,7 +76,11 @@ async function writeAtomic(path, content) {
 
 function run(label, script, env) {
   console.log(`\n— ${label} —`);
-  const res = spawnSync(process.execPath, [script], { stdio: "inherit", env: { ...process.env, ...env } });
+  const res = spawnSync(process.execPath, [script], {
+    stdio: "inherit",
+    windowsHide: true,
+    env: { ...process.env, ...env },
+  });
   if (res.status !== 0) throw new Error(`${script} exited ${res.status}`);
 }
 

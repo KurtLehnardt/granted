@@ -41,6 +41,7 @@ export async function handleRefreshPost(
       cwd: process.cwd(),
       detached: true,
       stdio: "ignore",
+      windowsHide: true,
       env: { ...process.env, GRANTED_REFRESH_LOCK_HELD: "1" },
     });
   } catch (e) {
