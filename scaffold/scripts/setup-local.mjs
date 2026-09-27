@@ -26,7 +26,7 @@
  * parser) is exported and unit-tested in scripts/__tests__/setupLocal.test.ts;
  * none of the tests need a TTY or a live Ollama.
  */
-import { readFileSync, writeFileSync, existsSync, copyFileSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, copyFileSync, realpathSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
@@ -619,7 +619,7 @@ async function main() {
 
 const isMainModule =
   process.argv[1] !== undefined &&
-  import.meta.url === pathToFileURL(process.argv[1]).href;
+  import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
 if (isMainModule) {
   main().catch((err) => {
     console.error(c.r(`\nUnexpected error: ${err?.message || err}`));

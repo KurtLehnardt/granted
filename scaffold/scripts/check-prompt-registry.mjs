@@ -40,7 +40,7 @@
  * Exit code 0 = clean, 1 = violations found (or scan error).
  */
 import ts from "typescript";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, statSync, realpathSync } from "node:fs";
 import { join, relative, extname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 // The pure, dependency-free banned-phrasings core lives in its own module so
@@ -237,7 +237,7 @@ function main() {
 // exported functions without triggering `process.exit()`).
 const isMainModule =
   process.argv[1] !== undefined &&
-  import.meta.url === pathToFileURL(process.argv[1]).href;
+  import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
 if (isMainModule) {
   main();
 }
