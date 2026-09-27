@@ -12,4 +12,4 @@
  */
 export type { FlagName, FlagDefinition } from "./registry";
 export { FLAG_REGISTRY } from "./registry";
-export { isFlagEnabled, getAllFlags, FLAG_DEFAULT } from "./accessor";
+export { isFlagEnabled, isFlagExplicitlyDisabled, getAllFlags, FLAG_DEFAULT } from "./accessor";

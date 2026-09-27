@@ -59,6 +59,22 @@ export function isFlagEnabled(
   return parseOverride(raw) ?? FLAG_DEFAULT;
 }
 
+/**
+ * Was `name` set to an explicit falsy value (as opposed to just left unset)? For a flag whose
+ * caller wants a non-`FLAG_DEFAULT` default (e.g. "on for local, unless explicitly turned off"),
+ * `isFlagEnabled` alone can't distinguish "unset" from "off" — both resolve to `false`.
+ */
+export function isFlagExplicitlyDisabled(
+  name: FlagName,
+  configOverrides?: Partial<Record<FlagName, string | undefined>>
+): boolean {
+  const raw =
+    configOverrides && Object.prototype.hasOwnProperty.call(configOverrides, name)
+      ? configOverrides[name]
+      : readRawOverrides()[name];
+  return parseOverride(raw) === false;
+}
+
 /** Every registered flag's current resolved value. Useful for a debug panel or a single log line. */
 export function getAllFlags(
   configOverrides?: Partial<Record<FlagName, string | undefined>>

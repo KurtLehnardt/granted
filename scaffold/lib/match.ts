@@ -11,7 +11,7 @@ import { scoreOnlyAssessment } from "./scoring/twoPass";
 import awards from "@/data/awards.json";
 import { createCostMeter, type CostMeter } from "./metering/meter";
 import { CURRENT_OPPORTUNITY_MAP_VERSION } from "./contracts/opportunityMap";
-import { isFlagEnabled } from "./flags";
+import { isFlagEnabled, isFlagExplicitlyDisabled } from "./flags";
 import { isLocalLlm } from "./llm/client";
 import { recommendFor, mapVerdict } from "./recommend";
 // F3 — weak-field redirects should name a few REAL Utah/SBA programs, not just
@@ -409,6 +409,11 @@ export async function buildOpportunityMap(
   // clock, NOT a count of anything scored. The LABEL must never render that
   // number; when two-pass supplies `twoPassDetail` (the real Pass A/B counts)
   // it's used instead, so the text stays truthful across both passes.
+  // `preDone` counts toward `pct` (it's real, free progress) but NEVER toward
+  // `detail` — SearchProgress derives a per-candidate LLM rate from
+  // done/total to estimate remaining time, and pre-excluded candidates never
+  // touched the LLM, so folding them in would skew that rate.
+  const scorable = toScore.length;
   const emitScoreProgress = (doneInScoring: number, twoPassDetail?: TwoPassProgressDetail) => {
     const done = preDone + doneInScoring;
     const pct = total > 0 ? 52 + Math.round((done / total) * 36) : 52;
@@ -417,7 +422,7 @@ export async function buildOpportunityMap(
         ? `Scored ${preDone + twoPassDetail.passAScored} of ${total} programs, writing ${twoPassDetail.passBScored} of ${twoPassDetail.promotedCount} summaries`
         : `Scored ${preDone + twoPassDetail.passAScored} of ${total} programs`
       : `Scored ${done} of ${total} programs`;
-    step({ key: "score-progress", label, pct, detail: `${done}/${total}` });
+    step({ key: "score-progress", label, pct, detail: `${doneInScoring}/${scorable}` });
   };
   // `byId` covers every retrieved candidate (including pre-excluded ones), used
   // both by the progressive preview below (as each result lands) and by the
@@ -427,11 +432,14 @@ export async function buildOpportunityMap(
   // promoted candidates) is now the DEFAULT scorer for local models — a small
   // local model's ~30s/candidate full-narrative call is too slow to run over
   // every retrieved candidate, so cutting narration to the top few is load-
-  // bearing there, not just a cost optimization. Hosted keeps its existing
-  // flag-controlled behavior (`e3_two_pass`, default off). Both scorers return
-  // the same `Assessment[]` shape, so everything below (tiering, eligibility,
-  // summary) is untouched either way.
-  const useTwoPass = isLocalLlm() || isFlagEnabled("e3_two_pass");
+  // bearing there, not just a cost optimization. `NEXT_PUBLIC_FLAG_E3_TWO_PASS=false`
+  // forces single-pass back on for local (an explicit opt-out, not just unset).
+  // Hosted keeps its existing flag-controlled behavior (`e3_two_pass`, default
+  // off). Both scorers return the same `Assessment[]` shape, so everything
+  // below (tiering, eligibility, summary) is untouched either way.
+  const useTwoPass = isLocalLlm()
+    ? !isFlagExplicitlyDisabled("e3_two_pass")
+    : isFlagEnabled("e3_two_pass");
   const candidatesToScore = toScore.map((s) => s.o);
   // Progressive preview: emit (or re-emit, updating the same card in place —
   // see IntakeForm/page.tsx's id-keyed preview list) a Match the instant an
