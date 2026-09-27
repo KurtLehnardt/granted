@@ -54,9 +54,21 @@ function mtimeOf(path: string): number {
   }
 }
 
+interface CorpusCache {
+  /** Original (pre-fallback) opportunities path from resolvePaths(), so a
+   *  corrupt local file keeps hitting this cache without being re-parsed. */
+  key: string;
+  keyMtimeMs: number;
+  metaPath: string;
+  metaMtimeMs: number;
+  opportunities: Opportunity[];
+  meta: CorpusMeta;
+  source: "local" | "committed";
+}
+
 export class CorpusStore {
   private readonly baseDir: string;
-  private cache: { path: string; mtimeMs: number; opportunities: Opportunity[]; meta: CorpusMeta } | null = null;
+  private cache: CorpusCache | null = null;
 
   constructor(baseDir: string = process.cwd()) {
     this.baseDir = baseDir;
@@ -75,27 +87,43 @@ export class CorpusStore {
   }
 
   load(): CorpusInfo {
-    let { oppsPath, metaPath, source } = this.resolvePaths();
-    let mtimeMs = mtimeOf(oppsPath);
-    if (this.cache && this.cache.path === oppsPath && this.cache.mtimeMs === mtimeMs) {
-      return { opportunities: this.cache.opportunities, meta: this.cache.meta, source };
+    const { oppsPath: key, metaPath } = this.resolvePaths();
+    const keyMtimeMs = mtimeOf(key);
+    const cache = this.cache;
+    if (
+      cache &&
+      cache.key === key &&
+      cache.keyMtimeMs === keyMtimeMs &&
+      cache.metaMtimeMs === mtimeOf(cache.metaPath)
+    ) {
+      return { opportunities: cache.opportunities, meta: cache.meta, source: cache.source };
     }
+
+    let { oppsPath, source } = this.resolvePaths();
+    let resolvedMetaPath = metaPath;
     let opportunities = tryReadOpportunities(oppsPath);
     if (opportunities == null && source === "local") {
       // Corrupt/unreadable local refresh — fall back to the committed
       // snapshot rather than silently serving an empty corpus.
       oppsPath = join(this.baseDir, "data", "opportunities.json");
-      metaPath = join(this.baseDir, "data", "corpus-meta.json");
+      resolvedMetaPath = join(this.baseDir, "data", "corpus-meta.json");
       source = "committed";
-      mtimeMs = mtimeOf(oppsPath);
       opportunities = tryReadOpportunities(oppsPath) ?? [];
     } else if (opportunities == null) {
       opportunities = [];
     }
-    const rawMeta = readJson<CorpusMeta>(metaPath, {});
+    const rawMeta = readJson<CorpusMeta>(resolvedMetaPath, {});
     const dims = opportunities.find((o) => Array.isArray(o.embedding) && o.embedding.length > 0)?.embedding?.length;
     const meta: CorpusMeta = { ...rawMeta, count: opportunities.length, dims: rawMeta.dims ?? dims };
-    this.cache = { path: oppsPath, mtimeMs, opportunities, meta };
+    this.cache = {
+      key,
+      keyMtimeMs,
+      metaPath: resolvedMetaPath,
+      metaMtimeMs: mtimeOf(resolvedMetaPath),
+      opportunities,
+      meta,
+      source,
+    };
     return { opportunities, meta, source };
   }
 

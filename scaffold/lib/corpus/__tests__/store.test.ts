@@ -95,6 +95,42 @@ describe("CorpusStore", () => {
     rmSync(baseDir, { recursive: true, force: true });
   });
 
+  test("meta write lagging behind opportunities write invalidates the cache once meta catches up", () => {
+    const baseDir = makeBaseDir();
+    writeLocal(baseDir, [{ id: "local-1" }], { builtAt: "2026-01-01T00:00:00.000Z" });
+    const store = new CorpusStore(baseDir);
+    const first = store.load();
+    assert.equal(first.meta.builtAt, "2026-01-01T00:00:00.000Z");
+
+    // Simulate the script's write order: opportunities.json lands first, its
+    // mtime unchanged from what we already cached (same content-free write in
+    // this test), while corpus-meta.json is rewritten after.
+    writeFileSync(join(baseDir, "data", "local", "corpus-meta.json"), JSON.stringify({ builtAt: "2026-09-01T00:00:00.000Z" }));
+    const afterMetaWrite = store.load();
+    assert.equal(afterMetaWrite.meta.builtAt, "2026-09-01T00:00:00.000Z");
+    rmSync(baseDir, { recursive: true, force: true });
+  });
+
+  test("a corrupt local file's fallback isn't re-parsed on repeat loads (only the local file's mtime is checked)", () => {
+    const baseDir = makeBaseDir();
+    writeCommitted(baseDir, [{ id: "committed" }]);
+    mkdirSync(join(baseDir, "data", "local"), { recursive: true });
+    const localOppsPath = join(baseDir, "data", "local", "opportunities.json");
+    writeFileSync(localOppsPath, "{not valid json");
+    const store = new CorpusStore(baseDir);
+    const first = store.load();
+    assert.equal(first.source, "committed");
+
+    // Rewrite the committed corpus without the store knowing — if the store
+    // is still re-parsing on every request despite the unchanged (corrupt)
+    // local file, this second load would pick it up; it must instead serve
+    // the cached fallback.
+    writeFileSync(join(baseDir, "data", "opportunities.json"), JSON.stringify([{ id: "committed" }, { id: "new" }]));
+    const second = store.load();
+    assert.deepEqual(second.opportunities, [{ id: "committed" }]);
+    rmSync(baseDir, { recursive: true, force: true });
+  });
+
   test("missing/corrupt files degrade to an empty corpus, never throw", () => {
     const baseDir = makeBaseDir();
     const store = new CorpusStore(baseDir);
