@@ -235,9 +235,13 @@ function main() {
 // Run only when executed directly (`node scripts/check-prompt-registry.mjs`),
 // not when imported as a module (e.g. by the test file, which needs the
 // exported functions without triggering `process.exit()`).
-const isMainModule =
-  process.argv[1] !== undefined &&
-  import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+const isMainModule = (() => {
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+  } catch {
+    return false;
+  }
+})();
 if (isMainModule) {
   main();
 }

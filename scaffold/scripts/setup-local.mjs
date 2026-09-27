@@ -617,9 +617,13 @@ async function main() {
   process.exit(0);
 }
 
-const isMainModule =
-  process.argv[1] !== undefined &&
-  import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+const isMainModule = (() => {
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+  } catch {
+    return false;
+  }
+})();
 if (isMainModule) {
   main().catch((err) => {
     console.error(c.r(`\nUnexpected error: ${err?.message || err}`));
