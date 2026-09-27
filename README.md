@@ -46,8 +46,10 @@ Verified end to end on this flow: a 32GB Mac auto-picked `qwen2.5:14b` and compl
 
 ## Install on Windows
 
+*This section is written from Ollama/Node's documented Windows support and this project's own (already-unit-tested) Windows memory-detection code — it hasn't been run end-to-end on real Windows hardware yet in this repo. If something's off, please open an issue.*
+
 **1. Prerequisites**
-- [Node 20+](https://nodejs.org), or `winget install OpenJS.NodeJS.LTS`.
+- [Node 20+](https://nodejs.org), or `winget install OpenJS.NodeJS.LTS`. (Node 22+ avoids an `EBADENGINE` warning one dependency now emits on 20 — the app runs fine either way.)
 - [git](https://git-scm.com/download/win), or `winget install Git.Git`.
 - PowerShell (default on Windows 10/11) or Git Bash — both work with everything below.
 
@@ -73,7 +75,6 @@ Or by hand: `Copy-Item .env.example .env.local` (PowerShell) or `cp .env.example
 npm run setup:local -- --yes        # picks a model sized for your RAM/VRAM, pulls it, re-embeds the corpus
 npm run dev
 ```
-The guided script's Windows memory-detection branch (PowerShell `Get-CimInstance`) is unit-tested, but this repo hasn't run the flow end-to-end on real Windows hardware yet — if something's off here, please open an issue.
 
 ## Install on Linux
 
@@ -82,6 +83,7 @@ The guided script's Windows memory-detection branch (PowerShell `Get-CimInstance
 curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt-get install -y nodejs git
 ```
+This installs Node 20, which throws a harmless `EBADENGINE` warning during `npm install` (one dependency now wants 22+; the app runs fine on 20 regardless). Use `setup_22.x` above instead if you'd rather avoid the warning.
 
 **2. Clone and try it with zero keys**
 ```bash
@@ -127,7 +129,7 @@ Verified end to end on the smallest realistic box (2 vCPU, 8GB RAM, no GPU): aut
 | 32GB+ | `qwen2.5:14b` | Best local quality. |
 | 16–32GB | `qwen2.5:7b` | Strong, well-calibrated default. |
 | 8–16GB | `llama3.2:3b` | Good balance. |
-| Under 8GB | `llama3.2:1b` | Fits small GPUs; rougher quality, slow scoring. |
+| Under 8GB | `llama3.2:1b` | Runs on modest RAM (verified CPU-only, no GPU); rougher quality, slow scoring. |
 
 Then in `scaffold/.env.local`:
 ```bash
