@@ -94,9 +94,7 @@ export function buildKeyDates(opportunity: Opportunity): KeyDateItem[] {
     });
   }
 
-  // No explicit deadline — a forecasted record says so; otherwise stay honest
-  // that we don't know the deadline (`status: "continuous"` means an ongoing
-  // program, not a program with no fixed deadline).
+  // No explicit deadline — say so honestly rather than inventing one.
   if (items.length === 0) {
     if (isForecasted(opportunity)) {
       items.push({ label: "Deadline", value: "Forecasted — not yet open for applications" });
@@ -177,8 +175,7 @@ export function buildQuestions(opportunity: Opportunity): string[] {
   return questions;
 }
 
-/** A next-step is rendered as this sequence of parts: plain text interleaved
- *  with real links, so a URL from the data is never spliced into prose as inert text. */
+/** A next-step is rendered as parts: plain text interleaved with real links. */
 export type StepPart = string | { text: string; href: string };
 export type Step = StepPart[];
 
@@ -187,10 +184,7 @@ export function stepText(step: Step): string {
   return step.map((p) => (typeof p === "string" ? p : p.text)).join("");
 }
 
-/** A clickable pointer at the opportunity's own URL, or an honest fallback naming its source.
- *  Only ever a real link when the URL has an http(s) scheme — a bare domain (e.g.
- *  "www.example.com") or any other scheme (e.g. "javascript:") is rendered as plain text
- *  instead of becoming an href. */
+/** A clickable link at the URL if it's http(s), else a plain-text fallback naming the source. */
 function sourcePointer(opportunity: Opportunity, label: string): StepPart {
   return opportunity.url && /^https?:\/\//i.test(opportunity.url)
     ? { text: label, href: opportunity.url }
@@ -220,19 +214,19 @@ function sourceApplyStep(opportunity: Opportunity, now?: number): Step {
     }
     case "sbir":
     case "sbir.gov": {
-      // Past-award listing, not an open solicitation — record is background only.
-      // `opportunity.url` here is the awardee's own website (or, absent that, a
-      // generic SBIR.gov search page) — never a record of this specific award,
-      // so it must not be labeled as one.
+      // Past-award listing, not an open solicitation — background only, never labeled as this award's own page.
       const isGenericFallback = opportunity.url === "https://www.sbir.gov/awards";
-      const pointer = sourcePointer(opportunity, isGenericFallback ? "SBIR.gov awards search" : "the awardee's website");
-      return [
-        `Search ${opportunity.agency}'s SBIR/STTR program site for the current solicitation and where to submit. This record is background, not an application portal. ${
-          isGenericFallback ? "See" : "Awardee:"
-        } `,
-        pointer,
-        `.`,
-      ];
+      const isHttpUrl = !!opportunity.url && /^https?:\/\//i.test(opportunity.url);
+      const intro = `Search ${opportunity.agency}'s SBIR/STTR program site for the current solicitation and where to submit. This record is background, not an application portal. `;
+      if (isGenericFallback) {
+        return [intro, "See ", sourcePointer(opportunity, "SBIR.gov awards search"), "."];
+      }
+      if (isHttpUrl) {
+        return [intro, "Awardee: ", sourcePointer(opportunity, "the awardee's website"), "."];
+      }
+      return opportunity.url
+        ? [intro, `Awardee website: ${opportunity.url}.`]
+        : [intro, sourcePointer(opportunity, "the awardee's website"), "."];
     }
     case "assistance-listings":
     case "sam.gov": {

@@ -14,8 +14,7 @@ import ApplicationChecklist, {
   stepText,
 } from "../ApplicationChecklist";
 
-// Fixed reference "now" so deadline-relative assertions don't depend on the
-// actual clock at whatever future date these tests happen to run.
+// Fixed "now" so deadline-relative assertions don't depend on the actual clock.
 const NOW = Date.parse("2026-09-27T00:00:00.000Z");
 
 /**
@@ -76,9 +75,7 @@ const BARE_OPPORTUNITY: Opportunity = {
   description: "No dates on file.",
 };
 
-// Two grants.gov grants — same source AND kind — that only differ in
-// forecasted/deadline/funding/eligibility/match-guidance, mirroring the
-// grants-358687-vs-grants-362086-style corpus records this fix targets.
+// Two grants.gov grants — same source and kind, different dates/funding.
 const GRANTS_GOV_OPEN: Opportunity = {
   id: "grants-open-1",
   source: "grants.gov",
@@ -94,9 +91,7 @@ const GRANTS_GOV_OPEN: Opportunity = {
   url: "https://www.grants.gov/search-results-detail/353936",
 };
 
-// Same record as GRANTS_GOV_OPEN but its deadline is behind NOW — the
-// user's actual reported case (grants-363537-style: deadline passed, but
-// still not forecasted/evergreen/closed).
+// Same record as GRANTS_GOV_OPEN but its deadline is behind NOW.
 const GRANTS_GOV_PASSED: Opportunity = {
   ...GRANTS_GOV_OPEN,
   id: "grants-passed-1",
@@ -321,14 +316,16 @@ describe("buildNextSteps", () => {
     assert.equal(linkPart?.text, "SBIR.gov awards search");
   });
 
-  test("a bare-domain SBIR website (no http/https scheme) is rendered as plain text, never a broken relative link", () => {
+  test("a bare-domain SBIR website (no http/https scheme) is rendered as plain text, never a broken relative link or a mislabeled listing", () => {
     const step = buildNextSteps(
       asMatch({ ...RD_OPPORTUNITY, url: "www.aspectaerospace.com" }),
       true,
     )[0];
     const linkPart = step.find((p) => typeof p !== "string");
     assert.equal(linkPart, undefined);
-    assert.match(stepText(step), /source: sbir/i);
+    const text = stepText(step);
+    assert.match(text, /www\.aspectaerospace\.com/);
+    assert.doesNotMatch(text, /Awardee: the full listing/i);
   });
 
   test("a forecasted grants.gov opportunity is described as not yet open, using its own flag — not a fixed deadline claim", () => {
@@ -406,10 +403,7 @@ describe("buildApplicationChecklist", () => {
     assert.notEqual(stepText(grantsGovModel.nextSteps[0]), stepText(assistanceModel.nextSteps[0])); // different source -> different apply step
   });
 
-  // The user's actual reported case: two grants.gov grants (same source, same
-  // kind) that only differ in their own forecasted/deadline/funding/
-  // eligibility/match data must produce meaningfully different content, not
-  // just a swapped title and URL.
+  // Same source and kind must still produce meaningfully different content.
   test("two SAME-SOURCE, SAME-KIND grants.gov opportunities produce meaningfully different content", () => {
     const openModel = buildApplicationChecklist(
       asMatch(GRANTS_GOV_OPEN, { whatToVerify: "Your PI holds a qualifying faculty appointment." }),
