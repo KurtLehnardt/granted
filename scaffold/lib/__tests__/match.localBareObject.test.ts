@@ -2,12 +2,14 @@ import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 
 import { buildOpportunityMap, type BuildDeps } from "../match";
-import { explainMatches } from "../claude";
+import { explainMatches, explainMatchesTwoPass } from "../claude";
 import { screen as realScreen } from "../eligibility/screen";
 import type { Opportunity, StartupProfile, Match } from "../types";
 
 // Regression: a local model answering with a bare {id,score,...} object
 // instead of an array must still yield an assessment and a streamed match.
+// Local models default to the two-pass scorer (E3), so both Pass A and Pass B
+// must survive a bare-object response.
 
 const QUERY_VEC = [1, 0, 0];
 
@@ -53,6 +55,7 @@ const deps: Partial<BuildDeps> = {
   extractProfile: async () => ({ profile, followUps: [] }),
   embed: async () => QUERY_VEC,
   explainMatches,
+  explainMatchesTwoPass,
   explainWeakField: async () => ({
     headline: "No strong federal match yet",
     reasoning: "Your work is early for the programs in scope.",
@@ -64,6 +67,8 @@ const deps: Partial<BuildDeps> = {
 test("local bare-object scoring response: onMatch still fires per candidate and no match is dropped", async () => {
   process.env.LLM_PROVIDER = "ollama";
   delete process.env.LLM_BATCH_SIZE;
+  delete process.env.LLM_PASS_A_BATCH_SIZE;
+  delete process.env.LLM_PASS_B_BATCH_SIZE;
 
   let call = 0;
   globalThis.fetch = (async (_url: string, init: any) => {
@@ -71,6 +76,9 @@ test("local bare-object scoring response: onMatch still fires per candidate and 
     const userContent: string = body.messages.find((m: any) => m.role === "user")?.content ?? "";
     const id = corpus.find((c) => userContent.includes(`"${c.id}"`))?.id ?? `unknown-${call}`;
     call++;
+    // The SAME bare object shape answers BOTH Pass A (score-only prompt) and
+    // Pass B (full-narrative prompt) — Pass A only reads `id`/`score` off it,
+    // Pass B uses the whole thing. Neither is ever an array.
     const bareAssessment = {
       id,
       score: 80,
@@ -102,15 +110,25 @@ test("local bare-object scoring response: onMatch still fires per candidate and 
     (m) => previewed.push(m),
   );
 
-  assert.equal(call, corpus.length, "one scoring call per candidate at local batch size 1");
+  assert.equal(
+    call,
+    corpus.length * 2,
+    "one Pass-A call + one Pass-B call per candidate at local batch size 1",
+  );
   assert.equal(
     previewed.length,
-    corpus.length,
-    "onMatch (progressive rendering) must fire once per scored candidate, not zero",
+    corpus.length * 2,
+    "onMatch fires twice per candidate: score-only from Pass A, then the full narrative from Pass B",
   );
   assert.deepEqual(
-    previewed.map((m) => m.opportunity.id).sort(),
-    corpus.map((c) => c.id).sort(),
+    new Set(previewed.map((m) => m.opportunity.id)),
+    new Set(corpus.map((c) => c.id)),
   );
+  // The LAST preview per candidate is the full Pass-B narrative, not the
+  // earlier score-only one it supersedes.
+  for (const c of corpus) {
+    const last = previewed.filter((m) => m.opportunity.id === c.id).at(-1)!;
+    assert.equal(last.whyFit, "Strong technical alignment.");
+  }
   assert.equal(map.matches.length, corpus.length, "no match may be dropped from the final assembly");
 });

@@ -6,10 +6,13 @@ import { annotateFreshness } from "./eligibility/freshness";
 import { toCompanyProfile, toScreenableOpportunity, type KnownCompanyFacts } from "./eligibility/bridge";
 import { getCorpus } from "./corpus/store";
 import { dropExpiredOpportunities } from "./corpus/expiry";
+import type { EligibilityDetermination } from "./contracts/eligibilityDetermination";
+import { scoreOnlyAssessment } from "./scoring/twoPass";
 import awards from "@/data/awards.json";
 import { createCostMeter, type CostMeter } from "./metering/meter";
 import { CURRENT_OPPORTUNITY_MAP_VERSION } from "./contracts/opportunityMap";
 import { isFlagEnabled } from "./flags";
+import { isLocalLlm } from "./llm/client";
 import { recommendFor, mapVerdict } from "./recommend";
 // F3 — weak-field redirects should name a few REAL Utah/SBA programs, not just
 // categories. Wrapped around both explainWeakField() call sites below (the
@@ -367,53 +370,110 @@ export async function buildOpportunityMap(
     return weakField(profile, followUps, meter, d.explainWeakField, signal);
   }
 
+  // Early eligibility screen: run the SAME deterministic screen() the final map
+  // attaches to every match, but BEFORE LLM scoring, so a candidate `screen()`
+  // already rules `excluded` — a DEFINITIVE, rule-based disqualification (a
+  // human-reviewed rule + a trustworthy failing fact; see screen.ts's R8.4
+  // invariants) — costs zero model calls. Only `excluded` is pulled forward:
+  // every other bucket (`eligible`/`conditionally_eligible`/`unknown`) reflects
+  // an uncertain or non-blocking signal and must still reach the scorer (never
+  // drop a candidate on uncertain signals). DEFENSIVE: a screening error here
+  // must never drop a candidate — it just scores normally, exactly as before,
+  // and gets re-screened in the normal per-match pass below.
+  const companyProfile = toCompanyProfile(profile, companyFacts);
+  const preExcluded: { o: Opportunity; determination: EligibilityDetermination }[] = [];
+  const toScore: typeof scored = [];
+  for (const x of scored) {
+    try {
+      const determination = d.screen(companyProfile, toScreenableOpportunity(x.o));
+      if (determination.bucket === "excluded") {
+        preExcluded.push({ o: x.o, determination });
+        continue;
+      }
+    } catch {
+      // Screening failed — fall through to normal scoring; re-screened below.
+    }
+    toScore.push(x);
+  }
+
   step({ key: "score", label: "Scoring and explaining your matches", pct: 52 });
   // Per-batch progress: interpolate between the score milestone (52) and the
   // assemble milestone (90) as batches settle, so the ~83s scoring stage no
-  // longer sits frozen at 52%.
-  const emitScoreProgress = (done: number, total: number) => {
+  // longer sits frozen at 52%. `total` is every RETRIEVED candidate (including
+  // the early-filtered ones, already "done" for free) so the bar reflects the
+  // whole search, not just the subset that reaches the LLM.
+  const total = scored.length;
+  const preDone = preExcluded.length;
+  const emitScoreProgress = (doneInScoring: number) => {
+    const done = preDone + doneInScoring;
     const pct = total > 0 ? 52 + Math.round((done / total) * 36) : 52;
     step({ key: "score-progress", label: `Scored ${done} of ${total} programs`, pct, detail: `${done}/${total}` });
   };
-  // `byId` only depends on `scored` (already final), so it's built once here —
-  // used both by the progressive preview below (as each batch lands) and by
-  // the final `matches` assembly after every batch has settled.
+  // `byId` covers every retrieved candidate (including pre-excluded ones), used
+  // both by the progressive preview below (as each result lands) and by the
+  // final `matches` assembly once every result is in.
   const byId = new Map(scored.map((s) => [s.o.id, s.o]));
-  // E3 (flag `e3_two_pass`, default OFF): when ON, run the cheap-then-narrative
-  // two-pass scorer (Pass A scores all candidates on the cheap model; Pass B
-  // writes full narratives only for those clearing the render threshold). When
-  // OFF, the single-pass `explainMatches` runs exactly as before — identical
-  // args, byte-unchanged behavior. Both return the same `Assessment[]` shape, so
-  // everything below (tiering, eligibility, summary) is untouched.
-  //
-  // Progressive rendering is wired ONLY into the single-pass (default) path:
-  // its `onBatch` hands back the actual assessments a batch just produced (not
-  // just a running count), so we can build+emit a preview Match for each one
-  // the moment its batch lands. The two-pass path keeps its plain progress-only
-  // callback — e3_two_pass is default-off, so this doesn't affect the common
-  // case, and matches still arrive normally (all at once) at the end.
-  const assessments = isFlagEnabled("e3_two_pass")
-    ? await d.explainMatchesTwoPass(profile, scored.map((s) => s.o), meter, emitScoreProgress, signal)
-    : await d.explainMatches(
-        profile,
-        scored.map((s) => s.o),
-        meter,
-        (batchAssessments, done, total) => {
-          emitScoreProgress(done, total);
-          for (const a of batchAssessments) {
-            const opp = byId.get(a.id);
-            if (!opp) continue;
-            // Best-effort: this must never affect the authoritative `matches`
-            // built below from the complete, awaited `assessments` return —
-            // only ever an early, incomplete preview for the UI to render.
-            try { onMatch?.(baseMatchFromAssessment(a, opp, profile)); } catch { /* progressive rendering is best-effort */ }
-          }
-        },
-        signal,
-      );
+  // E3: two-pass (Pass A score-only sweep, Pass B narrates only the top
+  // promoted candidates) is now the DEFAULT scorer for local models — a small
+  // local model's ~30s/candidate full-narrative call is too slow to run over
+  // every retrieved candidate, so cutting narration to the top few is load-
+  // bearing there, not just a cost optimization. Hosted keeps its existing
+  // flag-controlled behavior (`e3_two_pass`, default off). Both scorers return
+  // the same `Assessment[]` shape, so everything below (tiering, eligibility,
+  // summary) is untouched either way.
+  const useTwoPass = isLocalLlm() || isFlagEnabled("e3_two_pass");
+  const candidatesToScore = toScore.map((s) => s.o);
+  // Progressive preview: emit (or re-emit, updating the same card in place —
+  // see IntakeForm/page.tsx's id-keyed preview list) a Match the instant an
+  // assessment is available. Single pass emits once per candidate (full
+  // narrative); two-pass emits twice for a narrated candidate (score-only, then
+  // full narrative) and once for a score-only-forever candidate — same
+  // `onMatch` mechanism either way.
+  const previewAssessment = (a: Assessment) => {
+    const opp = byId.get(a.id);
+    if (!opp) return;
+    // Best-effort: this must never affect the authoritative `matches` built
+    // below from the complete, awaited scorer return — only ever an early
+    // (and possibly later-superseded) preview for the UI to render.
+    try { onMatch?.(baseMatchFromAssessment(a, opp, profile)); } catch { /* progressive rendering is best-effort */ }
+  };
+  // Every candidate may have been early-filtered (e.g. an out-of-state,
+  // state-restricted search) — skip the scorer call entirely rather than
+  // asking it to score zero candidates (both scorers treat "every batch
+  // failed" as fatal, and zero candidates means zero batches).
+  const assessments: Assessment[] =
+    candidatesToScore.length === 0
+      ? []
+      : useTwoPass
+        ? await d.explainMatchesTwoPass(
+            profile,
+            candidatesToScore,
+            meter,
+            (done) => emitScoreProgress(done),
+            signal,
+            previewAssessment,
+          )
+        : await d.explainMatches(
+            profile,
+            candidatesToScore,
+            meter,
+            (batchAssessments, done) => {
+              emitScoreProgress(done);
+              for (const a of batchAssessments) previewAssessment(a);
+            },
+            signal,
+          );
   step({ key: "assemble", label: "Writing your opportunity map", pct: 90 });
 
-  const matches: Match[] = assessments
+  // Early-filtered candidates never reached the scorer — score-only (0, tier
+  // `none`) so they still appear in the final map (with the eligibility
+  // determination already computed above), never silently dropped.
+  const allAssessments: Assessment[] = [
+    ...assessments,
+    ...preExcluded.map(({ o }) => scoreOnlyAssessment(o.id, 0)),
+  ];
+
+  const matches: Match[] = allAssessments
     .map((a) => {
       const opp = byId.get(a.id);
       return opp ? baseMatchFromAssessment(a, opp, profile) : null;
@@ -430,8 +490,15 @@ export async function buildOpportunityMap(
   // corpus has only free-text eligibility), so the universal overlay drives the
   // buckets. DEFENSIVE: a screening error must NEVER break the search — each
   // screen() is wrapped, and a failure simply omits the field for that match.
-  const companyProfile = toCompanyProfile(profile, companyFacts);
+  // Pre-excluded matches were already screened above — reuse that determination
+  // rather than paying for a second (idempotent) screen() call.
+  const preExcludedById = new Map(preExcluded.map((p) => [p.o.id, p.determination]));
   for (const m of matches) {
+    const known = preExcludedById.get(m.opportunity.id);
+    if (known) {
+      m.eligibility = annotateFreshness(known);
+      continue;
+    }
     try {
       const determination = d.screen(companyProfile, toScreenableOpportunity(m.opportunity));
       m.eligibility = annotateFreshness(determination);

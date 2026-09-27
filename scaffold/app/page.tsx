@@ -63,6 +63,19 @@ function HomeShell({ sidebarOn }: { sidebarOn: boolean }) {
 
   function handleMatchPreview(m: Match) {
     setPreviewMatches((prev) => {
+      // Two-pass local scoring re-emits the SAME opportunity twice: first with
+      // just its Pass-A score (no narrative), then again once Pass B finishes
+      // its narrative — update the existing card in place rather than
+      // duplicating it.
+      const existingIndex = prev.findIndex((p) => p.opportunity.id === m.opportunity.id);
+      if (existingIndex !== -1) {
+        // A re-emit can also drop the card below tier "none" if Pass B never
+        // promoted it — remove it, same as it never having appeared.
+        if (m.tier === "none") return prev.filter((_, i) => i !== existingIndex);
+        const next = prev.slice();
+        next[existingIndex] = m;
+        return next;
+      }
       // A "none"-tier match would never make the finished map's card list
       // either (OpportunityMap filters the same way) — skip it here so the
       // preview never shows a card that's about to vanish once scoring
