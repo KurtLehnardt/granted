@@ -39,14 +39,4 @@ export default {
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
-  // Vercel's output file tracing only follows requires it can statically see;
-  // the committed corpus is read via a runtime readFileSync path (for the
-  // local-refresh override), so it's invisible to tracing and must be
-  // included explicitly on every route that reads it.
-  experimental: {
-    outputFileTracingIncludes: {
-      "/api/match/route": ["./data/opportunities.json", "./data/corpus-meta.json"],
-      "/api/corpus/route": ["./data/opportunities.json", "./data/corpus-meta.json"],
-    },
-  },
 };
