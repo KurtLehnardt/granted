@@ -133,6 +133,23 @@ function parseJson<T>(raw: string): T {
 }
 
 /**
+ * Local models (lib/llm/client.ts forces `response_format: json_object` for
+ * the OpenAI-compat shim) sometimes return a single bare `{id, score, ...}`
+ * object for a batch instead of the requested array — observed live against
+ * Ollama even with `unwrapArrayEnvelope` in place, since a bare object has no
+ * enclosing single-key wrapper to unwrap. A caller doing `for (const a of
+ * batchAssessments)` then throws "not iterable", which `runGroup`'s
+ * best-effort try/catch silently swallows — so scoring progress keeps
+ * advancing while zero preview cards stream (matches only appear once
+ * `explainMatches` resolves and `ok.flat()` happens to keep the bare object).
+ * Every parsed-array call site wraps its result through this so a lone
+ * id-bearing object is always treated as a one-item array.
+ */
+function asArray<T>(value: T | T[]): T[] {
+  return Array.isArray(value) ? value : [value];
+}
+
+/**
  * `StartupProfileSchema` (lib/contracts/opportunityMap.ts) fields that are
  * documented/required as strings. Kept as an explicit list (not "every field
  * that isn't a known non-string") so this stays correct if the schema grows a
@@ -400,7 +417,7 @@ export async function explainMatches(
     // non-JSON output must still have its already-spent cost captured.
     recordUsage(meter, "candidate_analysis", msg.usage, performance.now() - t0);
     const text = msg.content.filter((c) => c.type === "text").map((c: any) => c.text).join("");
-    return parseJson<Assessment[]>(text);
+    return asArray(parseJson<Assessment[] | Assessment>(text));
   };
 
   // Fault-tolerant: keep whatever batches succeed. One batch throwing or
@@ -597,7 +614,7 @@ async function scorePassA(
     );
     recordUsage(meter, "candidate_prescore", msg.usage, performance.now() - t0, CHEAP_MODEL);
     const text = msg.content.filter((c) => c.type === "text").map((c: any) => c.text).join("");
-    return parseJson<PassAScore[]>(text);
+    return asArray(parseJson<PassAScore[] | PassAScore>(text));
   };
 
   const fanOutStart = performance.now();
@@ -664,7 +681,7 @@ async function narratePassB(
     );
     recordUsage(meter, "candidate_analysis", msg.usage, performance.now() - t0);
     const text = msg.content.filter((c) => c.type === "text").map((c: any) => c.text).join("");
-    return parseJson<TwoPassAssessment[]>(text);
+    return asArray(parseJson<TwoPassAssessment[] | TwoPassAssessment>(text));
   };
 
   const fanOutStart = performance.now();
