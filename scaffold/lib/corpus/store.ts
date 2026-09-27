@@ -34,6 +34,18 @@ function readJson<T>(path: string, fallback: T): T {
   }
 }
 
+/** Distinguishes "file missing/corrupt" (null) from "parsed, but empty" ([]) —
+ *  the caller needs that distinction to fall back to the committed corpus
+ *  instead of silently serving an empty one. */
+function tryReadOpportunities(path: string): Opportunity[] | null {
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf8"));
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 function mtimeOf(path: string): number {
   try {
     return statSync(path).mtimeMs;
@@ -63,12 +75,23 @@ export class CorpusStore {
   }
 
   load(): CorpusInfo {
-    const { oppsPath, metaPath, source } = this.resolvePaths();
-    const mtimeMs = mtimeOf(oppsPath);
+    let { oppsPath, metaPath, source } = this.resolvePaths();
+    let mtimeMs = mtimeOf(oppsPath);
     if (this.cache && this.cache.path === oppsPath && this.cache.mtimeMs === mtimeMs) {
       return { opportunities: this.cache.opportunities, meta: this.cache.meta, source };
     }
-    const opportunities = readJson<Opportunity[]>(oppsPath, []);
+    let opportunities = tryReadOpportunities(oppsPath);
+    if (opportunities == null && source === "local") {
+      // Corrupt/unreadable local refresh — fall back to the committed
+      // snapshot rather than silently serving an empty corpus.
+      oppsPath = join(this.baseDir, "data", "opportunities.json");
+      metaPath = join(this.baseDir, "data", "corpus-meta.json");
+      source = "committed";
+      mtimeMs = mtimeOf(oppsPath);
+      opportunities = tryReadOpportunities(oppsPath) ?? [];
+    } else if (opportunities == null) {
+      opportunities = [];
+    }
     const rawMeta = readJson<CorpusMeta>(metaPath, {});
     const dims = opportunities.find((o) => Array.isArray(o.embedding) && o.embedding.length > 0)?.embedding?.length;
     const meta: CorpusMeta = { ...rawMeta, count: opportunities.length, dims: rawMeta.dims ?? dims };

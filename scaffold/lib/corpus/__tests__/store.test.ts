@@ -83,6 +83,18 @@ describe("CorpusStore", () => {
     rmSync(baseDir, { recursive: true, force: true });
   });
 
+  test("a corrupt local opportunities.json falls back to the committed corpus", () => {
+    const baseDir = makeBaseDir();
+    writeCommitted(baseDir, [{ id: "committed" }], { builtAt: "2026-01-01T00:00:00.000Z" });
+    mkdirSync(join(baseDir, "data", "local"), { recursive: true });
+    writeFileSync(join(baseDir, "data", "local", "opportunities.json"), "{not valid json");
+    const store = new CorpusStore(baseDir);
+    const info = store.load();
+    assert.equal(info.source, "committed");
+    assert.deepEqual(info.opportunities, [{ id: "committed" }]);
+    rmSync(baseDir, { recursive: true, force: true });
+  });
+
   test("missing/corrupt files degrade to an empty corpus, never throw", () => {
     const baseDir = makeBaseDir();
     const store = new CorpusStore(baseDir);

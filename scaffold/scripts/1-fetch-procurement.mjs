@@ -13,8 +13,12 @@
  * Run on your laptop: `node scripts/1-fetch-procurement.mjs`
  */
 import { writeFile, mkdir } from "node:fs/promises";
+import { join } from "node:path";
 
-await mkdir("data/raw", { recursive: true });
+const RAW_DIR = process.env.RAW_DIR || "data/raw";
+const rawPath = (name) => join(RAW_DIR, name);
+
+await mkdir(RAW_DIR, { recursive: true });
 
 const ENDPOINT = "https://api.usaspending.gov/api/v2/search/spending_by_award/";
 const FIELDS = [
@@ -90,7 +94,7 @@ async function main() {
   }
 
   const out = [...byId.values()];
-  await writeFile("data/raw/usaspending-contracts.json", JSON.stringify(out, null, 2));
+  await writeFile(rawPath("usaspending-contracts.json"), JSON.stringify(out, null, 2));
   console.log(`\nprocurement  kept ${out.length} unique contract awards`);
   console.log("→ data/raw/usaspending-contracts.json\n");
 }

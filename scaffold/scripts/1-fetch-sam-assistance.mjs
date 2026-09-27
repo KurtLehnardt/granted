@@ -18,8 +18,12 @@
  * Run on your laptop: `node scripts/1-fetch-sam-assistance.mjs`
  */
 import { writeFile, mkdir } from "node:fs/promises";
+import { join } from "node:path";
 
-await mkdir("data/raw", { recursive: true });
+const RAW_DIR = process.env.RAW_DIR || "data/raw";
+const rawPath = (name) => join(RAW_DIR, name);
+
+await mkdir(RAW_DIR, { recursive: true });
 
 const FAL_URL =
   "https://falextracts.s3.amazonaws.com/Assistance%20Listings/datagov/AssistanceListings_DataGov_PUBLIC_CURRENT.csv";
@@ -143,7 +147,7 @@ async function main() {
     });
   }
 
-  await writeFile("data/raw/sam-assistance.json", JSON.stringify(out, null, 2));
+  await writeFile(rawPath("sam-assistance.json"), JSON.stringify(out, null, 2));
   console.log(`SAM assistance  kept ${out.length} of ${rows.length - 1} programs`);
   console.log(`  by kind: assistance=${counts.assistance} loan=${counts.loan} scholarship=${counts.scholarship}`);
   console.log("→ data/raw/sam-assistance.json\n");

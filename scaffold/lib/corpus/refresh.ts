@@ -33,12 +33,18 @@ export interface EmbeddingPlan {
  * Incremental-embedding decision: reuse a prior embedding only when the id,
  * the exact embedded text, and the embedding model are all unchanged. A
  * model change forces every record through `toEmbed` regardless of id/text.
+ *
+ * `priorDims`, when given, is the prior corpus's recorded dimensionality
+ * (`corpus-meta.json`'s `dims`) — a prior embedding whose own length doesn't
+ * match it is stale/corrupt bookkeeping and is re-embedded rather than
+ * trusted, even if the model name looks unchanged.
  */
 export function planEmbedding(
   incoming: Opportunity[],
   priorById: Map<string, PriorEmbeddingEntry>,
   priorModel: string | undefined,
   currentModel: string,
+  priorDims?: number,
 ): EmbeddingPlan {
   const fullReembed = (priorModel || LEGACY_EMBEDDING_MODEL) !== currentModel;
   const reused: Opportunity[] = [];
@@ -48,7 +54,8 @@ export function planEmbedding(
   for (const o of incoming) {
     const prior = fullReembed ? undefined : priorById.get(o.id);
     const text = opportunityEmbedText(o);
-    if (prior && prior.text === text && Array.isArray(prior.embedding) && prior.embedding.length > 0) {
+    const dimsOk = priorDims == null || prior?.embedding.length === priorDims;
+    if (prior && prior.text === text && Array.isArray(prior.embedding) && prior.embedding.length > 0 && dimsOk) {
       reused.push({ ...o, embedding: prior.embedding });
     } else {
       toEmbed.push(o);

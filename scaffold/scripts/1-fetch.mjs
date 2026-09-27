@@ -5,8 +5,19 @@
  */
 import "./_loadEnvLocal.mjs"; // honor scaffold/.env.local when run as plain `node`
 import { writeFile, mkdir } from "node:fs/promises";
+import { join } from "node:path";
 
-await mkdir("data/raw", { recursive: true });
+// RAW_DIR lets a caller (scripts/refresh-corpus.mjs) redirect output away
+// from data/raw/ — the standalone data:fetch/data:normalize/... pipeline's
+// own working set — into a scratch location instead of overwriting it.
+// GRANTS_ONLY skips sbir()/usaspending(): the local refresh only wants
+// grants.gov here (its own fetchers cover SBIR/procurement), so it never
+// pulls the ~91MB SBIR award CSV or hits USAspending needlessly.
+const RAW_DIR = process.env.RAW_DIR || "data/raw";
+const GRANTS_ONLY = process.env.GRANTS_ONLY === "1";
+const rawPath = (name) => join(RAW_DIR, name);
+
+await mkdir(RAW_DIR, { recursive: true });
 
 /** Keywords shaped around the five standard test cases. Widen if you add cases. */
 const KEYWORDS = [
@@ -179,7 +190,7 @@ async function grantsGov() {
   }
   console.log(`grants.gov  ${withDetail}/${out.length} records got full detail`);
 
-  await writeFile("data/raw/grants.json", JSON.stringify(out, null, 2));
+  await writeFile(rawPath("grants.json"), JSON.stringify(out, null, 2));
   console.log(`\n→ ${out.length} grants.gov records\n`);
 }
 
@@ -204,7 +215,7 @@ async function sbir() {
   } catch (e) {
     console.warn(`sbir solicitations FAILED — ${e.message}`);
   }
-  await writeFile("data/raw/sbir-solicitations.json", JSON.stringify(out, null, 2));
+  await writeFile(rawPath("sbir-solicitations.json"), JSON.stringify(out, null, 2));
 
   // Historical awards: the awards API is down for the same reason. Pull the
   // public bulk CSV export instead — data.www.sbir.gov is a different host
@@ -248,7 +259,7 @@ async function sbir() {
   } catch (e) {
     console.warn(`sbir awards bulk CSV FAILED — ${e.message}`);
   }
-  await writeFile("data/raw/sbir-awards.json", JSON.stringify(awards, null, 2));
+  await writeFile(rawPath("sbir-awards.json"), JSON.stringify(awards, null, 2));
   console.log(`\n→ ${awards.length} SBIR award records\n`);
 }
 
@@ -273,15 +284,17 @@ async function usaspending() {
       body: JSON.stringify(body),
     });
     const json = await res.json();
-    await writeFile("data/raw/usaspending.json", JSON.stringify(json?.results ?? [], null, 2));
+    await writeFile(rawPath("usaspending.json"), JSON.stringify(json?.results ?? [], null, 2));
     console.log(`→ ${json?.results?.length ?? 0} USAspending records\n`);
   } catch (e) {
     console.warn(`usaspending FAILED — ${e.message}`);
-    await writeFile("data/raw/usaspending.json", "[]");
+    await writeFile(rawPath("usaspending.json"), "[]");
   }
 }
 
 await grantsGov();
-await sbir();
-await usaspending();
-console.log("Raw data in data/raw/. Next: npm run data:normalize");
+if (!GRANTS_ONLY) {
+  await sbir();
+  await usaspending();
+}
+console.log(`Raw data in ${RAW_DIR}/. Next: npm run data:normalize`);

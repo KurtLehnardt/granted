@@ -102,6 +102,11 @@ export type BuildDeps = {
   corpus: Opportunity[];
 };
 
+// `corpus` is always overwritten with a fresh `getCorpus()` call at the
+// buildOpportunityMap call site below (or by an injected test fixture) — this
+// placeholder must stay empty, never eagerly call getCorpus() here, or every
+// import of this module (even one that never calls buildOpportunityMap)
+// force-parses the corpus file at module-load time.
 const REAL_DEPS: BuildDeps = {
   extractProfile,
   embed,
@@ -109,7 +114,7 @@ const REAL_DEPS: BuildDeps = {
   explainMatchesTwoPass,
   explainWeakField,
   screen,
-  corpus: getCorpus() as unknown as Opportunity[],
+  corpus: [],
 };
 
 export function tierFromScore(score: number): Tier {

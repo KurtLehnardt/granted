@@ -52,6 +52,25 @@ describe("planEmbedding", () => {
     assert.equal(plan.updated, 0);
   });
 
+  test("a prior embedding whose length doesn't match meta.dims is re-embedded, not trusted", () => {
+    const incoming = [opp("a")];
+    const text = opportunityEmbedText(incoming[0]);
+    const prior = new Map([["a", { embedding: [1, 2, 3], text }]]); // 3 dims
+    const plan = planEmbedding(incoming, prior, "text-embedding-3-small", "text-embedding-3-small", 1536);
+    assert.equal(plan.reused.length, 0);
+    assert.equal(plan.toEmbed.length, 1);
+    assert.equal(plan.updated, 1);
+  });
+
+  test("a prior embedding matching meta.dims is still reused", () => {
+    const incoming = [opp("a")];
+    const text = opportunityEmbedText(incoming[0]);
+    const prior = new Map([["a", { embedding: [1, 2, 3], text }]]);
+    const plan = planEmbedding(incoming, prior, "text-embedding-3-small", "text-embedding-3-small", 3);
+    assert.equal(plan.reused.length, 1);
+    assert.equal(plan.toEmbed.length, 0);
+  });
+
   test("a changed embedding model forces a full re-embed, even for unchanged records", () => {
     const incoming = [opp("a")];
     const text = opportunityEmbedText(incoming[0]);
