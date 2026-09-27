@@ -40,15 +40,16 @@
  * Exit code 0 = clean, 1 = violations found (or scan error).
  */
 import ts from "typescript";
-import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join, relative, extname } from "node:path";
+import { readFileSync, readdirSync, statSync, realpathSync } from "node:fs";
+import { join, relative, extname, sep } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 // The pure, dependency-free banned-phrasings core lives in its own module so
 // runtime code (lib/apply/draft.ts, bundled by webpack) can import it without
 // dragging in `typescript`/`node:fs`/`new URL(...)` from this build script.
 // Re-exported below so every existing importer of THIS file is unchanged.
 import { BANNED_PHRASES, findBannedPhrases } from "./banned-phrases.mjs";
 
-const ROOT = new URL("..", import.meta.url).pathname;
+const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const SCAN_DIRS = ["lib", "app"];
 const EXCLUDE_DIR_PARTS = ["node_modules", ".next", "lib/prompts"];
 const LONG_STATIC_CONTENT_THRESHOLD = 120; // chars
@@ -63,7 +64,7 @@ export { BANNED_PHRASES, findBannedPhrases };
 function walk(dir, out = []) {
   for (const entry of readdirSync(dir)) {
     const full = join(dir, entry);
-    const rel = relative(ROOT, full);
+    const rel = relative(ROOT, full).split(sep).join("/");
     if (EXCLUDE_DIR_PARTS.some((p) => rel === p || rel.startsWith(p + "/"))) continue;
     const stat = statSync(full);
     if (stat.isDirectory()) {
@@ -234,7 +235,13 @@ function main() {
 // Run only when executed directly (`node scripts/check-prompt-registry.mjs`),
 // not when imported as a module (e.g. by the test file, which needs the
 // exported functions without triggering `process.exit()`).
-const isMainModule = import.meta.url === `file://${process.argv[1]}`;
+const isMainModule = (() => {
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+  } catch {
+    return false;
+  }
+})();
 if (isMainModule) {
   main();
 }

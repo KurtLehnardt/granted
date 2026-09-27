@@ -46,7 +46,7 @@ Verified end to end on this flow: a 32GB Mac auto-picked `qwen2.5:14b` and compl
 
 ## Install on Windows
 
-*This section is written from Ollama/Node's documented Windows support and this project's own (already-unit-tested) Windows memory-detection code — it hasn't been run end-to-end on real Windows hardware yet in this repo. If something's off, please open an issue.*
+*Verified end to end on Windows 11 (HP ZBook, 32GB RAM, 4GB Quadro P1000): qwen2.5:3b + nomic-embed-text, fully local, a novel-company search scoring 34 candidates completed in 7m33s.*
 
 **1. Prerequisites**
 - [Node 20+](https://nodejs.org), or `winget install OpenJS.NodeJS.LTS`. (Node 22+ avoids an `EBADENGINE` warning one dependency now emits on 20 — the app runs fine either way.)
