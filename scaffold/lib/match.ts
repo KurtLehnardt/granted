@@ -1,5 +1,5 @@
 import { embed, cosine, assertEmbeddingDimsMatch } from "./embed";
-import { extractProfile, explainMatches, explainMatchesTwoPass, explainWeakField, type Assessment } from "./claude";
+import { extractProfile, explainMatches, explainMatchesTwoPass, explainWeakField, type Assessment, type TwoPassProgressDetail } from "./claude";
 import type { Opportunity, OpportunityMap, StartupProfile, Match, Tier, AwardHistory } from "./types";
 import { screen } from "./eligibility/screen";
 import { annotateFreshness } from "./eligibility/freshness";
@@ -404,10 +404,20 @@ export async function buildOpportunityMap(
   // whole search, not just the subset that reaches the LLM.
   const total = scored.length;
   const preDone = preExcluded.length;
-  const emitScoreProgress = (doneInScoring: number) => {
+  // `doneInScoring` drives `pct` — for two-pass it's `twoPassProgress`'s
+  // cost-weighted value (see lib/claude.ts), scaled to look right against wall
+  // clock, NOT a count of anything scored. The LABEL must never render that
+  // number; when two-pass supplies `twoPassDetail` (the real Pass A/B counts)
+  // it's used instead, so the text stays truthful across both passes.
+  const emitScoreProgress = (doneInScoring: number, twoPassDetail?: TwoPassProgressDetail) => {
     const done = preDone + doneInScoring;
     const pct = total > 0 ? 52 + Math.round((done / total) * 36) : 52;
-    step({ key: "score-progress", label: `Scored ${done} of ${total} programs`, pct, detail: `${done}/${total}` });
+    const label = twoPassDetail
+      ? twoPassDetail.promotedCount > 0
+        ? `Scored ${preDone + twoPassDetail.passAScored} of ${total} programs, writing ${twoPassDetail.passBScored} of ${twoPassDetail.promotedCount} summaries`
+        : `Scored ${preDone + twoPassDetail.passAScored} of ${total} programs`
+      : `Scored ${done} of ${total} programs`;
+    step({ key: "score-progress", label, pct, detail: `${done}/${total}` });
   };
   // `byId` covers every retrieved candidate (including pre-excluded ones), used
   // both by the progressive preview below (as each result lands) and by the
@@ -449,7 +459,7 @@ export async function buildOpportunityMap(
             profile,
             candidatesToScore,
             meter,
-            (done) => emitScoreProgress(done),
+            (done, _total, detail) => emitScoreProgress(done, detail),
             signal,
             previewAssessment,
           )

@@ -1,7 +1,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 
-import { previewReducer } from "../page";
+import { previewReducer } from "@/lib/ui/previewReducer";
 import { CARD_CAP } from "@/components/OpportunityMap";
 import type { Match, Opportunity } from "@/lib/types";
 

@@ -204,6 +204,41 @@ test("local: Pass B narrates only the top N promoted candidates, in score order"
   assert.equal(result.length, candidates.length, "no candidate dropped by the top-N cap");
 });
 
+test("local: with E3_TWO_PASS_TOP_N unset, Pass B narrates exactly the default 8, in score order", async () => {
+  process.env.LLM_PROVIDER = "ollama";
+  delete process.env.E3_TWO_PASS_TOP_N;
+  delete process.env.LLM_PASS_A_BATCH_SIZE;
+  delete process.env.LLM_PASS_B_BATCH_SIZE;
+
+  // 12 candidates, all clearing PROMOTION_FLOOR (25), scores strictly
+  // descending within 0..100 (clampScore's range) so the top 8 are
+  // unambiguous. Deliberately NOT in score order.
+  const manyScores: Record<string, number> = {};
+  for (let i = 1; i <= 12; i++) manyScores[`opp-${i}`] = 30 + i * 5;
+  const shuffled = [8, 3, 12, 1, 6, 10, 2, 11, 4, 9, 5, 7].map((i) => opp(`opp-${i}`));
+
+  const calls = { passA: [] as string[], passB: [] as string[] };
+  globalThis.fetch = fakeFetch(calls, { pool: shuffled });
+
+  const restoreScores = { ...SCORES };
+  Object.assign(SCORES, manyScores);
+  try {
+    const result = await explainMatchesTwoPass(profile, shuffled);
+
+    assert.equal(calls.passA.length, 12, "one Pass-A call per candidate, local default");
+    assert.equal(calls.passB.length, 8, "local default top-N is 8");
+    assert.deepEqual(
+      calls.passB,
+      ["opp-12", "opp-11", "opp-10", "opp-9", "opp-8", "opp-7", "opp-6", "opp-5"],
+      "top 8 by Pass-A score, highest first",
+    );
+    assert.equal(result.length, 12, "no candidate dropped by the top-N cap");
+  } finally {
+    for (const key of Object.keys(manyScores)) delete SCORES[key];
+    Object.assign(SCORES, restoreScores);
+  }
+});
+
 test("local: onAssessment fires the Pass-A score before the Pass-B narrative for a promoted candidate", async () => {
   process.env.LLM_PROVIDER = "ollama";
   process.env.E3_TWO_PASS_TOP_N = "8";

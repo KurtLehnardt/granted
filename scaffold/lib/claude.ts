@@ -779,6 +779,19 @@ export function twoPassProgress(passAScored: number, promotedCount: number, pass
   return totalUnits > 0 ? Math.min(total, Math.round((doneUnits / totalUnits) * total)) : 0;
 }
 
+/**
+ * The REAL (non-cost-weighted) counts behind a two-pass progress tick, for
+ * callers that need a truthful label rather than the weighted `done` above
+ * (which only exists to make the progress bar's rate match wall-clock time —
+ * it is not a count of anything and must never be rendered as one).
+ */
+export type TwoPassProgressDetail = {
+  passAScored: number;
+  passATotal: number;
+  promotedCount: number;
+  passBScored: number;
+};
+
 /** The floor-clearing candidates, ranked by Pass-A score and capped at `topN`. */
 function selectPassBCandidates(
   candidates: Opportunity[],
@@ -815,7 +828,7 @@ export async function explainMatchesTwoPass(
   profile: StartupProfile,
   candidates: Opportunity[],
   meter?: CostMeter,
-  onBatch?: (doneCandidates: number, totalCandidates: number) => void,
+  onBatch?: (doneCandidates: number, totalCandidates: number, detail?: TwoPassProgressDetail) => void,
   signal?: AbortSignal,
   onAssessment?: (a: TwoPassAssessment) => void,
 ): Promise<TwoPassAssessment[]> {
@@ -829,7 +842,14 @@ export async function explainMatchesTwoPass(
 
   const passA = await scorePassA(profile, candidates, meter, signal, (scores) => {
     passAScored += scores.length;
-    try { onBatch?.(twoPassProgress(passAScored, reserved, 0, total), total); } catch { /* best-effort */ }
+    try {
+      onBatch?.(twoPassProgress(passAScored, reserved, 0, total), total, {
+        passAScored,
+        passATotal: total,
+        promotedCount: reserved,
+        passBScored: 0,
+      });
+    } catch { /* best-effort */ }
     for (const s of scores) {
       try { onAssessment?.(scoreOnlyAssessment(s.id, clampScore(s.score))); } catch { /* best-effort */ }
     }
@@ -839,14 +859,28 @@ export async function explainMatchesTwoPass(
 
   // Pass A is fully done; re-anchor the estimate on the ACTUAL promoted count
   // (may be < `reserved`) now that it's known.
-  try { onBatch?.(twoPassProgress(total, promoted.length, 0, total), total); } catch { /* best-effort */ }
+  try {
+    onBatch?.(twoPassProgress(total, promoted.length, 0, total), total, {
+      passAScored: total,
+      passATotal: total,
+      promotedCount: promoted.length,
+      passBScored: 0,
+    });
+  } catch { /* best-effort */ }
 
   const passB = await narratePassB(
     profile,
     promoted,
     meter,
     (doneInPassB, batch) => {
-      try { onBatch?.(twoPassProgress(total, promoted.length, doneInPassB, total), total); } catch { /* best-effort */ }
+      try {
+        onBatch?.(twoPassProgress(total, promoted.length, doneInPassB, total), total, {
+          passAScored: total,
+          passATotal: total,
+          promotedCount: promoted.length,
+          passBScored: doneInPassB,
+        });
+      } catch { /* best-effort */ }
       for (const a of batch) {
         try { onAssessment?.(a); } catch { /* best-effort */ }
       }
