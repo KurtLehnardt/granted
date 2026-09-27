@@ -322,9 +322,9 @@ export default function OpportunityCard({
         aria-expanded={open}
         className={headerToggleClass}
       >
-        {/* Mobile pass (N4): flex-wrap lets the score/chevron block drop to
-            its own line under the title on narrow widths instead of being
-            squeezed into a shrink-0 column beside a long program title. */}
+        {/* Mobile pass (N4): flex-wrap lets the score block drop to its own
+            line under the title on narrow widths instead of being squeezed
+            into a shrink-0 column beside a long program title. */}
         <div className="flex flex-wrap items-start justify-between gap-4 sm:flex-nowrap sm:gap-6">
           <div className="min-w-0">
             <span className={`inline-block rounded-sm px-2 py-0.5 font-mono text-[11px] uppercase tracking-eyebrow ${badgeClass}`}>
@@ -354,17 +354,12 @@ export default function OpportunityCard({
             )}
           </div>
 
-          <div className="flex shrink-0 items-center gap-3">
-            <div className="text-right">
-              <div className="font-display text-[26px] font-bold leading-none tabular-nums text-foreground">
-                {m.score}
-                <span className="text-[15px] font-medium">%</span>
-              </div>
-              <div className={eyebrowClass("mt-1")}>match</div>
+          <div className="shrink-0 text-right">
+            <div className="font-display text-[26px] font-bold leading-none tabular-nums text-foreground">
+              {m.score}
+              <span className="text-[15px] font-medium">%</span>
             </div>
-            <ChevronIcon
-              className={`h-4 w-4 shrink-0 transition-transform ${open ? "rotate-180" : ""} text-structure-on-canvas`}
-            />
+            <div className={eyebrowClass("mt-1")}>match</div>
           </div>
         </div>
 
@@ -414,6 +409,18 @@ export default function OpportunityCard({
             </div>
           )}
         </dl>
+
+        {/* A dedicated, unmistakable expand/collapse row — the header used to
+            rely on a small 16px chevron floating next to the score, easy to
+            miss among the badge/title/score/dl above. This is deliberately its
+            OWN visually separated strip (border + text label + a bigger
+            chevron) so it reads as "click here to see more," not just a
+            decorative arrow. Still inside the same full-width toggle button —
+            clicking anywhere in the header still works exactly as before. */}
+        <div className={eyebrowClass("mt-4 flex items-center gap-1.5 border-t border-structure-on-canvas pt-3")}>
+          {open ? "Hide details" : "Show details"}
+          <ChevronIcon className={`h-5 w-5 shrink-0 transition-transform ${open ? "rotate-180" : ""}`} />
+        </div>
       </button>
 
       {/*
