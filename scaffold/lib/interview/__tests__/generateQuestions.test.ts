@@ -160,13 +160,13 @@ test("EVL-03 regression (defense-hw-08): a canned re-ask of the ownership gate i
   assert.ok(out[0].options.some((o) => o.value === "other" || /other/i.test(o.label)), "structured escape hatch present");
   assert.equal(out[0].allow_free_text, true);
 
-  // The known gap (EVL-03-results.md): normalize() has no description context, so
-  // it CANNOT drop the ownership re-ask the description already answered. This
-  // asserts the current behavior on purpose — if a future prompt/code change
-  // suppresses the redundant re-ask, THIS assertion flips and forces a
-  // deliberate, reviewed update rather than a silent one.
+  // The known gap: normalize() has no description context, so it CANNOT drop
+  // the ownership re-ask the description already answered. This asserts the
+  // current behavior on purpose — if a future prompt/code change suppresses
+  // the redundant re-ask, THIS assertion flips and forces a deliberate,
+  // reviewed update rather than a silent one.
   assert.ok(
     out.some((q) => q.gate_class === "ownership"),
-    "prompt-level gap: the redundant ownership re-ask survives normalization (see evals/EVL-03-results.md)",
+    "prompt-level gap: the redundant ownership re-ask survives normalization",
   );
 });

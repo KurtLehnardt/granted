@@ -4,8 +4,7 @@ import pkg from "./package.json";
 /**
  * MV3 manifest — Granted Assisted Fill.
  *
- * Honest, least-privilege, client-side-only. See docs/grant-autofill-extension-spec.md
- * §1 for the full rationale behind every field below. In short:
+ * Honest, least-privilege, client-side-only. In short:
  *
  * - `permissions`: only `storage` (hold the imported package + configs),
  *   `scripting` + `activeTab` (user-gesture-scoped fill on the active tab).
