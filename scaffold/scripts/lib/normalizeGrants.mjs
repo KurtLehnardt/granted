@@ -1,9 +1,3 @@
-/**
- * Shared grants.gov / SBIR-solicitation normalization — the exact per-record
- * logic 2-normalize.mjs and scripts/refresh-corpus.mjs both need, extracted
- * so the two never drift.
- */
-
 const NAMED_ENTITIES = {
   nbsp: " ", amp: "&", lt: "<", gt: ">", quot: '"', apos: "'",
   rsquo: "’", lsquo: "‘", ldquo: "“", rdquo: "”",

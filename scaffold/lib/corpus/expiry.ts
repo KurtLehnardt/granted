@@ -9,16 +9,7 @@ function startOfLocalDay(t: number): number {
   return d.getTime();
 }
 
-/** Whether a deadline has already passed as of `now`. A missing/unparseable
- *  deadline (evergreen assistance, SBIR, procurement) is never expired.
- *
- *  A date-only deadline (grants.gov closeDate 'MM/DD/YYYY', SBIR close_date
- *  'YYYY-MM-DD') names a whole calendar day, not an instant — `Date.parse`
- *  reads the US form as local midnight and the ISO form as UTC midnight, so
- *  comparing either directly against `now` drops a grant on the morning (or,
- *  in US timezones, the evening before) of its own closing day. Compare the
- *  deadline's local calendar date against today's instead: expired only once
- *  today is past it. */
+/** Missing/unparseable deadlines never expire; date-only deadlines stay open through their closing day. */
 export function isExpiredDeadline(deadline: unknown, now: number = Date.now()): boolean {
   if (typeof deadline !== "string" || !deadline) return false;
   const trimmed = deadline.trim();
@@ -36,9 +27,6 @@ export function isExpiredDeadline(deadline: unknown, now: number = Date.now()): 
   return t < now;
 }
 
-/** Drop opportunities whose deadline has passed. Used both by the refresh
- *  pipeline (so an expired listing never lands in the local corpus) and by
- *  retrieval (so the gap between refreshes never surfaces a dead deadline). */
 export function dropExpiredOpportunities<T extends { deadline?: unknown }>(
   opportunities: T[],
   now: number = Date.now(),
@@ -46,8 +34,6 @@ export function dropExpiredOpportunities<T extends { deadline?: unknown }>(
   return opportunities.filter((o) => !isExpiredDeadline(o.deadline, now));
 }
 
-/** Served from `data/precomputed.json`: filter out matches whose opportunity
- *  deadline has since passed, and keep the "closing in 90 days" count honest. */
 export function dropExpiredMatches(map: OpportunityMap, now: number = Date.now()): OpportunityMap {
   const matches = map.matches.filter((m) => !isExpiredDeadline((m.opportunity as Opportunity).deadline, now));
   const closingIn90Days = matches.filter((m) => {

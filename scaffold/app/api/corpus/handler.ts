@@ -11,10 +11,6 @@ export type CorpusStatusDeps = {
 
 const REAL_DEPS: CorpusStatusDeps = { getCorpusInfo, isRefreshing, readRefreshStatus };
 
-/** Logic behind GET /api/corpus, extracted (like app/api/match/handler.ts) so
- *  route.ts can stay a plain re-export — Next only permits route-handler
- *  exports from route.ts — while tests inject a store/lock/status bound to a
- *  temp baseDir instead of touching the real cwd's data/local/. */
 export function buildCorpusStatus(deps: Partial<CorpusStatusDeps> = {}) {
   const d = { ...REAL_DEPS, ...deps };
   const { meta } = d.getCorpusInfo();

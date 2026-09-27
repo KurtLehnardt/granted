@@ -1,8 +1,6 @@
 import type { Opportunity } from "../types";
 import { dropExpiredOpportunities } from "./expiry";
 
-/** Per-source weight for cap allocation (Settings "Max cached opportunities",
- *  scripts/refresh-corpus.mjs). Sources not listed here default to weight 1. */
 export const DEFAULT_SOURCE_WEIGHTS: Record<string, number> = {
   "grants.gov": 2,
   sbir: 2,
@@ -10,13 +8,7 @@ export const DEFAULT_SOURCE_WEIGHTS: Record<string, number> = {
   "assistance-listings": 1,
 };
 
-/**
- * Splits `cap` across the given sources proportionally to weight ×
- * availability, capped by each source's `available` count, and redistributes
- * any share a source can't use. Every source with `available > 0` gets at
- * least one slot (so long as `cap` covers the number of sources) — a
- * low-weight source is never squeezed out entirely.
- */
+/** Splits `cap` by weight × availability, redistributing unused share; every non-empty source gets a slot first. */
 export function allocateCap(
   available: Record<string, number>,
   cap: number,
@@ -32,9 +24,6 @@ export function allocateCap(
   let remaining = Math.min(cap, totalAvailable);
   let left: Record<string, number> = Object.fromEntries(names.map((n) => [n, available[n]]));
 
-  // Guarantee representation first, in weight×availability order (largest
-  // first), so a cap smaller than the source count still favors the intended
-  // weighting.
   for (const n of [...names].sort((a, b) => score(b) - score(a))) {
     if (remaining <= 0) break;
     alloc[n] += 1;
@@ -53,9 +42,7 @@ export function allocateCap(
       shares[n] = share;
       given += share;
     }
-    // Rounding can leave every share at 0 while capacity remains — break the
-    // tie by giving the single largest weight×availability source in the
-    // pool as much of the remainder as it can take.
+    // Rounding left every share at 0: give the remainder to the top-scoring source.
     if (given === 0) {
       const top = pool.slice().sort((a, b) => score(b) - score(a))[0];
       shares[top] = Math.min(left[top], remaining);
@@ -68,7 +55,7 @@ export function allocateCap(
       remaining -= shares[n];
     }
     pool = pool.filter((n) => left[n] > 0);
-    if (given === 0) break; // safety valve — should be unreachable
+    if (given === 0) break;
   }
   return alloc;
 }
@@ -80,9 +67,7 @@ const BUSINESS_KEYWORDS = [
   "commercialization", "manufacturing",
 ];
 
-/** Higher is more recent. Open grants.gov/SBIR solicitations (a real
- *  deadline) outrank historical awards, which fall back to a `FY<year>`
- *  parsed out of the description (see normalizeSbirAward). */
+/** Solicitation deadline, else the award's FY from its description. */
 function recencyKey(o: Opportunity): number {
   if (typeof o.deadline === "string") {
     const t = Date.parse(o.deadline);
@@ -98,12 +83,10 @@ function keywordScore(o: Opportunity): number {
   return BUSINESS_KEYWORDS.reduce((s, kw) => s + (text.includes(kw) ? 1 : 0), 0);
 }
 
-/** Orders one source's records best-first, before the cap trims the tail. */
 function sortWithinSource(source: string, records: Opportunity[]): Opportunity[] {
   const sorted = records.slice();
   if (source === "grants.gov") {
-    // Open before forecasted; within each, soonest deadline first (no
-    // deadline sorts last — it's not closing, so it's never urgent).
+    // Open before forecasted, then soonest deadline.
     sorted.sort((a, b) => {
       if (!!a.forecasted !== !!b.forecasted) return a.forecasted ? 1 : -1;
       const da = a.deadline ? Date.parse(a.deadline) : Infinity;
@@ -118,14 +101,6 @@ function sortWithinSource(source: string, records: Opportunity[]): Opportunity[]
   return sorted;
 }
 
-/**
- * Trims a freshly-assembled record set to `cap`, never including an expired
- * deadline, allocating the cap across sources by weight × availability
- * (`allocateCap`) so every present source is represented, and — within a
- * source — keeping the records that best match its own preference order.
- * `cap <= 0` or a record count already at/under `cap` is a no-op (besides
- * dropping expired records).
- */
 export function selectCorpusWithinCap(
   records: Opportunity[],
   cap: number,

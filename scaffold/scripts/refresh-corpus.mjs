@@ -1,33 +1,6 @@
 /**
- * npm run data:refresh — local, no-API-key corpus refresh. Local-LLM-first:
- * each install refreshes its OWN opportunity data into a gitignored local
- * copy (data/local/opportunities.json + corpus-meta.json), read at runtime
- * by lib/corpus/store.ts. The committed data/opportunities.json is never
- * touched.
- *
- * Reuses the existing fetchers as child processes, redirected (RAW_DIR) into
- * data/local/raw/ so this never overwrites data/raw/*.json — the standalone
- * data:fetch/data:normalize/... pipeline's own working set — and skips
- * 1-fetch.mjs's awards-CSV/usaspending() (GRANTS_ONLY=1; this script already
- * runs the dedicated SBIR/procurement fetchers below, and 1-fetch.mjs's
- * awards CSV alone pulls a ~91MB file nothing here uses). 1-fetch.mjs's small
- * sbir-solicitations.json fetch still runs under GRANTS_ONLY, since selection
- * ordering favors an open solicitation over a historical award. Then reuses
- * the same
- * normalizers 2-normalize.mjs / assemble-mvp-corpus.mjs call
- * (scripts/lib/normalize*.mjs) to build the fresh record set:
- *   - drops any record whose deadline has already passed
- *   - trims to the configured cap (lib/corpus/selection.ts), so a lowered cap
- *     never re-embeds — it only ever drops records — and a raised cap only
- *     embeds newly-included ones
- *   - reuses embeddings for unchanged records at the same dimensionality,
- *     embeds only new/changed ones (lib/corpus/refresh.ts's planEmbedding —
- *     full re-embed if the configured EMBEDDINGS_MODEL differs from the
- *     prior corpus's)
- *   - writes atomically (temp file + rename); never clobbers the existing
- *     local corpus on error
- * Single-flight via a lock file (lib/corpus/refreshStatus.ts) shared with
- * POST /api/corpus/refresh.
+ * npm run data:refresh: fetch every open listing into data/local/ (gitignored; data/raw and the
+ * committed corpus are untouched), drop expired, cap, embed only new/changed records, write atomically.
  */
 import "./_loadEnvLocal.mjs"; // honor scaffold/.env.local when run as plain `node`
 import { spawnSync } from "node:child_process";
@@ -50,7 +23,7 @@ import { normalizeGrantsRecord, normalizeSbirSolicitation } from "./lib/normaliz
 import { normalizeSamRow, normalizeSbirAward, normalizeProcurementRecord } from "./lib/normalizeNewSources.mjs";
 
 const LOCAL_DIR = "data/local";
-const RAW_DIR = join(LOCAL_DIR, "raw"); // scratch fetch output — never data/raw/
+const RAW_DIR = join(LOCAL_DIR, "raw");
 const LOCAL_OPPS = join(LOCAL_DIR, "opportunities.json");
 const LOCAL_META = join(LOCAL_DIR, "corpus-meta.json");
 const EMBED_BATCH = 64;
@@ -60,9 +33,6 @@ const maxFlag = process.argv.indexOf("--max");
 const requestedMax = Number(maxFlag !== -1 ? process.argv[maxFlag + 1] : process.env.CORPUS_MAX);
 const MAX_CORPUS_SIZE = Number.isFinite(requestedMax) ? clampCorpusSize(requestedMax) : DEFAULT_CORPUS_SIZE;
 
-/** Retries embedBatch with exponential backoff on 429/5xx, same policy as
- *  scripts/3-embed.mjs — a single transient rate limit or Ollama hiccup must
- *  not discard a run of up to ~30 minutes of prior embedding work. */
 async function embedBatchWithRetry(texts, attempt = 0) {
   try {
     return await embedBatch(texts);
@@ -104,9 +74,6 @@ async function main() {
   const t0 = Date.now();
   const attemptAt = new Date(t0).toISOString();
   await mkdir(LOCAL_DIR, { recursive: true });
-  // When POST /api/corpus/refresh spawns us, it already claimed the lock
-  // (and transferred it to our pid) before spawning, to close the race a
-  // second POST could otherwise slip through — don't re-claim it here.
   const lockHeld = process.env.GRANTED_REFRESH_LOCK_HELD === "1";
   if (!lockHeld && !acquireRefreshLock()) {
     console.log("data:refresh — another refresh is already running (lock held). Exiting.");

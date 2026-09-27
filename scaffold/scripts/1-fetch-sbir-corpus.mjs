@@ -159,7 +159,7 @@ async function main() {
   await unlink(TMP).catch(() => {});
   await writeFile(rawPath("sbir-corpus.json"), JSON.stringify(out, null, 2));
   console.log(`SBIR corpus   kept ${out.length} R&D records (scanned ${scanned}, ${Object.keys(perAgency).length} agencies, FY≥${RECENT_MIN_YEAR})`);
-  console.log("→ data/raw/sbir-corpus.json\n");
+  console.log(`→ ${rawPath("sbir-corpus.json")}\n`);
 }
 
 await main();

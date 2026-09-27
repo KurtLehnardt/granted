@@ -57,12 +57,7 @@ export function setModel(value: string | null): void {
   }
 }
 
-/**
- * "Auto-update" — when on, the app checks GET /api/corpus once per load and
- * kicks off a background POST /api/corpus/refresh if the local corpus is
- * stale (see components/CorpusAutoUpdate.tsx). Off by default: a local-LLM
- * self-host shouldn't reach out to government APIs without being asked.
- */
+/** Off by default: no government API calls unless the user opts in. */
 const AUTO_UPDATE_KEY = "granted:autoUpdateCorpus";
 
 export function getAutoUpdateCorpus(): boolean {
@@ -82,11 +77,6 @@ export function setAutoUpdateCorpus(value: boolean): void {
   }
 }
 
-/**
- * Max cached opportunities (corpus size cap) — see components/CorpusAutoUpdate.tsx
- * / the Settings refresh panel. Applies on the NEXT refresh, not retroactively.
- * Range enforced again server-side (POST /api/corpus/refresh clamps it too).
- */
 const MAX_CORPUS_SIZE_KEY = "granted:maxCorpusSize";
 export const MIN_CORPUS_SIZE = 1000;
 export const MAX_CORPUS_SIZE = 20000;
@@ -96,7 +86,6 @@ export function clampCorpusSize(n: number): number {
   return Math.min(MAX_CORPUS_SIZE, Math.max(MIN_CORPUS_SIZE, Math.floor(n)));
 }
 
-/** The saved corpus size cap, clamped to [1000, 20000]. Defaults to 1000. */
 export function getMaxCorpusSize(): number {
   try {
     const raw = window.localStorage.getItem(MAX_CORPUS_SIZE_KEY);

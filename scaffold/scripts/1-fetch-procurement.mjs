@@ -96,7 +96,7 @@ async function main() {
   const out = [...byId.values()];
   await writeFile(rawPath("usaspending-contracts.json"), JSON.stringify(out, null, 2));
   console.log(`\nprocurement  kept ${out.length} unique contract awards`);
-  console.log("→ data/raw/usaspending-contracts.json\n");
+  console.log(`→ ${rawPath("usaspending-contracts.json")}\n`);
 }
 
 await main();

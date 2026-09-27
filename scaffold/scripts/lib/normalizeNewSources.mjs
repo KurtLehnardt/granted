@@ -1,8 +1,3 @@
-/**
- * Shared SAM assistance / SBIR-award / USAspending-procurement normalization —
- * the per-record logic assemble-mvp-corpus.mjs and scripts/refresh-corpus.mjs
- * both need, extracted so the two never drift.
- */
 import { createHash } from "node:crypto";
 
 export const clean = (s) =>

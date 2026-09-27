@@ -91,9 +91,7 @@ function classifyKind(typesOfAssistance, title) {
 
 /** Per-kind caps keep the corpus (and cold-start bundle) bounded AND stop the
  *  demo's case 5 from over-matching a flood of education/community listings.
- *  We still guarantee a healthy spread of every new kind. `SAM_FETCH_MODE=all`
- *  (npm run data:refresh) lifts both the keyword filter and these caps —
- *  every active listing is kept. */
+ *  We still guarantee a healthy spread of every new kind. */
 const FETCH_ALL = process.env.SAM_FETCH_MODE === "all";
 const CAPS = FETCH_ALL
   ? { assistance: Infinity, loan: Infinity, scholarship: Infinity }
@@ -150,7 +148,7 @@ async function main() {
   await writeFile(rawPath("sam-assistance.json"), JSON.stringify(out, null, 2));
   console.log(`SAM assistance  kept ${out.length} of ${rows.length - 1} programs`);
   console.log(`  by kind: assistance=${counts.assistance} loan=${counts.loan} scholarship=${counts.scholarship}`);
-  console.log("→ data/raw/sam-assistance.json\n");
+  console.log(`→ ${rawPath("sam-assistance.json")}\n`);
 }
 
 await main();

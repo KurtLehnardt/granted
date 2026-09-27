@@ -234,7 +234,7 @@ npm run data:embed      # embed everything (~1 min, <$1 of OpenAI)
 npm run data:precompute # (optional) freeze the demo test cases for instant renders
 ```
 
-For a self-hoster who wants to stay current, `npm run data:refresh` instead fetches every open grants.gov/SAM.gov/SBIR/procurement listing, drops expired deadlines, and embeds only new/changed records into a local, gitignored `scaffold/data/local/` copy — picked up by the running app without a restart. No API key needed for local embeddings (Ollama); also reachable from Settings ("Refresh cached grants"), where "Max cached opportunities" (1,000–20,000, default 1,000) controls how large that local copy grows — or set `CORPUS_MAX` when running the script directly.
+To stay current, `npm run data:refresh` (or Settings → "Refresh cached grants") fetches every open listing, drops expired deadlines, and embeds only new/changed records into a gitignored `scaffold/data/local/` copy the running app picks up without a restart. It uses the app's embedding settings (no API key with local Ollama embeddings). Settings → "Max cached opportunities" (1,000–20,000, default 1,000) or `CORPUS_MAX` caps its size.
 
 ---
 

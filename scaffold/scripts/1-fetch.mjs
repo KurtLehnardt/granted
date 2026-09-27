@@ -7,12 +7,6 @@ import "./_loadEnvLocal.mjs"; // honor scaffold/.env.local when run as plain `no
 import { writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 
-// RAW_DIR lets a caller (scripts/refresh-corpus.mjs) redirect output away
-// from data/raw/ — the standalone data:fetch/data:normalize/... pipeline's
-// own working set — into a scratch location instead of overwriting it.
-// GRANTS_ONLY skips sbir()/usaspending(): the local refresh only wants
-// grants.gov here (its own fetchers cover SBIR/procurement), so it never
-// pulls the ~91MB SBIR award CSV or hits USAspending needlessly.
 const RAW_DIR = process.env.RAW_DIR || "data/raw";
 const GRANTS_ONLY = process.env.GRANTS_ONLY === "1";
 const rawPath = (name) => join(RAW_DIR, name);
@@ -73,10 +67,6 @@ function parseCsv(text) {
   return rows;
 }
 
-/** `GRANTS_FETCH_MODE=all` (npm run data:refresh): every posted+forecasted
- *  opportunity, not just the 15 demo keywords — paginated via startRecordNum
- *  until a page comes back short of a full page (bounded by a safety cap so a
- *  misbehaving API can't loop forever). */
 const FETCH_ALL = process.env.GRANTS_FETCH_MODE === "all";
 const ALL_PAGE_SIZE = 1000;
 const ALL_MAX_PAGES = 50;
