@@ -30,8 +30,14 @@ export default function HowToApplyModal({
   // Read-only: whatever the user already saved in Settings, never written here.
   const satisfied = allRegistrationsSatisfied(getAutoFillRequirements());
 
+  // Sized against the page's own content column (app/page.tsx's <main> is
+  // max-w-4xl with px-6), not an arbitrary modal width — the old max-w-lg
+  // (512px) read as "too skinny" next to the ~848px-wide opportunity cards
+  // this opens from. max-w-4xl matches that same cap; the backdrop's px-8
+  // below (vs. <main>'s px-6) keeps the panel a consistent ~16px narrower
+  // than the cards at every viewport width, not just at one breakpoint.
   const panelClass =
-    "relative max-h-[calc(100dvh-4rem)] w-full max-w-lg overflow-y-auto rounded-lg border border-structure-on-canvas bg-canvas p-6 text-foreground shadow-overlay";
+    "relative max-h-[calc(100dvh-4rem)] w-full max-w-4xl overflow-y-auto rounded-lg border border-structure-on-canvas bg-canvas p-6 text-foreground shadow-overlay";
   const eyebrowClass = "font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas";
   const titleClass = "mt-2 text-balance font-display text-[24px] font-bold leading-snug text-foreground";
   const bodyClass = "mt-3 text-pretty font-body text-[14px] leading-relaxed text-foreground";
@@ -45,7 +51,7 @@ export default function HowToApplyModal({
   if (typeof document === "undefined") return null;
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 px-4 py-8 sm:items-center"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 px-8 py-8 sm:items-center"
       onClick={onClose}
     >
       <div
