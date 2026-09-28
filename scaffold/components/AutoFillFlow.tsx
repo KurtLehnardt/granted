@@ -157,8 +157,6 @@ export default function AutoFillFlow({
   const panelClass =
     "relative max-h-[85vh] w-full max-w-lg overflow-y-auto border border-structure-on-canvas bg-canvas p-6 text-foreground";
 
-  const eyebrowClass = "font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas";
-
   const titleClass = "mt-2 font-display text-[24px] font-bold leading-snug text-foreground";
 
   const bodyClass = "mt-3 font-body text-[14px] leading-relaxed text-foreground";
@@ -223,13 +221,6 @@ export default function AutoFillFlow({
           <XIcon className="h-4 w-4" />
         </button>
 
-        <div className="flex items-center gap-2 pr-8">
-          <LockIcon className="h-3.5 w-3.5" />
-          <p className={eyebrowClass}>
-            Never submits anything
-          </p>
-        </div>
-
         <h2 id="auto-fill-flow-title" className={titleClass}>
           Assisted application
         </h2>
@@ -281,8 +272,7 @@ export default function AutoFillFlow({
             <p id="auto-fill-flow-desc" className={bodyClass}>
               Assisted application prepares a grounded submission package — forms, a budget
               skeleton, and a checklist — from what you enter. First, sign in so it can prepare it
-              under your account. Nothing is ever submitted anywhere; you always review and file the
-              application yourself.
+              under your account. You always review and file the application yourself.
             </p>
             <div className="mt-6 flex flex-wrap items-center gap-4">
               <button type="button" onClick={() => signIn()} className={primaryBtnClass}>
@@ -298,7 +288,7 @@ export default function AutoFillFlow({
         {!showPackage && step === "requirements" && (
           <div>
             <p id="auto-fill-flow-desc" className="sr-only">
-              Record your registration details below. Nothing here submits an application.
+              Record your registration details below.
             </p>
 
             {/* D6: per-opportunity preparation checklist — only renders when the
@@ -324,8 +314,8 @@ export default function AutoFillFlow({
                   Draft my application
                 </button>
                 <p className={`mt-2 ${reqDetailClass}`}>
-                  Pre-fills your forms and budget and drafts a grounded narrative section. Nothing is
-                  submitted — you review and submit through your authorized AOR.
+                  Pre-fills your forms and budget and drafts a grounded narrative section — you review
+                  and submit through your authorized AOR.
                 </p>
               </div>
             )}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef } from "react";
+import { isFlagEnabled } from "@/lib/flags";
 import { useDialogA11y } from "@/components/useDialogA11y";
 import SettingsForm from "@/components/SettingsForm";
 
@@ -22,6 +23,7 @@ import SettingsForm from "@/components/SettingsForm";
  * else, since it lives under the same STORAGE_KEYS map.
  */
 export default function SettingsPanel({ onClose }: { onClose: () => void }) {
+  const autoFillOn = isFlagEnabled("r6_auto_fill");
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeBtnRef = useRef<HTMLButtonElement>(null);
   useDialogA11y(dialogRef, onClose, closeBtnRef);
@@ -55,13 +57,15 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
 
         <p className={eyebrowClass}>Settings</p>
         <h2 id="settings-panel-title" className={titleClass}>
-          Auto-fill requirements
+          {autoFillOn ? "Auto-fill requirements" : "Settings"}
         </h2>
-        <p className={noteClass}>
-          These values are stored on this device only (your browser's local storage) — never sent
-          to a server. Recording them here doesn't submit anything or turn Auto Fill on; it just
-          lets the Auto Fill preview show what's already in place.
-        </p>
+        {autoFillOn && (
+          <p className={noteClass}>
+            These values are stored on this device only (your browser's local storage) — never sent
+            to a server. Recording them here doesn't turn Auto Fill on; it just lets the Auto Fill
+            preview show what's already in place.
+          </p>
+        )}
 
         <SettingsForm onClose={onClose} />
       </div>

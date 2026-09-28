@@ -316,5 +316,5 @@ export const PACKAGE_INTRO = {
   note:
     "Everything below is a draft grounded in what you've told us and this program's own announcement " +
     "text. Any fact we don't have is left as a blank for you to fill in, never guessed. " +
-    "This tool does not determine eligibility and never submits anything on your behalf.",
+    "This tool does not determine eligibility.",
 } as const;

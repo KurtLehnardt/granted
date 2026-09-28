@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import React, { useEffect, useId, useRef, useState } from "react";
+import { isFlagEnabled } from "@/lib/flags";
 import {
   getAutoFillRequirements,
   setAutoFillRequirements,
@@ -166,8 +167,12 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
     "inline-flex min-h-[44px] items-center font-mono text-[11px] uppercase tracking-eyebrow text-foreground underline underline-offset-4 transition hover:text-structure-on-canvas focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2";
   const savedMsgClass = "font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas";
 
+  const autoFillOn = isFlagEnabled("r6_auto_fill");
+
   return (
     <form onSubmit={handleSave}>
+      {autoFillOn && (
+      <>
       <p className="mb-4 font-body text-[12px] leading-relaxed text-foreground opacity-80">
         These details are self-reported and stored on this device. Granted never connects to
         SAM.gov — the checkboxes are your own attestation, not a live check.
@@ -309,6 +314,8 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
           />
         </label>
       </fieldset>
+      </>
+      )}
 
       <div className={fieldWrapClass}>
         <label className={legendClass} htmlFor={depthId}>

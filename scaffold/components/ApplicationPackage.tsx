@@ -646,8 +646,8 @@ export default function ApplicationPackage({
         <p className={eyebrowClass}>{PACKAGE_INTRO.eyebrow}</p>
         <p className={`mt-2 ${bodyClass}`} aria-live="polite">
           {state.drafting
-            ? "Drafting the narrative section with your model — this can take a minute or two on a local model. The page updates on its own when it's done, so you can leave it open. Nothing is submitted."
-            : "Assembling your submission-ready draft — pre-filling forms, building the budget, and preparing the checklist… Nothing is submitted."}
+            ? "Drafting the narrative section with your model — this can take a minute or two on a local model. The page updates on its own when it's done, so you can leave it open."
+            : "Assembling your submission-ready draft — pre-filling forms, building the budget, and preparing the checklist…"}
         </p>
       </div>
     );

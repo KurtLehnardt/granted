@@ -228,7 +228,7 @@ export default function CompetitorAnalysisModal({ onClose, profile, opportunity 
             </h2>
             <p id="competitor-analysis-modal-desc" className={bodyClass}>
               Retrieving real public federal award records (USAspending, NIH RePORTER, NSF) and analyzing how
-              funded companies positioned themselves — nothing is submitted on your behalf.
+              funded companies positioned themselves.
             </p>
 
             {/* Live progress: the current stage + a bar, updated as the pipeline streams. */}
@@ -330,7 +330,7 @@ export default function CompetitorAnalysisModal({ onClose, profile, opportunity 
 
             <p className={footnoteClass}>
               The saved example uses real, public award data captured once. A live run retrieves fresh
-              public records and analyzes them; it submits nothing and is analysis, not a guarantee of funding.
+              public records and analyzes them — analysis, not a guarantee of funding.
             </p>
           </>
         )}

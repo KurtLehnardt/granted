@@ -547,12 +547,6 @@ async function main() {
     // Competitor & market analysis is free on local inference — enable it so it
     // works out of the box. (mergeEnvLocal never clobbers a value you already set.)
     NEXT_PUBLIC_FLAG_R5_DEEP_ANALYSIS: "true",
-    // In-app assisted application ("Auto Fill") — prepares a package you review
-    // and file yourself; never submits. Narrative drafting uses your local model.
-    NEXT_PUBLIC_FLAG_R6_AUTO_FILL: "true",
-    // "Download .granted.json" export button, to hand the package to the browser
-    // extension. Pure client-side; nothing is sent anywhere.
-    NEXT_PUBLIC_FLAG_R6_EXPORT_AUTOFILL: "true",
   };
   const { text, applied, skipped } = mergeEnvLocal(before, updates);
   writeFileSync(ENV, text); // one atomic-ish write of the fully-merged text

@@ -432,9 +432,8 @@ function SiteFooter() {
         <p className="mt-8 max-w-3xl font-body text-[12px] leading-relaxed text-foreground">
           Granted surfaces public federal funding information and an honest fit
           assessment grounded in real award data. It is not legal, financial, or
-          grant-writing advice, and it does not submit applications on your
-          behalf. Confirm eligibility and requirements with the program officer
-          before applying.
+          grant-writing advice. Confirm eligibility and requirements with the
+          program officer before applying.
         </p>
         <p className="mt-4 font-mono text-[12px] text-foreground">
           © {new Date().getFullYear()} {BRAND}

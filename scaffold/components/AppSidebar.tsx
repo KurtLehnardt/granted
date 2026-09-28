@@ -466,11 +466,13 @@ function SidebarSections() {
 
   return (
     <>
-      {/* 1 — Auto Fill Settings ------------------------------------------- */}
-      <Section id="settings" label="Auto Fill Settings">
-        <p className={noteClass}>
-          Auto-fill requirements — stored on this device only, never sent to a server.
-        </p>
+      {/* 1 — Settings ------------------------------------------------------- */}
+      <Section id="settings" label={isFlagEnabled("r6_auto_fill") ? "Auto Fill Settings" : "Settings"}>
+        {isFlagEnabled("r6_auto_fill") && (
+          <p className={noteClass}>
+            Auto-fill requirements — stored on this device only, never sent to a server.
+          </p>
+        )}
         <SettingsForm />
 
         <div className="mt-4 border-t border-structure-on-canvas/15 pt-4">

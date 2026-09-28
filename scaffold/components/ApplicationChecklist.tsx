@@ -276,7 +276,7 @@ export function buildNextSteps(match: Match, allRegistrationsSatisfied: boolean,
   }
   steps.push(["Have your organization's AOR review the draft before anything is submitted."]);
   steps.push([
-    "Submit only through the opportunity's official portal (e.g., Grants.gov or SAM.gov) — this checklist never submits anything on your behalf.",
+    "Submit only through the opportunity's official portal (e.g., Grants.gov or SAM.gov).",
   ]);
   return steps;
 }

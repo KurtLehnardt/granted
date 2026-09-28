@@ -228,9 +228,9 @@ describe("buildQuestions", () => {
 // ---------------------------------------------------------------------------
 
 describe("buildNextSteps", () => {
-  test("always ends with the honesty boundary: this checklist never submits anything", () => {
+  test("always ends by pointing to the opportunity's official portal", () => {
     const steps = buildNextSteps(asMatch(RD_OPPORTUNITY), true);
-    assert.match(stepText(steps[steps.length - 1]), /never submits anything on your behalf/i);
+    assert.match(stepText(steps[steps.length - 1]), /official portal/i);
   });
 
   test("wording reflects whether registrations are satisfied, without changing the honesty boundary step", () => {
