@@ -2,8 +2,10 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import Anthropic from "@anthropic-ai/sdk";
 import { normalizeOpenAiBaseUrl } from "./baseUrl";
 import { currentLocalModel } from "./modelContext";
-import { resolveProvider, resolveCloudConfig, resolveCloudApiKey, resolveCloudBaseUrl, resolveCloudModel } from "./config";
-import { ProviderHttpError, redactKey } from "./errors";
+import { resolveProvider, resolveCloudConfig, resolveCloudApiKey, resolveCloudBaseUrl, resolveCloudModel, resolveAnthropicSdkBaseUrl } from "./config";
+import { getCloudProvider, type CloudProviderPreset } from "./providers";
+import { ProviderHttpError, redactKey, retryAfterMsFromResponse } from "./errors";
+import { withRetry429, withConcurrencyLimit, getSharedLimiter } from "./rateLimit";
 
 /** Test-only: the SDK binds node-fetch at import, so hosted tests inject fetch here. */
 const hostedFetchAls = new AsyncLocalStorage<typeof fetch>();
@@ -63,6 +65,19 @@ export function isLocalLlm(): boolean {
   return provider() === "ollama";
 }
 
+/**
+ * Candidates-per-scoring-batch for the CURRENT cloud provider: the preset's
+ * `batchSize` (e.g. Groq/OpenRouter/FCC free-tier presets, gentler on
+ * tokens-per-minute) when set, else `hostedDefault`. Callers apply this only
+ * on the hosted (non-local) path — local already has its own much smaller
+ * batch size for JSON-object-mode reasons unrelated to rate limits.
+ */
+export function cloudBatchSize(hostedDefault: number): number {
+  const cfg = resolveCloudConfig();
+  const providerId = cfg?.providerId ?? "anthropic";
+  return getCloudProvider(providerId)?.batchSize ?? hostedDefault;
+}
+
 export interface LlmClientOptions {
   timeout?: number;
   maxRetries?: number;
@@ -87,9 +102,14 @@ export function makeLlmClient(opts: LlmClientOptions = {}): LlmClient {
     );
   }
 
-  if (providerId === "anthropic") {
-    const client = makeAnthropicClientForKey(resolved.key, opts);
-    return cfg?.model ? withAnthropicModelOverride(client, cfg.model) : client;
+  const preset = getCloudProvider(providerId);
+  if (preset?.usesAnthropicSdk) {
+    const baseUrl = cfg ? resolveAnthropicSdkBaseUrl(cfg) : undefined;
+    const client = makeAnthropicClientForKey(resolved.key, opts, { baseUrl, authMode: preset.authMode });
+    const model = cfg ? resolveCloudModel(cfg) : undefined;
+    const withModel = model ? withAnthropicModelOverride(client, model) : client;
+    const limiter = preset.concurrency ? getSharedLimiter(concurrencyKey(providerId, baseUrl), preset.concurrency) : undefined;
+    return withConcurrencyLimit(withRetry429(withModel), preset.concurrency, limiter);
   }
 
   const baseUrl = cfg ? resolveCloudBaseUrl(cfg) : undefined;
@@ -97,19 +117,43 @@ export function makeLlmClient(opts: LlmClientOptions = {}): LlmClient {
   const model = cfg ? resolveCloudModel(cfg) : undefined;
   if (!model) throw new Error("No model is selected for this cloud provider.");
 
-  return makeOpenAiCompatClient({
+  const shim = makeOpenAiCompatClient({
     baseUrl,
     apiKey: resolved.key,
     getModel: () => currentLocalModel() || model,
     timeoutMs: opts.timeout ?? 120_000,
   });
+  const limiter = preset?.concurrency ? getSharedLimiter(concurrencyKey(providerId, baseUrl), preset.concurrency) : undefined;
+  return withConcurrencyLimit(withRetry429(shim), preset?.concurrency, limiter);
+}
+
+/** Shares one concurrency cap across every `makeLlmClient()` call that targets
+ * the same provider + base URL — a per-call limiter would otherwise start
+ * empty each time and never actually cap the app's real parallel fan-out
+ * (lib/claude.ts, apply/draft.ts, apply/requirements.ts, competitors/analyze.ts
+ * all construct a new client per batch/call). */
+function concurrencyKey(providerId: string, baseUrl?: string): string {
+  return `${providerId}|${baseUrl ?? ""}`;
 }
 
 /** Anthropic client for an explicit key — used by the test-key endpoint, which
- * may be validating a not-yet-saved key rather than the resolved config. */
-export function makeAnthropicClientForKey(apiKey: string, opts: LlmClientOptions = {}): Anthropic {
+ * may be validating a not-yet-saved key rather than the resolved config.
+ * `baseUrl`/`authMode` support a usesAnthropicSdk preset other than the real Anthropic API
+ * (e.g. the FCC proxy: a custom baseUrl, credential sent as `authToken` -> Authorization: Bearer). */
+export function makeAnthropicClientForKey(
+  apiKey: string,
+  opts: LlmClientOptions = {},
+  provider?: { baseUrl?: string; authMode?: CloudProviderPreset["authMode"] },
+): Anthropic {
   return new Anthropic({
-    apiKey,
+    // Explicit `null` on the unused credential, not just omission: the SDK
+    // defaults apiKey from ANTHROPIC_API_KEY when unset, and authHeaders()
+    // prefers x-api-key over Authorization: Bearer — so with both present
+    // (e.g. ANTHROPIC_API_KEY set in the environment for the real Anthropic
+    // API) an authToken-mode client would silently send the paid key instead
+    // of the proxy token.
+    ...(provider?.authMode === "authToken" ? { apiKey: null, authToken: apiKey } : { apiKey, authToken: null }),
+    ...(provider?.baseUrl ? { baseURL: provider.baseUrl } : {}),
     timeout: opts.timeout,
     maxRetries: opts.maxRetries ?? 0,
     fetch: hostedFetchAls.getStore() as any,
@@ -216,7 +260,12 @@ function makeOpenAiCompatClient(opts: {
               ? " — a 404 here usually means the base URL is missing the OpenAI-compatible path; it must end in /v1 (e.g. http://localhost:11434/v1)"
               : "";
             const safeBody = redactKey(body, apiKey);
-            throw new ProviderHttpError(res.status, safeBody, `LLM request failed (${res.status}) at ${baseUrl}: ${safeBody.slice(0, 200)}${hint}`);
+            throw new ProviderHttpError(
+              res.status,
+              safeBody,
+              `LLM request failed (${res.status}) at ${baseUrl}: ${safeBody.slice(0, 200)}${hint}`,
+              retryAfterMsFromResponse(res),
+            );
           }
           const json: any = await res.json();
           const text: string = json?.choices?.[0]?.message?.content ?? "";

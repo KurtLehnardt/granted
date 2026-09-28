@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { type CloudProviderId, isCloudProviderId, getCloudProvider } from "./providers";
 import { type KeySource, resolveKeySource, type ResolvedKey } from "./keySource";
-import { normalizeOpenAiBaseUrl } from "./baseUrl";
+import { normalizeOpenAiBaseUrl, normalizeAnthropicBaseUrl } from "./baseUrl";
 
 // Runtime provider override written by Settings (POST /api/llm/config), read by lib/llm/client.ts.
 // Wins over LLM_PROVIDER/ANTHROPIC_API_KEY when set. mtime-cached. Gitignored (data/local) — can hold a plaintext key.
@@ -182,12 +182,21 @@ export function resolveCloudApiKey(config?: CloudConfig): ResolvedKey {
   return resolveKeySource(cfg.keySource, preset?.isKeyValid);
 }
 
-/** The effective base URL for a cloud config's OpenAI-compatible shim call. Anthropic returns undefined (SDK path). */
+/** The effective base URL for a cloud config's OpenAI-compatible shim call. A usesAnthropicSdk preset (anthropic, fcc) returns undefined — see resolveAnthropicSdkBaseUrl. */
 export function resolveCloudBaseUrl(cfg: CloudConfig): string | undefined {
   const preset = getCloudProvider(cfg.providerId);
-  if (!preset || preset.id === "anthropic") return undefined;
+  if (!preset || preset.usesAnthropicSdk) return undefined;
   const baseUrl = preset.baseUrl ?? cfg.baseUrl;
   return baseUrl ? normalizeOpenAiBaseUrl(baseUrl) : undefined;
+}
+
+/** The effective base URL for a usesAnthropicSdk preset's SDK client: undefined for the real
+ * Anthropic API (its own default), else the preset's fixed or user-entered base URL. */
+export function resolveAnthropicSdkBaseUrl(cfg: CloudConfig): string | undefined {
+  const preset = getCloudProvider(cfg.providerId);
+  if (!preset?.usesAnthropicSdk) return undefined;
+  const baseUrl = preset.editableBaseUrl ? (cfg.baseUrl ?? preset.baseUrl) : preset.baseUrl;
+  return baseUrl ? normalizeAnthropicBaseUrl(baseUrl) : undefined;
 }
 
 /** The effective model: the user's saved choice, else the provider's suggested default. */

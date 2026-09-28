@@ -161,11 +161,22 @@ describe("coerceProfileStrings — local-model StartupProfile string-field drift
     assert.equal(out.revenue, JSON.stringify([{ amount: "1M" }, { amount: "2M" }]));
   });
 
-  test("null/undefined string fields pass through untouched", () => {
-    const profile = { description: "d", location: null, revenue: undefined };
+  test("undefined string fields pass through untouched", () => {
+    const profile = { description: "d", revenue: undefined };
     const out = coerceProfileStrings(profile);
-    assert.equal(out.location, null);
     assert.equal(out.revenue, undefined);
+  });
+
+  test("drops a `null` string field (optional(), not nullable() — null still fails the boundary)", () => {
+    const out = coerceProfileStrings({ description: "d", location: null, revenue: "$1M" });
+    assert.equal("location" in out, false);
+    assert.equal(out.revenue, "$1M");
+  });
+
+  test("coerces a numeric string field (e.g. the model returning a bare number) to a string", () => {
+    const out = coerceProfileStrings({ description: "d", revenue: 500000, capitalRaised: 250000 });
+    assert.equal(out.revenue, "500000");
+    assert.equal(out.capitalRaised, "250000");
   });
 
   test("non-string-field values (e.g. employees: number, expandedTerms: string[]) are left alone", () => {

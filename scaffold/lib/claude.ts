@@ -1,11 +1,12 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { makeLlmClient, isLocalLlm, defaultLocalModel, type LlmClient } from "./llm/client";
+import { makeLlmClient, isLocalLlm, cloudBatchSize, defaultLocalModel, type LlmClient } from "./llm/client";
 import { currentLocalModel } from "./llm/modelContext";
 import type { StartupProfile, Opportunity, Match, CriterionCheck, Tier } from "./types";
 import type { EligibilityBucket } from "./contracts/eligibilityDetermination";
 import { loadPrompt } from "./prompts";
 import { isFlagEnabled } from "./flags";
 import type { CostMeter } from "./metering/meter";
+import { describeErrorForLog, ProviderHttpError } from "./llm/errors";
 import {
   type Assessment as TwoPassAssessment,
   type PassAScore,
@@ -191,15 +192,26 @@ export function coerceEmployees(value: unknown): number | undefined {
  * Coerce at the boundary, right after JSON-parsing the model's output: an
  * array of primitives joins into a readable comma-separated string, any other
  * object/array becomes a compact JSON string (still readable, never dropped),
- * and already-string/null/undefined values pass through untouched. This is
- * deliberately generic (a fixed field list + one coercion rule) rather than
- * enumerating local-model quirks, so it covers both cloud and local output.
+ * a bare number/boolean stringifies, `null` is dropped (the field is
+ * `optional()`, not `nullable()` — a `null` fails the same boundary check a
+ * number does), and already-string/undefined values pass through untouched.
+ * This is deliberately generic (a fixed field list + one coercion rule)
+ * rather than enumerating local-model quirks, so it covers both cloud and
+ * local output.
  */
 export function coerceProfileStrings(profile: Record<string, unknown>): StartupProfile {
   const out: Record<string, unknown> = { ...profile };
   for (const field of STARTUP_PROFILE_STRING_FIELDS) {
     const value = out[field];
-    if (value == null || typeof value === "string") continue;
+    if (value === undefined || typeof value === "string") continue;
+    // `StartupProfileSchema` declares these `z.string().optional()` — optional
+    // allows a missing key, not `null`. A model that returns `null` (rather
+    // than omitting the field) fails the boundary the same way a number does;
+    // drop the key so it's absent instead.
+    if (value === null) {
+      delete out[field];
+      continue;
+    }
     if (Array.isArray(value)) {
       out[field] = value.every((v) => v == null || ["string", "number", "boolean"].includes(typeof v))
         ? value.filter((v) => v != null).join(", ")
@@ -350,7 +362,7 @@ export async function explainMatches(
   // candidate scoring. max_tokens per batch stays well clear of truncation.
   // Hosted: 8/batch, concurrent. Local: 1/batch, serial: JSON-object mode tends to
   // return one bare object per call, so bigger local batches drop candidates.
-  const BATCH = Number(process.env.LLM_BATCH_SIZE) || (isLocalLlm() ? 1 : 8);
+  const BATCH = Number(process.env.LLM_BATCH_SIZE) || (isLocalLlm() ? 1 : cloudBatchSize(8));
   const groups: Opportunity[][] = [];
   for (let i = 0; i < candidates.length; i += BATCH) groups.push(candidates.slice(i, i + BATCH));
 
@@ -420,7 +432,7 @@ export async function explainMatches(
   // that's what lets a caller (buildOpportunityMap) render each match the
   // moment ITS batch is scored, instead of waiting for the whole candidate set.
   const runGroup = (group: Opportunity[]) =>
-    scoreGroup(group).then(
+    scoreGroupWithSplit(group, scoreGroup, "candidate_analysis").then(
       (result) => {
         doneCandidates += group.length;
         try { onBatch?.(result, doneCandidates, candidates.length); } catch { /* progress is best-effort */ }
@@ -454,6 +466,7 @@ export async function explainMatches(
   // of the whole fan-out, not a sum of the per-batch latencies recorded above
   // (summing would overcount — this overwrites that sum with the real span).
   meter?.recordStageLatency("candidate_analysis", performance.now() - fanOutStart);
+  logSkippedBatches("candidate_analysis", settled, groups);
   const ok = settled
     .filter((s): s is PromiseFulfilledResult<Assessment[]> => s.status === "fulfilled")
     .map((s) => s.value);
@@ -465,6 +478,76 @@ export async function explainMatches(
   // (a crafted description could otherwise push an out-of-range score into the
   // tier/summary math). NaN/missing degrades to 0.
   return ok.flat().map((a) => ({ ...a, score: clampScore(a.score) }));
+}
+
+/**
+ * Log one concise warning per rejected batch from an `allSettled` fan-out —
+ * otherwise a batch that silently drops out (see `ok`/ `settled.filter`
+ * above) leaves no server-side trace of which/how many candidates went
+ * unscored. Never logs the raw error (could echo request/response bodies,
+ * incl. keys) — always the sanitized message from `describeErrorForLog`.
+ */
+function logSkippedBatches(stage: string, settled: PromiseSettledResult<unknown>[], groups: Opportunity[][]): void {
+  settled.forEach((s, i) => {
+    if (s.status !== "rejected") return;
+    const { status, message } = describeErrorForLog(s.reason);
+    console.warn(
+      `[${stage}] batch skipped: ${groups[i]?.length ?? 0} candidate(s) unscored` +
+        (status != null ? `, status ${status}` : "") +
+        ` — ${message}`,
+    );
+  });
+}
+
+/** A provider's "request too large" rejection — Anthropic SDK (`APIError.status
+ * === 413`) or the OpenAI-compat shim (`ProviderHttpError.status === 413`) —
+ * distinct from a 429 (already retried, see rateLimit.ts) or any other error,
+ * which `scoreGroupWithSplit` deliberately does NOT split on. */
+function isRequestTooLarge(err: unknown): boolean {
+  if (err instanceof Anthropic.APIError) return err.status === 413;
+  if (err instanceof ProviderHttpError) return err.status === 413;
+  return false;
+}
+
+/**
+ * Wraps one batch's scoring call so a 413 ("request too large" — e.g. a
+ * free-tier tokens-per-minute cap that a fixed BATCH size can still exceed)
+ * splits the batch in half and scores each half instead of dropping every
+ * candidate in it. Recurses down to single-candidate groups; a single
+ * candidate that still 413s is NOT split further — it throws, and the caller
+ * logs it skipped exactly like any other rejected batch. A non-413 error
+ * (or a 413 the split couldn't work around) also throws unchanged, so the
+ * caller's existing fault-tolerant fan-out (Promise.allSettled + `logSkippedBatches`)
+ * handles it as it does today. Only ever narrows the failure (a split half
+ * that DOES succeed is logged and its candidates recovered), never widens it.
+ */
+async function scoreGroupWithSplit<T>(
+  group: Opportunity[],
+  scoreFn: (group: Opportunity[]) => Promise<T[]>,
+  stage: string,
+): Promise<T[]> {
+  try {
+    return await scoreFn(group);
+  } catch (err) {
+    if (group.length <= 1 || !isRequestTooLarge(err)) throw err;
+    const mid = Math.ceil(group.length / 2);
+    const left = group.slice(0, mid);
+    const right = group.slice(mid);
+    const [l, r] = await Promise.allSettled([
+      scoreGroupWithSplit(left, scoreFn, stage),
+      scoreGroupWithSplit(right, scoreFn, stage),
+    ]);
+    // Both halves failed: propagate (the first half's reason) so this group is
+    // rejected exactly like an unsplit failure — the caller's own fan-out logs it
+    // once, against the FULL original group, instead of us double-logging here.
+    if (l.status === "rejected" && r.status === "rejected") throw l.reason;
+    const results: T[] = [];
+    if (l.status === "fulfilled") results.push(...l.value);
+    else logSkippedBatches(stage, [l], [left]);
+    if (r.status === "fulfilled") results.push(...r.value);
+    else logSkippedBatches(stage, [r], [right]);
+    return results;
+  }
 }
 
 /** Clamp a model-supplied score to the contract's valid 0-100 range. */
@@ -514,8 +597,9 @@ function twoPassClient(): LlmClient {
 
 /**
  * Is this error worth a bounded retry? Only transient SERVER-side conditions
- * that fail FAST — Anthropic overload (529, the one that stalls precompute),
- * rate-limit (429), and generic 5xx. Deliberately NOT a timeout / connection
+ * that fail FAST — Anthropic overload (529, the one that stalls precompute)
+ * and generic 5xx. Deliberately NOT 429: cloud clients already retry it
+ * (lib/llm/rateLimit.ts). Also deliberately NOT a timeout / connection
  * error: a timed-out call was genuinely slow, so retrying it risks multiplying
  * the per-call timeout past the route budget — we let that batch degrade instead
  * (the fan-out is `Promise.allSettled`, so one failed batch never fails the
@@ -524,7 +608,7 @@ function twoPassClient(): LlmClient {
  */
 function isRetryableOverload(err: unknown): boolean {
   const status = (err as { status?: number } | undefined)?.status;
-  return typeof status === "number" && (status === 529 || status === 429 || status >= 500);
+  return typeof status === "number" && (status === 529 || status >= 500);
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -566,7 +650,7 @@ async function scorePassA(
 ): Promise<PassAScore[]> {
   const SYSTEM = scorerPrompt("scoreMatches");
   // Local: 1/batch, serial — JSON-object mode drops candidates from bigger batches (see explainMatches).
-  const BATCH_A = Number(process.env.LLM_PASS_A_BATCH_SIZE) || (isLocalLlm() ? 1 : 12);
+  const BATCH_A = Number(process.env.LLM_PASS_A_BATCH_SIZE) || (isLocalLlm() ? 1 : cloudBatchSize(12));
   const groups: Opportunity[][] = [];
   for (let i = 0; i < candidates.length; i += BATCH_A) groups.push(candidates.slice(i, i + BATCH_A));
 
@@ -611,15 +695,16 @@ async function scorePassA(
     settled = [];
     for (const group of groups) {
       try {
-        settled.push({ status: "fulfilled", value: await scoreGroup(group) });
+        settled.push({ status: "fulfilled", value: await scoreGroupWithSplit(group, scoreGroup, "candidate_prescore") });
       } catch (reason) {
         settled.push({ status: "rejected", reason } as PromiseRejectedResult);
       }
     }
   } else {
-    settled = await Promise.allSettled(groups.map((group) => scoreGroup(group)));
+    settled = await Promise.allSettled(groups.map((group) => scoreGroupWithSplit(group, scoreGroup, "candidate_prescore")));
   }
   meter?.recordStageLatency("candidate_prescore", performance.now() - fanOutStart);
+  logSkippedBatches("candidate_prescore", settled, groups);
   const ok = settled
     .filter((s): s is PromiseFulfilledResult<PassAScore[]> => s.status === "fulfilled")
     .map((s) => s.value);
@@ -647,7 +732,7 @@ async function narratePassB(
 ): Promise<TwoPassAssessment[]> {
   if (promoted.length === 0) return [];
   const SYSTEM = scorerPrompt("explainMatches");
-  const BATCH = Number(process.env.LLM_PASS_B_BATCH_SIZE) || (isLocalLlm() ? 1 : 8);
+  const BATCH = Number(process.env.LLM_PASS_B_BATCH_SIZE) || (isLocalLlm() ? 1 : cloudBatchSize(8));
   const groups: Opportunity[][] = [];
   for (let i = 0; i < promoted.length; i += BATCH) groups.push(promoted.slice(i, i + BATCH));
 
@@ -687,7 +772,7 @@ async function narratePassB(
   const fanOutStart = performance.now();
   let doneInPassB = 0;
   const runGroup = (group: Opportunity[]) =>
-    narrateGroup(group).then(
+    scoreGroupWithSplit(group, narrateGroup, "candidate_analysis").then(
       (result) => {
         doneInPassB += group.length;
         try { onBatchSettled?.(doneInPassB, result); } catch { /* progress/preview is best-effort */ }
@@ -713,6 +798,7 @@ async function narratePassB(
     settled = await Promise.allSettled(groups.map(runGroup));
   }
   meter?.recordStageLatency("candidate_analysis", performance.now() - fanOutStart);
+  logSkippedBatches("candidate_analysis", settled, groups);
   const ok = settled
     .filter((s): s is PromiseFulfilledResult<TwoPassAssessment[]> => s.status === "fulfilled")
     .map((s) => s.value);

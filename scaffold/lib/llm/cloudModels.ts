@@ -1,16 +1,28 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { getCloudProvider, type CloudProviderId } from "./providers";
+import { getCloudProvider, type CloudProviderId, type CloudProviderPreset } from "./providers";
 import { currentHostedFetch, adaptRejectedParams } from "./client";
-import { normalizeOpenAiBaseUrl } from "./baseUrl";
+import { normalizeOpenAiBaseUrl, normalizeAnthropicBaseUrl } from "./baseUrl";
 import { sanitizeProviderMessage, anthropicRawMessage, providerMessageFromBody } from "./errors";
 
-function anthropicClient(apiKey: string, timeout: number): Anthropic {
+function anthropicClient(
+  apiKey: string,
+  timeout: number,
+  provider?: { baseUrl?: string; authMode?: CloudProviderPreset["authMode"] },
+): Anthropic {
   return new Anthropic({
-    apiKey,
+    // See client.ts's makeAnthropicClientForKey for why both fields are set explicitly.
+    ...(provider?.authMode === "authToken" ? { apiKey: null, authToken: apiKey } : { apiKey, authToken: null }),
+    ...(provider?.baseUrl ? { baseURL: provider.baseUrl } : {}),
     timeout,
     maxRetries: 0,
     fetch: currentHostedFetch() as any,
   });
+}
+
+/** The Anthropic-SDK base URL for a usesAnthropicSdk preset: undefined for the real Anthropic API. */
+function anthropicSdkBaseUrl(preset: CloudProviderPreset, draftBaseUrl?: string): string | undefined {
+  const baseUrl = preset.editableBaseUrl ? (draftBaseUrl ?? preset.baseUrl) : preset.baseUrl;
+  return baseUrl ? normalizeAnthropicBaseUrl(baseUrl) : undefined;
 }
 
 // Model discovery for the Settings model picker, and the shared "call the
@@ -172,8 +184,12 @@ async function probeOpenAiCompatModel(baseUrl: string, key: string, model: strin
  * permission failure (which a bare models.list can't see) surfaces here
  * instead of at search time. */
 export async function probeCloudKey(params: CloudProbeParams): Promise<ProbeOutcome> {
-  if (params.providerId === "anthropic") {
-    const client = anthropicClient(params.key, 15_000);
+  const sdkPreset = getCloudProvider(params.providerId);
+  if (sdkPreset?.usesAnthropicSdk) {
+    const client = anthropicClient(params.key, 15_000, {
+      baseUrl: anthropicSdkBaseUrl(sdkPreset, params.baseUrl),
+      authMode: sdkPreset.authMode,
+    });
     let models: string[] = [];
     try {
       const page: any = await client.models.list();
@@ -181,7 +197,7 @@ export async function probeCloudKey(params: CloudProbeParams): Promise<ProbeOutc
     } catch (err) {
       return describeAnthropicError(err, params.key);
     }
-    const model = params.model || models[0];
+    const model = params.model || sdkPreset.defaultModel || models[0];
     if (!model) return { ok: true }; // no model configured or listed — key alone is all we can confirm
     return probeAnthropicModel(client, model, params.key);
   }
@@ -228,9 +244,14 @@ export async function listCloudModels(params: {
   baseUrl?: string;
   key: string;
 }): Promise<ModelsListResult> {
-  if (params.providerId === "anthropic") {
+  const sdkPreset = getCloudProvider(params.providerId);
+  if (sdkPreset?.usesAnthropicSdk) {
     try {
-      const page: any = await anthropicClient(params.key, 10_000).models.list();
+      const client = anthropicClient(params.key, 10_000, {
+        baseUrl: anthropicSdkBaseUrl(sdkPreset, params.baseUrl),
+        authMode: sdkPreset.authMode,
+      });
+      const page: any = await client.models.list();
       const models = (page?.data ?? []).map((m: any) => m.id).filter((id: unknown) => typeof id === "string");
       return { models };
     } catch (err) {
