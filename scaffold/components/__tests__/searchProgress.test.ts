@@ -79,7 +79,7 @@ describe("localModelEstimateRange", () => {
 describe("localTwoPhaseMessage", () => {
   test("names the model, its size, and both phases' timing", () => {
     const msg = localTwoPhaseMessage("qwen2.5:3b", 3.1);
-    assert.match(msg, /^First matches appear in about a minute\./);
+    assert.match(msg, /^First matches appear in a few seconds\./);
     assert.match(msg, /qwen2\.5:3b \(3\.1B\)/);
     assert.match(msg, /3–6 minutes/);
     assert.match(msg, /explore the first results while the rest are analyzed/);
