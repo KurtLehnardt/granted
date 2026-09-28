@@ -22,13 +22,8 @@ import { readJSON, writeJSON } from "@/lib/localStore";
  * — 5 required + 8 optional-but-material, required first, material fields
  * behind an opt-in toggle.
  *
- * THE CORE GUARANTEE ("never re-ask a provided field"): every field always
- * renders as a normal, directly-editable control pre-filled with its current
- * value — whether that value came from the user typing it or from a restored
- * localStorage draft — so there is no separate "Edit" step. A fully-filled
- * profile therefore has ZERO gaps left to ask about; the caller uses the
- * `complete` flag on `onSubmit` to skip the R1 AI interview entirely for that
- * case (see components/IntakeForm.tsx).
+ * Every field always renders as a directly-editable control, pre-filled with
+ * its current value — no separate "Edit" step.
  *
  * PERSISTENCE (§5.3 — localStorage-only, no server retention): the whole
  * draft profile lives in `localStorage` via `lib/localStore.ts` and is never
@@ -194,12 +189,7 @@ export const MATERIAL_FIELD_GROUPS: readonly { heading: string; fields: readonly
   },
 ];
 
-/**
- * Split a saved/draft boolean_text value ("Yes — detail", "Yes", "No", or "")
- * into its radio choice and detail-box text. Pure — used both to seed the
- * boolean_text control's local state from `draftFor` and, indirectly, to
- * know what `commitBooleanText` should preserve when only one half changes.
- */
+/** Split a "Yes — detail" / "Yes" / "No" / "" value into radio choice + detail text. */
 export function splitBooleanText(draft: string): { choice: string; detail: string } {
   const trimmed = draft.trim();
   if (trimmed === "No") return { choice: "No", detail: "" };
@@ -209,12 +199,7 @@ export function splitBooleanText(draft: string): { choice: string; detail: strin
   return { choice: "", detail: "" };
 }
 
-/**
- * The current display value for a plain (non-boolean_text) field: whatever
- * the user is actively typing (`values[field]`) if present, else whatever
- * `profile` (freshly hydrated from a saved draft, or not) already holds.
- * Pure/parameterized so it's testable without mounting the component.
- */
+/** Current display value for a plain field: live edit if any, else the saved profile value. */
 export function draftValue(profile: ProfileDraft, values: Record<string, string>, field: string): string {
   if (field in values) return values[field] ?? "";
   const bag = profile as Record<string, { value?: unknown } | undefined>;
@@ -223,14 +208,7 @@ export function draftValue(profile: ProfileDraft, values: Record<string, string>
   return Array.isArray(value) ? value.join(", ") : String(value);
 }
 
-/**
- * The current radio choice + detail text for a boolean_text field. Once the
- * user has touched either control this session, `values` holds the live
- * truth; until then — including right after a saved draft is hydrated from
- * localStorage — it's derived from the saved combined string in `profile`
- * via `splitBooleanText`, so a restored "Yes — prototype testing" shows the
- * "Yes" radio checked with the detail box pre-filled, not a blank control.
- */
+/** Current radio choice + detail text for a boolean_text field: live edits win, else the saved value. */
 export function resolveBooleanTextField(
   profile: ProfileDraft,
   values: Record<string, string>,

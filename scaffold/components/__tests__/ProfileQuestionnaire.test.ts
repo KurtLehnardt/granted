@@ -274,15 +274,6 @@ test("ProfileQuestionnaire: an empty form renders as directly editable controls,
 });
 
 // --- draftValue / splitBooleanText / resolveBooleanTextField --------------
-//
-// These are exactly the pure helpers the render path calls to decide what a
-// control shows: `draftFor` (plain fields) and the boolean_text radio+detail
-// pair both delegate to them. Testing them directly with a SAVED profile
-// (the shape `profile` takes right after localStorage hydration, before the
-// user has touched anything so `values` is still empty) is what proves a
-// restored draft actually shows up in the controls — the bug the reviewer
-// flagged: rd_activities read `values[...__choice/__detail]`, which nothing
-// ever populated from a hydrated `profile`.
 
 test("draftValue: with no live edit yet, falls back to the saved profile cell", () => {
   const profile = { industry: { value: "agtech", provenance: "user_stated" as const, confidence: 1 } };
@@ -314,7 +305,7 @@ test("splitBooleanText: an empty/unrecognized string checks neither radio", () =
   assert.deepEqual(splitBooleanText(""), { choice: "", detail: "" });
 });
 
-test("resolveBooleanTextField: a saved 'Yes — <detail>' profile value shows checked + pre-filled, before any live edit — the reviewer's rd_activities bug", () => {
+test("resolveBooleanTextField: a saved 'Yes — <detail>' profile value shows checked + pre-filled, before any live edit", () => {
   const profile = {
     rd_activities: { value: "Yes — prototype testing", provenance: "user_stated" as const, confidence: 1 },
   };
@@ -347,18 +338,4 @@ test("resolveBooleanTextField: typing into a restored detail box keeps the Yes r
     choice: "Yes",
     detail: "x",
   });
-});
-
-test("resolveBooleanTextField: re-clicking 'Yes' on a restored draft must not drop the saved detail (no silent overwrite)", () => {
-  // Regression for the reviewer's second finding: naively computing
-  // `commitBooleanText("Yes", "")` from an un-hydrated `detail` would
-  // collapse a saved "Yes — prototype testing" down to a bare "Yes". Here,
-  // `resolveBooleanTextField` is what the radio's onChange handler reads
-  // `detail` from before re-committing, so it must already carry the saved
-  // detail forward.
-  const profile = {
-    rd_activities: { value: "Yes — prototype testing", provenance: "user_stated" as const, confidence: 1 },
-  };
-  const { detail } = resolveBooleanTextField(profile, {}, "rd_activities");
-  assert.equal(detail, "prototype testing");
 });

@@ -1,13 +1,5 @@
 import { test, expect } from "@playwright/test";
 
-/**
- * A saved profile (restored from localStorage) must render straight into
- * editable controls — no "Edit" button gating them — and those controls must
- * stay editable as the user types, including the rd_activities boolean_text
- * detail box (the reviewer's regression: typing into a restored detail box
- * used to blank the radio choice and unmount the box).
- */
-
 const STORAGE_KEY = "ff.questionnaire.profile.v1";
 
 test("a field with a saved value renders as an editable control with no Edit button", async ({ page }) => {
@@ -48,7 +40,8 @@ test("typing into a restored boolean_text detail box keeps the radio checked and
   await expect(yesRadio).toBeChecked();
   await expect(detail).toHaveValue("prototype testing");
 
-  await detail.type(" X");
+  await detail.press("End");
+  await detail.pressSequentially(" X");
 
   await expect(yesRadio).toBeChecked();
   await expect(detail).toBeVisible();
