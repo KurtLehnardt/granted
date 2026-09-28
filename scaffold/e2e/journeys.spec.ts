@@ -143,11 +143,11 @@ test("welcome guide: sample list disables while a search is in flight", async ({
   });
   await page.goto("/");
 
-  await page.getByLabel("Company description").fill(DETAILED_DESCRIPTION);
-  await page.getByLabel("Industry / market").fill("Health IT");
-  await page.getByLabel("Core technology").fill("Diagnostic imaging software");
-  await page.getByLabel("Primary US location").fill("Boise, Idaho");
-  await page.getByLabel("Use of funds").fill("Hire two engineers");
+  await fillRequiredIntakeFields(page, {
+    technology: "Diagnostic imaging software",
+    location: "Boise, Idaho",
+    useOfFunds: "Hire two engineers",
+  });
   await page.getByLabel("Use of funds").blur();
   await page.getByRole("button", { name: "Find opportunities" }).click();
 
@@ -168,11 +168,12 @@ test("intake: optional details stay collapsed after required fields are filled, 
   await skipWelcomeGuide(page);
   await page.goto("/");
 
-  await page.getByLabel("Company description").fill("AI diagnostics for rural clinics");
-  await page.getByLabel("Industry / market").fill("Health IT");
-  await page.getByLabel("Core technology").fill("Diagnostic imaging software");
-  await page.getByLabel("Primary US location").fill("Boise, Idaho");
-  await page.getByLabel("Use of funds").fill("Hire two engineers");
+  await fillRequiredIntakeFields(page, {
+    description: "AI diagnostics for rural clinics",
+    technology: "Diagnostic imaging software",
+    location: "Boise, Idaho",
+    useOfFunds: "Hire two engineers",
+  });
   await page.getByLabel("Use of funds").blur();
   await expect(page.getByRole("button", { name: "Find opportunities" })).toBeEnabled();
 
@@ -212,11 +213,12 @@ test("intake: the form collapses to a summary bar after a real search starts, an
   await page.goto("/");
 
   const description = "AI diagnostics for rural clinics, built for overworked front-desk staff.";
-  await page.getByLabel("Company description").fill(description);
-  await page.getByLabel("Industry / market").fill("Health IT");
-  await page.getByLabel("Core technology").fill("Diagnostic imaging software");
-  await page.getByLabel("Primary US location").fill("Boise, Idaho");
-  await page.getByLabel("Use of funds").fill("Hire two engineers");
+  await fillRequiredIntakeFields(page, {
+    description,
+    technology: "Diagnostic imaging software",
+    location: "Boise, Idaho",
+    useOfFunds: "Hire two engineers",
+  });
   await page.getByLabel("Use of funds").blur();
   const toggle = page.locator('button[aria-controls="pq-form-fields"]');
   await expect(toggle).toHaveCount(0);
@@ -270,7 +272,18 @@ test.fixme("interview: a short description shows the pre-search interview before
   await stubBackend(page);
   await skipWelcomeGuide(page);
   await page.goto("/");
-  await fillRequiredIntakeFields(page, { description: "AI for clinics" });
+  // IntakeForm.beginSearch's interview gate is a word/sentence count on the
+  // FULL compiled description (raw_text + every other filled field, one
+  // "Label: value" line each — see buildDescriptionFromProfile) — every
+  // field here must stay short, or the other 4 fields' text alone can push
+  // the total past the "detailed enough, skip the interview" threshold.
+  await fillRequiredIntakeFields(page, {
+    description: "AI for clinics",
+    industry: "Health",
+    technology: "AI",
+    location: "Utah",
+    useOfFunds: "R&D",
+  });
   await page.getByRole("button", { name: /find opportunities/i }).click();
   await expect(page.getByText(/entity/i)).toBeVisible();
 });
