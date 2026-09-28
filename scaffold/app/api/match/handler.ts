@@ -177,6 +177,10 @@ export async function handleMatchRequest(
             // still gets the authoritative, complete `result.map` at the end;
             // these are only an early preview of matches that map will contain.
             (m: Match) => send({ type: "match", match: m }),
+            // INSTANT CARDS — fired for each retrieved candidate before any LLM
+            // scoring call. No score/tier yet: the client renders a spinner in
+            // its place until the real "match" event for the same id arrives.
+            (o) => send({ type: "provisional", provisional: true, opportunity: o }),
           ),
         );
         // Log any boundary drift for visibility, but ALWAYS stream the real,

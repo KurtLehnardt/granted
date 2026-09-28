@@ -14,6 +14,8 @@ import { CURRENT_OPPORTUNITY_MAP_VERSION } from "./contracts/opportunityMap";
 import { isFlagEnabled, isFlagExplicitlyDisabled } from "./flags";
 import { isLocalLlm } from "./llm/client";
 import { recommendFor, mapVerdict } from "./recommend";
+import { getBM25Index, bm25Query } from "./retrieval/bm25";
+import { fuseRankings } from "./retrieval/hybrid";
 // F3 — weak-field redirects should name a few REAL Utah/SBA programs, not just
 // categories. Wrapped around both explainWeakField() call sites below (the
 // zero-candidate weakField() branch and the below-threshold branch in
@@ -260,6 +262,13 @@ function baseMatchFromAssessment(a: Assessment, opp: Opportunity, profile: Start
   };
 }
 
+/** Instant-cards: how many retrieved candidates get an early, unscored
+ *  provisional card. A little above the UI's CARD_CAP (8) so that even after
+ *  scoring reshuffles tiers, most of what was shown provisionally is still
+ *  in the final list — without spamming the client with the whole
+ *  candidateCount slice, most of which will never be shown. */
+export const PROVISIONAL_PREVIEW_COUNT = 12;
+
 export async function buildOpportunityMap(
   description: string,
   onStep?: (e: StepEvent) => void,
@@ -272,6 +281,10 @@ export async function buildOpportunityMap(
   // and best-effort — never affects the authoritative `matches` this function
   // returns, which is always built from the complete, awaited scorer result.
   onMatch?: (m: Match) => void,
+  // INSTANT CARDS — fired for each retrieved candidate immediately after
+  // retrieval, well before any LLM scoring call. Optional and best-effort,
+  // exactly like `onMatch`: never affects the authoritative returned map.
+  onProvisional?: (o: Opportunity) => void,
 ): Promise<OpportunityMap> {
   const d: BuildDeps = { ...REAL_DEPS, ...deps, corpus: deps.corpus ?? dropExpiredOpportunities(getCorpus()) };
   // Progress is best-effort: a reporting error must never fail the search.
@@ -283,30 +296,34 @@ export async function buildOpportunityMap(
   // it is internally defensive and never throws (lib/metering/meter.ts).
   const meter = createCostMeter();
 
-  // 1 + 2. Intake and adaptive follow-ups.
-  const { profile, followUps } = await d.extractProfile(description, meter, signal);
-  step({ key: "profile", label: "Understood your company", pct: 18 });
+  // INSTANT CARDS — 1 + 2 run IN PARALLEL, not sequentially. Profile extraction
+  // is the ~44s local-LLM call that used to gate everything else; retrieval only
+  // needs an EMBEDDING of the raw description, which is sub-second even on a
+  // local embedding model. So we kick off extractProfile here WITHOUT awaiting
+  // it, embed the raw description immediately below, and retrieve + stream
+  // provisional candidates while the profile call is still in flight. The
+  // profile is only awaited once retrieval has already produced candidates
+  // (right before eligibility screening / LLM scoring, both of which genuinely
+  // need it). One retrieval, not two: re-embedding after the profile resolves
+  // would mean a SECOND embedding call plus a full re-rank before the user sees
+  // anything, undoing the latency win for a quality gain that's usually small —
+  // `profile.description` is normally a light rephrasing of the same raw text
+  // (extractProfile mostly restates/structures it), so raw-description cosine +
+  // BM25 already recovers nearly the same candidate set the profile-expanded
+  // query would. The one signal this forgoes is `expandedTerms`/enrichment
+  // vocabulary (e.g. mapping "sensors" -> "SBIR"); that's still applied, just
+  // deferred to a rank REORDER (not a re-embed) once the profile is in, via the
+  // existing `enrich` boost below — same effect, without blocking display.
+  const profilePromise = d.extractProfile(description, meter, signal);
+  // Attach a no-op rejection handler immediately so Node never logs an
+  // "unhandled rejection" if extractProfile fails while retrieval (below) is
+  // still in flight — the real error still surfaces at the `await
+  // profilePromise` further down, which is a SEPARATE handler on the same
+  // promise and rejects exactly as before.
+  profilePromise.catch(() => {});
 
-  // B2 (profile-enriched ranking) — deterministic, flag-gated (default OFF).
-  // When on, distill the structured StartupProfile fields (size, funding stage,
-  // use-of-funds mechanism, industry/NAICS) into a retrieval signal that (a)
-  // folds government-vocabulary terms into the query-embedding text below and
-  // (b) drives a non-negative re-rank boost over the floor-clearing candidates.
-  // When off, `enrich` is undefined and every line below is byte-for-byte the
-  // pre-B2 behavior, so the calibration/quota guarantees hold unchanged.
-  const enrich = isFlagEnabled("b2_enriched_ranking") ? deriveEnrichmentSignal(profile) : undefined;
-
-  // 3. Semantic expansion — embed the user profile plus expanded gov terms
-  //    (and, under B2, the enrichment-derived mechanism/size vocabulary).
-  const queryText = [
-    profile.description,
-    profile.technology,
-    profile.industry,
-    profile.rdActivities,
-    profile.targetCustomers,
-    (profile.expandedTerms ?? []).join(", "),
-    enrich ? enrichmentQueryTerms(enrich).join(", ") : "",
-  ].filter(Boolean).join("\n");
+  // 3. Semantic expansion — embed the RAW description directly (sub-second).
+  const queryText = description;
   const queryVec = await d.embed(queryText, meter, signal);
   // Fail loudly if the live query and the committed corpus don't share an
   // embedding space (switched EMBEDDINGS_MODEL without re-embedding) — otherwise
@@ -314,10 +331,28 @@ export async function buildOpportunityMap(
   // field for no visible reason. Sampled from the first embedded opp (uniform dim).
   const corpusDim = d.corpus.find((o) => Array.isArray(o.embedding) && o.embedding.length > 0)?.embedding?.length;
   assertEmbeddingDimsMatch(queryVec.length, corpusDim);
-  step({ key: "embed", label: `Searching ${d.corpus.length} programs`, pct: 32 });
+  step({ key: "embed", label: `Searching ${d.corpus.length} programs`, pct: 15 });
 
-  // 4. Hybrid retrieval: similarity, then LLM scoring. No pre-screen eligibility
-  //    filter — every retrieved candidate is screened by screen() (C1).
+  // 4. Hybrid retrieval: cosine similarity fused with a BM25 keyword rank, then
+  //    LLM scoring. No pre-screen eligibility filter — every retrieved
+  //    candidate is screened by screen() (C1).
+  //
+  // Hybrid fusion (instant-cards perf work): a keyword index over the SAME
+  // corpus text (program/agency/description/eligibility — see
+  // lib/retrieval/bm25.ts), fused with the cosine rank via reciprocal rank
+  // fusion (lib/retrieval/hybrid.ts). This catches the case cosine alone
+  // misses — a rare, highly specific keyword (a program acronym, a named
+  // statute) that a general-purpose embedding under-weights. RRF only ever
+  // RE-ORDERS candidates that already cleared the cosine floor below; a doc
+  // below the floor is never promoted into candidacy by a keyword hit alone
+  // (the floor is `sim`-only and stays that way — see the CALIBRATION note).
+  // Indexing the corpus is lazy + cached by array identity (getBM25Index), so
+  // a real request only pays the (sub-100ms) QUERY cost, not a rebuild.
+  const bm25Index = getBM25Index(deps.corpus ?? getCorpus());
+  const bm25Ids = new Set(d.corpus.map((o) => o.id));
+  const bm25RankedIds = bm25Query(bm25Index, queryText)
+    .map((h) => h.id)
+    .filter((id) => bm25Ids.has(id));
   //
   // C1a (per-type retrieval quota): a single global top-`candidateCount` cosine
   // cut let the ~476 grants crowd out the ~492 non-grant opps (rd/SBIR,
@@ -327,20 +362,26 @@ export async function buildOpportunityMap(
   // reserve the top `perTypeQuota` candidates of EACH `kind` present among the
   // floor-clearing set, unioning them in (deduped by id). This makes every
   // present instrument type REACHABLE by the scorer without displacing any
-  // strong grant. Fully deterministic: stable sort by cosine desc, tie-broken
-  // by opp id, so the union order is stable across runs.
-  // B2: `sim` is the RAW cosine (still the ONLY thing the candidate floor gates,
-  // so enrichment can never admit a below-floor opp); `rank` is `sim` plus the
-  // deterministic non-negative enrichment boost (0 when the flag is off). Sorting
-  // by `rank` re-orders and re-selects among floor-clearers only.
+  // strong grant. Fully deterministic: stable sort, tie-broken by opp id, so
+  // the union order is stable across runs.
+  // `sim` is the RAW cosine — the ONLY thing the candidate floor gates, so
+  // neither the enrichment boost (applied later, once the profile is in) nor
+  // the BM25 fusion (applied immediately below) can ever admit a below-floor
+  // opp. `floorCleared` is sorted by the cosine order first, then re-ordered
+  // by the fused cosine+BM25 rank — ties (no BM25 signal at all, the common
+  // case in a hermetic test corpus with no keyword overlap) fall back to the
+  // exact original cosine order.
   const floorCleared = d.corpus
     .map((o) => {
       const sim = o.embedding ? cosine(queryVec, o.embedding) : 0;
-      const rank = enrich ? sim + boostForOpportunity(enrich, o) : sim;
-      return { o, sim, rank };
+      return { o, sim };
     })
     .filter((x) => x.sim >= CALIBRATION.candidateFloor)
-    .sort((a, b) => (b.rank - a.rank) || (a.o.id < b.o.id ? -1 : a.o.id > b.o.id ? 1 : 0));
+    .sort((a, b) => b.sim - a.sim || (a.o.id < b.o.id ? -1 : a.o.id > b.o.id ? 1 : 0));
+
+  const fusedOrder = fuseRankings(floorCleared.map((x) => x.o.id), bm25RankedIds);
+  const byFusedRank = new Map(fusedOrder.map((id, i) => [id, i]));
+  floorCleared.sort((a, b) => (byFusedRank.get(a.o.id) ?? 0) - (byFusedRank.get(b.o.id) ?? 0));
 
   // Base set: the UNCHANGED global top-N (preserves every strong grant that
   // already qualified — nothing is discarded to make room for the quota).
@@ -362,11 +403,50 @@ export async function buildOpportunityMap(
   // The candidate slice sent to the scorer: the union, in the same deterministic
   // cosine-desc / id order as `floorCleared` (filter preserves array order).
   const scored = floorCleared.filter((x) => selectedIds.has(x.o.id));
-  step({ key: "retrieve", label: `Found ${scored.length} candidate programs`, pct: 46 });
+  step({ key: "retrieve", label: `Found ${scored.length} candidate programs`, pct: 30 });
+
+  // INSTANT CARDS — stream an unscored, provisional card for each retrieved
+  // candidate right away, well before the (still in-flight, ~44s-on-local)
+  // profile call resolves. The UI renders these with a spinner in place of a
+  // score; a later "match" event for the same id upgrades the card in place.
+  // Best-effort, in retrieval (fused-rank) order, capped at CARD_CAP-ish so a
+  // huge candidateCount doesn't spam the client with cards that will never be
+  // shown — the rest still arrive as ordinary "match" events once scored.
+  for (const x of scored.slice(0, PROVISIONAL_PREVIEW_COUNT)) {
+    try { onProvisional?.(x.o); } catch { /* progressive rendering is best-effort */ }
+  }
+
+  // Only now do we actually need the profile: eligibility screening, the B2
+  // enrichment re-rank, and the LLM scorer's narrative context all require it.
+  // It has been running in parallel with everything above since the top of
+  // this function, so by the time a real (slow, local) run gets here it may
+  // already be done — the ~44s is now hidden behind retrieval + the provisional
+  // render instead of gating them.
+  const { profile, followUps } = await profilePromise;
+  step({ key: "profile", label: "Understood your company", pct: 45 });
 
   if (scored.length === 0) {
     step({ key: "weak", label: "Writing your finding…", pct: 80 });
     return weakField(profile, followUps, meter, d.explainWeakField, signal);
+  }
+
+  // B2 (profile-enriched ranking) — deterministic, flag-gated (default OFF).
+  // Distills the structured StartupProfile fields (size, funding stage,
+  // use-of-funds mechanism, industry/NAICS) into a non-negative re-rank boost.
+  // Retrieval MEMBERSHIP was already decided above (cosine floor + fused
+  // cosine/BM25 rank), before the profile existed; this only re-orders the
+  // already-selected `scored` slice — same effect on which candidates the
+  // scorer sees first as the pre-instant-cards behavior had on selection, just
+  // decided a beat later so it never blocks the provisional render. When off,
+  // `enrich` is undefined and `scored`'s order is untouched (the fused
+  // cosine/BM25 order from retrieval).
+  const enrich = isFlagEnabled("b2_enriched_ranking") ? deriveEnrichmentSignal(profile) : undefined;
+  if (enrich) {
+    scored.sort((a, b) => {
+      const ra = a.sim + boostForOpportunity(enrich, a.o);
+      const rb = b.sim + boostForOpportunity(enrich, b.o);
+      return rb - ra || (a.o.id < b.o.id ? -1 : a.o.id > b.o.id ? 1 : 0);
+    });
   }
 
   // Only a definitive, rule-based `excluded` skips the LLM; every other bucket is still scored.

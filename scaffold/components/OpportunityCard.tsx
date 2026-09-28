@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { TIER_LABEL, type Match, type StartupProfile } from "@/lib/types";
+import { isProvisional, type PreviewItem } from "@/lib/ui/previewReducer";
 import type { EligibilityBucket } from "@/lib/contracts/eligibilityDetermination";
 import HowToApplyModal from "@/components/HowToApplyModal";
 import { buildFundingRange, money } from "@/components/ApplicationChecklist";
@@ -113,10 +114,62 @@ export default function OpportunityCard({
   index,
   startupProfile,
 }: {
-  m: Match;
+  m: PreviewItem;
   index: number;
   /** The user's extracted v1 profile (from `map.profile`), threaded into the
    *  competitor-analysis modal below. Only read when r5_deep_analysis is on. */
+  startupProfile?: StartupProfile;
+}) {
+  if (isProvisional(m)) return <ProvisionalCard opportunity={m.opportunity} index={index} />;
+  return <ScoredOpportunityCard m={m} index={index} startupProfile={startupProfile} />;
+}
+
+/**
+ * Instant cards — a retrieved-but-unscored candidate. No score, no tier, no
+ * narrative yet: just the program identity plus an accessible "Scoring…"
+ * spinner in place of the match percentage. Deliberately shows no number —
+ * a fake or placeholder score would be worse than an honest "not yet".
+ */
+function ProvisionalCard({ opportunity, index }: { opportunity: Match["opportunity"]; index: number }) {
+  const articleClass =
+    "relative overflow-hidden rounded-lg bg-canvas-alt text-foreground shadow-card transition-shadow duration-200 ease-out";
+  return (
+    <article className={articleClass}>
+      <span className="spine bg-structure-on-canvas" aria-hidden />
+      <div className="flex flex-wrap items-start justify-between gap-4 px-5 py-4 sm:flex-nowrap sm:gap-6 sm:px-6 sm:py-5">
+        <div className="min-w-0">
+          <h3 className="mt-1.5 text-balance font-display text-[19px] font-medium leading-snug text-foreground">
+            {opportunity.program}
+          </h3>
+          <p className="mt-1 text-pretty font-mono text-[12px] text-foreground">{opportunity.agency}</p>
+        </div>
+        <div className="shrink-0 text-right" role="status" aria-label="Scoring…">
+          <ProvisionalSpinner />
+          <div className="mt-1 font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas">
+            scoring
+          </div>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function ProvisionalSpinner() {
+  return (
+    <svg className="ml-auto h-5 w-5 animate-spin text-structure-on-canvas" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+      <path className="opacity-90" d="M22 12a10 10 0 0 0-10-10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function ScoredOpportunityCard({
+  m,
+  index,
+  startupProfile,
+}: {
+  m: Match;
+  index: number;
   startupProfile?: StartupProfile;
 }) {
   // Expand the first three cards so criteria / ineligibility / history read at a glance.

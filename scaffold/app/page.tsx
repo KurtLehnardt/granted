@@ -3,14 +3,16 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import IntakeForm from "@/components/IntakeForm";
 import OpportunityMap, { Boundary } from "@/components/OpportunityMap";
 import OpportunityCard from "@/components/OpportunityCard";
-import type { OpportunityMap as MapT, Match } from "@/lib/types";
+import type { OpportunityMap as MapT } from "@/lib/types";
 import AppMenu from "@/components/AppMenu";
 import { isFlagEnabled } from "@/lib/flags";
 import { SidebarProvider, useSidebar } from "@/components/SidebarProvider";
 import { useAnalytics } from "@/components/AnalyticsProvider";
 import { latestRun, saveRun } from "@/lib/runs/runsStore";
 import { formatSearchDuration } from "@/components/SearchProgress";
-import { previewReducer } from "@/lib/ui/previewReducer";
+import { previewReducer, partitionPreview, type PreviewItem } from "@/lib/ui/previewReducer";
+import WeakerMatches from "@/components/WeakerMatches";
+import { CARD_CAP } from "@/components/OpportunityMap";
 
 // FE-01 / design revamp: the CON-02 USWDS 60/30/10 restyle is now the DEFAULT
 // look on this A/B branch (previously gated behind r7_design). The token
@@ -45,7 +47,7 @@ function HomeShell({ sidebarOn }: { sidebarOn: boolean }) {
   // growing preview list + "finding more" spinner instead of the last
   // completed `map` — and when to hand back off to it.
   const [loading, setLoading] = useState(false);
-  const [previewMatches, setPreviewMatches] = useState<Match[]>([]);
+  const [previewMatches, setPreviewMatches] = useState<PreviewItem[]>([]);
   const [searchDuration, setSearchDuration] = useState<number | null>(null);
 
   function handleLoadingChange(isLoading: boolean) {
@@ -61,7 +63,11 @@ function HomeShell({ sidebarOn }: { sidebarOn: boolean }) {
     }
   }
 
-  function handleMatchPreview(m: Match) {
+  // Instant cards: a retrieved-but-unscored candidate (spinner card) or a
+  // fully scored Pass-A/Pass-B match — both upserted in place, never
+  // re-sorted mid-stream (previewReducer), so cards don't jump around while
+  // they're still being scored.
+  function handleMatchPreview(m: PreviewItem) {
     setPreviewMatches((prev) => previewReducer(prev, m));
   }
 
@@ -175,11 +181,19 @@ function HomeShell({ sidebarOn }: { sidebarOn: boolean }) {
               <p className="font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas">
                 Your opportunity map
               </p>
-              <div className="mt-4 space-y-3">
-                {previewMatches.map((m, i) => (
-                  <OpportunityCard key={m.opportunity?.id ?? i} m={m} index={i} />
-                ))}
-              </div>
+              {(() => {
+                const { shown, weaker } = partitionPreview(previewMatches, CARD_CAP);
+                return (
+                  <>
+                    <div className="mt-4 space-y-3">
+                      {shown.map((m, i) => (
+                        <OpportunityCard key={m.opportunity?.id ?? i} m={m} index={i} />
+                      ))}
+                    </div>
+                    <WeakerMatches matches={weaker} />
+                  </>
+                );
+              })()}
               <div
                 className="mt-4 flex items-center gap-2 font-mono text-[12px] text-foreground"
                 role="status"

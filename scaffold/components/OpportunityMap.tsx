@@ -5,6 +5,7 @@ import EligibilityBuckets, { type EligibilityItem } from "./EligibilityBuckets";
 import SimilarCompanies from "./SimilarCompanies";
 import AgencyMap from "./AgencyMap";
 import OpportunityGroups from "./OpportunityGroups";
+import WeakerMatches from "./WeakerMatches";
 import OpportunityGraph from "./OpportunityGraph";
 import FundingStrategy from "./FundingStrategy";
 import OpportunityAlerts from "./OpportunityAlerts";
@@ -21,8 +22,8 @@ import { useCorpusAsOf } from "@/lib/corpus/useCorpusAsOf";
  *  preview list is replaced by the final, complete map. */
 export const CARD_CAP = 8;
 
-/** Real fits (best first, capped) plus rule-excluded candidates, which stay visible (R8.2) but outside the cap and header stats. */
-export function selectShownMatches(matches: Match[]): { real: Match[]; excluded: Match[] } {
+/** Real fits (best first, capped) plus rule-excluded candidates, which stay visible (R8.2) but outside the cap and header stats. A plain tier-"none" candidate (no rule excluded it — it just scored weak) is neither hidden nor mixed into `real`: it goes in `weaker`, shown collapsed below the main list (never silently dropped). */
+export function selectShownMatches(matches: Match[]): { real: Match[]; excluded: Match[]; weaker: Match[] } {
   const real = matches
     .filter((m) => m && m.tier !== "none")
     .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
@@ -30,7 +31,10 @@ export function selectShownMatches(matches: Match[]): { real: Match[]; excluded:
   const excluded = matches.filter(
     (m) => m && m.tier === "none" && m.eligibility?.determination?.bucket === "excluded",
   );
-  return { real, excluded };
+  const weaker = matches
+    .filter((m) => m && m.tier === "none" && m.eligibility?.determination?.bucket !== "excluded")
+    .sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+  return { real, excluded, weaker };
 }
 
 /** FE-01: shared "eyebrow"-style mono label, token-driven. */
@@ -79,7 +83,7 @@ export default function OpportunityMap({ map }: { map: MapT }) {
   // CompetitorResults deep-analysis flow, which this never reads or affects.
   const similarRecipients = aggregateSimilarCompanies(matches, { limit: 10 });
 
-  const { real: shownReal, excluded: excludedShown } = selectShownMatches(matches);
+  const { real: shownReal, excluded: excludedShown, weaker: weakerMatches } = selectShownMatches(matches);
   const shown = [...shownReal, ...excludedShown];
 
   // Header stats derived from real fits only — keeps them honest and consistent.
@@ -252,6 +256,11 @@ export default function OpportunityMap({ map }: { map: MapT }) {
             )}
           </section>
         )}
+
+        {/* Weaker matches — a tier-"none" candidate the search genuinely
+            considered (never a rule-excluded one, which stays in `excluded`
+            above) collapses here instead of being silently dropped. */}
+        <WeakerMatches matches={weakerMatches} startupProfile={map.profile} />
 
         {/* R8 / ELG-04: real three-bucket eligibility screening for the shown
             opportunities, gated behind r8_eligibility (default off). */}

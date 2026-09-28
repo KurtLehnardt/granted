@@ -16,6 +16,7 @@ import ProfileQuestionnaire from "@/components/ProfileQuestionnaire";
 // (or the OPENAI_API_KEY it reads) ever reaches this client bundle.
 import type { InterviewQuestion } from "@/lib/interview/generateQuestions";
 import type { Match } from "@/lib/types";
+import type { PreviewItem } from "@/lib/ui/previewReducer";
 
 export default function IntakeForm({
   onResult,
@@ -35,7 +36,7 @@ export default function IntakeForm({
    *  progressively instead of waiting for the whole candidate set. Optional;
    *  every match still arrives again, complete and authoritative, inside the
    *  final `onResult(map)` — this is purely an early, best-effort preview. */
-  onMatchPreview?: (m: Match) => void;
+  onMatchPreview?: (m: PreviewItem) => void;
   /** Fires right before `onResult` with the search's duration, or null for a cached result. */
   onSearchDuration?: (ms: number | null) => void;
 }) {
@@ -212,6 +213,12 @@ export default function IntakeForm({
             // streamed match line (or a throwing callback) abort the search;
             // the authoritative, complete result still arrives in `onResult`.
             try { if (msg.match) onMatchPreview?.(msg.match); } catch { /* preview rendering is best-effort */ }
+          } else if (msg.type === "provisional") {
+            // Instant cards: a retrieved-but-unscored candidate, sent well
+            // before any LLM scoring call. Same best-effort handling as "match".
+            try {
+              if (msg.opportunity) onMatchPreview?.({ opportunity: msg.opportunity, provisional: true });
+            } catch { /* preview rendering is best-effort */ }
           } else if (msg.type === "result") {
             gotResult = true;
             // Record how long this successful run took so the NEXT search can show
