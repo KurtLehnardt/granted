@@ -16,15 +16,27 @@ Every OS below ends up running the exact same `npm` commands — the setup scrip
 
 ## Install on macOS
 
-**1. Prerequisites**
-- [Node 20+](https://nodejs.org), or `brew install node`. (Node 22+ avoids an `EBADENGINE` warning one dependency now emits on 20 — the app runs fine either way.)
-- git — already present if you have Xcode Command Line Tools (`xcode-select --install`), or `brew install git`.
+*`install-macos.sh` is verified end to end on a clean macOS 15 (Sequoia) VM with nothing pre-installed — no Homebrew, no git beyond Apple's stub, no Node. The fully-local flow (Ollama, `setup:local`, corpus re-embed, a real novel-company search) is verified on that same clean VM too: on 4 vCPU / 8GB RAM it auto-picked `llama3.2:3b` and completed an 8-candidate search, fully local, zero API calls, in 13m36s. A 32GB Mac auto-picked the bigger `qwen2.5:14b` and did the same in 3m43s — local search time scales with the model your RAM affords.*
 
-**2. Clone and try it with zero keys**
+**1. Install prerequisites + clone (one command)**
 ```bash
+curl -fsSL https://raw.githubusercontent.com/KurtLehnardt/granted/main/install-macos.sh | bash
+```
+Installs Homebrew, git, and Node 20+ if missing, clones the repo into `./granted`, and runs `npm install`. Safe to re-run. Adds Homebrew to your shell profile if it isn't there yet — open a new terminal window afterward (the script tells you if this happened).
+
+Prefer to do it by hand?
+```bash
+xcode-select --install       # or: brew install git
+brew install node            # or grab Node 20+ from https://nodejs.org
 git clone https://github.com/KurtLehnardt/granted.git
 cd granted/scaffold
-npm install
+```
+(Node 22+ avoids an `EBADENGINE` warning one dependency now emits on 20 — the app runs fine either way.)
+
+**2. Try it with zero keys**
+```bash
+cd granted/scaffold
+npm install            # already done if you used install-macos.sh
 npm run dev        # → http://localhost:3000
 ```
 Try the 4 sample companies now — no keys needed.
@@ -42,7 +54,6 @@ brew install ollama                 # or https://ollama.com/download
 npm run setup:local -- --yes        # picks a model sized for your RAM, pulls it, re-embeds the corpus
 npm run dev
 ```
-Verified end to end on this flow: a 32GB Mac auto-picked `qwen2.5:14b` and completed a full novel-company search (18 candidates, fully local, zero API calls) in **3 minutes 43 seconds**.
 
 ## Install on Windows
 
