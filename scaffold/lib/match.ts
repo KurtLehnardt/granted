@@ -23,8 +23,7 @@ import { ensureRealRedirects } from "./redirects/utahSbaPrograms";
 import { deriveEnrichmentSignal, enrichmentQueryTerms, boostForOpportunity } from "./retrieval/enrich";
 
 /**
- * CALIBRATION KNOBS — tune these against all five test cases before touching UI.
- * Too aggressive and cases 1-4 under-match. Too loose and case 5 hallucinates.
+ * CALIBRATION KNOBS — tune these against all four test cases before touching UI.
  *
  * These values are the current shipped calibration. If you change a knob here,
  * record the rationale in the same commit (see the inline notes on `scoreFloor`

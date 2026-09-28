@@ -1,5 +1,5 @@
 // ============================================================================
-// Offline (FREE) quality analysis of the 5 judged/standard test cases.
+// Offline (FREE) quality analysis of the 4 judged/standard test cases.
 // ----------------------------------------------------------------------------
 // Reads data/precomputed.json (the frozen demo-day maps for the 5 cases — no
 // API calls, no cost) and reports the honest-no / calibration picture for each:

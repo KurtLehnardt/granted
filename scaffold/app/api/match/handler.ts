@@ -53,7 +53,7 @@ const MATCH_RATE_WINDOW_MS = Number(process.env.MATCH_RATE_WINDOW_MS) || 60_000;
  * mocked { buildOpportunityMap, cached } — no network, no model spend.
  */
 
-/** Demo-day insurance: pre-baked results for the five judged test cases. */
+/** Demo-day insurance: pre-baked results for the four judged test cases. */
 export function cached(description: string) {
   const key = description.trim().slice(0, 120);
   const hit = (precomputed as any[]).find((p) => p.key === key);

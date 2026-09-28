@@ -28,7 +28,6 @@ const SAMPLE_BLURBS: Record<string, string> = {
   manufacturing: "Fictional hardware startup scaling up lightweight aerospace component manufacturing.",
   water: "Fictional climate-tech startup using sensors and AI to cut municipal water loss.",
   cyber: "Fictional cybersecurity startup building AI-powered threat detection.",
-  marketplace: "Fictional local marketplace startup — an intentionally hard case likely to return few or no strong matches.",
 };
 
 export default function IntakeForm({

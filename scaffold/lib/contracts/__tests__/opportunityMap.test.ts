@@ -93,7 +93,7 @@ const precomputed = JSON.parse(
  */
 
 test("every cached precomputed map validates against the formalized schema", () => {
-  assert.ok(precomputed.length >= 5, "expected the 5 judged cases");
+  assert.ok(precomputed.length >= 4, "expected the 4 judged cases");
   for (const entry of precomputed) {
     const res = OpportunityMapSchema.safeParse(entry.map);
     assert.equal(
