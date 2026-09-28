@@ -58,10 +58,7 @@ interface CorpusStatus {
 export default function SettingsForm({ onClose }: { onClose?: () => void }) {
   const replayWelcomeGuide = useReplayWelcomeGuide();
   function handleReplayWelcomeGuide() {
-    // Close Settings FIRST: opening the guide on top of the still-open
-    // Settings modal would stack two useDialogA11y instances (Escape closes
-    // both at once) and land a picked sample's results behind the Settings
-    // backdrop.
+    // Close Settings first so the two dialogs never stack.
     onClose?.();
     replayWelcomeGuide();
   }

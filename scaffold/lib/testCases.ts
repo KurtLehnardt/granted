@@ -1,9 +1,4 @@
-/**
- * One honest, non-numeric one-liner per sample so the picker reads as
- * "fictional example companies," not a filter on the user's own business.
- * Keep these purely descriptive — no invented stats beyond what's already in
- * TEST_CASES[].text.
- */
+/** Purely descriptive one-liners for the welcome guide's sample list — no invented stats. */
 export const SAMPLE_BLURBS: Record<string, string> = {
   "ai-healthcare": "Fictional health-tech startup easing nurses' admin workload with AI.",
   manufacturing: "Fictional hardware startup scaling up lightweight aerospace component manufacturing.",
