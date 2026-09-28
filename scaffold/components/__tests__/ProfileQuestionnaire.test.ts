@@ -5,6 +5,7 @@ import React from "react";
 
 import ProfileQuestionnaire, {
   computeGaps,
+  computeLiveProfile,
   buildDescriptionFromProfile,
   mapStartupProfileToValues,
   computeFieldCell,
@@ -59,6 +60,39 @@ test("computeGaps: never lists a field that's already provided (never re-ask)", 
   assert.ok(!gaps.some((g) => g.field === "industry"));
   assert.ok(!gaps.some((g) => g.field === "location"));
   assert.ok(gaps.some((g) => g.field === "technology")); // still missing
+});
+
+// --- computeLiveProfile (live-draft-aware gap detection, no blur needed) --
+
+test("computeLiveProfile: an untouched live edit for every required field reports zero required gaps, before any blur", () => {
+  const values = {
+    raw_text: "We build drones.",
+    industry: "agtech",
+    technology: "computer vision",
+    location: "Columbus, OH",
+    use_of_funds: "hiring",
+  };
+  const live = computeLiveProfile({}, values);
+  const requiredGaps = computeGaps(live).filter((g) => g.requirement === "required");
+  assert.deepEqual(requiredGaps, []);
+});
+
+test("computeLiveProfile: a live edit overrides the committed profile value", () => {
+  const profile = { industry: cell("agtech") };
+  const live = computeLiveProfile(profile, { industry: "biotech" });
+  assert.equal((live as any).industry.value, "biotech");
+});
+
+test("computeLiveProfile: a live edit cleared back to blank text removes the committed cell", () => {
+  const profile = { industry: cell("agtech") };
+  const live = computeLiveProfile(profile, { industry: "   " });
+  assert.equal((live as any).industry, undefined);
+});
+
+test("computeLiveProfile: fields with no live edit fall through to the committed profile untouched", () => {
+  const profile = { industry: cell("agtech") };
+  const live = computeLiveProfile(profile, {});
+  assert.equal((live as any).industry.value, "agtech");
 });
 
 // --- buildDescriptionFromProfile ----------------------------------------

@@ -176,6 +176,28 @@ test("intake: optional details stay collapsed after required fields are filled, 
   await expect(page.getByText("A few more details (optional)")).toBeVisible();
 });
 
+test("intake: Find opportunities enables while still typing the last required field, and submits its current text", async ({ page }) => {
+  await stubBackend(page);
+  await skipWelcomeGuide(page);
+  await page.goto("/");
+
+  await page.getByLabel("Company description").fill(DETAILED_DESCRIPTION);
+  await page.getByLabel("Industry / market").fill("Health IT");
+  await page.getByLabel("Core technology").fill("Diagnostic imaging software");
+  await page.getByLabel("Primary US location").fill("Boise, Idaho");
+  const useOfFunds = page.getByLabel("Use of funds");
+  await useOfFunds.fill("Hire two engineers");
+  await expect(useOfFunds).toBeFocused();
+
+  const button = page.getByRole("button", { name: "Find opportunities" });
+  await expect(button).toBeEnabled();
+  const matchRequest = page.waitForRequest("**/api/match");
+  await button.click();
+
+  expect((await matchRequest).postDataJSON().description).toContain("Use of funds: Hire two engineers");
+  await expect(page.getByText(FIXTURE_PROGRAM).first()).toBeVisible();
+});
+
 // Journey 3 — Interview (needs r1_interview on + a short description).
 test.fixme("interview: a short description shows the pre-search interview before results", async ({ page }) => {
   await page.route("**/api/interview", (route) =>

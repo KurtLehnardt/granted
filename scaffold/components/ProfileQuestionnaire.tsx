@@ -199,6 +199,28 @@ export function splitBooleanText(draft: string): { choice: string; detail: strin
   return { choice: "", detail: "" };
 }
 
+function applyFieldEdit(prev: ProfileDraft, meta: ProfileFieldMeta, rawValue: string, provenance: Provenance): ProfileDraft {
+  const bag = prev as Record<string, Provenanced<unknown> | undefined>;
+  const existing = bag[meta.field];
+  if (rawValue.trim().length === 0) {
+    if (existing === undefined) return prev;
+    const next = { ...bag };
+    delete next[meta.field];
+    return next as ProfileDraft;
+  }
+  const cell = computeFieldCell(meta, rawValue, provenance, existing);
+  if (!cell) return prev;
+  return { ...prev, [meta.field]: cell } as ProfileDraft;
+}
+
+/** `profile` with the uncommitted (not yet blurred) edits in `values` applied. */
+export function computeLiveProfile(profile: ProfileDraft, values: Record<string, string>): ProfileDraft {
+  return PROFILE_FIELD_META.reduce(
+    (p, meta) => (meta.field in values ? applyFieldEdit(p, meta, values[meta.field] ?? "", "user_stated") : p),
+    profile,
+  );
+}
+
 /** Current display value for a plain field: live edit if any, else the saved profile value. */
 export function draftValue(profile: ProfileDraft, values: Record<string, string>, field: string): string {
   if (field in values) return values[field] ?? "";
@@ -309,20 +331,7 @@ export default function ProfileQuestionnaire({
     setValues((v) => ({ ...v, [field]: rawValue }));
     const meta = PROFILE_FIELD_META_BY_KEY[field];
     if (!meta) return;
-    setProfile((prev) => {
-      const bag = prev as Record<string, Provenanced<unknown> | undefined>;
-      const existing = bag[field];
-      const trimmed = rawValue.trim();
-      if (trimmed.length === 0) {
-        if (existing === undefined) return prev;
-        const next = { ...bag };
-        delete next[field];
-        return next as ProfileDraft;
-      }
-      const cell = computeFieldCell(meta, rawValue, provenance, existing);
-      if (!cell) return prev;
-      return { ...prev, [field]: cell } as ProfileDraft;
-    });
+    setProfile((prev) => applyFieldEdit(prev, meta, rawValue, provenance));
   }
 
   // Bubble the compiled description up on every profile change so the parent
@@ -341,7 +350,8 @@ export default function ProfileQuestionnaire({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [externalNonce]);
 
-  const gaps = useMemo(() => computeGaps(profile), [profile]);
+  const liveProfile = useMemo(() => computeLiveProfile(profile, values), [profile, values]);
+  const gaps = useMemo(() => computeGaps(liveProfile), [liveProfile]);
   const requiredGaps = useMemo(() => gaps.filter((g) => g.requirement === "required"), [gaps]);
   const isComplete = gaps.length === 0;
   const canSubmit = requiredGaps.length === 0;
@@ -361,7 +371,8 @@ export default function ProfileQuestionnaire({
 
   function handleSubmit() {
     if (!canSubmit) return;
-    onSubmit(buildDescriptionFromProfile(profile), { complete: isComplete });
+    setProfile(liveProfile);
+    onSubmit(buildDescriptionFromProfile(liveProfile), { complete: isComplete });
   }
 
   const [clearedVisible, setClearedVisible] = useState(false);
