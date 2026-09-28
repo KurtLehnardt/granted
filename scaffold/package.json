@@ -9,9 +9,10 @@
   "scripts": {
     "setup": "node scripts/setup.mjs",
     "setup:local": "node scripts/setup-local.mjs",
-    "dev": "next dev",
+    "dev": "next dev -H 127.0.0.1",
+    "dev:lan": "next dev -H 0.0.0.0",
     "build": "next build",
-    "start": "next start",
+    "start": "next start -H 127.0.0.1",
     "typecheck": "tsc --noEmit",
     "test:contracts": "node --import tsx --test \"lib/contracts/__tests__/*.test.ts\"",
     "data:fetch": "node --import tsx scripts/1-fetch.mjs",

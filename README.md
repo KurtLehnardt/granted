@@ -10,6 +10,8 @@ Run it with your own API keys or a fully local model — see **Run it yourself**
 
 **No API keys? Still works.** Clone it, install, run it, and try the 4 built-in sample companies (in the welcome guide, replayable from Settings) — their results are cached, so they need no keys at all. You only need API keys (or a local model) to search your *own* company description.
 
+`npm run dev` only listens on this machine; `npm run dev:lan` opts in to exposing it to your local network.
+
 Every OS below ends up running the exact same `npm` commands — the setup scripts detect your platform automatically. Only the prerequisite installs (Node, git, Ollama) differ, so pick yours:
 
 ## Install on macOS
@@ -287,7 +289,8 @@ Results **stream**. Progress and grounded evidence appear in seconds rather than
 - **A flag change did nothing** → `NEXT_PUBLIC_*` vars are read at build/start; restart the dev server (and redeploy on Vercel).
 - **Vercel build fails immediately** → you probably didn't set **Root Directory = `scaffold`**.
 - **Sign-in redirects to the wrong place** → fix Supabase → *Authentication → URL Configuration* (Site URL + Redirect URLs).
-- **Port 3000 in use** → Next picks the next free port; watch the `npm run dev` output for the URL.
+- **Port 3000 in use** → Next picks the next free port; watch the `npm run dev` output for the URL. If `localhost:3000` shows a different app (on Windows, an app listening on all interfaces doesn't block the `127.0.0.1` bind), pick a port: `npm run dev -- -p 3001`.
+- **Can't reach it from another device or a cloud VM** → `npm run dev` only listens on `127.0.0.1`. From a remote box, tunnel instead: `ssh -L 3000:127.0.0.1:3000 you@host`, then open `http://localhost:3000`. Use `npm run dev:lan` only on a network you trust.
 
 ---
 
