@@ -48,7 +48,7 @@ Or by hand: `cp .env.example .env.local`, then edit `scaffold/.env.local` and se
 
 **3, alternative — fully local (Ollama, no API keys)**
 ```bash
-brew install ollama                 # already done if you used install-macos.sh; or https://ollama.com/download
+brew install ollama                 # already done if install-macos.sh found Homebrew; or https://ollama.com/download
 npm run setup:local -- --yes        # picks a model sized for your RAM, pulls it, re-embeds the corpus
 npm run dev
 ```

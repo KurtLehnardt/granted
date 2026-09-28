@@ -24,13 +24,17 @@ const here = dirname(fileURLToPath(import.meta.url));
 const CORPUS_COUNT = JSON.parse(
   readFileSync(join(here, "../../../data/opportunities.json"), "utf8"),
 ).length;
+// Word-boundary anchored so e.g. a future 3-digit count can't false-positive
+// match as a substring of an unrelated number (a year, a price) elsewhere in
+// the copy.
+const CORPUS_COUNT_RE = new RegExp(`\\b${CORPUS_COUNT}\\b`);
 describe("welcome landing metadata", () => {
   test("title and description carry the Granted brand + matched-funding thesis", () => {
     assert.equal(metadata.title, TITLE);
     assert.match(String(metadata.title), /Granted/);
     assert.match(String(metadata.title), /matched/i);
     assert.equal(metadata.description, DESCRIPTION);
-    assert.match(String(metadata.description), new RegExp(String(CORPUS_COUNT)));
+    assert.match(String(metadata.description), CORPUS_COUNT_RE);
     assert.match(String(metadata.description), /grounded/i);
   });
 
@@ -73,7 +77,7 @@ describe("welcome structured data (JSON-LD)", () => {
   test("app claims are grounded — the real committed opportunity count, free to start", () => {
     assert.ok(app && "description" in app);
     const desc = (app as { description: string }).description;
-    assert.match(desc, new RegExp(String(CORPUS_COUNT)));
+    assert.match(desc, CORPUS_COUNT_RE);
     assert.match(desc, /grants\.gov/);
     assert.match(desc, /SAM\.gov/);
     const offers = (app as { offers: { price: string } }).offers;
