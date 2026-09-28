@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { isLocalLlm, defaultLocalModel } from "@/lib/llm/client";
 import { listOllamaChatModels } from "@/lib/llm/ollamaInfo";
 import { resolveAnthropicKey, resolveAnthropicKeySource } from "@/lib/llm/config";
+import { EMBEDDINGS_IS_OPENAI } from "@/lib/embed";
 
 // Next 14 would otherwise prerender this at build time, freezing the backend/model list.
 export const dynamic = "force-dynamic";
@@ -15,6 +16,7 @@ export async function GET() {
     hasAnthropicKey: Boolean(key),
     anthropicKeyHint: key ? key.slice(-4) : undefined,
     anthropicKeySource: resolveAnthropicKeySource(),
+    openAiEmbeddings: EMBEDDINGS_IS_OPENAI,
   };
   if (!local) return NextResponse.json({ local: false, ...providerInfo });
   return NextResponse.json({

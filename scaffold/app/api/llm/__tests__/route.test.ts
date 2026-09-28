@@ -1,6 +1,7 @@
 import { test, describe, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { GET, dynamic } from "../route";
+import { EMBEDDINGS_IS_OPENAI } from "@/lib/embed";
 
 const savedProvider = process.env.LLM_PROVIDER;
 const savedModel = process.env.LOCAL_LLM_MODEL;
@@ -36,6 +37,7 @@ describe("GET /api/llm", () => {
       hasAnthropicKey: true,
       anthropicKeyHint: "5678",
       anthropicKeySource: "env",
+      openAiEmbeddings: EMBEDDINGS_IS_OPENAI,
     });
     assert.equal(fetched, false, "hosted must never call Ollama");
   });

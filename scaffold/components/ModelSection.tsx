@@ -10,6 +10,7 @@ export type LlmProviderInfo = {
   hasAnthropicKey: boolean;
   anthropicKeyHint?: string;
   anthropicKeySource?: "saved" | "env";
+  openAiEmbeddings?: boolean;
   model?: string;
   models?: OllamaModel[];
 };
@@ -190,6 +191,12 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
           ) : (
             <p className="font-body text-[12px] text-foreground opacity-80">
               Runs on your own machine via Ollama — nothing leaves your computer.
+            </p>
+          )}
+          {info?.openAiEmbeddings && (
+            <p className="mt-2 rounded-r-sm border-l-2 border-error bg-canvas-alt px-3 py-2 font-body text-[12px] text-foreground">
+              Search embeddings still use OpenAI, so searches won&apos;t run on Local until EMBEDDINGS_BASE_URL
+              points at a local embedder (see the README&apos;s &ldquo;Fully offline&rdquo; section).
             </p>
           )}
         </div>
