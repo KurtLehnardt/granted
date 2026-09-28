@@ -74,3 +74,25 @@ export function sanitizedProviderErrorFor4xx(err: unknown): string | undefined {
   }
   return raw ? sanitizeProviderMessage(raw) : undefined;
 }
+
+/**
+ * For server-side logging of a rejected batch (any status, not just 4xx): the
+ * provider HTTP status when known, plus a sanitized message safe to log — never
+ * the raw error, which could echo back request/response bodies.
+ */
+export function describeErrorForLog(err: unknown): { status?: number; message: string } {
+  let status: number | undefined;
+  let raw: string;
+  if (err instanceof Anthropic.APIError) {
+    status = typeof err.status === "number" ? err.status : undefined;
+    raw = anthropicRawMessage(err) ?? err.message;
+  } else if (err instanceof ProviderHttpError) {
+    status = err.status;
+    raw = providerMessageFromBody(err.raw) ?? err.message;
+  } else if (err instanceof Error) {
+    raw = err.message;
+  } else {
+    raw = String(err);
+  }
+  return { status, message: sanitizeProviderMessage(raw) };
+}
