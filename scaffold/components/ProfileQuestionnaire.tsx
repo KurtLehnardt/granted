@@ -359,10 +359,6 @@ export default function ProfileQuestionnaire({
     setTouchedFields((prev) => (prev.has(field) ? prev : new Set(prev).add(field)));
   }
 
-  function draftFor(field: string): string {
-    return draftValue(profile, values, field);
-  }
-
   function handleSubmit() {
     if (!canSubmit) return;
     onSubmit(buildDescriptionFromProfile(profile), { complete: isComplete });
@@ -445,7 +441,7 @@ export default function ProfileQuestionnaire({
     const wrapClass = spanClass ? `${fieldWrapClass} ${spanClass}` : fieldWrapClass;
     const requiredMarker = required ? <span className={requiredMarkerClass}>Required</span> : null;
 
-    const value = draftFor(meta.field);
+    const value = draftValue(profile, values, meta.field);
 
     if (meta.inputType === "single_select" || meta.inputType === "range_select") {
       return (

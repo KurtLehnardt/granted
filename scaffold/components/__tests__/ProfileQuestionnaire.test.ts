@@ -259,10 +259,6 @@ test("fieldValidationMessage: a material (optional) field NEVER produces a messa
 });
 
 // --- rendering: no "Edit" gate, ever --------------------------------------
-//
-// Every field is a directly-editable control from the first paint — there is
-// no read-only summary row that a saved value swaps into, so there is no
-// "Edit" button to click before typing/deleting works.
 
 test("ProfileQuestionnaire: an empty form renders as directly editable controls, with no Edit button anywhere", () => {
   const html = renderToStaticMarkup(React.createElement(ProfileQuestionnaire, { onSubmit: () => {} }));
