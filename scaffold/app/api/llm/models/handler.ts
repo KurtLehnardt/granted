@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { isLoopbackRequest } from "@/lib/corpus/loopback";
-import { isCloudProviderId, isValidCloudBaseUrl, getCloudProvider } from "@/lib/llm/providers";
-import { normalizeOpenAiBaseUrl, normalizeAnthropicBaseUrl } from "@/lib/llm/baseUrl";
-import { resolveDraftKey, savedKeySourceFor } from "@/lib/llm/validateCloudConfig";
+import { isCloudProviderId, getCloudProvider } from "@/lib/llm/providers";
+import { resolveDraftBaseUrl, resolveDraftKey, savedKeySourceFor } from "@/lib/llm/validateCloudConfig";
 import { listCloudModels } from "@/lib/llm/cloudModels";
 import { resolveCloudConfig } from "@/lib/llm/config";
 
@@ -39,25 +38,11 @@ export async function handleModelsPost(
   }
   const providerId = body.providerId;
 
-  const preset = getCloudProvider(providerId);
-  if (preset?.hasModelsEndpoint === false) {
-    return NextResponse.json({ error: "Model listing isn't available for this provider." }, { status: 200 });
-  }
+  const preset = getCloudProvider(providerId)!;
+  const { baseUrl, error } = resolveDraftBaseUrl(preset, body.baseUrl);
+  if (error) return NextResponse.json({ error }, { status: 400 });
 
-  let baseUrl: string | undefined;
-  if (preset?.editableBaseUrl) {
-    baseUrl = typeof body.baseUrl === "string" && body.baseUrl.trim() ? body.baseUrl.trim() : preset.baseUrl;
-    if (!baseUrl) return NextResponse.json({ error: "Enter a base URL for this provider." }, { status: 400 });
-    if (!isValidCloudBaseUrl(baseUrl, preset)) {
-      return NextResponse.json(
-        { error: preset.allowHttpLoopbackOnly ? "Enter a valid base URL (https, or http for localhost/127.0.0.1)." : "Enter a valid https base URL." },
-        { status: 400 },
-      );
-    }
-    baseUrl = preset.usesAnthropicSdk ? normalizeAnthropicBaseUrl(baseUrl) : normalizeOpenAiBaseUrl(baseUrl);
-  }
-
-  const saved = savedKeySourceFor(d.resolveCloudConfig(), providerId, baseUrl) ?? preset?.defaultKeySource;
+  const saved = savedKeySourceFor(d.resolveCloudConfig(), providerId, baseUrl) ?? preset.defaultKeySource;
   const draft = resolveDraftKey(providerId, body?.keySource, saved);
   if (draft.error) return NextResponse.json({ error: draft.error }, { status: 400 });
 

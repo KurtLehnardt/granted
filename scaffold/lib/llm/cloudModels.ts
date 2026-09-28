@@ -246,9 +246,6 @@ export async function listCloudModels(params: {
 }): Promise<ModelsListResult> {
   const sdkPreset = getCloudProvider(params.providerId);
   if (sdkPreset?.usesAnthropicSdk) {
-    if (sdkPreset.hasModelsEndpoint === false) {
-      return { error: "Model listing isn't available for this provider." };
-    }
     try {
       const client = anthropicClient(params.key, 10_000, {
         baseUrl: anthropicSdkBaseUrl(sdkPreset, params.baseUrl),

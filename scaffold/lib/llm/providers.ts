@@ -35,8 +35,6 @@ export interface CloudProviderPreset {
   usesAnthropicSdk?: boolean;
   /** How the SDK sends the credential when usesAnthropicSdk: "apiKey" (x-api-key, default) or "authToken" (Authorization: Bearer). */
   authMode?: "apiKey" | "authToken";
-  /** False hides/disables "Load models" for a preset with no models endpoint. Every current preset has one. */
-  hasModelsEndpoint?: boolean;
   /** Suggested key source the UI prefills when this preset is first selected. */
   defaultKeySource?: DefaultKeySource;
   /** Caps simultaneous in-flight calls for this preset (gentler free-tier concurrency). Undefined = unlimited. */
@@ -135,7 +133,6 @@ export const CLOUD_PROVIDERS: readonly CloudProviderPreset[] = [
     usesAnthropicSdk: true,
     authMode: "authToken", // FCC validates "Authorization: Bearer <token>", never x-api-key
     defaultModel: "claude-sonnet-4-20250514", // an id FCC's catalog maps to a configured free-provider model
-    hasModelsEndpoint: true, // FCC implements GET /v1/models
     defaultKeySource: { type: "file", path: "~/.fcc/proxy_auth_token" },
     concurrency: 2, // gentle on free-tier upstream rate limits
     privacyNote: "Prompts are forwarded to third-party free providers, which may log them.",

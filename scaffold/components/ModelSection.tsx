@@ -545,18 +545,12 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
                 ))}
               </datalist>
             )}
-            {preset?.hasModelsEndpoint === false ? (
-              <p className="mt-2 font-body text-[12px] text-foreground opacity-70">
-                This provider doesn&apos;t support listing models — enter the model name directly.
-              </p>
-            ) : (
-              <div className="mt-2 flex items-center gap-2">
-                <button type="button" className={smallBtnClass} onClick={handleLoadModels} disabled={loadingModels}>
-                  {loadingModels ? "Loading models…" : "Load models"}
-                </button>
-                {modelsError && <span className="font-body text-[12px] text-foreground">{modelsError}</span>}
-              </div>
-            )}
+            <div className="mt-2 flex items-center gap-2">
+              <button type="button" className={smallBtnClass} onClick={handleLoadModels} disabled={loadingModels}>
+                {loadingModels ? "Loading models…" : "Load models"}
+              </button>
+              {modelsError && <span className="font-body text-[12px] text-foreground">{modelsError}</span>}
+            </div>
           </div>
 
           <div className="mt-3 flex flex-wrap gap-2">

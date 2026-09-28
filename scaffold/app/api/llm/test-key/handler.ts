@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { isLoopbackRequest } from "@/lib/corpus/loopback";
 import { resolveCloudConfig, resolveCloudModel } from "@/lib/llm/config";
-import { isCloudProviderId, isValidCloudBaseUrl, getCloudProvider } from "@/lib/llm/providers";
-import { normalizeOpenAiBaseUrl, normalizeAnthropicBaseUrl } from "@/lib/llm/baseUrl";
-import { resolveDraftKey, savedKeySourceFor } from "@/lib/llm/validateCloudConfig";
+import { isCloudProviderId, getCloudProvider } from "@/lib/llm/providers";
+import { resolveDraftBaseUrl, resolveDraftKey, savedKeySourceFor } from "@/lib/llm/validateCloudConfig";
 import { probeCloudKey } from "@/lib/llm/cloudModels";
 import { MODEL } from "@/lib/claude";
 
@@ -48,21 +47,13 @@ export async function handleTestKeyPost(
     if (!isCloudProviderId(providerId)) {
       return NextResponse.json({ ok: false, error: "Choose a cloud provider." }, { status: 400 });
     }
-    const preset = getCloudProvider(providerId as string);
-    if (preset?.editableBaseUrl) {
-      baseUrl = typeof body.baseUrl === "string" && body.baseUrl.trim() ? body.baseUrl.trim() : preset.baseUrl;
-      if (!baseUrl) return NextResponse.json({ ok: false, error: "Enter a base URL for this provider." }, { status: 400 });
-      if (!isValidCloudBaseUrl(baseUrl, preset)) {
-        return NextResponse.json(
-          { ok: false, error: preset.allowHttpLoopbackOnly ? "Enter a valid base URL (https, or http for localhost/127.0.0.1)." : "Enter a valid https base URL." },
-          { status: 400 },
-        );
-      }
-      baseUrl = preset.usesAnthropicSdk ? normalizeAnthropicBaseUrl(baseUrl) : normalizeOpenAiBaseUrl(baseUrl);
-    }
+    const preset = getCloudProvider(providerId as string)!;
+    const target = resolveDraftBaseUrl(preset, body.baseUrl);
+    if (target.error) return NextResponse.json({ ok: false, error: target.error }, { status: 400 });
+    baseUrl = target.baseUrl;
     keySourceInput = body.keySource;
     model = typeof body.model === "string" && body.model.trim() ? body.model.trim() : undefined;
-    saved = savedKeySourceFor(d.resolveCloudConfig(), providerId, baseUrl) ?? preset?.defaultKeySource;
+    saved = savedKeySourceFor(d.resolveCloudConfig(), providerId, baseUrl) ?? preset.defaultKeySource;
   } else {
     const cfg = d.resolveCloudConfig();
     if (!cfg) return NextResponse.json({ ok: false, error: "No cloud key saved or provided." }, { status: 400 });

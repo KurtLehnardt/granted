@@ -1,4 +1,4 @@
-import { isCloudProviderId, getCloudProvider, isValidCloudBaseUrl, isSameCloudTarget, type CloudProviderId } from "./providers";
+import { isCloudProviderId, getCloudProvider, isValidCloudBaseUrl, isSameCloudTarget, type CloudProviderId, type CloudProviderPreset } from "./providers";
 import { resolveKeySource, ENV_NAME_PATTERN, type KeySource } from "./keySource";
 import { normalizeOpenAiBaseUrl, normalizeAnthropicBaseUrl } from "./baseUrl";
 import type { CloudConfig } from "./config";
@@ -73,6 +73,19 @@ export function resolveDraftKey(providerId: CloudProviderId, keySourceInput: unk
   return { key: resolved.key };
 }
 
+/** The normalized base URL for a draft: undefined for a fixed-URL preset, else the entered URL or the preset's default. */
+export function resolveDraftBaseUrl(preset: CloudProviderPreset, input: unknown): { baseUrl?: string; error?: string } {
+  if (!preset.editableBaseUrl) return {};
+  const raw = typeof input === "string" && input.trim() ? input.trim() : preset.baseUrl;
+  if (!raw) return { error: "Enter a base URL for this provider." };
+  if (!isValidCloudBaseUrl(raw, preset)) {
+    return {
+      error: preset.allowHttpLoopbackOnly ? "Enter a valid base URL (https, or http for localhost/127.0.0.1)." : "Enter a valid https base URL.",
+    };
+  }
+  return { baseUrl: preset.usesAnthropicSdk ? normalizeAnthropicBaseUrl(raw) : normalizeOpenAiBaseUrl(raw) };
+}
+
 /**
  * `currentCloud` is the presently saved cloud config, if any — its key source
  * is the "saved" fallback, but only for the same provider and base URL (a
@@ -83,20 +96,9 @@ export function validateCloudConfig(input: CloudConfigInput, currentCloud?: Clou
   const providerId = input.providerId;
   const preset = getCloudProvider(providerId)!;
 
-  let baseUrl: string | undefined;
-  if (preset.editableBaseUrl) {
-    const fallback = preset.baseUrl;
-    const raw = typeof input.baseUrl === "string" && input.baseUrl.trim() ? input.baseUrl.trim() : fallback;
-    if (!raw) return { error: "Enter a base URL for this provider." };
-    if (!isValidCloudBaseUrl(raw, preset)) {
-      return {
-        error: preset.allowHttpLoopbackOnly
-          ? "Enter a valid base URL (https, or http for localhost/127.0.0.1)."
-          : "Enter a valid https base URL.",
-      };
-    }
-    baseUrl = preset.usesAnthropicSdk ? normalizeAnthropicBaseUrl(raw) : normalizeOpenAiBaseUrl(raw);
-  }
+  const target = resolveDraftBaseUrl(preset, input.baseUrl);
+  if (target.error) return { error: target.error };
+  const baseUrl = target.baseUrl;
 
   const model = typeof input.model === "string" && input.model.trim() ? input.model.trim() : undefined;
   if (!model && !preset.defaultModel && !preset.usesAnthropicSdk) {

@@ -1,6 +1,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { validateCloudConfig, resolveDraftKey } from "../validateCloudConfig";
+import { validateCloudConfig, resolveDraftKey, resolveDraftBaseUrl } from "../validateCloudConfig";
+import { getCloudProvider } from "../providers";
 
 describe("validateCloudConfig", () => {
   test("unknown providerId -> error", () => {
@@ -114,4 +115,32 @@ describe("resolveDraftKey", () => {
     assert.match(r.error!, /doesn't look like a valid OpenAI/);
     delete process.env.GRANTED_VALIDATE_TEST_BAD;
   });
+});
+
+describe("resolveDraftBaseUrl", () => {
+  const fcc = getCloudProvider("fcc")!;
+
+  test("fixed-URL preset -> no base URL", () => {
+    assert.deepEqual(resolveDraftBaseUrl(getCloudProvider("groq")!, "https://ignored.example.com"), {});
+  });
+
+  test("fcc: blank falls back to the default; a pasted /v1 is dropped", () => {
+    assert.deepEqual(resolveDraftBaseUrl(fcc, "  "), { baseUrl: "http://127.0.0.1:8082" });
+    assert.deepEqual(resolveDraftBaseUrl(fcc, "http://localhost:9000/v1/"), { baseUrl: "http://localhost:9000" });
+  });
+
+  test("fcc: http on a non-loopback host is rejected", () => {
+    assert.match(resolveDraftBaseUrl(fcc, "http://192.168.1.5:8082").error!, /http for localhost/);
+  });
+
+  test("other: still https-only and gets /v1 appended", () => {
+    const other = getCloudProvider("other")!;
+    assert.deepEqual(resolveDraftBaseUrl(other, "https://llm.example.com"), { baseUrl: "https://llm.example.com/v1" });
+    assert.match(resolveDraftBaseUrl(other, "http://localhost:8082").error!, /valid https base URL/);
+  });
+});
+
+test("validateCloudConfig: fcc with no base URL saves the default", () => {
+  const r = validateCloudConfig({ providerId: "fcc", keySource: { type: "inline", key: "fcc-token-value-0000" } });
+  assert.deepEqual(r.config, { providerId: "fcc", baseUrl: "http://127.0.0.1:8082", keySource: { type: "inline", key: "fcc-token-value-0000" } });
 });
