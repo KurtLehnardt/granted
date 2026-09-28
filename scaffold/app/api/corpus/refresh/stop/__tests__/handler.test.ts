@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { handleRefreshStopPost } from "../handler";
 
 function fakeReq(): { headers: { get(name: string): string | null } } {
-  return { headers: { get: () => null } }; // no proxy headers -> loopback
+  return { headers: { get: () => null } }; // unused — isLoopbackRequest is mocked per-test below
 }
 
 describe("POST /api/corpus/refresh/stop (handler)", () => {

@@ -5,7 +5,7 @@ import { handleRefreshPost } from "../handler";
 
 function fakeReq(body?: unknown): { headers: { get(name: string): string | null }; json: () => Promise<unknown> } {
   return {
-    headers: { get: () => null }, // no proxy headers -> loopback
+    headers: { get: () => null }, // unused — isLoopbackRequest is mocked per-test below
     json: async () => {
       if (body === undefined) throw new Error("no body");
       return body;

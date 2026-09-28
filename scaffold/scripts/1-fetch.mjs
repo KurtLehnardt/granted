@@ -13,6 +13,9 @@ const DETAIL_BATCH = 300; // stop is checked between batches, so a stop lands wi
 
 const RAW_DIR = process.env.RAW_DIR || "data/raw";
 const GRANTS_ONLY = process.env.GRANTS_ONLY === "1";
+// Only refresh-corpus.mjs sets this. A standalone `npm run data:fetch` / `data:all` must never
+// honor a leftover stop-request file or write live progress meant for that other run.
+const UNDER_REFRESH = process.env.GRANTED_REFRESH_RUN === "1";
 const rawPath = (name) => join(RAW_DIR, name);
 
 await mkdir(RAW_DIR, { recursive: true });
@@ -151,13 +154,15 @@ async function grantsGov() {
   const uniqueIds = [...new Set(out.map((o) => o.id).filter(Boolean))];
   console.log(`grants.gov  fetching detail for ${uniqueIds.length} unique opportunities...`);
   // Found count is known up front from the completed search.
-  writeRefreshProgress({
-    stage: "grants.gov details",
-    done: 0,
-    total: uniqueIds.length,
-    pct: overallPct("grants.gov details", 0, uniqueIds.length),
-    foundCount: uniqueIds.length,
-  });
+  if (UNDER_REFRESH) {
+    writeRefreshProgress({
+      stage: "grants.gov details",
+      done: 0,
+      total: uniqueIds.length,
+      pct: overallPct("grants.gov details", 0, uniqueIds.length),
+      foundCount: uniqueIds.length,
+    });
+  }
   let doneDetail = 0;
   const detailConcurrency = FETCH_ALL ? 16 : 8;
   const detailById = new Map();
@@ -188,17 +193,19 @@ async function grantsGov() {
       return [id, detail];
     });
     for (const [id, d] of pairs) if (d) detailById.set(id, d);
-    writeRefreshProgress({
-      stage: "grants.gov details",
-      done: doneDetail,
-      total: uniqueIds.length,
-      pct: overallPct("grants.gov details", doneDetail, uniqueIds.length),
-      foundCount: uniqueIds.length,
-    });
-    if (isStopRequested()) {
-      stopped = true;
-      console.log(`\ngrants.gov  detail fetch stopped by user after ${doneDetail}/${uniqueIds.length}`);
-      break;
+    if (UNDER_REFRESH) {
+      writeRefreshProgress({
+        stage: "grants.gov details",
+        done: doneDetail,
+        total: uniqueIds.length,
+        pct: overallPct("grants.gov details", doneDetail, uniqueIds.length),
+        foundCount: uniqueIds.length,
+      });
+      if (isStopRequested()) {
+        stopped = true;
+        console.log(`\ngrants.gov  detail fetch stopped by user after ${doneDetail}/${uniqueIds.length}`);
+        break;
+      }
     }
   }
   process.stdout.write(`\r  detail ${doneDetail}/${uniqueIds.length}\n`);
