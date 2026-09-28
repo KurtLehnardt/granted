@@ -64,10 +64,19 @@ export const CALIBRATION = {
    *  (top-K-by-cosine per kind, tie-broken by opp id). Does NOT change scoring;
    *  it only makes underrepresented types reachable (scoreFloor stays Wave-3). */
   perTypeQuota: 3,
-  /** BM25 only ADDS up to this many floor-clearing, keyword-strong ids the
-   *  cosine+quota selection missed — it never reorders or evicts a candidate
-   *  cosine+quota already picked. */
+  /** BM25 only ADDS up to this many keyword-strong ids the cosine+quota
+   *  selection missed — including ones BELOW `candidateFloor`, which cosine
+   *  cannot reach at any candidateCount. It never reorders or evicts a
+   *  candidate cosine+quota already picked. */
   bm25SupplementCount: 4,
+  /** A BELOW-FLOOR id is only rescued when its BM25 score is driven by a
+   *  DISTINCTIVE term (see `RARE_DF_RATIO` in lib/retrieval/bm25.ts) by at
+   *  least this much. Every non-empty query returns hits, so "ranked top" is no
+   *  evidence on its own — without this, a doc sharing nothing but "federal"
+   *  with the query would override the embedding floor and burn a scoring call.
+   *  Floor-clearing supplements are NOT gated by this: they already passed the
+   *  floor, so ordinary overlap is enough to justify adding them. */
+  bm25RescueMinDistinctiveScore: 0.1,
 };
 
 /**
@@ -339,14 +348,19 @@ export async function buildOpportunityMap(
   // supplement — never by the global top-N cut — so a later trim (the scored-
   // set cap below) knows which entries it must not evict.
   function retrieve(queryVec: number[], queryText: string, enrich?: ReturnType<typeof deriveEnrichmentSignal>) {
-    const floorCleared = d.corpus
+    // Rank the WHOLE corpus, then split at the floor. The below-floor tail is
+    // kept (not discarded) so the BM25 supplement can reach into it — see the
+    // rescue step below. Cosine+quota selection reads `floorCleared` only, so
+    // its behaviour is byte-for-byte what it was.
+    const ranked = d.corpus
       .map((o) => {
         const sim = o.embedding ? cosine(queryVec, o.embedding) : 0;
         const rank = enrich ? sim + boostForOpportunity(enrich, o) : sim;
         return { o, sim, rank };
       })
-      .filter((x) => x.sim >= CALIBRATION.candidateFloor)
       .sort((a, b) => b.rank - a.rank || (a.o.id < b.o.id ? -1 : a.o.id > b.o.id ? 1 : 0));
+    const rankedById = new Map(ranked.map((x) => [x.o.id, x]));
+    const floorCleared = ranked.filter((x) => x.sim >= CALIBRATION.candidateFloor);
 
     const candidateCount = clampCandidateCount(maxCandidates);
     const selectedIds = new Set(floorCleared.slice(0, candidateCount).map((x) => x.o.id));
@@ -362,20 +376,42 @@ export async function buildOpportunityMap(
     }
 
     const floorClearedIds = new Set(floorCleared.map((x) => x.o.id));
-    const bm25RankedIds = bm25Query(bm25Index, queryText)
-      .map((h) => h.id)
-      .filter((id) => bm25Ids.has(id));
+    const bm25Hits = bm25Query(bm25Index, queryText).filter((h) => bm25Ids.has(h.id));
     const bm25OnlyIds = new Set<string>();
+    // A BM25 pick BELOW the cosine floor — the case the lexical layer exists
+    // for. The embedding floor is a similarity heuristic, so a program whose
+    // text is a near-verbatim match on a distinctive term (an acronym, a
+    // statute name, a niche technique) can sit under it and be unreachable by
+    // cosine at any candidateCount. Those ids are kept in a separate list
+    // because they are NOT in `floorCleared` and so can't be filtered out of it.
+    // `bm25SupplementCount` still caps the TOTAL added, and every pick is still
+    // LLM-scored afterwards — so a bad rescue costs one scoring call and scores
+    // low, it does not get promoted on keyword overlap alone.
+    const bm25Rescued: typeof ranked = [];
     let bm25Added = 0;
-    for (const id of bm25RankedIds) {
+    for (const hit of bm25Hits) {
       if (bm25Added >= CALIBRATION.bm25SupplementCount) break;
-      if (!floorClearedIds.has(id) || selectedIds.has(id)) continue;
-      selectedIds.add(id);
-      bm25OnlyIds.add(id);
+      if (selectedIds.has(hit.id)) continue;
+      const entry = rankedById.get(hit.id);
+      if (!entry) continue;
+      const belowFloor = !floorClearedIds.has(hit.id);
+      // Overriding the embedding floor needs a distinctive match, not just the
+      // best of a field of generic overlap (see `bm25RescueMinDistinctiveScore`).
+      if (belowFloor && hit.distinctiveScore < CALIBRATION.bm25RescueMinDistinctiveScore) continue;
+      selectedIds.add(hit.id);
+      bm25OnlyIds.add(hit.id);
       bm25Added++;
+      if (belowFloor) bm25Rescued.push(entry);
     }
 
-    return { scored: floorCleared.filter((x) => selectedIds.has(x.o.id)), quotaOnlyIds, bm25OnlyIds };
+    // Below-floor rescues go last: they're the weakest by cosine, and the
+    // scored-set trim walks from the tail. `bm25OnlyIds` already marks them
+    // protected there, so ordering costs them nothing.
+    return {
+      scored: [...floorCleared.filter((x) => selectedIds.has(x.o.id)), ...bm25Rescued],
+      quotaOnlyIds,
+      bm25OnlyIds,
+    };
   }
 
   // 3. Instant retrieval — embed the RAW description directly (sub-second),

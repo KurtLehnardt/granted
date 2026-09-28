@@ -100,7 +100,26 @@ export function getBM25Index(corpus: Opportunity[]): BM25Index {
 export interface BM25Hit {
   id: string;
   score: number;
+  /**
+   * The part of `score` contributed by DISTINCTIVE query terms — those the
+   * corpus uses rarely (document frequency <= `RARE_DF_RATIO` of the corpus).
+   *
+   * `score` alone can't tell "matched a niche technique" from "shares the word
+   * 'federal' with everything else", and every non-empty query returns hits, so
+   * rank is not evidence either. A caller that wants to act on a match being
+   * genuinely specific — rather than merely the best of a generic field — reads
+   * this. Scale-free: it's a ratio of the corpus, so it behaves the same on a
+   * 5-document fixture and the full corpus.
+   */
+  distinctiveScore: number;
 }
+
+/**
+ * A query term counts as DISTINCTIVE when at most this fraction of the corpus
+ * contains it. Terms above it ("federal", "research", "program") carry little
+ * signal about a specific opportunity no matter how often they repeat.
+ */
+export const RARE_DF_RATIO = 0.25;
 
 /** Ranks documents by Okapi BM25 relevance to `queryText`. Only touches docs whose postings contain at least one query term — O(query terms x postings length), fast even at 20k docs. Returns hits sorted score desc, ties broken by id for determinism. */
 export function bm25Query(index: BM25Index, queryText: string, limit = Infinity): BM25Hit[] {
@@ -108,23 +127,27 @@ export function bm25Query(index: BM25Index, queryText: string, limit = Infinity)
   if (terms.length === 0 || index.n === 0) return [];
 
   const scores = new Map<number, number>();
+  const distinctive = new Map<number, number>();
   for (const term of terms) {
     const postings = index.postings.get(term);
     if (!postings) continue;
     const df = index.df.get(term) ?? 0;
     const idf = Math.log((index.n - df + 0.5) / (df + 0.5) + 1);
     if (idf <= 0) continue;
+    const isRare = df <= index.n * RARE_DF_RATIO;
     for (const [docIdx, tf] of Array.from(postings.entries())) {
       const docLen = index.docLengths[docIdx];
       const denom = tf + BM25_K1 * (1 - BM25_B + (BM25_B * docLen) / (index.avgDocLength || 1));
       const s = (idf * (tf * (BM25_K1 + 1))) / (denom || 1);
       scores.set(docIdx, (scores.get(docIdx) ?? 0) + s);
+      if (isRare) distinctive.set(docIdx, (distinctive.get(docIdx) ?? 0) + s);
     }
   }
 
   const hits: BM25Hit[] = Array.from(scores.entries()).map(([docIdx, score]) => ({
     id: index.ids[docIdx],
     score,
+    distinctiveScore: distinctive.get(docIdx) ?? 0,
   }));
   hits.sort((a, b) => b.score - a.score || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   return limit === Infinity ? hits : hits.slice(0, limit);

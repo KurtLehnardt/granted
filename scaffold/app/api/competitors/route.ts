@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isLocalLlm } from "@/lib/llm/client";
 import { createCostMeter } from "@/lib/metering/meter";
 import { analyzeCompetitors, InsufficientEvidenceError } from "@/lib/competitors/analyze";
 import type { CompetitorStreamEvent } from "@/lib/contracts/competitorAnalysis";
@@ -13,19 +14,24 @@ import type { CompetitorStreamEvent } from "@/lib/contracts/competitorAnalysis";
  * validated through `CompetitorAnalysisSchema` (which throws on any ungrounded
  * claim) before it can leave this route.
  *
- * Latency: keyless retrieval fan-out (~2-6s) + one sonnet synthesis (~5-15s),
- * comfortably under the 120s ceiling. A hard internal budget (below maxDuration)
- * guarantees we return an honest degradation rather than getting silently killed
- * by the platform mid-flight (see lib/claude.ts's timeout rationale).
+ * Latency: keyless retrieval fan-out (~2-6s) + one cloud synthesis (~5-15s). A
+ * hard internal budget still guarantees we return an honest degradation rather
+ * than hanging forever on a wedged call (see lib/claude.ts's timeout rationale);
+ * local models get a far larger one, since they are legitimately much slower.
  *
  * This route gates NOTHING server-side — consistent with the app's posture that
  * `useEntitlements`/flags are client framing only (feasibility §4). The Max-tier
  * gate + default-OFF `r5_deep_analysis` flag live in the UI.
  */
-export const maxDuration = 120;
-
-/** Hard budget below maxDuration so we always return before the platform kill. */
-const BUDGET_MS = Number(process.env.COMPETITOR_BUDGET_MS) || 110_000;
+/**
+ * Hard wall-clock budget so a wedged call degrades honestly instead of hanging.
+ * Granted runs locally with no platform execution ceiling, so this is sized to
+ * the model instead: local inference is far slower than a cloud API, and the
+ * cloud-sized budget would abort a legitimately-slow local synthesis mid-flight.
+ * Override either with COMPETITOR_BUDGET_MS.
+ */
+const BUDGET_MS =
+  Number(process.env.COMPETITOR_BUDGET_MS) || (isLocalLlm() ? 1_800_000 : 110_000);
 
 const STOPWORDS = new Set([
   "the", "and", "for", "with", "that", "this", "from", "into", "your", "our", "their", "who", "must",

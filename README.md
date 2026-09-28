@@ -16,20 +16,30 @@ Every OS below ends up running the exact same `npm` commands — the setup scrip
 
 ## Install on macOS
 
-**1. Prerequisites**
-- [Node 20+](https://nodejs.org), or `brew install node`. (Node 22+ avoids an `EBADENGINE` warning one dependency now emits on 20 — the app runs fine either way.)
-- git — already present if you have Xcode Command Line Tools (`xcode-select --install`), or `brew install git`.
+*The app's local-model flow is verified end to end on a 32GB Mac: auto-picked `qwen2.5:14b` and completed a full novel-company search (18 candidates, fully local, zero API calls) in **3 minutes 43 seconds**. `install-macos.sh` is separately verified on a 2015 MacBook Pro (Intel i7-4770HQ, 16GB, macOS 12.7.6) — the oldest realistic case, which forces the Ollama CLI-tarball path described below.*
 
-**2. Clone and try it with zero keys**
+**1. Install prerequisites + clone (one command)**
 ```bash
+curl -fsSL https://raw.githubusercontent.com/KurtLehnardt/granted/main/install-macos.sh | bash
+```
+Installs Node 20+ and git if missing — via Homebrew where available, otherwise the Xcode Command Line Tools for git and the official nodejs.org `.pkg` for Node — clones the repo into `./granted`, runs `npm install`, and installs Ollama with the method your macOS version actually supports (see the note below). Safe to re-run.
+
+Prefer to do it by hand?
+```bash
+brew install node git             # or Node from https://nodejs.org, git via xcode-select --install
 git clone https://github.com/KurtLehnardt/granted.git
 cd granted/scaffold
 npm install
-npm run dev        # → http://localhost:3000
+```
+
+**2. Try it with zero keys**
+```bash
+cd granted/scaffold      # already done if you used install-macos.sh
+npm run dev              # → http://localhost:3000
 ```
 Try the 4 sample companies now — no keys needed.
 
-**3. Search your own company — hosted (OpenAI + Anthropic)**
+**3. Search your own company — cloud models (OpenAI + Anthropic)**
 ```bash
 npm run setup      # interactive: writes .env.local, collects your keys
 npm run dev
@@ -42,7 +52,15 @@ brew install ollama                 # or https://ollama.com/download
 npm run setup:local -- --yes        # picks a model sized for your RAM, pulls it, re-embeds the corpus
 npm run dev
 ```
-Verified end to end on this flow: a 32GB Mac auto-picked `qwen2.5:14b` and completed a full novel-company search (18 candidates, fully local, zero API calls) in **3 minutes 43 seconds**.
+
+> **On macOS 13 or older?** Ollama's `.app`/`.dmg` and its Homebrew formula are built for **macOS 14+**. On an older Mac the download page hands you an app that won't launch, and Homebrew has dropped those releases (no bottles), so `brew install ollama` fails too. The release's **CLI tarball is a universal binary that does run there** — `install-macos.sh` picks it automatically, or install it by hand:
+> ```bash
+> curl -fsSL -o ollama-darwin.tgz \
+>   https://github.com/ollama/ollama/releases/latest/download/ollama-darwin.tgz
+> mkdir -p ~/.local/ollama && tar xzf ollama-darwin.tgz -C ~/.local/ollama
+> ln -sf ~/.local/ollama/ollama /usr/local/bin/ollama
+> ```
+> There's no `.app` wrapper on this path, so start the daemon yourself with `ollama serve` — and again after each reboot, since nothing auto-starts it.
 
 ## Install on Windows
 
@@ -139,7 +157,6 @@ Verified end to end via `install-linux.sh` on a fresh Amazon Linux 2023 box (2 v
 | **Exa API key** | Optional | [dashboard.exa.ai](https://dashboard.exa.ai) | Only for the deep competitor analysis' *live web* results. Without it, that feature degrades honestly to federal awardees only. |
 | **Supabase project** | Optional | [supabase.com](https://supabase.com) | Only for **real Google sign-in**. The core app runs fine without any auth. |
 | **Google OAuth credentials** | Optional | [Google Cloud Console](https://console.cloud.google.com) | Only if you enable real sign-in (see below). |
-| **Vercel account** | Optional | [vercel.com](https://vercel.com) | Only to deploy. Local dev needs none of it. |
 
 ### Picking a local model manually
 
@@ -213,22 +230,11 @@ Optional. The app works without it. When you want real accounts:
    - Save, then copy the **Client ID** and **Client secret**.
 4. **Enable Google in Supabase:** Dashboard → *Authentication → Providers → Google* → toggle on, paste the Client ID + secret from step 3, save.
 5. **Set your app URLs in Supabase:** Dashboard → *Authentication → URL Configuration*:
-   - **Site URL:** `http://localhost:3000` (for local). Change to your Vercel URL for production.
-   - **Redirect URLs:** add `http://localhost:3000/**` (local) and, once deployed, `https://YOUR-APP.vercel.app/auth/callback`.
-6. Restart `npm run dev` and sign in. The app requests OAuth with `redirectTo = <origin>/auth/callback`, so it adapts to whatever domain it's served from. You only ever update the **Supabase** redirect allowlist, never Google.
+   - **Site URL:** `http://localhost:3000`.
+   - **Redirect URLs:** add `http://localhost:3000/**`.
+6. Restart `npm run dev` and sign in. The app requests OAuth with `redirectTo = <origin>/auth/callback`, so it follows whatever origin it's served from. You only ever update the **Supabase** redirect allowlist, never Google.
 
-> **Common gotcha:** if sign-in bounces to the wrong URL, it's almost always Supabase's *Site URL / Redirect URLs* pointing at the old domain. Update them there.
-
-## Deploy to Vercel
-
-1. **Push the repo to your own GitHub** (fork or your own remote).
-2. **Vercel → Add New… → Project → import the repo.**
-3. **Set the Root Directory to `scaffold`.** ⚠️ This is the one non-obvious step. The Next.js app lives in `scaffold/`, not the repo root. Vercel will fail to build if you skip it.
-4. **Add environment variables** (Vercel → Project → Settings → Environment Variables): `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `NEXT_PUBLIC_SITE_URL` (your deployment's URL, used for landing-page metadata), and any optional ones you use (`EXA_API_KEY`, the `NEXT_PUBLIC_FLAG_*` flags, `NEXT_PUBLIC_SUPABASE_URL`/`ANON_KEY`). `NEXT_PUBLIC_*` vars are inlined at build time, so **redeploy after changing them.**
-5. **Deploy.** The corpus is committed and read-only at runtime, so there's no data step and no live government-API dependency.
-6. **If you enabled real auth:** add your Vercel production URL to Supabase's *Site URL* + *Redirect URLs* (see step 5 above).
-
-Vercel Pro is recommended (the deep-analysis + novel-search routes can run up to ~2 minutes; Pro raises the serverless function timeout to 120s).
+> **Common gotcha:** if sign-in bounces to the wrong URL, it's almost always Supabase's *Site URL / Redirect URLs* pointing somewhere other than `http://localhost:3000`. Update them there.
 
 ## Chrome extension (assisted fill, experimental, not currently wired up)
 
@@ -278,7 +284,7 @@ Results **stream**. Progress and grounded evidence appear in seconds rather than
 ├── LICENSE
 ├── supabase/migrations/          (optional corpus-store schema)
 ├── extension/                    (optional Chrome "assisted fill" extension — experimental)
-└── scaffold/                     (the Next.js app — Vercel Root Directory)
+└── scaffold/                     (the Next.js app)
     ├── .env.example              (all env vars, documented)
     ├── scripts/setup.mjs         (npm run setup)
     ├── lib/
@@ -295,14 +301,13 @@ Results **stream**. Progress and grounded evidence appear in seconds rather than
 
 - **`OPENAI_API_KEY is not set`** → add it to `scaffold/.env.local` and restart `npm run dev`.
 - **Anthropic 400 "credit balance too low"** → top up at console.anthropic.com; every search spends credits.
-- **A flag change did nothing** → `NEXT_PUBLIC_*` vars are read at build/start; restart the dev server (and redeploy on Vercel).
-- **Vercel build fails immediately** → you probably didn't set **Root Directory = `scaffold`**.
+- **A flag change did nothing** → `NEXT_PUBLIC_*` vars are read at build/start; restart the dev server.
 - **Sign-in redirects to the wrong place** → fix Supabase → *Authentication → URL Configuration* (Site URL + Redirect URLs).
 - **Port 3000 in use** → Next picks the next free port; watch the `npm run dev` output for the URL. If `localhost:3000` shows a different app (on Windows, an app listening on all interfaces doesn't block the `127.0.0.1` bind), pick a port: `npm run dev -- -p 3001`.
 - **Can't reach it from another device or a cloud VM** → `npm run dev` only listens on `127.0.0.1`. From a remote box, tunnel instead: `ssh -L 3000:127.0.0.1:3000 you@host`, then open `http://localhost:3000`. Use `npm run dev:lan` only on a network you trust.
 
 ---
 
-**Built with:** Next.js · TypeScript · Tailwind · OpenAI (embeddings) · Anthropic Claude (scoring & explanations) · Supabase (optional auth) · Vercel.
+**Built with:** Next.js · TypeScript · Tailwind · OpenAI (embeddings) · Anthropic Claude (scoring & explanations) · Supabase (optional auth).
 
 **License:** see [LICENSE](LICENSE).

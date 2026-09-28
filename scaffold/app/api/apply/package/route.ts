@@ -46,8 +46,6 @@ import type { ApplicationDraft } from "@/lib/contracts/applicationDraft";
  *     demand"), not drafted.
  */
 
-export const maxDuration = 120;
-
 /** Per-request model-call budget: modest, env-overridable, denial-of-wallet cap. */
 const PACKAGE_RATE_LIMIT = Number(process.env.APPLY_PACKAGE_RATE_LIMIT) || 12;
 const PACKAGE_RATE_WINDOW_MS = Number(process.env.APPLY_PACKAGE_RATE_WINDOW_MS) || 60_000;

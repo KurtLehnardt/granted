@@ -30,27 +30,25 @@ export const MODEL = "claude-sonnet-4-6";
 const CHEAP_MODEL = process.env.PROFILE_EXTRACTION_MODEL || "claude-haiku-4-5-20251001";
 
 /**
- * H2 (review) — an explicit per-call Anthropic timeout BELOW the route's
- * `maxDuration = 120` (app/api/match/route.ts). The SDK default is ~10 minutes,
- * so without this a hung/slow call runs past the 120s platform ceiling and
- * Vercel silently kills the whole function — discarding an in-flight (and
- * already partially-computed) search with no error the client can show. With
- * this timeout the SDK throws an `APIConnectionTimeoutError` we can propagate
- * to the route's try/catch, which streams a real `type: "error"` NDJSON line.
+ * H2 (review) — an explicit per-call timeout for CLOUD providers. The SDK
+ * default is ~10 minutes, so without this a hung/slow call leaves the user
+ * staring at a stalled search with no error to show. With this timeout the SDK
+ * throws an `APIConnectionTimeoutError` we propagate to the route's try/catch,
+ * which streams a real `type: "error"` NDJSON line instead.
  *
- * `maxRetries: 0` is deliberate: within a ~120s budget an SDK-level retry of the
- * long scoring call would itself blow the ceiling, recreating the silent kill
- * this guard prevents. The batch fan-out in `explainMatches` is already
+ * `maxRetries: 0` is deliberate: an SDK-level retry of the long scoring call
+ * would double an already-long wait behind a silent stall. The batch fan-out in
+ * `explainMatches` is already
  * fault-tolerant (Promise.allSettled) — a single timed-out batch degrades to
  * partial results rather than failing the search.
  *
- * Tunable via `ANTHROPIC_TIMEOUT_MS` (must stay < the deploy's maxDuration).
+ * Tunable via `ANTHROPIC_TIMEOUT_MS`.
  */
 const ANTHROPIC_TIMEOUT_MS = Number(process.env.ANTHROPIC_TIMEOUT_MS) || 100_000;
-// Local inference is far slower than hosted, and a self-host run is NOT under
-// Vercel's 120s `maxDuration` — so the cloud-sized per-call timeout above would
-// abort a legitimately-slow local batch mid-scoring (every batch aborting →
-// "All scoring batches failed" → the client's "network error"). Give local a
+// Local inference is far slower than a cloud API, and nothing imposes an
+// execution ceiling on a local run — so the cloud-sized per-call timeout above
+// would abort a legitimately-slow local batch mid-scoring (every batch aborting
+// → "All scoring batches failed" → the client's "network error"). Give local a
 // much larger, env-tunable budget instead.
 const LOCAL_LLM_TIMEOUT_MS = Number(process.env.LOCAL_LLM_TIMEOUT_MS) || 1_800_000; // 30 min
 

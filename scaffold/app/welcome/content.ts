@@ -12,9 +12,8 @@
 import type { Metadata } from "next";
 import { BRAND } from "@/lib/brand";
 
-/** Live URL today (Vercel subdomain). Swap for the real domain once purchased. */
-// Set NEXT_PUBLIC_SITE_URL to your own deployment's URL; falls back to localhost
-// for local dev so the repo carries no specific deployment.
+/** Origin used for canonical/share metadata. Granted runs locally, so this is
+ * localhost unless NEXT_PUBLIC_SITE_URL overrides it. */
 export const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
 
 export const TITLE = "Granted — find federal funding matched to your business or research";
