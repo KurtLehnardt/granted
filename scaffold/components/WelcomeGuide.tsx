@@ -281,7 +281,7 @@ function WelcomeGuideModal({
                 Open <strong>Settings</strong> (the highlighted button) to pick your model. If you're
                 running a local model, every installed Ollama model shows up in the model picker
                 there. Prefer a cloud model? Open Settings → Model, choose Cloud (Claude), and
-                paste your API key.
+                paste your Anthropic API key.
               </p>
 
               {selected && (
