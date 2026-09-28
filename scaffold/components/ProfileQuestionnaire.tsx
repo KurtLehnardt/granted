@@ -199,6 +199,37 @@ export function splitBooleanText(draft: string): { choice: string; detail: strin
   return { choice: "", detail: "" };
 }
 
+/**
+ * `profile` with every live, uncommitted edit in `values` folded in as if it
+ * had already been blurred — same write rules as `commitField` (provenance
+ * guard, coercion/validation via `computeFieldCell`), just pure and
+ * synchronous. This is what gap-detection / `canSubmit` / the progress text
+ * must read so the "Find opportunities" button enables the instant every
+ * required field has non-empty trimmed text, not only after the user tabs
+ * or clicks out of the last one.
+ */
+export function computeLiveProfile(profile: ProfileDraft, values: Record<string, string>): ProfileDraft {
+  let next = profile;
+  for (const meta of PROFILE_FIELD_META) {
+    if (!(meta.field in values)) continue;
+    const rawValue = values[meta.field];
+    if (rawValue === undefined) continue;
+    const bag = next as Record<string, Provenanced<unknown> | undefined>;
+    const existing = bag[meta.field];
+    if (rawValue.trim().length === 0) {
+      if (existing === undefined) continue;
+      const cleared = { ...bag };
+      delete cleared[meta.field];
+      next = cleared as ProfileDraft;
+      continue;
+    }
+    const cell = computeFieldCell(meta, rawValue, "user_stated", existing);
+    if (!cell) continue;
+    next = { ...next, [meta.field]: cell } as ProfileDraft;
+  }
+  return next;
+}
+
 /** Current display value for a plain field: live edit if any, else the saved profile value. */
 export function draftValue(profile: ProfileDraft, values: Record<string, string>, field: string): string {
   if (field in values) return values[field] ?? "";
@@ -341,7 +372,10 @@ export default function ProfileQuestionnaire({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [externalNonce]);
 
-  const gaps = useMemo(() => computeGaps(profile), [profile]);
+  // Live-draft-aware: reflects what's currently typed, even before blur
+  // commits it to `profile` — see `computeLiveProfile`'s doc comment.
+  const liveProfile = useMemo(() => computeLiveProfile(profile, values), [profile, values]);
+  const gaps = useMemo(() => computeGaps(liveProfile), [liveProfile]);
   const requiredGaps = useMemo(() => gaps.filter((g) => g.requirement === "required"), [gaps]);
   const isComplete = gaps.length === 0;
   const canSubmit = requiredGaps.length === 0;
@@ -361,7 +395,11 @@ export default function ProfileQuestionnaire({
 
   function handleSubmit() {
     if (!canSubmit) return;
-    onSubmit(buildDescriptionFromProfile(profile), { complete: isComplete });
+    // Commit any live edit that never got blurred (e.g. Enter/click straight
+    // out of the field the user was still typing in) so the saved draft and
+    // the submitted description both reflect it.
+    setProfile(liveProfile);
+    onSubmit(buildDescriptionFromProfile(liveProfile), { complete: isComplete });
   }
 
   const [clearedVisible, setClearedVisible] = useState(false);

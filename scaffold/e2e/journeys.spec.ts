@@ -176,6 +176,42 @@ test("intake: optional details stay collapsed after required fields are filled, 
   await expect(page.getByText("A few more details (optional)")).toBeVisible();
 });
 
+test("intake: Find opportunities enables while still typing the last required field, and submits its current text", async ({ page }) => {
+  await skipWelcomeGuide(page);
+  await page.route("**/api/interview", (route) =>
+    route.fulfill({
+      status: 200,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ questions: [] }),
+    }),
+  );
+  let matchBody: any = null;
+  await page.route("**/api/match", async (route) => {
+    matchBody = route.request().postDataJSON();
+    await route.fulfill({
+      status: 200,
+      headers: { "content-type": "application/x-ndjson; charset=utf-8" },
+      body: ndjson([{ type: "result", map: fixtureMap }]),
+    });
+  });
+  await page.goto("/");
+
+  await page.getByLabel("Company description").fill(DETAILED_DESCRIPTION);
+  await page.getByLabel("Industry / market").fill("Health IT");
+  await page.getByLabel("Core technology").fill("Diagnostic imaging software");
+  await page.getByLabel("Primary US location").fill("Boise, Idaho");
+  // Last required field: fill without blurring — focus stays inside it.
+  const useOfFunds = page.getByLabel("Use of funds");
+  await useOfFunds.fill("Hire two engineers");
+  await expect(useOfFunds).toBeFocused();
+
+  await expect(page.getByRole("button", { name: "Find opportunities" })).toBeEnabled();
+  await page.getByRole("button", { name: "Find opportunities" }).click();
+
+  await expect(page.getByText(FIXTURE_PROGRAM).first()).toBeVisible();
+  expect(matchBody?.description).toContain("Hire two engineers");
+});
+
 // Journey 3 — Interview (needs r1_interview on + a short description).
 test.fixme("interview: a short description shows the pre-search interview before results", async ({ page }) => {
   await page.route("**/api/interview", (route) =>
