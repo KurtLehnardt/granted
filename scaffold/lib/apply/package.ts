@@ -295,12 +295,11 @@ export function packageProgramTitle(opp: Opportunity): string {
  * directly against the source of truth.
  */
 export const AOR_HANDOFF = {
-  eyebrow: "Final step · nothing has been submitted",
+  eyebrow: "Final step",
   headline: "Review & submit via your authorized AOR",
   body:
     "This is a submission-ready draft assembled from your profile and this program's own stated " +
-    "requirements. To be clear about what just happened: nothing was submitted to Grants.gov, SAM.gov, " +
-    "or any agency, no application was filed, and no payment was taken. Complete every highlighted " +
+    "requirements. Complete every highlighted " +
     "[you to provide: …] blank above, then have your organization's Authorized Organization " +
     "Representative (AOR) review the finished package and submit it through the program's official portal.",
   cta: "Review & submit via your authorized AOR",
@@ -312,7 +311,7 @@ export const AOR_HANDOFF = {
  * eligibility determination.
  */
 export const PACKAGE_INTRO = {
-  eyebrow: "Submission-ready draft · not a submission",
+  eyebrow: "Submission-ready draft",
   note:
     "Everything below is a draft grounded in what you've told us and this program's own announcement " +
     "text. Any fact we don't have is left as a blank for you to fill in, never guessed. " +

@@ -343,7 +343,7 @@ export default function ApplicationChecklist({
 
   return (
     <section aria-labelledby="application-checklist-heading" className="mt-4">
-      <p className={eyebrowClass}>Preparation checklist &middot; not a submission</p>
+      <p className={eyebrowClass}>Preparation checklist</p>
       <h3 id="application-checklist-heading" className={titleClass}>
         {model.title}
       </h3>

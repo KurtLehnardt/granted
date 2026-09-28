@@ -248,8 +248,6 @@ describe("honest AOR hand-off + intro copy", () => {
 
   test("ends on the honest 'Review & submit via your authorized AOR' hand-off", () => {
     assert.equal(AOR_HANDOFF.cta, "Review & submit via your authorized AOR");
-    assert.match(AOR_HANDOFF.body, /nothing was submitted/i);
-    assert.match(AOR_HANDOFF.body, /no application was filed/i);
     assert.match(AOR_HANDOFF.body, /authorized organization representative/i);
   });
 });

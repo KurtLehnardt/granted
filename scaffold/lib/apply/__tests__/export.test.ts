@@ -254,9 +254,8 @@ describe("EXTENSION_EXPORT_COPY honesty", () => {
     }
   });
 
-  test("states plainly that nothing is submitted and the human AOR still submits", () => {
-    assert.match(EXTENSION_EXPORT_COPY.body, /never submits, signs, or files/i);
-    assert.match(EXTENSION_EXPORT_COPY.body, /nothing here is submitted/i);
+  test("states plainly that the extension stops before submit and the human AOR still submits", () => {
+    assert.match(EXTENSION_EXPORT_COPY.body, /stops before any submit or signature control/i);
     assert.match(EXTENSION_EXPORT_COPY.body, /authorized organization representative/i);
   });
 });

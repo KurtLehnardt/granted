@@ -479,7 +479,7 @@ function ExportForExtensionSection({ pkg }: { pkg: AssembledPackage }) {
         {downloadStatus === "downloaded" && (
           <span className={sourceNoteClass} aria-live="polite">
             Saved to your browser&rsquo;s Downloads folder. Next: open the Granted extension &rarr;
-            &ldquo;Choose a .granted.json file&rdquo; and pick it. Nothing was submitted or sent anywhere.
+            &ldquo;Choose a .granted.json file&rdquo; and pick it.
           </span>
         )}
         {downloadStatus === "error" && (

@@ -146,11 +146,10 @@ export const EXTENSION_EXPORT_COPY = {
   body:
     "Download this exact draft as a .granted.json file to import into the Granted browser " +
     "extension. The extension fills the visible fields of the official grant portal's form in " +
-    "your OWN authenticated session and stops before any submit or signature control — it never " +
-    "submits, signs, or files anything. Nothing here is submitted or sent to fundFinder or anyone " +
-    "else; the file only ever leaves this device when you choose to move it. You, or your " +
-    "organization's Authorized Organization Representative (AOR), still review the filled-in form " +
-    "and submit it yourselves, through the program's official portal.",
+    "your OWN authenticated session and stops before any submit or signature control; the file " +
+    "only ever leaves this device when you choose to move it. You, or your organization's " +
+    "Authorized Organization Representative (AOR), still review the filled-in form and submit it " +
+    "yourselves, through the program's official portal.",
   downloadCta: "Download .granted.json",
   copyCta: "Copy to clipboard",
 } as const;

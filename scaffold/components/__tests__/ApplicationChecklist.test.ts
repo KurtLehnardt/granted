@@ -475,12 +475,11 @@ describe("<ApplicationChecklist/> render", () => {
     assert.ok(html.includes(RD_OPPORTUNITY.agency));
   });
 
-  test("is honestly labeled as a preparation checklist, not a submission", () => {
+  test("is honestly labeled as a preparation checklist", () => {
     const html = renderToStaticMarkup(
       React.createElement(ApplicationChecklist, { match: asMatch(RD_OPPORTUNITY), allRegistrationsSatisfied: false }),
     );
     assert.match(html, /preparation checklist/i);
-    assert.match(html, /not a submission/i);
   });
 
   test("never claims a submission happened or an award was won, for any opportunity", () => {
