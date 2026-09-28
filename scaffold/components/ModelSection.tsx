@@ -14,19 +14,7 @@ export type LlmProviderInfo = {
   models?: OllamaModel[];
 };
 
-/**
- * Settings' "Model" section: the Local (Ollama) / Cloud (Claude) switch.
- *
- * Extracted from SettingsForm as its own component (like SearchProgress /
- * IntakeForm split elsewhere) so it's a hermetic renderToStaticMarkup test
- * seam — `initialInfo` lets a test render either panel with no network call.
- * Outside tests it fetches GET /api/llm itself on mount.
- *
- * Provider switches and key changes apply immediately via POST
- * /api/llm/config (loopback-only) — there's no separate "Save" for this
- * section, since a stale server-side provider would silently keep sending
- * searches to the wrong backend.
- */
+// Settings' "Model" section: Local (Ollama) / Cloud (Claude) switch. `initialInfo` is a test seam; otherwise fetches GET /api/llm on mount. Changes apply immediately via POST /api/llm/config (loopback-only) — no separate Save.
 export default function ModelSection({ initialInfo }: { initialInfo?: LlmProviderInfo }) {
   const uid = useId();
   const modelId = `${uid}-model`;
@@ -60,8 +48,7 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
     setError(null);
     setTestResult(null);
     if (provider === "anthropic" && !info?.hasAnthropicKey) {
-      // No key yet — just reveal the Cloud panel so the user can add one;
-      // saving the key (below) is what actually switches the provider.
+      // No key yet — just reveal the Cloud panel; saving a key is what switches the provider.
       setInfo((i) => (i ? { ...i, provider } : { provider, local: false, hasAnthropicKey: false }));
       setReplacing(true);
       return;
@@ -107,9 +94,7 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
   }
 
   async function handleRemoveKey() {
-    // Removing the key can't leave the provider on "anthropic" with no key
-    // (env or saved) — the handler rejects that combination. Fall back to
-    // Local so Remove always succeeds, regardless of which env key exists.
+    // The handler rejects "anthropic" with no key anywhere, so fall back to Local.
     await postConfig({ provider: "ollama", clearAnthropicKey: true });
   }
 
