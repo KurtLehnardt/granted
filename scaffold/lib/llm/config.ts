@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { type CloudProviderId, isCloudProviderId, getCloudProvider } from "./providers";
 import { type KeySource, resolveKeySource, type ResolvedKey } from "./keySource";
+import { normalizeOpenAiBaseUrl } from "./baseUrl";
 
 // Runtime provider override written by Settings (POST /api/llm/config), read by lib/llm/client.ts.
 // Wins over LLM_PROVIDER/ANTHROPIC_API_KEY when set. mtime-cached. Gitignored (data/local) — can hold a plaintext key.
@@ -105,9 +106,39 @@ export function readLlmConfig(): LlmConfigFile {
   }
 }
 
+/**
+ * A legacy #210 saved key, in `cloud` shape. Undefined once the file has a
+ * proper `cloud` (which always wins) or no legacy key at all.
+ */
+function legacyAnthropicCloud(file: LlmConfigFile): CloudConfig | undefined {
+  if (file.cloud || !file.anthropicApiKey) return undefined;
+  return { providerId: "anthropic", keySource: { type: "inline", key: file.anthropicApiKey } };
+}
+
+/**
+ * File-only resolved cloud config — `cloud`, or the legacy key migrated,
+ * with no env fallback. For call sites where "saved" means "on disk", e.g.
+ * reusing a saved key on Save/Test key without resending the secret.
+ */
+export function fileCloudConfig(file: LlmConfigFile): CloudConfig | undefined {
+  return file.cloud ?? legacyAnthropicCloud(file);
+}
+
+/**
+ * Carries a legacy #210 `anthropicApiKey` forward as `cloud` before a write
+ * drops it, unless the patch itself explicitly sets (or clears) `cloud` —
+ * that's an intentional replacement (a fresh cloud save) or purge
+ * (clearCloud), and must not be overridden.
+ */
+function migrateLegacyAnthropicKey(current: LlmConfigFile, patch: LlmConfigFile): LlmConfigFile {
+  if ("cloud" in patch) return current;
+  const migrated = legacyAnthropicCloud(current);
+  return migrated ? { ...current, cloud: migrated } : current;
+}
+
 /** Merges `patch` onto the current file and writes it atomically (temp + rename). */
 export function writeLlmConfig(patch: LlmConfigFile): LlmConfigFile {
-  const current = readLlmConfig();
+  const current = migrateLegacyAnthropicKey(readLlmConfig(), patch);
   const next: LlmConfigFile = { ...current, ...patch };
   if (!next.anthropicApiKey) delete next.anthropicApiKey;
   if (!next.cloud) delete next.cloud;
@@ -142,10 +173,8 @@ export function resolveProvider(): ProviderName {
  */
 export function resolveCloudConfig(): CloudConfig | undefined {
   const file = readLlmConfig();
-  if (file.cloud) return file.cloud;
-  if (file.anthropicApiKey) {
-    return { providerId: "anthropic", keySource: { type: "inline", key: file.anthropicApiKey } };
-  }
+  const fileCloud = fileCloudConfig(file);
+  if (fileCloud) return fileCloud;
   const envKey = process.env.ANTHROPIC_API_KEY;
   if (envKey && isValidAnthropicKey(envKey)) {
     return { providerId: "anthropic", keySource: { type: "env", name: "ANTHROPIC_API_KEY" } };
@@ -165,7 +194,8 @@ export function resolveCloudApiKey(config?: CloudConfig): ResolvedKey {
 export function resolveCloudBaseUrl(cfg: CloudConfig): string | undefined {
   const preset = getCloudProvider(cfg.providerId);
   if (!preset || preset.id === "anthropic") return undefined;
-  return preset.baseUrl ?? cfg.baseUrl;
+  const baseUrl = preset.baseUrl ?? cfg.baseUrl;
+  return baseUrl ? normalizeOpenAiBaseUrl(baseUrl) : undefined;
 }
 
 /** The effective model: the user's saved choice, else the provider's suggested default. */

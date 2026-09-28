@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { isLoopbackRequest } from "@/lib/corpus/loopback";
 import { isCloudProviderId, isValidHttpsUrl } from "@/lib/llm/providers";
+import { normalizeOpenAiBaseUrl } from "@/lib/llm/baseUrl";
 import { resolveDraftKey } from "@/lib/llm/validateCloudConfig";
 import { listCloudModels } from "@/lib/llm/cloudModels";
 import { resolveCloudConfig } from "@/lib/llm/config";
@@ -43,6 +44,7 @@ export async function handleModelsPost(
     baseUrl = typeof body.baseUrl === "string" ? body.baseUrl.trim() : "";
     if (!baseUrl) return NextResponse.json({ error: "Enter a base URL for this provider." }, { status: 400 });
     if (!isValidHttpsUrl(baseUrl)) return NextResponse.json({ error: "Enter a valid https base URL." }, { status: 400 });
+    baseUrl = normalizeOpenAiBaseUrl(baseUrl);
   }
 
   // A {type:"saved"} (or omitted) key source reuses the currently saved key

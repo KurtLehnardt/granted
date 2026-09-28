@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { isLoopbackRequest } from "@/lib/corpus/loopback";
 import { resolveCloudConfig, resolveCloudModel } from "@/lib/llm/config";
 import { isCloudProviderId, isValidHttpsUrl } from "@/lib/llm/providers";
+import { normalizeOpenAiBaseUrl } from "@/lib/llm/baseUrl";
 import { resolveDraftKey } from "@/lib/llm/validateCloudConfig";
 import { probeCloudKey } from "@/lib/llm/cloudModels";
 import { MODEL } from "@/lib/claude";
@@ -53,6 +54,7 @@ export async function handleTestKeyPost(
       if (!isValidHttpsUrl(baseUrl)) {
         return NextResponse.json({ ok: false, error: "Enter a valid https base URL." }, { status: 400 });
       }
+      baseUrl = normalizeOpenAiBaseUrl(baseUrl);
     }
     keySourceInput = body.keySource;
     model = typeof body.model === "string" && body.model.trim() ? body.model.trim() : undefined;

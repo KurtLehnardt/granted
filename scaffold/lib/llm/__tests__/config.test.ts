@@ -177,6 +177,30 @@ describe("llm/config — #210 back-compat", () => {
     assert.equal(resolveProvider(), "ollama");
   });
 
+  test("switching to ollama migrates a legacy anthropicApiKey into cloud instead of dropping it", () => {
+    removeConfigFile();
+    fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify({ provider: "anthropic", anthropicApiKey: "sk-ant-legacykey00000" }), "utf8");
+    resetLlmConfigCache();
+    writeLlmConfig({ provider: "ollama", anthropicApiKey: undefined });
+    const file = readLlmConfig();
+    assert.equal(file.anthropicApiKey, undefined);
+    assert.deepEqual(file.cloud, { providerId: "anthropic", keySource: { type: "inline", key: "sk-ant-legacykey00000" } });
+    // Switching back to cloud with no key resolves the migrated key, not undefined.
+    assert.deepEqual(resolveCloudConfig(), { providerId: "anthropic", keySource: { type: "inline", key: "sk-ant-legacykey00000" } });
+  });
+
+  test("clearCloud still purges a legacy anthropicApiKey entirely (no migration)", () => {
+    removeConfigFile();
+    fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify({ provider: "anthropic", anthropicApiKey: "sk-ant-legacykey00000" }), "utf8");
+    resetLlmConfigCache();
+    writeLlmConfig({ provider: "ollama", anthropicApiKey: undefined, cloud: undefined });
+    const file = readLlmConfig();
+    assert.equal(file.anthropicApiKey, undefined);
+    assert.equal(file.cloud, undefined);
+  });
+
   test("new cloud object takes precedence over a legacy anthropicApiKey in the same file", () => {
     removeConfigFile();
     writeLlmConfig({ anthropicApiKey: "sk-ant-legacykey00000" });

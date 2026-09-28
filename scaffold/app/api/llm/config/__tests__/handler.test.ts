@@ -265,6 +265,16 @@ describe("POST /api/llm/config", () => {
     delete process.env.GRANTED_CONFIG_TEST_ENV_SWITCH;
   });
 
+  test("keySource {type:'saved'} reuses a legacy #210 anthropicApiKey (no cloud object yet)", async () => {
+    const deps = fakeDeps({}, { provider: "ollama", anthropicApiKey: "sk-ant-legacykey00000" });
+    const res = await handleLlmConfigPost(
+      fakeReq({ provider: "cloud", cloud: { providerId: "anthropic", keySource: { type: "saved" } } }),
+      deps,
+    );
+    assert.equal(res.status, 200);
+    assert.deepEqual(deps._get().cloud?.keySource, { type: "inline", key: "sk-ant-legacykey00000" });
+  });
+
   test("keySource {type:'saved'} reuses the previously saved key for the same provider", async () => {
     const deps = fakeDeps({}, { provider: "cloud", cloud: { providerId: "openai", model: "gpt-4o", keySource: { type: "inline", key: "sk-savedopenaikey0000" } } });
     const res = await handleLlmConfigPost(

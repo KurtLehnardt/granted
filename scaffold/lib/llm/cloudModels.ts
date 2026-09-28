@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { getCloudProvider, type CloudProviderId } from "./providers";
 import { currentHostedFetch } from "./client";
+import { normalizeOpenAiBaseUrl } from "./baseUrl";
 
 function anthropicClient(apiKey: string, timeout: number): Anthropic {
   return new Anthropic({ apiKey, timeout, maxRetries: 0, fetch: currentHostedFetch() as any });
@@ -56,6 +57,9 @@ function describeHttpStatus(status: number): ProbeOutcome {
       message: "The provider's API is temporarily unavailable. The key looks fine — try again shortly.",
     };
   }
+  if (status === 404) {
+    return { ok: false, kind: "other", message: "Endpoint not found — check the base URL." };
+  }
   return { ok: false, kind: "other", message: "That key didn't work. Double-check it and try again." };
 }
 
@@ -81,8 +85,9 @@ export async function probeCloudKey(params: CloudProbeParams): Promise<ProbeOutc
   }
 
   const preset = getCloudProvider(params.providerId);
-  const baseUrl = preset?.baseUrl ?? params.baseUrl;
-  if (!baseUrl) return { ok: false, kind: "other", message: "No base URL is configured for this provider." };
+  const rawBaseUrl = preset?.baseUrl ?? params.baseUrl;
+  if (!rawBaseUrl) return { ok: false, kind: "other", message: "No base URL is configured for this provider." };
+  const baseUrl = normalizeOpenAiBaseUrl(rawBaseUrl);
 
   try {
     const res = await fetch(`${baseUrl}/models`, {
@@ -115,8 +120,9 @@ export async function listCloudModels(params: { providerId: CloudProviderId; bas
   }
 
   const preset = getCloudProvider(params.providerId);
-  const baseUrl = preset?.baseUrl ?? params.baseUrl;
-  if (!baseUrl) return { error: "No base URL is configured for this provider." };
+  const rawBaseUrl = preset?.baseUrl ?? params.baseUrl;
+  if (!rawBaseUrl) return { error: "No base URL is configured for this provider." };
+  const baseUrl = normalizeOpenAiBaseUrl(rawBaseUrl);
 
   try {
     const res = await fetch(`${baseUrl}/models`, {

@@ -1,5 +1,6 @@
 import { isCloudProviderId, getCloudProvider, isValidHttpsUrl, type CloudProviderId } from "./providers";
 import { resolveKeySource, ENV_NAME_PATTERN, type KeySource } from "./keySource";
+import { normalizeOpenAiBaseUrl } from "./baseUrl";
 import type { CloudConfig } from "./config";
 
 // Shared validation for POST /api/llm/config's `cloud` payload: provider,
@@ -83,6 +84,7 @@ export function validateCloudConfig(input: CloudConfigInput, currentCloud?: Clou
     if (typeof input.baseUrl !== "string" || !input.baseUrl.trim()) return { error: "Enter a base URL for this provider." };
     baseUrl = input.baseUrl.trim();
     if (!isValidHttpsUrl(baseUrl)) return { error: "Enter a valid https base URL." };
+    baseUrl = normalizeOpenAiBaseUrl(baseUrl);
   }
 
   const model = typeof input.model === "string" && input.model.trim() ? input.model.trim() : undefined;

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { isLoopbackRequest } from "@/lib/corpus/loopback";
-import { readLlmConfig, writeLlmConfig, publicKeySource, type LlmConfigFile } from "@/lib/llm/config";
+import { readLlmConfig, writeLlmConfig, publicKeySource, fileCloudConfig, type LlmConfigFile } from "@/lib/llm/config";
 import { validateCloudConfig } from "@/lib/llm/validateCloudConfig";
 
 // POST /api/llm/config — Settings Local/Cloud switch write path. Loopback-only
@@ -44,7 +44,7 @@ export async function handleLlmConfigPost(
     return NextResponse.json({ provider: saved.provider ?? "ollama" });
   }
 
-  const currentCloud = d.readLlmConfig().cloud;
+  const currentCloud = fileCloudConfig(d.readLlmConfig());
   const { config, error } = validateCloudConfig(body?.cloud ?? {}, currentCloud);
   if (error) return NextResponse.json({ error }, { status: 400 });
 

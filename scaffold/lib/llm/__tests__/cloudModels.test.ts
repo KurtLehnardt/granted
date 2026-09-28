@@ -50,6 +50,20 @@ describe("probeCloudKey — OpenAI-compatible providers", () => {
     await probeCloudKey({ providerId: "other", baseUrl: "https://my-proxy.example.com/v1", key: "k", model: "" });
     assert.equal(sentUrl, "https://my-proxy.example.com/v1/models");
   });
+
+  test("'other' provider: a trailing slash in the base URL doesn't double up", async () => {
+    let sentUrl = "";
+    globalThis.fetch = (async (url: string) => { sentUrl = url; return { ok: true, json: async () => ({}) }; }) as unknown as typeof fetch;
+    await probeCloudKey({ providerId: "other", baseUrl: "https://my-proxy.example.com/v1/", key: "k", model: "" });
+    assert.equal(sentUrl, "https://my-proxy.example.com/v1/models");
+  });
+
+  test("404 gets its own message, not 'That key didn't work'", async () => {
+    globalThis.fetch = (async () => ({ ok: false, status: 404 })) as unknown as typeof fetch;
+    const outcome = await probeCloudKey({ providerId: "other", baseUrl: "https://my-proxy.example.com/v1", key: "k", model: "" });
+    assert.equal(outcome.ok, false);
+    if (!outcome.ok) assert.match(outcome.message, /endpoint not found/i);
+  });
 });
 
 describe("listCloudModels", () => {
