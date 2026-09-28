@@ -145,7 +145,7 @@ function HomeShell({ sidebarOn }: { sidebarOn: boolean }) {
         <AppMenu />
       </div>
 
-      {/* Split-and-stagger hero entrance (polish): eyebrow → headline → sub
+      {/* Split-and-stagger hero entrance (polish): banner → headline
           rise in sequence on first load. Reduced-motion disables it globally. */}
       <header className="stagger mb-12">
         {/* Hero banner (replaces the eyebrow): larger, centered above the headline.
