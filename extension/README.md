@@ -3,14 +3,11 @@
 A Chrome MV3 extension that fills a grant-portal application form **in your
 own authenticated session** from a package exported by the Granted app. It
 reads the imported package, fills the fields it can ground, flags the ones it
-can't, and lets you step through the portal's own sections. **It never
-submits, signs, certifies, attests, or files anything.** A human — your
-organization's Authorized Organization Representative (AOR) — reviews
-everything and clicks the portal's own final submit button, in their own
-session, with their own credentials.
-
-> **Nothing has been submitted.** This extension is an assistive form-filler,
-> like a password manager — not a submission service.
+can't, and lets you step through the portal's own sections. It stops before
+any submit, sign, certify, or attest control — a human, your organization's
+Authorized Organization Representative (AOR), reviews everything and clicks
+the portal's own final submit button, in their own session, with their own
+credentials.
 
 This extension is deliberately the *assisted-fill-only* half of applying: it
 runs in your own authenticated session, fills what it can ground, and stops
@@ -138,7 +135,7 @@ test.
 | **INV-9** | Graceful degradation — seed configs (all-`TODO` selectors) load cleanly, import a valid package, fill 0 fields, flag everything "unmapped," never throw or guess. | `test/fillEngine.test.ts`, `test/config.test.ts` |
 | **INV-10** | Read-back truthfulness — `filled_verified` only when a post-write DOM read-back equals the intended value. | `test/fillEngine.test.ts` |
 | **INV-11** | Idempotent; never clobbers a human's edit (or any pre-existing content the engine didn't itself write). | `test/fillEngine.test.ts` |
-| **INV-12** | Honest copy — "nothing has been submitted" is prominent; no submitted/filed/won/approved/guaranteed confirmation language; mirrors `AOR_HANDOFF`/`PACKAGE_INTRO` register. | `test/copyLint.test.ts` |
+| **INV-12** | Honest copy — no submitted/filed/won/approved/guaranteed confirmation or definitive-eligibility language; the terminal panel mirrors `AOR_HANDOFF`/`PACKAGE_INTRO` register. | `test/copyLint.test.ts` |
 
 Run everything: `npm run typecheck && npm run lint && npm test && npm run build`.
 
@@ -158,8 +155,7 @@ refuses the ENTIRE import (never a partial one) with a specific reason.
 
 ## 5. What this extension does, concretely
 
-1. **Import** a package. The "nothing has been submitted" banner is always
-   visible.
+1. **Import** a package.
 2. **Review** what will be filled (grounded value + where it came from),
    what's a gap (you fill it), and what's excluded (signature/date/credential
    — never auto-filled).
@@ -233,6 +229,6 @@ extension/
 This extension runs in the user's own authenticated portal session, fills and
 navigates, and stops before submit. No credentials leave the browser, no
 network calls beyond the portal you're already logged into, no submission
-calls, no third-party submitter designation. **The human AOR submits, in
-their own authenticated session — Granted never holds the AOR or E-Biz POC
-role, and never files anything on anyone's behalf.**
+calls, no third-party submitter designation. The human AOR submits, in their
+own authenticated session — Granted never holds the AOR or E-Biz POC role,
+and never acts as anyone's submitter.
