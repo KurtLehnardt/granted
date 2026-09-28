@@ -161,15 +161,15 @@ describe("GET /api/llm", () => {
     assert.equal(j.cloud.model, undefined);
   });
 
-  test("saved cloud config with an anthropicWorkspaceId reports it (not secret)", async () => {
+  test("a legacy saved anthropicWorkspaceId on disk is never reported (field removed)", async () => {
     delete process.env.LLM_PROVIDER;
     writeLlmConfig({
       provider: "cloud",
-      cloud: { providerId: "anthropic", keySource: { type: "inline", key: "sk-ant-abcXYZ1234567890" }, anthropicWorkspaceId: "wrkspc_abc123" },
+      cloud: { providerId: "anthropic", keySource: { type: "inline", key: "sk-ant-abcXYZ1234567890" }, anthropicWorkspaceId: "wrkspc_abc123" } as any,
     });
     const res = await GET();
     const j = await res.json();
-    assert.equal(j.cloud.anthropicWorkspaceId, "wrkspc_abc123");
+    assert.equal(j.cloud.anthropicWorkspaceId, undefined);
   });
 
   test("saved cloud config with no anthropicWorkspaceId -> field omitted (backward compat)", async () => {

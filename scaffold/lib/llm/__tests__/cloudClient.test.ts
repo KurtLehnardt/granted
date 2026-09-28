@@ -182,24 +182,6 @@ describe("makeLlmClient — anthropic cloud path", () => {
     assert.equal(typeof client.messages.create, "function");
   });
 
-  test("sends anthropic-workspace-id when a workspace id is saved", async () => {
-    delete process.env.LLM_PROVIDER;
-    writeLlmConfig({
-      provider: "cloud",
-      cloud: { providerId: "anthropic", keySource: { type: "inline", key: "sk-ant-abcXYZ1234567890" }, anthropicWorkspaceId: "wrkspc_abc123" },
-    });
-    let sentHeader: string | undefined;
-    const { withHostedFetch } = await import("../client");
-    await withHostedFetch((async (_url: any, init: any) => {
-      sentHeader = init?.headers?.["anthropic-workspace-id"];
-      return new Response(JSON.stringify({ id: "x", content: [{ type: "text", text: "ok" }], usage: {} }), { status: 200 });
-    }) as any, async () => {
-      const client = makeLlmClient({ timeout: 5000 });
-      await client.messages.create({ model: "claude-sonnet-4-6", max_tokens: 5, messages: [{ role: "user", content: "hi" }] });
-    });
-    assert.equal(sentHeader, "wrkspc_abc123");
-  });
-
   test("no anthropic-workspace-id header when none is saved", async () => {
     delete process.env.LLM_PROVIDER;
     writeLlmConfig({ provider: "cloud", cloud: { providerId: "anthropic", keySource: { type: "inline", key: "sk-ant-abcXYZ1234567890" } } });

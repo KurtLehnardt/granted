@@ -100,39 +100,14 @@ describe("validateCloudConfig", () => {
     assert.equal(r.config?.model, undefined);
   });
 
-  test("anthropic with a valid workspace id -> persisted, trimmed", () => {
+  test("a posted anthropicWorkspaceId is ignored (field removed)", () => {
     const r = validateCloudConfig({
       providerId: "anthropic",
       keySource: { type: "inline", key: "sk-ant-abcXYZ1234567890" },
-      anthropicWorkspaceId: " wrkspc_abc123 ",
-    });
-    assert.equal(r.config?.anthropicWorkspaceId, "wrkspc_abc123");
-  });
-
-  test("anthropic workspace id omitted -> undefined, not persisted (backward compat)", () => {
-    const r = validateCloudConfig({ providerId: "anthropic", keySource: { type: "inline", key: "sk-ant-abcXYZ1234567890" } });
-    assert.equal(r.config?.anthropicWorkspaceId, undefined);
-    assert.equal("anthropicWorkspaceId" in (r.config ?? {}), false);
-  });
-
-  test("anthropic workspace id with an invalid shape -> error", () => {
-    const r = validateCloudConfig({
-      providerId: "anthropic",
-      keySource: { type: "inline", key: "sk-ant-abcXYZ1234567890" },
-      anthropicWorkspaceId: "not-a-workspace-id",
-    });
-    assert.match(r.error!, /Workspace ID/);
-  });
-
-  test("workspace id is ignored (not an error) for non-anthropic providers", () => {
-    const r = validateCloudConfig({
-      providerId: "openai",
-      model: "gpt-4o",
-      keySource: { type: "inline", key: "sk-openaikeyvalue0000" },
-      anthropicWorkspaceId: "not-a-workspace-id",
-    });
+      anthropicWorkspaceId: "wrkspc_abc123",
+    } as any);
     assert.equal(r.error, undefined);
-    assert.equal(r.config?.anthropicWorkspaceId, undefined);
+    assert.equal("anthropicWorkspaceId" in (r.config ?? {}), false);
   });
 });
 

@@ -1,7 +1,7 @@
 import { isCloudProviderId, getCloudProvider, isValidHttpsUrl, isSameCloudTarget, type CloudProviderId } from "./providers";
 import { resolveKeySource, ENV_NAME_PATTERN, type KeySource } from "./keySource";
 import { normalizeOpenAiBaseUrl } from "./baseUrl";
-import { isValidAnthropicWorkspaceId, type CloudConfig } from "./config";
+import { type CloudConfig } from "./config";
 
 // Shared validation for POST /api/llm/config's `cloud` payload: provider,
 // base URL (only for "other"), and a key that both resolves and passes the
@@ -13,8 +13,6 @@ export interface CloudConfigInput {
   baseUrl?: unknown;
   model?: unknown;
   keySource?: unknown;
-  /** Anthropic only — see CloudConfig.anthropicWorkspaceId. */
-  anthropicWorkspaceId?: unknown;
 }
 
 export interface ValidationResult {
@@ -104,18 +102,8 @@ export function validateCloudConfig(input: CloudConfigInput, currentCloud?: Clou
   const draft = resolveDraftKey(providerId, parsed);
   if (draft.error) return { error: draft.error };
 
-  let anthropicWorkspaceId: string | undefined;
-  if (providerId === "anthropic" && typeof input.anthropicWorkspaceId === "string" && input.anthropicWorkspaceId.trim()) {
-    const trimmed = input.anthropicWorkspaceId.trim();
-    if (!isValidAnthropicWorkspaceId(trimmed)) {
-      return { error: 'That doesn\'t look like a valid Workspace ID (it should look like "wrkspc_...").' };
-    }
-    anthropicWorkspaceId = trimmed;
-  }
-
   const config: CloudConfig = { providerId, keySource: parsed };
   if (baseUrl) config.baseUrl = baseUrl;
   if (model) config.model = model;
-  if (anthropicWorkspaceId) config.anthropicWorkspaceId = anthropicWorkspaceId;
   return { config };
 }
