@@ -67,8 +67,11 @@ export async function handleRefreshPost(
     throw e;
   }
   child.on("error", (e) => {
-    d.writeRefreshStatus({ lastAttemptAt: new Date().toISOString(), lastError: e.message });
-    d.releaseRefreshLock();
+    try {
+      d.writeRefreshStatus({ lastAttemptAt: new Date().toISOString(), lastError: e.message });
+    } finally {
+      d.releaseRefreshLock();
+    }
   });
   if (typeof child.pid === "number") d.transferRefreshLock(child.pid);
   child.unref?.();
