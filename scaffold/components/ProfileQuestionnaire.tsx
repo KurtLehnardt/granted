@@ -288,15 +288,8 @@ export interface ProfileQuestionnaireProps {
    *  material field (all 13) is provided — the parent uses this to skip the
    *  R1 AI interview entirely (a fully-filled form asks zero questions). */
   onSubmit: (description: string, meta: { complete: boolean }) => void;
-  /** `undefined` until a real search has started (owned by the parent,
-   *  IntakeForm, since a welcome-guide sample bypasses `onSubmit` and must
-   *  not collapse) — the summary/toggle bar itself only renders once this is
-   *  defined, so the first page view stays fully expanded with no second
-   *  heading above "Tell us about your company". `true`/`false` thereafter
-   *  drive the two-way collapse/expand toggle. */
+  /** Omitted until the first search: no summary bar, form always expanded. */
   collapsed?: boolean;
-  /** Fires when the header bar is clicked to flip `collapsed`. Required
-   *  whenever `collapsed` can be true. */
   onToggleCollapsed?: () => void;
 }
 
@@ -325,20 +318,19 @@ export default function ProfileQuestionnaire({
   const materialHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const manualOpenRef = useRef(false);
 
-  // Expanding the form moves focus into the description field, or the
-  // heading when that textarea is disabled (search in flight).
+  const toggleBarRef = useRef<HTMLButtonElement | null>(null);
   const rawTextRef = useRef<HTMLTextAreaElement | null>(null);
   const requiredHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const prevCollapsedRef = useRef(collapsed);
   useEffect(() => {
-    if (prevCollapsedRef.current && !collapsed) {
-      if (rawTextRef.current && !rawTextRef.current.disabled) {
-        rawTextRef.current.focus();
-      } else {
-        requiredHeadingRef.current?.focus();
-      }
-    }
+    const wasCollapsed = prevCollapsedRef.current;
     prevCollapsedRef.current = collapsed;
+    if (collapsed && !wasCollapsed) {
+      toggleBarRef.current?.focus();
+    } else if (wasCollapsed && !collapsed) {
+      if (rawTextRef.current && !rawTextRef.current.disabled) rawTextRef.current.focus();
+      else requiredHeadingRef.current?.focus();
+    }
   }, [collapsed]);
 
   // Hydrate the draft from localStorage once, client-only (readJSON no-ops
@@ -641,20 +633,17 @@ export default function ProfileQuestionnaire({
 
   const requiredFields = PROFILE_FIELD_META.filter((m) => m.requirement === "required");
   const expanded = collapsed !== true;
-  // The summary/toggle bar only appears once the parent has defined
-  // `collapsed` — i.e. after a first real search — so the first page view
-  // stays fully expanded with no bar above "Tell us about your company".
-  const showToggleBar = collapsed !== undefined;
 
   return (
     <div>
-      {showToggleBar && (
+      {collapsed !== undefined && (
         <button
+          ref={toggleBarRef}
           type="button"
           onClick={onToggleCollapsed}
           aria-expanded={expanded}
           aria-controls="pq-form-fields"
-          className="flex w-full items-center justify-between gap-4 rounded-sm border border-structure-on-canvas bg-canvas-alt px-4 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2"
+          className="flex w-full items-center justify-between gap-4 rounded-sm border border-structure-on-canvas bg-canvas-alt px-4 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2"
         >
           <span className="min-w-0">
             <span className={sectionHeadingClass}>Your company</span>
@@ -664,7 +653,10 @@ export default function ProfileQuestionnaire({
               </span>
             )}
           </span>
-          <ChevronIcon className={`h-5 w-5 shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`} />
+          <span className={`${hintTextClass} flex shrink-0 items-center gap-1.5`}>
+            <span className="hidden sm:inline">{expanded ? "Hide details" : "Show details"}</span>
+            <ChevronIcon className={`h-5 w-5 shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`} />
+          </span>
         </button>
       )}
 
