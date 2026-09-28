@@ -41,7 +41,7 @@ export function DescriptionStrength({ value, id }: { value: string; id?: string 
   // red bar. The placeholder is already doing the prompting at that point.
   if (!text) return null;
 
-  const { score, band, suggestions } = scoreDescription(text);
+  const { band, suggestions } = scoreDescription(text);
   const lit = SEGMENTS_LIT[band];
 
   return (
@@ -61,13 +61,17 @@ export function DescriptionStrength({ value, id }: { value: string; id?: string 
       </div>
 
       {/*
-        The meter is decorative; this line is the accessible equivalent, so a
-        screen reader gets the verdict and the advice as text rather than
-        three unlabelled bars. `polite` because it updates while typing.
+        The bars are decorative (aria-hidden); the band word beside them and the
+        suggestions below are real visible text, so a screen reader already gets
+        the substance in normal reading order.
+        This live region therefore announces ONLY the band word. An earlier
+        version put the score and every suggestion in here, which re-announced
+        the whole block on each keystroke — the region's content changed
+        constantly, so it fired constantly. Limiting it to the band means it
+        speaks on the three transitions that are actually news.
       */}
-      <p className="sr-only" role="status" aria-live="polite">
-        Description strength: {BAND_LABEL[band]}, {score} out of 100.
-        {suggestions.length ? ` Suggestions: ${suggestions.join(" ")}` : ""}
+      <p className="sr-only" aria-live="polite">
+        Description strength: {BAND_LABEL[band]}
       </p>
 
       {suggestions.length > 0 && (

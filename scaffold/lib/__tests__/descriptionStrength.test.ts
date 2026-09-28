@@ -1,5 +1,8 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { scoreDescription, FILLER_WORDS } from "../descriptionStrength";
 
@@ -100,10 +103,11 @@ describe("scoreDescription — bands and fields", () => {
     const weak = scoreDescription(TERSE_BUT_CONCRETE);
     const strong = scoreDescription(FULL);
     assert.ok(weak.suggestions.length > strong.suggestions.length);
-    // FULL states headcount ("9-person") and who it serves ("food deserts"),
-    // so neither prompt should still be showing.
+    // FULL states headcount ("9-person"), so the size prompt must be gone.
     assert.ok(!strong.suggestions.some((s) => s.includes("size or stage")));
-    assert.ok(!strong.suggestions.some((s) => s.includes("who it's for")));
+    // And nothing should ever advise "say who it's for" — that heuristic was
+    // removed for contradicting descriptions that already did (see the module).
+    assert.ok(!weak.suggestions.concat(strong.suggestions).some((s) => s.includes("who it's for")));
   });
 
   test("filler words are not counted as content", () => {
@@ -115,5 +119,51 @@ describe("scoreDescription — bands and fields", () => {
     const a = scoreDescription("acoustic sensors detect wildfire ignition forested terrain");
     const b = scoreDescription("forested terrain ignition wildfire detect sensors acoustic");
     assert.equal(a.score, b.score);
+  });
+});
+
+/**
+ * CALIBRATION GUARD — the check that caught this meter being wrong.
+ *
+ * data/precomputed.json holds the four sample companies the app ships and
+ * replays from the welcome guide. They are curated, they each return 33
+ * matches, and they are the closest thing the repo has to ground truth for
+ * "a description that works".
+ *
+ * An earlier calibration graded them 34–45, i.e. told the user that the
+ * product's own worked examples were thin — and graded the manufacturing one
+ * WEAK while flagging "advanced" as filler, though "advanced manufacturing" is
+ * a federal program category appearing in 11% of the corpus. Scoring against
+ * real data rather than invented strings is what surfaced that, so the real
+ * data stays in the test.
+ */
+describe("calibration against the shipped sample companies", () => {
+  const dir = fileURLToPath(new URL(".", import.meta.url));
+  const samples: { id: string; key: string }[] = JSON.parse(
+    readFileSync(join(dir, "..", "..", "data", "precomputed.json"), "utf8"),
+  );
+
+  test("the fixture is present and looks like descriptions", () => {
+    assert.ok(samples.length >= 4, "expected the shipped sample companies");
+    for (const s of samples) assert.ok(s.key.length > 80, `${s.id}: not a real description`);
+  });
+
+  test("no curated sample company reads as thin", () => {
+    const thin = samples
+      .map((s) => ({ id: s.id, ...scoreDescription(s.key) }))
+      .filter((r) => r.band === "weak");
+    assert.deepEqual(
+      thin.map((t) => `${t.id} (${t.score})`),
+      [],
+      "the app's own worked examples must not be graded weak — that is the meter being wrong, not the samples",
+    );
+  });
+
+  test("every curated sample outscores the buzzword blurb by a wide margin", () => {
+    const buzz = scoreDescription(BUZZWORD_PADDING).score;
+    for (const s of samples) {
+      const r = scoreDescription(s.key);
+      assert.ok(r.score > buzz + 30, `${s.id} scored ${r.score}, buzzword ${buzz} — too close`);
+    }
   });
 });
