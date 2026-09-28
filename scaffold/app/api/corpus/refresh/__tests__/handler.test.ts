@@ -96,6 +96,30 @@ describe("POST /api/corpus/refresh (handler)", () => {
     assert.equal(released, true);
   });
 
+  test("releases the lock and rethrows when writeRefreshStatus throws", async () => {
+    let released = false;
+    let spawned = false;
+    await assert.rejects(
+      handleRefreshPost(fakeReq(), {
+        isLoopbackRequest: () => true,
+        acquireRefreshLock: () => true,
+        releaseRefreshLock: () => {
+          released = true;
+        },
+        transferRefreshLock: () => {},
+        writeRefreshStatus: () => {
+          throw new Error("disk full");
+        },
+        spawn: () => {
+          spawned = true;
+          return fakeChild();
+        },
+      }),
+    );
+    assert.equal(released, true);
+    assert.equal(spawned, false);
+  });
+
   test("clamps a client-supplied max into --max <n>", async () => {
     let spawnedWith: string[] | null = null;
     await handleRefreshPost(fakeReq({ max: 99999999 }), {
@@ -166,5 +190,25 @@ describe("POST /api/corpus/refresh (handler)", () => {
     child.emit("error", new Error("spawn ENOENT"));
     assert.equal(released, true);
     assert.equal((recordedStatus as { lastError?: string })?.lastError, "spawn ENOENT");
+  });
+
+  test("a spawn 'error' event still releases the lock when writeRefreshStatus throws", async () => {
+    let released = false;
+    let writes = 0;
+    const child = fakeChild();
+    await handleRefreshPost(fakeReq(), {
+      isLoopbackRequest: () => true,
+      acquireRefreshLock: () => true,
+      releaseRefreshLock: () => {
+        released = true;
+      },
+      transferRefreshLock: () => {},
+      writeRefreshStatus: () => {
+        if (++writes > 1) throw new Error("disk full");
+      },
+      spawn: () => child,
+    });
+    assert.throws(() => child.emit("error", new Error("spawn ENOENT")), /disk full/);
+    assert.equal(released, true);
   });
 });

@@ -11,6 +11,7 @@ import {
   type PassAScore,
   PROMOTION_FLOOR,
   promotedIds,
+  scoreOnlyAssessment,
   assembleTwoPass,
 } from "./scoring/twoPass";
 
@@ -563,9 +564,11 @@ async function scorePassA(
   candidates: Opportunity[],
   meter: CostMeter | undefined,
   signal: AbortSignal | undefined,
+  onScore?: (scores: PassAScore[]) => void,
 ): Promise<PassAScore[]> {
   const SYSTEM = scorerPrompt("scoreMatches");
-  const BATCH_A = 12; // score-only output is tiny; larger batches cut call count
+  // Local: 1/batch, serial — JSON-object mode drops candidates from bigger batches (see explainMatches).
+  const BATCH_A = Number(process.env.LLM_PASS_A_BATCH_SIZE) || (isLocalLlm() ? 1 : 12);
   const groups: Opportunity[][] = [];
   for (let i = 0; i < candidates.length; i += BATCH_A) groups.push(candidates.slice(i, i + BATCH_A));
 
@@ -599,11 +602,25 @@ async function scorePassA(
     );
     recordUsage(meter, "candidate_prescore", msg.usage, performance.now() - t0, CHEAP_MODEL);
     const text = msg.content.filter((c) => c.type === "text").map((c: any) => c.text).join("");
-    return asArray(parseJson<PassAScore[] | PassAScore>(text));
+    const scores = asArray(parseJson<PassAScore[] | PassAScore>(text));
+    try { onScore?.(scores); } catch { /* progress/preview is best-effort */ }
+    return scores;
   };
 
   const fanOutStart = performance.now();
-  const settled = await Promise.allSettled(groups.map((group) => scoreGroup(group)));
+  let settled: PromiseSettledResult<PassAScore[]>[];
+  if (isLocalLlm()) {
+    settled = [];
+    for (const group of groups) {
+      try {
+        settled.push({ status: "fulfilled", value: await scoreGroup(group) });
+      } catch (reason) {
+        settled.push({ status: "rejected", reason } as PromiseRejectedResult);
+      }
+    }
+  } else {
+    settled = await Promise.allSettled(groups.map((group) => scoreGroup(group)));
+  }
   meter?.recordStageLatency("candidate_prescore", performance.now() - fanOutStart);
   const ok = settled
     .filter((s): s is PromiseFulfilledResult<PassAScore[]> => s.status === "fulfilled")
@@ -627,12 +644,12 @@ async function narratePassB(
   profile: StartupProfile,
   promoted: Opportunity[],
   meter: CostMeter | undefined,
-  onBatchSettled: ((doneInPassB: number) => void) | undefined,
+  onBatchSettled: ((doneInPassB: number, batch: TwoPassAssessment[]) => void) | undefined,
   signal: AbortSignal | undefined,
 ): Promise<TwoPassAssessment[]> {
   if (promoted.length === 0) return [];
   const SYSTEM = scorerPrompt("explainMatches");
-  const BATCH = 8;
+  const BATCH = Number(process.env.LLM_PASS_B_BATCH_SIZE) || (isLocalLlm() ? 1 : 8);
   const groups: Opportunity[][] = [];
   for (let i = 0; i < promoted.length; i += BATCH) groups.push(promoted.slice(i, i + BATCH));
 
@@ -671,14 +688,32 @@ async function narratePassB(
 
   const fanOutStart = performance.now();
   let doneInPassB = 0;
-  const settled = await Promise.allSettled(
-    groups.map((group) =>
-      narrateGroup(group).finally(() => {
+  const runGroup = (group: Opportunity[]) =>
+    narrateGroup(group).then(
+      (result) => {
         doneInPassB += group.length;
-        try { onBatchSettled?.(doneInPassB); } catch { /* progress is best-effort */ }
-      }),
-    ),
-  );
+        try { onBatchSettled?.(doneInPassB, result); } catch { /* progress/preview is best-effort */ }
+        return result;
+      },
+      (reason) => {
+        doneInPassB += group.length;
+        try { onBatchSettled?.(doneInPassB, []); } catch { /* progress/preview is best-effort */ }
+        throw reason;
+      },
+    );
+  let settled: PromiseSettledResult<TwoPassAssessment[]>[];
+  if (isLocalLlm()) {
+    settled = [];
+    for (const group of groups) {
+      try {
+        settled.push({ status: "fulfilled", value: await runGroup(group) });
+      } catch (reason) {
+        settled.push({ status: "rejected", reason } as PromiseRejectedResult);
+      }
+    }
+  } else {
+    settled = await Promise.allSettled(groups.map(runGroup));
+  }
   meter?.recordStageLatency("candidate_analysis", performance.now() - fanOutStart);
   const ok = settled
     .filter((s): s is PromiseFulfilledResult<TwoPassAssessment[]> => s.status === "fulfilled")
@@ -690,43 +725,113 @@ async function narratePassB(
   return ok.flat().map((a) => ({ ...a, score: clampScore(a.score) }));
 }
 
+/** Pass B narrates at most this many promoted candidates, best Pass-A score first. Uncapped on hosted. */
+function e3TwoPassTopN(): number {
+  const envN = Number(process.env.E3_TWO_PASS_TOP_N);
+  if (Number.isFinite(envN) && envN > 0) return envN;
+  return isLocalLlm() ? 8 : Infinity;
+}
+
+/** Wall-clock cost of one Pass-B narrative in Pass-A score units (~30s vs ~2s on local). */
+const PASS_B_COST_WEIGHT = Number(process.env.E3_TWO_PASS_PASS_B_WEIGHT) || 15;
+
+/** Cost-weighted progress scaled onto 0..total, so a bar/rate reading `done/total` tracks wall-clock time. */
+export function twoPassProgress(passAScored: number, promotedCount: number, passBScored: number, total: number): number {
+  const totalUnits = total + promotedCount * (PASS_B_COST_WEIGHT - 1);
+  const doneUnits = passAScored + passBScored * (PASS_B_COST_WEIGHT - 1);
+  return totalUnits > 0 ? Math.min(total, Math.round((doneUnits / totalUnits) * total)) : 0;
+}
+
+/** Real Pass A/B counts for the progress label; `promotedCount` is 0 until Pass A finishes. */
+export type TwoPassProgressDetail = {
+  passAScored: number;
+  promotedCount: number;
+  passBScored: number;
+};
+
+function selectPassBCandidates(
+  candidates: Opportunity[],
+  passA: PassAScore[],
+  topN: number,
+): Opportunity[] {
+  const eligible = promotedIds(passA, PROMOTION_FLOOR);
+  const byId = new Map(candidates.map((c) => [c.id, c]));
+  return passA
+    .filter((s) => eligible.has(s.id))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, topN)
+    .map((s) => byId.get(s.id))
+    .filter((o): o is Opportunity => o !== undefined);
+}
+
 /**
- * Stage 2 (two-pass) — the flag-ON counterpart to `explainMatches`. Same
- * signature and same return shape, so `lib/match.ts` can call either behind the
- * `e3_two_pass` flag with no other change. Runs Pass A over all candidates,
- * promotes those clearing `PROMOTION_FLOOR`, runs Pass B over the promoted
- * subset, and merges back into one `Assessment[]` (promoted → full narrative;
- * others → score-only). Scores are clamped server-side (§5.5) in each pass.
+ * Stage 2 (two-pass) — the counterpart to `explainMatches`, with the same
+ * return shape (default on local, `e3_two_pass` on hosted). Runs Pass A over all candidates,
+ * narrates only the top `E3_TWO_PASS_TOP_N` candidates (by Pass-A score) that
+ * clear `PROMOTION_FLOOR`, and merges back into one `Assessment[]` (narrated →
+ * full narrative; others → score-only). Scores are clamped server-side (§5.5)
+ * in each pass.
+ *
+ * `onAssessment` fires with each Pass-A score-only assessment, then again with
+ * each Pass-B narrative, so a preview card can be upgraded in place.
  */
 export async function explainMatchesTwoPass(
   profile: StartupProfile,
   candidates: Opportunity[],
   meter?: CostMeter,
-  onBatch?: (doneCandidates: number, totalCandidates: number) => void,
+  onBatch?: (doneCandidates: number, totalCandidates: number, detail?: TwoPassProgressDetail) => void,
   signal?: AbortSignal,
+  onAssessment?: (a: TwoPassAssessment) => void,
 ): Promise<TwoPassAssessment[]> {
   const total = candidates.length;
-  const passA = await scorePassA(profile, candidates, meter, signal);
-  const promotedSet = promotedIds(passA, PROMOTION_FLOOR);
-  const promoted = candidates.filter((c) => promotedSet.has(c.id));
+  const topN = e3TwoPassTopN();
+  const reserved = Math.min(topN, total);
+  let passAScored = 0;
 
-  // Progress: non-promoted candidates are already "done" (they keep their
-  // Pass-A score); promoted ones complete as their Pass-B batches settle. This
-  // keeps `done` monotonic and reaching `total` at the end.
-  const alreadyDone = total - promoted.length;
-  try { onBatch?.(Math.min(alreadyDone, total), total); } catch { /* best-effort */ }
+  const passA = await scorePassA(profile, candidates, meter, signal, (scores) => {
+    passAScored += scores.length;
+    try {
+      onBatch?.(twoPassProgress(passAScored, reserved, 0, total), total, {
+        passAScored,
+        promotedCount: 0,
+        passBScored: 0,
+      });
+    } catch { /* best-effort */ }
+    for (const s of scores) {
+      try { onAssessment?.(scoreOnlyAssessment(s.id, clampScore(s.score))); } catch { /* best-effort */ }
+    }
+  });
+
+  const promoted = selectPassBCandidates(candidates, passA, topN);
+
+  try {
+    onBatch?.(twoPassProgress(total, promoted.length, 0, total), total, {
+      passAScored: total,
+      promotedCount: promoted.length,
+      passBScored: 0,
+    });
+  } catch { /* best-effort */ }
 
   const passB = await narratePassB(
     profile,
     promoted,
     meter,
-    (doneInPassB) => {
-      try { onBatch?.(Math.min(alreadyDone + doneInPassB, total), total); } catch { /* best-effort */ }
+    (doneInPassB, batch) => {
+      try {
+        onBatch?.(twoPassProgress(total, promoted.length, doneInPassB, total), total, {
+          passAScored: total,
+          promotedCount: promoted.length,
+          passBScored: doneInPassB,
+        });
+      } catch { /* best-effort */ }
+      for (const a of batch) {
+        try { onAssessment?.(a); } catch { /* best-effort */ }
+      }
     },
     signal,
   );
 
-  return assembleTwoPass(candidates.map((c) => c.id), passA, passB, PROMOTION_FLOOR);
+  return assembleTwoPass(candidates.map((c) => c.id), passA, passB);
 }
 
 /**

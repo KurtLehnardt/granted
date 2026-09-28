@@ -43,9 +43,9 @@ export type PassAScore = { id: string; score: number };
  *
  * Tied to `tierFromScore`'s ADJACENT boundary (25) — the LOWEST band that
  * renders as a real tier (adjacent/verify/likely all render; only `none` < 25
- * does not). So every candidate that could render as a real tier still gets a
- * full narrative under two-pass, and only the non-rendering `none` bulk is
- * skipped — which is exactly where the cost/latency is saved. Kept as a literal
+ * does not). So every candidate that could render as a real tier is eligible
+ * for a full narrative, and only the non-rendering `none` bulk is skipped (local
+ * also caps narration at `E3_TWO_PASS_TOP_N`; see `lib/claude.ts`). Kept as a literal
  * (not imported from `lib/match.ts`) to avoid a circular import; the value must
  * stay equal to that adjacent boundary. If `tierFromScore`'s adjacent boundary
  * ever moves, move this with it.
@@ -62,11 +62,9 @@ export function promotedIds(passA: PassAScore[], floor: number = PROMOTION_FLOOR
 }
 
 /**
- * A score-only assessment for a NON-promoted candidate: its Pass-A score, empty
+ * A score-only assessment for an un-narrated candidate: its Pass-A score, empty
  * narrative/criteria. `lib/match.ts` recomputes the tier from the score via
- * `tierFromScore`, so the `tier` field here is only a self-consistent
- * placeholder — a non-promoted candidate is (by definition of `PROMOTION_FLOOR`)
- * below the adjacent boundary, i.e. tier `none`.
+ * `tierFromScore`, so the `tier` field here is only a placeholder.
  */
 export function scoreOnlyAssessment(id: string, score: number): Assessment {
   return {
@@ -87,12 +85,12 @@ export function scoreOnlyAssessment(id: string, score: number): Assessment {
  * returns, in `candidateIds` order.
  *
  * For each candidate id:
- *   - if it was promoted AND Pass B returned a full assessment for it → use that
- *     Pass-B assessment (its score is the authoritative one, same as the single
- *     pass would have produced);
+ *   - if Pass B returned a full assessment for it → use that Pass-B assessment
+ *     (its score is the authoritative one, same as the single pass would have
+ *     produced);
  *   - otherwise → a score-only assessment carrying its Pass-A score, so it still
  *     computes a tier downstream and is never silently dropped. This also covers
- *     a promoted candidate whose Pass-B batch failed (graceful degradation): it
+ *     a candidate whose Pass-B batch failed (graceful degradation): it
  *     keeps its Pass-A score rather than vanishing.
  *
  * A Pass-A score is required for a candidate to appear at all; a candidate with
@@ -103,20 +101,17 @@ export function assembleTwoPass(
   candidateIds: string[],
   passA: PassAScore[],
   passB: Assessment[],
-  floor: number = PROMOTION_FLOOR,
 ): Assessment[] {
   const passAById = new Map<string, number>();
   for (const s of passA) passAById.set(s.id, s.score);
   const passBById = new Map<string, Assessment>();
   for (const a of passB) passBById.set(a.id, a);
-  const promoted = promotedIds(passA, floor);
 
   const out: Assessment[] = [];
   for (const id of candidateIds) {
     const passAScore = passAById.get(id);
     if (passAScore === undefined) continue; // Pass A never scored it — omit.
-    const full = promoted.has(id) ? passBById.get(id) : undefined;
-    out.push(full ?? scoreOnlyAssessment(id, passAScore));
+    out.push(passBById.get(id) ?? scoreOnlyAssessment(id, passAScore));
   }
   return out;
 }

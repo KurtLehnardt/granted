@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import IntakeForm from "@/components/IntakeForm";
-import OpportunityMap, { CARD_CAP, Boundary } from "@/components/OpportunityMap";
+import OpportunityMap, { Boundary } from "@/components/OpportunityMap";
 import OpportunityCard from "@/components/OpportunityCard";
 import type { OpportunityMap as MapT, Match } from "@/lib/types";
 import AppMenu from "@/components/AppMenu";
@@ -11,6 +11,7 @@ import WelcomeTour from "@/components/WelcomeTour";
 import { useAnalytics } from "@/components/AnalyticsProvider";
 import { latestRun, saveRun } from "@/lib/runs/runsStore";
 import { formatSearchDuration } from "@/components/SearchProgress";
+import { previewReducer } from "@/lib/ui/previewReducer";
 
 // FE-01 / design revamp: the CON-02 USWDS 60/30/10 restyle is now the DEFAULT
 // look on this A/B branch (previously gated behind r7_design). The token
@@ -62,16 +63,7 @@ function HomeShell({ sidebarOn }: { sidebarOn: boolean }) {
   }
 
   function handleMatchPreview(m: Match) {
-    setPreviewMatches((prev) => {
-      // A "none"-tier match would never make the finished map's card list
-      // either (OpportunityMap filters the same way) — skip it here so the
-      // preview never shows a card that's about to vanish once scoring
-      // finishes. Capped at the same CARD_CAP the finished map settles on, so
-      // the visible card count never visibly SHRINKS when the real map
-      // replaces this preview.
-      if (m.tier === "none" || prev.length >= CARD_CAP) return prev;
-      return [...prev, m];
-    });
+    setPreviewMatches((prev) => previewReducer(prev, m));
   }
 
   // Arch review MEDIUM: persist completed runs so a reload doesn't lose the

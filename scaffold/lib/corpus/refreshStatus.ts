@@ -85,6 +85,7 @@ export function releaseRefreshLock(baseDir: string = process.cwd()): void {
 export interface RefreshStatus {
   lastError?: string;
   lastCompletedAt?: string;
+  /** Written when an attempt starts; a successful run clears it. */
   lastAttemptAt?: string;
 }
 

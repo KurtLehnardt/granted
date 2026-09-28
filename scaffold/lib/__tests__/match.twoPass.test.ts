@@ -90,7 +90,7 @@ const twoPassExplain: BuildDeps["explainMatchesTwoPass"] = async (_p, candidates
   const passB: Assessment[] = candidates
     .filter((c) => promoted.has(c.id))
     .map((c) => full(c.id, SCORES[c.id] ?? 0));
-  return assembleTwoPass(candidates.map((c) => c.id), passA, passB, PROMOTION_FLOOR);
+  return assembleTwoPass(candidates.map((c) => c.id), passA, passB);
 };
 
 function deps(spy: { single: number; two: number }): Partial<BuildDeps> {

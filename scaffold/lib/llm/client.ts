@@ -1,6 +1,13 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import Anthropic from "@anthropic-ai/sdk";
 import { normalizeOpenAiBaseUrl } from "./baseUrl";
 import { currentLocalModel } from "./modelContext";
+
+/** Test-only: the SDK binds node-fetch at import, so hosted tests inject fetch here. */
+const hostedFetchAls = new AsyncLocalStorage<typeof fetch>();
+export function withHostedFetch<T>(fetchImpl: typeof fetch | undefined, fn: () => T): T {
+  return fetchImpl ? hostedFetchAls.run(fetchImpl, fn) : fn();
+}
 
 /**
  * LLM provider seam. `makeLlmClient()` returns something that walks and talks
@@ -53,7 +60,12 @@ export function makeLlmClient(opts: LlmClientOptions = {}): LlmClient {
         "ANTHROPIC_API_KEY is not set. Add it to .env.local (or set LLM_PROVIDER=ollama to run on a local model).",
       );
     }
-    return new Anthropic({ apiKey: key, timeout: opts.timeout, maxRetries: opts.maxRetries ?? 0 });
+    return new Anthropic({
+      apiKey: key,
+      timeout: opts.timeout,
+      maxRetries: opts.maxRetries ?? 0,
+      fetch: hostedFetchAls.getStore() as any,
+    });
   }
   // OpenAI-compatible shim (Ollama et al.), cast to the Anthropic surface the app uses.
   return openAiCompatShim(opts) as unknown as LlmClient;

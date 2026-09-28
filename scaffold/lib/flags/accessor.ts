@@ -52,11 +52,26 @@ export function isFlagEnabled(
   name: FlagName,
   configOverrides?: Partial<Record<FlagName, string | undefined>>
 ): boolean {
+  return resolveOverride(name, configOverrides) ?? FLAG_DEFAULT;
+}
+
+/** Set to an explicit off value, as opposed to unset — for a caller with its own non-default default. */
+export function isFlagExplicitlyDisabled(
+  name: FlagName,
+  configOverrides?: Partial<Record<FlagName, string | undefined>>
+): boolean {
+  return resolveOverride(name, configOverrides) === false;
+}
+
+function resolveOverride(
+  name: FlagName,
+  configOverrides?: Partial<Record<FlagName, string | undefined>>
+): boolean | undefined {
   const raw =
     configOverrides && Object.prototype.hasOwnProperty.call(configOverrides, name)
       ? configOverrides[name]
       : readRawOverrides()[name];
-  return parseOverride(raw) ?? FLAG_DEFAULT;
+  return parseOverride(raw);
 }
 
 /** Every registered flag's current resolved value. Useful for a debug panel or a single log line. */

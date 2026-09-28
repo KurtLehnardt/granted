@@ -1,15 +1,18 @@
 import { embed, cosine, assertEmbeddingDimsMatch } from "./embed";
-import { extractProfile, explainMatches, explainMatchesTwoPass, explainWeakField, type Assessment } from "./claude";
+import { extractProfile, explainMatches, explainMatchesTwoPass, explainWeakField, type Assessment, type TwoPassProgressDetail } from "./claude";
 import type { Opportunity, OpportunityMap, StartupProfile, Match, Tier, AwardHistory } from "./types";
 import { screen } from "./eligibility/screen";
 import { annotateFreshness } from "./eligibility/freshness";
 import { toCompanyProfile, toScreenableOpportunity, type KnownCompanyFacts } from "./eligibility/bridge";
 import { getCorpus } from "./corpus/store";
 import { dropExpiredOpportunities } from "./corpus/expiry";
+import type { EligibilityDetermination } from "./contracts/eligibilityDetermination";
+import { scoreOnlyAssessment } from "./scoring/twoPass";
 import awards from "@/data/awards.json";
 import { createCostMeter, type CostMeter } from "./metering/meter";
 import { CURRENT_OPPORTUNITY_MAP_VERSION } from "./contracts/opportunityMap";
-import { isFlagEnabled } from "./flags";
+import { isFlagEnabled, isFlagExplicitlyDisabled } from "./flags";
+import { isLocalLlm } from "./llm/client";
 import { recommendFor, mapVerdict } from "./recommend";
 // F3 — weak-field redirects should name a few REAL Utah/SBA programs, not just
 // categories. Wrapped around both explainWeakField() call sites below (the
@@ -367,53 +370,84 @@ export async function buildOpportunityMap(
     return weakField(profile, followUps, meter, d.explainWeakField, signal);
   }
 
+  // Only a definitive, rule-based `excluded` skips the LLM; every other bucket is still scored.
+  const companyProfile = toCompanyProfile(profile, companyFacts);
+  const preExcluded: { o: Opportunity; determination: EligibilityDetermination }[] = [];
+  const toScore: typeof scored = [];
+  for (const x of scored) {
+    try {
+      const determination = d.screen(companyProfile, toScreenableOpportunity(x.o));
+      if (determination.bucket === "excluded") {
+        preExcluded.push({ o: x.o, determination });
+        continue;
+      }
+    } catch {
+      // Screening failed — score it normally; re-screened below.
+    }
+    toScore.push(x);
+  }
+
   step({ key: "score", label: "Scoring and explaining your matches", pct: 52 });
   // Per-batch progress: interpolate between the score milestone (52) and the
-  // assemble milestone (90) as batches settle, so the ~83s scoring stage no
-  // longer sits frozen at 52%.
-  const emitScoreProgress = (done: number, total: number) => {
+  // assemble milestone (90) as batches settle. `detail` counts LLM work only
+  // (SearchProgress extrapolates remaining time from it); two-pass `done` is
+  // cost-weighted, so its label uses the real Pass A/B counts instead.
+  const total = scored.length;
+  const preDone = preExcluded.length;
+  const emitScoreProgress = (doneInScoring: number, twoPass?: TwoPassProgressDetail) => {
+    const done = preDone + doneInScoring;
     const pct = total > 0 ? 52 + Math.round((done / total) * 36) : 52;
-    step({ key: "score-progress", label: `Scored ${done} of ${total} programs`, pct, detail: `${done}/${total}` });
+    const scoredLabel = `Scored ${preDone + (twoPass ? twoPass.passAScored : doneInScoring)} of ${total} programs`;
+    const label = twoPass?.promotedCount
+      ? `${scoredLabel}, writing ${twoPass.passBScored} of ${twoPass.promotedCount} summaries`
+      : scoredLabel;
+    step({ key: "score-progress", label, pct, detail: `${doneInScoring}/${toScore.length}` });
   };
-  // `byId` only depends on `scored` (already final), so it's built once here —
-  // used both by the progressive preview below (as each batch lands) and by
-  // the final `matches` assembly after every batch has settled.
   const byId = new Map(scored.map((s) => [s.o.id, s.o]));
-  // E3 (flag `e3_two_pass`, default OFF): when ON, run the cheap-then-narrative
-  // two-pass scorer (Pass A scores all candidates on the cheap model; Pass B
-  // writes full narratives only for those clearing the render threshold). When
-  // OFF, the single-pass `explainMatches` runs exactly as before — identical
-  // args, byte-unchanged behavior. Both return the same `Assessment[]` shape, so
-  // everything below (tiering, eligibility, summary) is untouched.
-  //
-  // Progressive rendering is wired ONLY into the single-pass (default) path:
-  // its `onBatch` hands back the actual assessments a batch just produced (not
-  // just a running count), so we can build+emit a preview Match for each one
-  // the moment its batch lands. The two-pass path keeps its plain progress-only
-  // callback — e3_two_pass is default-off, so this doesn't affect the common
-  // case, and matches still arrive normally (all at once) at the end.
-  const assessments = isFlagEnabled("e3_two_pass")
-    ? await d.explainMatchesTwoPass(profile, scored.map((s) => s.o), meter, emitScoreProgress, signal)
-    : await d.explainMatches(
-        profile,
-        scored.map((s) => s.o),
-        meter,
-        (batchAssessments, done, total) => {
-          emitScoreProgress(done, total);
-          for (const a of batchAssessments) {
-            const opp = byId.get(a.id);
-            if (!opp) continue;
-            // Best-effort: this must never affect the authoritative `matches`
-            // built below from the complete, awaited `assessments` return —
-            // only ever an early, incomplete preview for the UI to render.
-            try { onMatch?.(baseMatchFromAssessment(a, opp, profile)); } catch { /* progressive rendering is best-effort */ }
-          }
-        },
-        signal,
-      );
+  // E3: two-pass is the default on local (a small model's per-candidate narrative is
+  // too slow to run over every candidate); NEXT_PUBLIC_FLAG_E3_TWO_PASS=false opts out.
+  // Hosted keeps the flag's default-off behavior.
+  const useTwoPass = isLocalLlm() ? !isFlagExplicitlyDisabled("e3_two_pass") : isFlagEnabled("e3_two_pass");
+  const candidatesToScore = toScore.map((s) => s.o);
+  // Two-pass emits a narrated candidate twice (score-only, then narrative); the UI updates the card in place.
+  const previewAssessment = (a: Assessment) => {
+    const opp = byId.get(a.id);
+    if (!opp) return;
+    try { onMatch?.(baseMatchFromAssessment(a, opp, profile)); } catch { /* progressive rendering is best-effort */ }
+  };
+  const assessments: Assessment[] =
+    candidatesToScore.length === 0
+      ? []
+      : useTwoPass
+        ? await d.explainMatchesTwoPass(
+            profile,
+            candidatesToScore,
+            meter,
+            (done, _total, detail) => emitScoreProgress(done, detail),
+            signal,
+            previewAssessment,
+          )
+        : await d.explainMatches(
+            profile,
+            candidatesToScore,
+            meter,
+            (batchAssessments, done) => {
+              emitScoreProgress(done);
+              for (const a of batchAssessments) previewAssessment(a);
+            },
+            signal,
+          );
   step({ key: "assemble", label: "Writing your opportunity map", pct: 90 });
 
-  const matches: Match[] = assessments
+  const allAssessments: Assessment[] = [
+    ...assessments,
+    ...preExcluded.map(({ o, determination }) => ({
+      ...scoreOnlyAssessment(o.id, 0),
+      whyIneligible: determination.failed_rules.map((r) => r.description).join(" "),
+    })),
+  ];
+
+  const matches: Match[] = allAssessments
     .map((a) => {
       const opp = byId.get(a.id);
       return opp ? baseMatchFromAssessment(a, opp, profile) : null;
@@ -430,8 +464,13 @@ export async function buildOpportunityMap(
   // corpus has only free-text eligibility), so the universal overlay drives the
   // buckets. DEFENSIVE: a screening error must NEVER break the search — each
   // screen() is wrapped, and a failure simply omits the field for that match.
-  const companyProfile = toCompanyProfile(profile, companyFacts);
+  const preExcludedById = new Map(preExcluded.map((p) => [p.o.id, p.determination]));
   for (const m of matches) {
+    const known = preExcludedById.get(m.opportunity.id);
+    if (known) {
+      m.eligibility = annotateFreshness(known);
+      continue;
+    }
     try {
       const determination = d.screen(companyProfile, toScreenableOpportunity(m.opportunity));
       m.eligibility = annotateFreshness(determination);

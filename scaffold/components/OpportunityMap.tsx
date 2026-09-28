@@ -21,6 +21,18 @@ import { useCorpusAsOf } from "@/lib/corpus/useCorpusAsOf";
  *  preview list is replaced by the final, complete map. */
 export const CARD_CAP = 8;
 
+/** Real fits (best first, capped) plus rule-excluded candidates, which stay visible (R8.2) but outside the cap and header stats. */
+export function selectShownMatches(matches: Match[]): { real: Match[]; excluded: Match[] } {
+  const real = matches
+    .filter((m) => m && m.tier !== "none")
+    .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+    .slice(0, CARD_CAP);
+  const excluded = matches.filter(
+    (m) => m && m.tier === "none" && m.eligibility?.determination?.bucket === "excluded",
+  );
+  return { real, excluded };
+}
+
 /** FE-01: shared "eyebrow"-style mono label, token-driven. */
 function eyebrowClass(extra = "") {
   return `font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas ${extra}`.trim();
@@ -67,25 +79,22 @@ export default function OpportunityMap({ map }: { map: MapT }) {
   // CompetitorResults deep-analysis flow, which this never reads or affects.
   const similarRecipients = aggregateSimilarCompanies(matches, { limit: 10 });
 
-  // Cards: real fits only (likely / verify / adjacent), best first, capped.
-  const shown = matches
-    .filter((m) => m && m.tier !== "none")
-    .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
-    .slice(0, CARD_CAP);
+  const { real: shownReal, excluded: excludedShown } = selectShownMatches(matches);
+  const shown = [...shownReal, ...excludedShown];
 
-  // Header stats derived from what we render — keeps them honest and consistent.
-  const highPotential = shown.filter((m) => m.tier === "likely" || m.tier === "verify").length;
+  // Header stats derived from real fits only — keeps them honest and consistent.
+  const highPotential = shownReal.filter((m) => m.tier === "likely" || m.tier === "verify").length;
   // Evergreen-safe (F1): a rolling/continuous/standing program is never
   // counted here, even if a stray deadline-shaped value is present on the
   // record — see closingSoonCount/isClosingSoon in lib/ui/opportunitySummary.
-  const closingSoon = closingSoonCount(shown);
-  const funding = fundingCell(shown);
+  const closingSoon = closingSoonCount(shownReal);
+  const funding = fundingCell(shownReal);
   // Data-freshness: how many of the shown cards have a deadline now in the past
   // (evergreen/forecasted-safe). The committed corpus is a point-in-time
   // snapshot; when it has aged, say so plainly instead of presenting stale
   // deadlines as current. Works on cached/precomputed maps too — it reads only
   // `m.opportunity.deadline`, which every map shape carries.
-  const expired = expiredCount(shown);
+  const expired = expiredCount(shownReal);
   // The corpus "as of" stamp (GET /api/corpus). `null` when the
   // stamp is absent/invalid — the footer then degrades to a date-free caveat.
   const asOf = useCorpusAsOf();
