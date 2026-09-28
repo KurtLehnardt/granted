@@ -32,20 +32,48 @@ function Die($msg)  { Write-Host "  [x] $msg" -ForegroundColor Red; exit 1 }
 function Have($cmd) { return [bool](Get-Command $cmd -ErrorAction SilentlyContinue) }
 function HaveWinget() { return (Have "winget") }
 
+# $ErrorActionPreference = "Stop" only promotes PowerShell cmdlet errors to
+# terminating ones -- it does NOT make a native command's nonzero exit code
+# throw (unlike bash's `set -e`, which install-linux.sh relies on for the
+# same calls). Every native command that can fail is checked explicitly here.
+function Assert-LastExitCode($msg) {
+  if ($LASTEXITCODE -ne 0) { Die $msg }
+}
+
+$script:IsElevated = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)
+
 Log "Granted -- Windows install"
 
 # Refresh PATH in this process so a package we just installed is visible
 # without needing a new shell (installers update the registry, not our PATH).
+# Merges into the existing $env:Path rather than replacing it, so anything
+# the calling session had that isn't persisted to Machine/User scope survives.
 function Sync-Path {
   $machine = [System.Environment]::GetEnvironmentVariable("Path", "Machine")
   $user = [System.Environment]::GetEnvironmentVariable("Path", "User")
-  $env:Path = "$machine;$user"
+  $env:Path = "$env:Path;$machine;$user"
+}
+
+# The installer's own process can exit slightly before its registry PATH
+# write (or a deferred/spawned step) lands, especially under disk/AV
+# contention -- poll briefly instead of judging success from one snapshot.
+function Wait-Have($cmd, $timeoutSeconds = 15) {
+  $deadline = (Get-Date).AddSeconds($timeoutSeconds)
+  do {
+    Sync-Path
+    if (Have $cmd) { return $true }
+    Start-Sleep -Seconds 1
+  } while ((Get-Date) -lt $deadline)
+  return $false
 }
 
 if (HaveWinget) {
   Ok "winget available"
 } else {
   Warn "winget not found (common on Windows Server / locked-down images) -- falling back to direct installer downloads"
+  if (-not $script:IsElevated) {
+    Warn "Not running as Administrator. git's fallback installs per-user (no admin needed), but Node's official .msi is machine-scoped and its install will fail without elevation. If the Node step below fails, re-open PowerShell as Administrator and re-run."
+  }
 }
 
 # 1) git.
@@ -68,11 +96,13 @@ if (Have "git") {
     Log "Downloading Git for Windows ($($gitRelease.tag_name))..."
     Invoke-WebRequest -Uri $gitUrl -OutFile $gitInstaller -UseBasicParsing
     Log "Running installer silently..."
-    Start-Process -FilePath $gitInstaller -ArgumentList "/VERYSILENT", "/NORESTART", "/NOCANCEL", "/SP-" -Wait
+    # /CURRENTUSER installs per-user -- unlike Node's .msi below, git-for-
+    # windows' Inno Setup installer supports this, so it works without
+    # Administrator rights regardless of $script:IsElevated.
+    Start-Process -FilePath $gitInstaller -ArgumentList "/VERYSILENT", "/NORESTART", "/NOCANCEL", "/SP-", "/CURRENTUSER" -Wait
     Remove-Item $gitInstaller -ErrorAction SilentlyContinue
   }
-  Sync-Path
-  if (-not (Have "git")) { Die "git install finished but 'git' still isn't on PATH -- open a new shell and re-run." }
+  if (-not (Wait-Have "git")) { Die "git install finished but 'git' still isn't on PATH -- open a new shell and re-run." }
   Ok "git installed ($(git --version))"
 }
 
@@ -110,8 +140,10 @@ if (-not $nodeOk) {
     Start-Process -FilePath "msiexec.exe" -ArgumentList "/i", "`"$nodeInstaller`"", "/qn", "/norestart" -Wait
     Remove-Item $nodeInstaller -ErrorAction SilentlyContinue
   }
-  Sync-Path
-  if (-not (Have "node")) { Die "node install finished but 'node' still isn't on PATH -- open a new shell and re-run." }
+  if (-not (Wait-Have "node")) {
+    $hint = if (-not $script:IsElevated) { " This is likely the earlier elevation warning -- re-run as Administrator." } else { " Open a new shell and re-run." }
+    Die "node install finished but 'node' still isn't on PATH.$hint"
+  }
   Ok "node installed ($(node -v))"
 }
 
@@ -126,6 +158,7 @@ if (Test-Path "$TargetDir\scaffold\package.json") {
 } else {
   Log "Cloning $RepoUrl into .\$TargetDir ..."
   git clone $RepoUrl $TargetDir
+  Assert-LastExitCode "git clone failed. If $TargetDir was partially created, remove it before re-running."
   Ok "cloned"
 }
 
@@ -133,6 +166,7 @@ if (Test-Path "$TargetDir\scaffold\package.json") {
 Set-Location "$TargetDir\scaffold"
 Log "Installing npm dependencies..."
 npm install
+Assert-LastExitCode "npm install failed -- see the output above for the underlying error."
 Ok "dependencies installed"
 
 Log "Done. Next steps:"
