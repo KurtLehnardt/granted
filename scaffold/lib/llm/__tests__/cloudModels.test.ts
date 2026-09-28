@@ -411,3 +411,86 @@ describe("listCloudModels — anthropic", () => {
     );
   });
 });
+
+describe("fcc (Anthropic-compatible proxy): Test key / Load models auth", () => {
+  const TOKEN = "fcc-token-value-0000";
+
+  function header(init: any, name: string): string | undefined {
+    const h = init?.headers ?? {};
+    if (typeof h.get === "function") return h.get(name) ?? undefined;
+    return Object.entries(h).find(([k]) => k.toLowerCase() === name)?.[1] as string | undefined;
+  }
+
+  async function withPaidKeyInEnv(fn: () => Promise<void>): Promise<void> {
+    const saved = process.env.ANTHROPIC_API_KEY;
+    process.env.ANTHROPIC_API_KEY = "sk-ant-paidkeyvalue000";
+    try {
+      await fn();
+    } finally {
+      if (saved === undefined) delete process.env.ANTHROPIC_API_KEY;
+      else process.env.ANTHROPIC_API_KEY = saved;
+    }
+  }
+
+  function recordingFetch(calls: { url: string; method: string; auth?: string; apiKey?: string; model?: string }[]) {
+    return (async (url: any, init: any) => {
+      const u = url.toString();
+      calls.push({
+        url: u,
+        method: String(init?.method ?? "GET").toUpperCase(),
+        auth: header(init, "authorization"),
+        apiKey: header(init, "x-api-key"),
+        model: init?.body ? JSON.parse(init.body).model : undefined,
+      });
+      const body = u.includes("/v1/models") ? { data: [{ id: "claude-sonnet-4-20250514" }] } : { id: "msg_1", content: [{ type: "text", text: "hi" }], usage: {} };
+      return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+    }) as any;
+  }
+
+  test("probeCloudKey: Bearer only (ANTHROPIC_API_KEY ignored) to <default base>/v1/models then /v1/messages with the default model", async () => {
+    const { withHostedFetch } = await import("../client");
+    const calls: Parameters<typeof recordingFetch>[0] = [];
+    await withPaidKeyInEnv(() =>
+      withHostedFetch(recordingFetch(calls), async () => {
+        const outcome = await probeCloudKey({ providerId: "fcc", key: TOKEN });
+        assert.equal(outcome.ok, true);
+      }),
+    );
+    assert.deepEqual(
+      calls.map((c) => [c.method, c.url.split("?")[0]]),
+      [["GET", "http://127.0.0.1:8082/v1/models"], ["POST", "http://127.0.0.1:8082/v1/messages"]],
+    );
+    for (const c of calls) {
+      assert.equal(c.auth, `Bearer ${TOKEN}`);
+      assert.equal(c.apiKey, undefined);
+    }
+    assert.equal(calls[1].model, "claude-sonnet-4-20250514");
+  });
+
+  test("probeCloudKey: a user-entered base URL is used as-is (no /v1 doubling)", async () => {
+    const { withHostedFetch } = await import("../client");
+    const calls: Parameters<typeof recordingFetch>[0] = [];
+    await withPaidKeyInEnv(() =>
+      withHostedFetch(recordingFetch(calls), async () => {
+        await probeCloudKey({ providerId: "fcc", key: TOKEN, baseUrl: "http://localhost:9000/" });
+      }),
+    );
+    assert.deepEqual(calls.map((c) => c.url.split("?")[0]), ["http://localhost:9000/v1/models", "http://localhost:9000/v1/messages"]);
+    assert.ok(calls.every((c) => c.auth === `Bearer ${TOKEN}` && c.apiKey === undefined));
+  });
+
+  test("listCloudModels: Bearer only (ANTHROPIC_API_KEY ignored) to <base>/v1/models", async () => {
+    const { withHostedFetch } = await import("../client");
+    const calls: Parameters<typeof recordingFetch>[0] = [];
+    await withPaidKeyInEnv(() =>
+      withHostedFetch(recordingFetch(calls), async () => {
+        const result = await listCloudModels({ providerId: "fcc", key: TOKEN, baseUrl: "http://127.0.0.1:8082" });
+        assert.deepEqual(result.models, ["claude-sonnet-4-20250514"]);
+      }),
+    );
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url.split("?")[0], "http://127.0.0.1:8082/v1/models");
+    assert.equal(calls[0].auth, `Bearer ${TOKEN}`);
+    assert.equal(calls[0].apiKey, undefined);
+  });
+});

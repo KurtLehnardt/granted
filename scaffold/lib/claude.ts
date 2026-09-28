@@ -548,8 +548,9 @@ function twoPassClient(): LlmClient {
 
 /**
  * Is this error worth a bounded retry? Only transient SERVER-side conditions
- * that fail FAST — Anthropic overload (529, the one that stalls precompute),
- * rate-limit (429), and generic 5xx. Deliberately NOT a timeout / connection
+ * that fail FAST — Anthropic overload (529, the one that stalls precompute)
+ * and generic 5xx. Deliberately NOT 429: cloud clients already retry it
+ * (lib/llm/rateLimit.ts). Also deliberately NOT a timeout / connection
  * error: a timed-out call was genuinely slow, so retrying it risks multiplying
  * the per-call timeout past the route budget — we let that batch degrade instead
  * (the fan-out is `Promise.allSettled`, so one failed batch never fails the
@@ -558,7 +559,7 @@ function twoPassClient(): LlmClient {
  */
 function isRetryableOverload(err: unknown): boolean {
   const status = (err as { status?: number } | undefined)?.status;
-  return typeof status === "number" && (status === 529 || status === 429 || status >= 500);
+  return typeof status === "number" && (status === 529 || status >= 500);
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));

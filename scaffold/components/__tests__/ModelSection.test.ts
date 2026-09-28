@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { renderToStaticMarkup } from "react-dom/server";
 import React from "react";
 
-import ModelSection, { type LlmProviderInfo } from "../ModelSection";
+import ModelSection, { draftOnProviderSwitch, type LlmProviderInfo } from "../ModelSection";
 
 /**
  * Settings' Local/Cloud switch. `initialInfo` is the hermetic test seam (no
@@ -43,7 +43,16 @@ describe("ModelSection — renders the right panel per provider", () => {
     const html = render({ provider: "cloud", local: false });
     assert.match(html, /model-panel-cloud/);
     assert.doesNotMatch(html, /model-panel-local/);
-    for (const label of ["Anthropic (Claude)", "OpenAI", "Google Gemini", "OpenRouter", "Groq", "Mistral", "Other (OpenAI-compatible)"]) {
+    for (const label of [
+      "Anthropic (Claude)",
+      "OpenAI",
+      "Google Gemini",
+      "OpenRouter",
+      "Groq",
+      "Mistral",
+      "Anthropic-compatible proxy (e.g. Free Claude Code)",
+      "Other (OpenAI-compatible)",
+    ]) {
       assert.match(html, new RegExp(label.replace(/[()]/g, "\\$&")));
     }
     assert.doesNotMatch(html, /cloud-key-status/);
@@ -167,6 +176,33 @@ describe("ModelSection — renders the right panel per provider", () => {
     assert.match(html, new RegExp(`id="${tooltipId}"[^>]*role="tooltip"`));
   });
 
+  test("fcc: shows an editable base URL field and its privacy note", () => {
+    const html = render({
+      provider: "cloud",
+      local: false,
+      cloud: { providerId: "fcc", baseUrl: "http://127.0.0.1:8082", hasKey: false, keySource: { type: "file", path: "~/.fcc/proxy_auth_token" } },
+    });
+    assert.match(html, /Base URL/);
+    assert.match(html, /value="http:\/\/127\.0\.0\.1:8082"/);
+    assert.match(html, /cloud-privacy-note/);
+    assert.match(html, /Prompts are forwarded to third-party free providers, which may log them\./);
+  });
+
+  test("privacy note is absent for a preset with none (e.g. openai)", () => {
+    const html = render({ provider: "cloud", local: false, cloud: { providerId: "openai", hasKey: false, keySource: { type: "inline" } } });
+    assert.doesNotMatch(html, /cloud-privacy-note/);
+  });
+
+  test("fcc: not marked required (has a default model) and shows the secret-file path", () => {
+    const html = render({
+      provider: "cloud",
+      local: false,
+      cloud: { providerId: "fcc", hasKey: true, keySource: { type: "file", path: "~/.fcc/proxy_auth_token" } },
+    });
+    assert.doesNotMatch(html, /Model \(required\)/);
+    assert.match(html, /~\/\.fcc\/proxy_auth_token/);
+  });
+
   test("a saved inline key never reprefills the draft field, but its placeholder says the key is kept if left blank", () => {
     const html = render({
       provider: "cloud",
@@ -174,5 +210,30 @@ describe("ModelSection — renders the right panel per provider", () => {
       cloud: { providerId: "openai", hasKey: true, keyHint: "0000", keySource: { type: "inline" } },
     });
     assert.match(html, /Leave blank to keep the saved key/);
+  });
+});
+
+describe("draftOnProviderSwitch", () => {
+  const onAnthropic = { providerId: "anthropic" as const, keySourceType: "inline" as const, filePath: "" };
+  const onFccDefault = { providerId: "fcc" as const, keySourceType: "file" as const, filePath: "~/.fcc/proxy_auth_token" };
+
+  test("to fcc: prefills its default base URL and token file", () => {
+    assert.deepEqual(draftOnProviderSwitch("fcc", undefined, onAnthropic), {
+      baseUrl: "http://127.0.0.1:8082",
+      keySource: { type: "file", path: "~/.fcc/proxy_auth_token" },
+    });
+  });
+
+  test("away from fcc: its untouched token file isn't carried to another provider", () => {
+    assert.deepEqual(draftOnProviderSwitch("groq", undefined, onFccDefault), { baseUrl: "", keySource: { type: "inline" } });
+  });
+
+  test("away from fcc with a user-edited file path: key source is left alone", () => {
+    assert.deepEqual(draftOnProviderSwitch("groq", undefined, { ...onFccDefault, filePath: "/keys/groq.key" }), { baseUrl: "" });
+  });
+
+  test("back to the saved provider: its saved base URL and key source are restored", () => {
+    const saved = { providerId: "other" as const, baseUrl: "https://llm.example.com/v1", hasKey: true, keySource: { type: "env" as const, name: "MY_KEY" } };
+    assert.deepEqual(draftOnProviderSwitch("other", saved, onAnthropic), { baseUrl: "https://llm.example.com/v1", keySource: { type: "env", name: "MY_KEY" } });
   });
 });

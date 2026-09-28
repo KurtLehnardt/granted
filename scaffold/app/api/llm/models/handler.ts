@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { isLoopbackRequest } from "@/lib/corpus/loopback";
-import { isCloudProviderId, isValidHttpsUrl } from "@/lib/llm/providers";
-import { normalizeOpenAiBaseUrl } from "@/lib/llm/baseUrl";
-import { resolveDraftKey, savedKeySourceFor } from "@/lib/llm/validateCloudConfig";
+import { isCloudProviderId, getCloudProvider } from "@/lib/llm/providers";
+import { resolveDraftBaseUrl, resolveDraftKey, savedKeySourceFor } from "@/lib/llm/validateCloudConfig";
 import { listCloudModels } from "@/lib/llm/cloudModels";
 import { resolveCloudConfig } from "@/lib/llm/config";
 
@@ -39,15 +38,11 @@ export async function handleModelsPost(
   }
   const providerId = body.providerId;
 
-  let baseUrl: string | undefined;
-  if (providerId === "other") {
-    baseUrl = typeof body.baseUrl === "string" ? body.baseUrl.trim() : "";
-    if (!baseUrl) return NextResponse.json({ error: "Enter a base URL for this provider." }, { status: 400 });
-    if (!isValidHttpsUrl(baseUrl)) return NextResponse.json({ error: "Enter a valid https base URL." }, { status: 400 });
-    baseUrl = normalizeOpenAiBaseUrl(baseUrl);
-  }
+  const preset = getCloudProvider(providerId)!;
+  const { baseUrl, error } = resolveDraftBaseUrl(preset, body.baseUrl);
+  if (error) return NextResponse.json({ error }, { status: 400 });
 
-  const saved = savedKeySourceFor(d.resolveCloudConfig(), providerId, baseUrl);
+  const saved = savedKeySourceFor(d.resolveCloudConfig(), providerId, baseUrl) ?? preset.defaultKeySource;
   const draft = resolveDraftKey(providerId, body?.keySource, saved);
   if (draft.error) return NextResponse.json({ error: draft.error }, { status: 400 });
 

@@ -69,6 +69,23 @@ export type LlmProviderInfo = {
   openAiEmbeddings?: boolean;
 };
 
+/** Base URL and, when it should change, key source for a switch to `next`: the saved
+ * settings when `next` is the saved provider, else its preset defaults. A previous
+ * preset's untouched default secret file is never carried over to another provider. */
+export function draftOnProviderSwitch(
+  next: CloudProviderId,
+  saved: CloudInfo | undefined,
+  current: { providerId: CloudProviderId; keySourceType: KeySourceType; filePath: string },
+): { baseUrl: string; keySource?: PublicKeySource } {
+  if (saved?.providerId === next) return { baseUrl: saved.baseUrl ?? "", keySource: saved.keySource };
+  const nextPreset = CLOUD_PROVIDERS.find((p) => p.id === next);
+  const baseUrl = nextPreset?.editableBaseUrl ? (nextPreset.baseUrl ?? "") : "";
+  if (nextPreset?.defaultKeySource) return { baseUrl, keySource: nextPreset.defaultKeySource };
+  const prevDefault = CLOUD_PROVIDERS.find((p) => p.id === current.providerId)?.defaultKeySource;
+  const onPrevDefault = current.keySourceType === "file" && current.filePath === prevDefault?.path;
+  return onPrevDefault ? { baseUrl, keySource: { type: "inline" } } : { baseUrl };
+}
+
 // Settings' "Model" section: Local (Ollama) / Cloud switch, cloud being any
 // provider in lib/llm/providers.ts. `initialInfo` is a test seam (no
 // network); otherwise fetches GET /api/llm on mount. Selecting "Cloud" only
@@ -186,7 +203,7 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
         provider: "cloud",
         cloud: {
           providerId,
-          ...(providerId === "other" ? { baseUrl: baseUrl.trim() } : {}),
+          ...(preset?.editableBaseUrl ? { baseUrl: baseUrl.trim() } : {}),
           ...(cloudModel.trim() ? { model: cloudModel.trim() } : {}),
           keySource: currentKeySource(),
         },
@@ -242,7 +259,7 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           providerId,
-          ...(providerId === "other" ? { baseUrl: baseUrl.trim() } : {}),
+          ...(preset?.editableBaseUrl ? { baseUrl: baseUrl.trim() } : {}),
           ...(cloudModel.trim() ? { model: cloudModel.trim() } : {}),
           keySource: currentKeySource(),
         }),
@@ -265,7 +282,7 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           providerId,
-          ...(providerId === "other" ? { baseUrl: baseUrl.trim() } : {}),
+          ...(preset?.editableBaseUrl ? { baseUrl: baseUrl.trim() } : {}),
           keySource: currentKeySource(),
         }),
       });
@@ -400,12 +417,21 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
             id={providerSelectId}
             value={providerId}
             onChange={(e) => {
-              setProviderId(e.target.value as CloudProviderId);
+              const next = e.target.value as CloudProviderId;
+              setProviderId(next);
               // A model picked for one provider is never valid for another — the
               // "gpt-4o-mini" carried onto an Anthropic save was exactly this bug.
               setCloudModel("");
               setCloudModelsList([]);
               setModelsError(null);
+              const draft = draftOnProviderSwitch(next, info?.cloud, { providerId, keySourceType, filePath });
+              setBaseUrl(draft.baseUrl);
+              if (draft.keySource) {
+                const ks = draft.keySource;
+                setKeySourceType(ks.type);
+                setEnvName(ks.type === "env" ? ks.name : "");
+                setFilePath(ks.type === "file" ? ks.path : "");
+              }
             }}
             className={inputClass}
           >
@@ -416,7 +442,7 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
             ))}
           </select>
 
-          {providerId === "other" && (
+          {preset?.editableBaseUrl && (
             <div className="mt-3">
               <label className={legendClass} htmlFor={baseUrlId}>
                 Base URL
@@ -426,10 +452,16 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
                 type="text"
                 value={baseUrl}
                 onChange={(e) => setBaseUrl(e.target.value)}
-                placeholder="https://your-endpoint.example.com/v1"
+                placeholder={preset.baseUrl ?? "https://your-endpoint.example.com/v1"}
                 className={inputClass}
               />
             </div>
+          )}
+
+          {preset?.privacyNote && (
+            <p className="mt-3 rounded-r-sm border-l-2 border-structure-on-canvas bg-canvas-alt px-3 py-2 font-body text-[12px] text-foreground" data-testid="cloud-privacy-note">
+              {preset.privacyNote}
+            </p>
           )}
 
           <div className="mt-3">

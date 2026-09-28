@@ -182,6 +182,81 @@ describe("makeLlmClient — anthropic cloud path", () => {
     assert.equal(typeof client.messages.create, "function");
   });
 
+  test("fcc: sends Authorization: Bearer (authToken, not x-api-key) to the configured base URL, and the configured model", async () => {
+    delete process.env.LLM_PROVIDER;
+    writeLlmConfig({
+      provider: "cloud",
+      cloud: { providerId: "fcc", baseUrl: "http://127.0.0.1:8082", model: "claude-opus-4-20250514", keySource: { type: "inline", key: "fcc-token-value-0000" } },
+    });
+    let sentUrl = "";
+    let sentAuth: string | undefined;
+    let sentApiKeyHeader: string | undefined;
+    let sentModel = "";
+    const { withHostedFetch } = await import("../client");
+    await withHostedFetch((async (url: any, init: any) => {
+      sentUrl = String(url);
+      sentAuth = init?.headers?.["Authorization"] ?? init?.headers?.authorization;
+      sentApiKeyHeader = init?.headers?.["x-api-key"];
+      sentModel = JSON.parse(init.body).model;
+      return new Response(JSON.stringify({ id: "x", content: [{ type: "text", text: "ok" }], usage: {} }), { status: 200 });
+    }) as any, async () => {
+      const client = makeLlmClient({ timeout: 5000 });
+      await client.messages.create({ model: "ignored", max_tokens: 5, messages: [{ role: "user", content: "hi" }] });
+    });
+
+    assert.equal(sentUrl, "http://127.0.0.1:8082/v1/messages");
+    assert.equal(sentAuth, "Bearer fcc-token-value-0000");
+    assert.equal(sentApiKeyHeader, undefined); // FCC only validates Authorization: Bearer, never x-api-key
+    assert.equal(sentModel, "claude-opus-4-20250514");
+  });
+
+  test("fcc: ANTHROPIC_API_KEY set in the environment does not leak as x-api-key — only Bearer is sent", async () => {
+    delete process.env.LLM_PROVIDER;
+    const savedAnthropicApiKey = process.env.ANTHROPIC_API_KEY;
+    process.env.ANTHROPIC_API_KEY = "sk-ant-paidkeyvalue000"; // e.g. set in .env.local for hosted Anthropic use
+    writeLlmConfig({
+      provider: "cloud",
+      cloud: { providerId: "fcc", baseUrl: "http://127.0.0.1:8082", model: "claude-opus-4-20250514", keySource: { type: "inline", key: "fcc-token-value-0000" } },
+    });
+    let sentAuth: string | undefined;
+    let sentApiKeyHeader: string | undefined;
+    const { withHostedFetch } = await import("../client");
+    try {
+      await withHostedFetch((async (_url: any, init: any) => {
+        sentAuth = init?.headers?.["Authorization"] ?? init?.headers?.authorization;
+        sentApiKeyHeader = init?.headers?.["x-api-key"];
+        return new Response(JSON.stringify({ id: "x", content: [{ type: "text", text: "ok" }], usage: {} }), { status: 200 });
+      }) as any, async () => {
+        const client = makeLlmClient({ timeout: 5000 });
+        await client.messages.create({ model: "ignored", max_tokens: 5, messages: [{ role: "user", content: "hi" }] });
+      });
+    } finally {
+      if (savedAnthropicApiKey === undefined) delete process.env.ANTHROPIC_API_KEY;
+      else process.env.ANTHROPIC_API_KEY = savedAnthropicApiKey;
+    }
+
+    assert.equal(sentAuth, "Bearer fcc-token-value-0000");
+    assert.equal(sentApiKeyHeader, undefined); // the SDK must not fall back to ANTHROPIC_API_KEY as x-api-key
+  });
+
+  test("fcc: no saved model falls back to the preset's default (a Claude id FCC's catalog maps)", async () => {
+    delete process.env.LLM_PROVIDER;
+    writeLlmConfig({
+      provider: "cloud",
+      cloud: { providerId: "fcc", baseUrl: "http://127.0.0.1:8082", keySource: { type: "inline", key: "fcc-token-value-0000" } },
+    });
+    let sentModel = "";
+    const { withHostedFetch } = await import("../client");
+    await withHostedFetch((async (_url: any, init: any) => {
+      sentModel = JSON.parse(init.body).model;
+      return new Response(JSON.stringify({ id: "x", content: [{ type: "text", text: "ok" }], usage: {} }), { status: 200 });
+    }) as any, async () => {
+      const client = makeLlmClient({ timeout: 5000 });
+      await client.messages.create({ model: "call-site-model", max_tokens: 5, messages: [{ role: "user", content: "hi" }] });
+    });
+    assert.equal(sentModel, "claude-sonnet-4-20250514");
+  });
+
   test("with a saved model: overrides whatever model the call site passes", async () => {
     delete process.env.LLM_PROVIDER;
     writeLlmConfig({ provider: "cloud", cloud: { providerId: "anthropic", model: "claude-haiku-4-5", keySource: { type: "inline", key: "sk-ant-abcXYZ1234567890" } } });
@@ -197,5 +272,34 @@ describe("makeLlmClient — anthropic cloud path", () => {
       await client.messages.create({ model: "claude-sonnet-4-6", max_tokens: 5, messages: [{ role: "user", content: "hi" }] });
     });
     assert.equal(sentModel, "claude-haiku-4-5");
+  });
+});
+
+describe("makeLlmClient — per-preset concurrency is shared across calls", () => {
+  test("groq (concurrency: 2): 6 parallel makeLlmClient() calls never exceed 2 in flight", async () => {
+    delete process.env.LLM_PROVIDER;
+    writeLlmConfig({
+      provider: "cloud",
+      cloud: { providerId: "groq", model: "llama-3.3-70b-versatile", keySource: { type: "inline", key: "gsk-groqkeyvalue0000" } },
+    });
+    let active = 0;
+    let maxActive = 0;
+    globalThis.fetch = (async () => {
+      active++;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((r) => setTimeout(r, 10));
+      active--;
+      return { ok: true, json: async () => ({ choices: [{ message: { content: "{}" } }], usage: {} }) };
+    }) as unknown as typeof fetch;
+
+    // Each call site (lib/claude.ts, apply/draft.ts, ...) makes a NEW client
+    // per request — the cap must hold across those separate makeLlmClient()
+    // calls, not just within one wrapped instance.
+    await Promise.all(
+      Array.from({ length: 6 }, () =>
+        makeLlmClient({ timeout: 5000 }).messages.create({ model: "ignored", max_tokens: 10, messages: [{ role: "user", content: "hi" }] }),
+      ),
+    );
+    assert.equal(maxActive <= 2, true, `expected at most 2 in flight, saw ${maxActive}`);
   });
 });

@@ -52,9 +52,42 @@ describe("resolveKeySource — env", () => {
 
 describe("resolveKeySource — file", () => {
   test("relative path is rejected", () => {
-    const r = resolveKeySource({ type: "file", path: "~/relative/path.key" });
+    const r = resolveKeySource({ type: "file", path: "relative/path.key" });
     assert.equal(r.key, undefined);
     assert.match(r.error!, /absolute/);
+  });
+
+  function withTempHome(fn: (home: string) => void): void {
+    const saved = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "granted-keysource-home-"));
+    process.env.HOME = home;
+    process.env.USERPROFILE = home;
+    try {
+      fn(home);
+    } finally {
+      for (const [name, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  }
+
+  test("~ expands to the home directory", () => {
+    withTempHome((home) => {
+      assert.equal(os.homedir(), home);
+      fs.mkdirSync(path.join(home, ".fcc"));
+      fs.writeFileSync(path.join(home, ".fcc", "proxy_auth_token"), "sk-hometoken000\n", "utf8");
+      assert.deepEqual(resolveKeySource({ type: "file", path: "~/.fcc/proxy_auth_token" }), { key: "sk-hometoken000" });
+    });
+  });
+
+  test("bare ~ expands to the home directory itself, which isn't a readable key file", () => {
+    withTempHome(() => {
+      const r = resolveKeySource({ type: "file", path: "~" });
+      assert.equal(r.key, undefined);
+      assert.match(r.error!, /Couldn't read/);
+    });
   });
 
   test("missing file -> \"Couldn't read <path>\"", () => {

@@ -51,12 +51,31 @@ export function anthropicRawMessage(err: InstanceType<typeof Anthropic.APIError>
 export class ProviderHttpError extends Error {
   status: number;
   raw: string;
-  constructor(status: number, raw: string, message?: string) {
+  /** Parsed Retry-After-Ms or Retry-After (seconds, converted to ms) from the response, when present. */
+  retryAfterMs?: number;
+  constructor(status: number, raw: string, message?: string, retryAfterMs?: number) {
     super(message ?? raw);
     this.name = "ProviderHttpError";
     this.status = status;
     this.raw = raw;
+    this.retryAfterMs = retryAfterMs;
   }
+}
+
+/** Retry-After-Ms (preferred) or Retry-After (seconds) from a fetch Response's headers. */
+export function retryAfterMsFromResponse(res: { headers?: { get(name: string): string | null } }): number | undefined {
+  if (!res.headers) return undefined;
+  const msHeader = res.headers.get("retry-after-ms");
+  if (msHeader) {
+    const ms = Number(msHeader);
+    if (Number.isFinite(ms) && ms >= 0) return ms;
+  }
+  const secondsHeader = res.headers.get("retry-after");
+  if (secondsHeader) {
+    const seconds = Number(secondsHeader);
+    if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+  }
+  return undefined;
 }
 
 /**

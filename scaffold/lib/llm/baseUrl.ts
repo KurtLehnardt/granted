@@ -23,3 +23,8 @@ export function normalizeOpenAiBaseUrl(url: string | undefined): string {
   }
   return trimmed;
 }
+
+/** Base URL for the Anthropic SDK, which appends "/v1/messages" itself: trailing slashes and a trailing "/v1" are dropped. */
+export function normalizeAnthropicBaseUrl(url: string | undefined): string {
+  return (url ?? "").trim().replace(/\/+$/, "").replace(/\/v1$/i, "");
+}
