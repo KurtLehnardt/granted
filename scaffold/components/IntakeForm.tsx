@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { isFlagEnabled } from "@/lib/flags";
 import { useAuth } from "@/components/AuthProvider";
+import { useSettingsPanel } from "@/components/AppMenu";
 import { useAnalytics } from "@/components/AnalyticsProvider";
 import { useSearchDraft } from "@/components/SearchDraftProvider";
 import { clearAllLocalData, getAutoFillRequirements } from "@/lib/mockAuth";
@@ -16,6 +17,40 @@ import ProfileQuestionnaire from "@/components/ProfileQuestionnaire";
 // (or the OPENAI_API_KEY it reads) ever reaches this client bundle.
 import type { InterviewQuestion } from "@/lib/interview/generateQuestions";
 import type { PreviewItem } from "@/lib/ui/previewReducer";
+
+/**
+ * A search failure surfaces the PROVIDER's own message verbatim (e.g.
+ * Anthropic's literal "API key is invalid.", sanitizedProviderErrorFor4xx in
+ * lib/llm/errors.ts) -- honest, but it gives a first-run user no next step:
+ * the gear icon that opens Settings has no visible label, and nothing tells
+ * them THIS is where to fix it. Detect the common key/auth/billing phrasings
+ * across providers (Anthropic, OpenAI, Gemini, OpenRouter, Groq, Mistral, any
+ * OpenAI-compatible URL) so the error banner can offer a direct "Open
+ * Settings" action instead of leaving the user to find the icon on their own.
+ * Deliberately narrow (not e.g. "network"/"timeout"/"rate limit") so it only
+ * fires when Settings is actually where the fix lives.
+ *
+ * Checked against each provider's OWN real error text, not just Anthropic's:
+ * OpenRouter's actual 401/402 bodies are "No auth credentials found" and
+ * "Insufficient credits..." -- neither contains "api key" or "authentication"
+ * -- and OpenAI's common quota exhaustion is "You exceeded your current
+ * quota, please check your plan and billing details." (a 429, not phrased
+ * as a key/auth problem at all, but still only fixable from Settings).
+ *
+ * Tradeoff, not a bug: this matches on the PROVIDER's free-text message,
+ * which lib/llm/errors.ts's sanitizeProviderMessage only redacts for literal
+ * key material -- it does not (and structurally can't) rule out a provider
+ * someday echoing part of the request back in a 4xx body. If a user's own
+ * company description contains a word like "authentication" (plausible for
+ * an identity/security company) AND a provider reflects it into the error,
+ * this could false-positive. Accepted: the failure mode is an extra,
+ * harmless "Open Settings" button next to "Try again", not a dead end.
+ */
+export function looksLikeKeyOrAuthError(message: string): boolean {
+  return /\bapi[ -]?key\b|\bcredentials?\b|\bcredits?\b|\bquota\b|\bbilling\b|\bunauthorized\b|\bauthenticat|\bauth\b/i.test(
+    message,
+  );
+}
 
 export default function IntakeForm({
   onResult,
@@ -90,6 +125,7 @@ export default function IntakeForm({
   // only produces a local, timestamped, revocable record.
   const mockAuthOn = isFlagEnabled("r9_0_mockauth");
   const { consent, setConsent, signOut } = useAuth();
+  const { openSettings } = useSettingsPanel();
   const [justCleared, setJustCleared] = useState(false);
 
   // H5 (R10.1) — funnel analytics. All emits no-op unless r10_analytics is on
@@ -464,16 +500,31 @@ export default function IntakeForm({
       {error && (
         <div className={errorClass}>
           <p>{error}</p>
-          {/* H1: an explicit retry so an error/timeout is never a dead-end.
-              Re-runs the exact description the failed search used. */}
-          <button
-            type="button"
-            onClick={() => run(lastSearched || text)}
-            disabled={loading || (lastSearched || text).trim().length < 20}
-            className="mt-2 font-mono text-[11px] uppercase tracking-eyebrow text-foreground underline decoration-dotted underline-offset-2 transition hover:text-structure-on-canvas disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2"
-          >
-            Try again
-          </button>
+          <div className="mt-2 flex flex-wrap items-center gap-4">
+            {/* A key/auth/billing failure needs a config change, not a
+                retry -- "Try again" alone would just fail identically.
+                Surface the actual fix: Settings is where the key/provider
+                lives, but its only entry point is an unlabeled gear icon. */}
+            {looksLikeKeyOrAuthError(error) && (
+              <button
+                type="button"
+                onClick={openSettings}
+                className="font-mono text-[11px] uppercase tracking-eyebrow text-foreground underline decoration-dotted underline-offset-2 transition hover:text-structure-on-canvas focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2"
+              >
+                Open Settings
+              </button>
+            )}
+            {/* H1: an explicit retry so an error/timeout is never a dead-end.
+                Re-runs the exact description the failed search used. */}
+            <button
+              type="button"
+              onClick={() => run(lastSearched || text)}
+              disabled={loading || (lastSearched || text).trim().length < 20}
+              className="font-mono text-[11px] uppercase tracking-eyebrow text-foreground underline decoration-dotted underline-offset-2 transition hover:text-structure-on-canvas disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2"
+            >
+              Try again
+            </button>
+          </div>
         </div>
       )}
     </div>
