@@ -1,5 +1,12 @@
 import { test, expect } from "@playwright/test";
-import { stubBackend, skipWelcomeGuide, FIXTURE_PROGRAM } from "./fixtures";
+import {
+  stubBackend,
+  skipWelcomeGuide,
+  FIXTURE_PROGRAM,
+  fixtureMap,
+  ndjson,
+  DETAILED_DESCRIPTION,
+} from "./fixtures";
 
 /**
  * The remaining named critical journeys. Sample-pick (via the welcome guide)
@@ -81,6 +88,83 @@ test("welcome guide: never shows again after the first visit, but Settings can r
   await page.getByRole("button", { name: "Open settings" }).click();
   await page.getByRole("button", { name: "Replay welcome guide" }).click();
   await expect(page.getByRole("dialog", { name: /welcome/i })).toBeVisible();
+});
+
+// Strengthened description-safety check: unlike the first-visit journeys above
+// (where the textarea starts empty), this pre-fills a real description, then
+// replays the guide and picks a sample — the pick must run its own search
+// without ever touching what the user already typed.
+test("welcome guide: replaying it after typing a description leaves the description untouched when a sample is picked", async ({ page }) => {
+  await stubBackend(page);
+  await skipWelcomeGuide(page);
+  await page.goto("/");
+
+  const myDescription = "My own real company description for federal grant matching.";
+  await page.getByLabel("Company description").fill(myDescription);
+
+  await page.getByRole("button", { name: "Open settings" }).click();
+  await page.getByRole("button", { name: "Replay welcome guide" }).click();
+
+  const dialog = page.getByRole("dialog", { name: /welcome/i });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Show sample companies" }).click();
+  await dialog.getByRole("button").filter({ hasText: /Fictional/i }).first().click();
+  await dialog.getByRole("button", { name: "Next" }).click();
+  await dialog.getByRole("button", { name: "Done" }).click();
+
+  await expect(dialog).not.toBeVisible();
+  await expect(page.getByText(FIXTURE_PROGRAM).first()).toBeVisible();
+  // Leaving the textarea to open Settings commits it into the questionnaire's
+  // read-only "provided" summary view (its own Edit-to-change affordance) — so
+  // assert on that rendered text rather than an <textarea> value, and confirm
+  // it's still the user's own description, not the picked sample's.
+  await expect(page.getByText(myDescription)).toBeVisible();
+});
+
+// BLOCKER fix: replaying the guide from Settings while a search is already in
+// flight must not let a sample pick start a concurrent run — the sample list
+// disables instead, with a note explaining why.
+test("welcome guide: sample list disables while a search is in flight", async ({ page }) => {
+  await skipWelcomeGuide(page);
+  await page.route("**/api/interview", (route) =>
+    route.fulfill({
+      status: 200,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ questions: [] }),
+    }),
+  );
+  await page.route("**/api/match", async (route) => {
+    // Slow enough to reliably interact with the guide while `loading` is true.
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    await route.fulfill({
+      status: 200,
+      headers: { "content-type": "application/x-ndjson; charset=utf-8" },
+      body: ndjson([
+        { type: "progress", key: "start", label: "Reading the federal register…", pct: 5 },
+        { type: "result", map: fixtureMap },
+      ]),
+    });
+  });
+  await page.goto("/");
+
+  await page.getByLabel("Company description").fill(DETAILED_DESCRIPTION);
+  await page.getByLabel("Industry / market").fill("Health IT");
+  await page.getByLabel("Core technology").fill("Diagnostic imaging software");
+  await page.getByLabel("Primary US location").fill("Boise, Idaho");
+  await page.getByLabel("Use of funds").fill("Hire two engineers");
+  await page.getByLabel("Use of funds").blur();
+  await page.getByRole("button", { name: "Find opportunities" }).click();
+
+  await page.getByRole("button", { name: "Open settings" }).click();
+  await page.getByRole("button", { name: "Replay welcome guide" }).click();
+  const dialog = page.getByRole("dialog", { name: /welcome/i });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Show sample companies" }).click();
+  await expect(dialog.getByText(/Available when your current search finishes/i)).toBeVisible();
+  await expect(dialog.getByRole("button").filter({ hasText: /Fictional/i }).first()).toBeDisabled();
+
+  await dialog.getByRole("button", { name: "Close" }).click();
+  await expect(page.getByText(FIXTURE_PROGRAM).first()).toBeVisible({ timeout: 10_000 });
 });
 
 test("intake: optional details stay collapsed after required fields are filled, and expand on toggle click", async ({ page }) => {

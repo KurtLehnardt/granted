@@ -23,6 +23,12 @@ export interface IntakeFormHandle {
   runSample: (description: string) => void;
 }
 
+/** Pure guard for runSample: a sample pick while a search is already in
+ *  flight must never start a concurrent run — it's a no-op instead. */
+export function canRunSample(loading: boolean): boolean {
+  return !loading;
+}
+
 const IntakeForm = forwardRef<IntakeFormHandle, {
   onResult: (m: any) => void;
   /** Fires alongside every `setLoading` transition, so a parent can drive a
@@ -341,8 +347,13 @@ const IntakeForm = forwardRef<IntakeFormHandle, {
 
   // Exposed to a parent (WelcomeGuide) so a sample company's cached results
   // can be shown WITHOUT ever writing into `text` / the description textarea.
+  // Guarded against a search already in flight (e.g. replaying the guide from
+  // Settings mid-search) — a sample pick then must not start a concurrent run.
   useImperativeHandle(ref, () => ({
-    runSample: (description: string) => run(description),
+    runSample: (description: string) => {
+      if (!canRunSample(loading)) return;
+      run(description);
+    },
   }));
 
   // Error state is a legitimate semantic role -> `error` token. As a 2px

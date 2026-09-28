@@ -34,6 +34,8 @@ type SampleHandler = ((description: string) => void) | null;
 type WelcomeGuideContextValue = {
   openWelcomeGuide: () => void;
   registerSampleHandler: (handler: SampleHandler) => void;
+  sampleLoading: boolean;
+  setSampleLoading: (loading: boolean) => void;
 };
 
 const WelcomeGuideContext = createContext<WelcomeGuideContextValue | null>(null);
@@ -42,7 +44,14 @@ function useWelcomeGuideContext(): WelcomeGuideContextValue {
   const ctx = useContext(WelcomeGuideContext);
   // Outside the provider this is a harmless no-op, same posture as
   // useSettingsPanel() in AppMenu.tsx.
-  return ctx ?? { openWelcomeGuide: () => {}, registerSampleHandler: () => {} };
+  return (
+    ctx ?? {
+      openWelcomeGuide: () => {},
+      registerSampleHandler: () => {},
+      sampleLoading: false,
+      setSampleLoading: () => {},
+    }
+  );
 }
 
 /** Settings' "Replay welcome guide" button calls this. */
@@ -53,20 +62,32 @@ export function useReplayWelcomeGuide(): () => void {
 /**
  * The home page calls this once with a function that actually runs a search
  * for a sample's description (IntakeForm.runSample via a ref) — without ever
- * writing into the description textarea. Registration is cleared on unmount.
+ * writing into the description textarea — and the home page's own IntakeForm
+ * `loading` state, so the guide can disable sample picks (BLOCKER: replaying
+ * the guide mid-search must never start a concurrent run) instead of relying
+ * solely on IntakeFormHandle.runSample's own no-op guard. Registration is
+ * cleared on unmount.
  */
-export function useWelcomeGuideSampleHandler(handler: (description: string) => void): void {
-  const { registerSampleHandler } = useWelcomeGuideContext();
+export function useWelcomeGuideSampleHandler(
+  handler: (description: string) => void,
+  loading: boolean,
+): void {
+  const { registerSampleHandler, setSampleLoading } = useWelcomeGuideContext();
   useEffect(() => {
     registerSampleHandler(handler);
     return () => registerSampleHandler(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [registerSampleHandler]);
+  useEffect(() => {
+    setSampleLoading(loading);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, setSampleLoading]);
 }
 
 /** Mount once (app/layout.tsx) so the guide is reachable/replayable from anywhere. */
 export function WelcomeGuideProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
+  const [sampleLoading, setSampleLoading] = useState(false);
   const startedRef = useRef(false);
   const sampleHandlerRef = useRef<SampleHandler>(null);
   const pathname = usePathname();
@@ -97,16 +118,24 @@ export function WelcomeGuideProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <WelcomeGuideContext.Provider value={{ openWelcomeGuide, registerSampleHandler }}>
+    <WelcomeGuideContext.Provider
+      value={{ openWelcomeGuide, registerSampleHandler, sampleLoading, setSampleLoading }}
+    >
       {children}
-      {open && <WelcomeGuideModal onDone={handleDone} />}
+      {open && <WelcomeGuideModal onDone={handleDone} sampleLoading={sampleLoading} />}
     </WelcomeGuideContext.Provider>
   );
 }
 
 type Step = 1 | 2;
 
-function WelcomeGuideModal({ onDone }: { onDone: (sampleText: string | null) => void }) {
+function WelcomeGuideModal({
+  onDone,
+  sampleLoading,
+}: {
+  onDone: (sampleText: string | null) => void;
+  sampleLoading: boolean;
+}) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const initialFocusRef = useRef<HTMLButtonElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -212,6 +241,14 @@ function WelcomeGuideModal({ onDone }: { onDone: (sampleText: string | null) => 
                     These are fictional example companies with cached results — pick one to see how
                     it works, or just close this and fill out your own.
                   </p>
+                  {/* BLOCKER fix: a search already in flight (e.g. this guide was
+                      replayed from Settings mid-search) must never be joined by a
+                      concurrent sample run — disable picks until it finishes. */}
+                  {sampleLoading && (
+                    <p className="mt-2 font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas">
+                      Available when your current search finishes
+                    </p>
+                  )}
                   <ul className="mt-3 flex flex-col gap-2">
                     {TEST_CASES.map((tc, i) => {
                       const isSelected = tc.id === selectedId;
@@ -220,13 +257,14 @@ function WelcomeGuideModal({ onDone }: { onDone: (sampleText: string | null) => 
                           <button
                             ref={i === 0 ? firstSampleRef : undefined}
                             type="button"
+                            disabled={sampleLoading}
                             onClick={() => setSelectedId(isSelected ? null : tc.id)}
                             aria-pressed={isSelected}
                             className={`${sampleItemClass} ${
                               isSelected
                                 ? "border-structure-on-canvas bg-structure text-token-white"
                                 : "border-structure-on-canvas bg-canvas hover:bg-structure hover:text-token-white"
-                            }`}
+                            } disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-canvas disabled:hover:text-foreground`}
                           >
                             <span
                               className={`font-mono text-[12px] uppercase tracking-eyebrow ${

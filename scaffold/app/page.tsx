@@ -52,7 +52,7 @@ function HomeShell({ sidebarOn }: { sidebarOn: boolean }) {
   // run() through this ref — run(), never setText() — so a sample NEVER
   // touches the user's own description (see IntakeForm.runSample()).
   const intakeRef = useRef<IntakeFormHandle>(null);
-  useWelcomeGuideSampleHandler((description) => intakeRef.current?.runSample(description));
+  useWelcomeGuideSampleHandler((description) => intakeRef.current?.runSample(description), loading);
 
   function handleLoadingChange(isLoading: boolean) {
     setLoading(isLoading);
