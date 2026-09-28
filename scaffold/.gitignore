@@ -5,3 +5,8 @@ node_modules
 data/raw
 data/local
 *.log
+
+# playwright e2e run output (e2e/ tests write here on a local `npx playwright test`)
+/test-results/
+/playwright-report/
+/blob-report/

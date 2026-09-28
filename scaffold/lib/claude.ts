@@ -235,6 +235,77 @@ export function coerceProfileStrings(profile: Record<string, unknown>): StartupP
 }
 
 /**
+ * Same drift as `coerceProfileStrings`, one level deeper: local models under
+ * JSON-object mode return a syntactically valid `criteria` array but
+ * individual entries can drift from `CriterionCheckSchema` (label: required
+ * string, met: required boolean, note: optional string) — most commonly
+ * `note: null` instead of omitting the key (observed live: "expected string,
+ * received null" at `matches[N].criteria[M].note`), same as the profile-field
+ * drift this file already coerces.
+ *
+ * `note` gets the identical treatment as the optional profile-string fields:
+ * `null` is dropped (the schema is `optional()`, not `nullable()`), and a
+ * non-string value is coerced to a readable string rather than dropped.
+ *
+ * `label`/`met` are NOT optional — there's no honest way to invent a
+ * criterion's label or a true/false determination the model never made, and
+ * this app's whole eligibility posture is "never turn a model guess into a
+ * fabricated verdict." So an entry missing either (null, wrong type, or
+ * absent) is dropped from the array entirely rather than coerced to a
+ * fabricated value — a shorter, fully-valid criteria list beats a
+ * boundary-invalid one or an invented "met: false".
+ */
+export function coerceCriteria(criteria: unknown, context?: string): CriterionCheck[] {
+  if (!Array.isArray(criteria)) return [];
+  const out: CriterionCheck[] = [];
+  let dropped = 0;
+  for (const raw of criteria) {
+    if (raw === null || typeof raw !== "object") {
+      dropped++;
+      continue;
+    }
+    const c = raw as Record<string, unknown>;
+    if (typeof c.label !== "string" || typeof c.met !== "boolean") {
+      dropped++;
+      continue;
+    }
+    const entry: CriterionCheck = { label: c.label, met: c.met };
+    const note = c.note;
+    if (note === undefined || note === null) {
+      // omit — optional() allows missing, not null.
+    } else if (typeof note === "string") {
+      entry.note = note;
+    } else if (Array.isArray(note)) {
+      entry.note = note.every((v) => v == null || ["string", "number", "boolean"].includes(typeof v))
+        ? note.filter((v) => v != null).join(", ")
+        : JSON.stringify(note);
+    } else if (typeof note === "object") {
+      entry.note = JSON.stringify(note);
+    } else {
+      entry.note = String(note);
+    }
+    out.push(entry);
+  }
+  // Same rationale as logSkippedBatches: a dropped entry (or a whole-array
+  // wipe, e.g. every entry returning `met` as a string "true"/"false" instead
+  // of a boolean) must leave a server-side trace, or this coercion silently
+  // masks the exact class of drift the boundary check exists to catch —
+  // worse, an emptied criteria array still passes CriterionCheckSchema, so
+  // `logMapDrift` never fires for it, and (once discernment_layer ships) an
+  // empty criteria list reads to recommend.ts as "0 of 0 criteria met",
+  // producing a confident do_not_recommend verdict that's really a parse
+  // failure wearing a judgment's clothes.
+  if (dropped > 0) {
+    console.warn(
+      `[criteria] dropped ${dropped}/${criteria.length} malformed entr${dropped === 1 ? "y" : "ies"}` +
+        (context ? ` for ${context}` : "") +
+        (out.length === 0 && criteria.length > 0 ? " -- criteria list is now EMPTY" : ""),
+    );
+  }
+  return out;
+}
+
+/**
  * R4b — normalize one Anthropic call's `usage` into `CostMeter.record()`'s
  * generic shape and record it. Called immediately once the API call resolves
  * (msg.usage), BEFORE parseJson() or any other step that could throw — an
@@ -413,7 +484,10 @@ export async function explainMatches(
     // non-JSON output must still have its already-spent cost captured.
     recordUsage(meter, "candidate_analysis", msg.usage, performance.now() - t0);
     const text = msg.content.filter((c) => c.type === "text").map((c: any) => c.text).join("");
-    return asArray(parseJson<Assessment[] | Assessment>(text)).map(({ final, unscored, ...a }) => a);
+    return asArray(parseJson<Assessment[] | Assessment>(text)).map(({ final, unscored, ...a }) => ({
+      ...a,
+      criteria: coerceCriteria(a.criteria, a.id),
+    }));
   };
 
   // Fault-tolerant: keep whatever batches succeed. One batch throwing or
@@ -766,7 +840,10 @@ async function narratePassB(
     );
     recordUsage(meter, "candidate_analysis", msg.usage, performance.now() - t0);
     const text = msg.content.filter((c) => c.type === "text").map((c: any) => c.text).join("");
-    return asArray(parseJson<TwoPassAssessment[] | TwoPassAssessment>(text)).map(({ final, unscored, ...a }) => a);
+    return asArray(parseJson<TwoPassAssessment[] | TwoPassAssessment>(text)).map(({ final, unscored, ...a }) => ({
+      ...a,
+      criteria: coerceCriteria(a.criteria, a.id),
+    }));
   };
 
   const fanOutStart = performance.now();

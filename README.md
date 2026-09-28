@@ -16,7 +16,7 @@ Every OS below ends up running the exact same `npm` commands — the setup scrip
 
 ## Install on macOS
 
-*The app's local-model flow is verified end to end on a 32GB Mac: auto-picked `qwen2.5:14b` and completed a full novel-company search (18 candidates, fully local, zero API calls) in **3 minutes 43 seconds**. `install-macos.sh` is separately verified on a 2015 MacBook Pro (Intel i7-4770HQ, 16GB, macOS 12.7.6) — the oldest realistic case, which forces the Ollama CLI-tarball path described below.*
+*The app's local-model flow is verified end to end on a 32GB Mac: auto-picked `qwen2.5:14b` and completed a full novel-company search (18 candidates, fully local, zero API calls) in **3 minutes 43 seconds**. `install-macos.sh` is separately verified on a 2015 MacBook Pro (Intel i7-4770HQ, 16GB, macOS 12.7.6) — the oldest realistic case, which forces the Ollama CLI-tarball path described below — and on a clean macOS 15 (Sequoia) VM with nothing pre-installed, both with Homebrew already present and with no Homebrew and no terminal to prompt through (the one-liner bootstraps Homebrew itself in that case): `llama3.2:3b` on 4 vCPU/8GB completed a full novel-company search in 13m36s, fully local, zero API calls.*
 
 **1. Install prerequisites + clone (one command)**
 ```bash
@@ -48,7 +48,7 @@ Or by hand: `cp .env.example .env.local`, then edit `scaffold/.env.local` and se
 
 **3, alternative — fully local (Ollama, no API keys)**
 ```bash
-brew install ollama                 # or https://ollama.com/download
+brew install ollama                 # already done if install-macos.sh found Homebrew; or https://ollama.com/download
 npm run setup:local -- --yes        # picks a model sized for your RAM, pulls it, re-embeds the corpus
 npm run dev
 ```
@@ -169,8 +169,8 @@ CI runs the suite on Node 22 and 24.
 
 | Thing | Required? | Where | Notes |
 |---|---|---|---|
-| **OpenAI API key** | For your own searches (the 5 samples work without any keys) | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) | Embeddings (`text-embedding-3-small`). Pennies per search. |
-| **Anthropic API key** | For your own searches (the 5 samples work without any keys) | [console.anthropic.com](https://console.anthropic.com/settings/keys) | Claude: scoring + explanations. A novel search runs ~$0.05–0.33. Or pick another provider in **Settings → Model → Cloud** (OpenAI, Gemini, OpenRouter, Groq, Mistral, or any OpenAI-compatible URL) and paste its key or point to an env var / secret file. No paid key? Run [Free Claude Code](https://github.com/KurtLehnardt/free-claude-code-secure) and pick **Anthropic-compatible proxy** (defaults to `http://127.0.0.1:8082` and `~/.fcc/proxy_auth_token`). Prompts are tuned on Claude. |
+| **OpenAI API key** | For your own searches (the 4 samples work without any keys) | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) | Embeddings (`text-embedding-3-small`). Pennies per search. |
+| **Anthropic API key** | For your own searches (the 4 samples work without any keys) | [console.anthropic.com](https://console.anthropic.com/settings/keys) | Claude: scoring + explanations. A novel search runs ~$0.05–0.33. Or pick another provider in **Settings → Model → Cloud** (OpenAI, Gemini, OpenRouter, Groq, Mistral, or any OpenAI-compatible URL) and paste its key or point to an env var / secret file. No paid key? Run [Free Claude Code](https://github.com/KurtLehnardt/free-claude-code-secure) and pick **Anthropic-compatible proxy** (defaults to `http://127.0.0.1:8082` and `~/.fcc/proxy_auth_token`). Prompts are tuned on Claude. |
 | **Exa API key** | Optional | [dashboard.exa.ai](https://dashboard.exa.ai) | Only for the deep competitor analysis' *live web* results. Without it, that feature degrades honestly to federal awardees only. |
 | **Supabase project** | Optional | [supabase.com](https://supabase.com) | Only for **real Google sign-in**. The core app runs fine without any auth. |
 | **Google OAuth credentials** | Optional | [Google Cloud Console](https://console.cloud.google.com) | Only if you enable real sign-in (see below). |
