@@ -85,6 +85,10 @@ export function releaseRefreshLock(baseDir: string = process.cwd()): void {
 export interface RefreshStatus {
   lastError?: string;
   lastCompletedAt?: string;
+  /** Set at the START of every refresh attempt (success or failure), not just
+   *  on failure, so a child that crashes before writing its own status still
+   *  triggers auto-update backoff (autoUpdate.ts). A successful completion
+   *  overwrites the whole status with only `lastCompletedAt`, clearing this. */
   lastAttemptAt?: string;
 }
 

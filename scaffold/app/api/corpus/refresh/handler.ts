@@ -48,14 +48,13 @@ export async function handleRefreshPost(
   if (!d.acquireRefreshLock()) {
     return NextResponse.json({ error: "Refresh already running" }, { status: 409 });
   }
-  // Recorded up front so a child that dies before writing its own status still triggers auto-update backoff.
-  d.writeRefreshStatus({ lastAttemptAt: new Date().toISOString() });
-
   const args = ["--import", "tsx", "scripts/refresh-corpus.mjs"];
   if (max != null) args.push("--max", String(max));
 
   let child: ChildProcess;
   try {
+    // Recorded up front so a child that dies before writing its own status still triggers auto-update backoff.
+    d.writeRefreshStatus({ lastAttemptAt: new Date().toISOString() });
     child = d.spawn(process.execPath, args, {
       cwd: process.cwd(),
       detached: true,
