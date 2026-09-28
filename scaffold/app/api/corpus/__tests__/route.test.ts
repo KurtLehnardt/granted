@@ -100,10 +100,7 @@ describe("GET /api/corpus", () => {
     rmSync(baseDir, { recursive: true, force: true });
   });
 
-  test("omits a stale stopRequested once nothing is running (BLOCKER regression guard)", () => {
-    // A leftover stop-request file — the child died before its finally block, or lost a race with
-    // the stop handler — must never read back as "stop pending" for a run that isn't happening,
-    // which would otherwise hide the Stop button on the NEXT refresh too (see SettingsForm.tsx).
+  test("omits a stale stopRequested once nothing is running", () => {
     const baseDir = makeBaseDir();
     requestStop(baseDir); // no acquireRefreshLock: nothing is actually running
     const body = buildCorpusStatus(depsFor(baseDir));

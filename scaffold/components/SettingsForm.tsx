@@ -113,8 +113,7 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
     };
   }, [corpusStatus?.refreshing]);
 
-  // stopRequested survives a modal close/reopen (it's read from the server); local pending state
-  // resets once the run actually finishes (refreshing goes false), whichever fetch notices first.
+  // Server-side stopRequested keeps "Stopping…" across a modal reopen.
   useEffect(() => {
     if (corpusStatus?.stopRequested) setStopPending(true);
     else if (!corpusStatus?.refreshing) setStopPending(false);
@@ -129,9 +128,6 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
       });
       if (res.status === 202) {
         setStopPending(false);
-        // Drop any stale stopRequested from before this run started — the effect below reacts to
-        // it on every refreshing/stopRequested change, and a leftover `true` here would flip
-        // stopPending back on right after the line above clears it.
         setCorpusStatus((s) => (s ? { ...s, refreshing: true, stopped: false, stopRequested: false } : s));
       }
       if (res.status === 202 || res.status === 409) await fetchCorpusStatus();

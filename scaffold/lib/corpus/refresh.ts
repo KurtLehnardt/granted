@@ -21,12 +21,7 @@ export interface EmbeddingPlan {
   fullReembed: boolean;
 }
 
-/**
- * Reuses a prior vector only when the model, the embedded text and (if given) the dimensionality
- * all match. `priorDims` (the corpus's recorded meta.dims) differing from `dims` (this run's
- * target) means EMBEDDINGS_DIMENSIONS changed under the same model — treated like a model change
- * (fullReembed) so a stop mid-run never mixes dimensionalities into the saved corpus.
- */
+/** Reuses a prior vector only when model, embedded text and (if given) dims all match; a model or dims change is a full re-embed. */
 export function planEmbedding(
   incoming: Opportunity[],
   priorById: Map<string, PriorEmbeddingEntry>,
@@ -95,14 +90,7 @@ export function dedupeById(records: Opportunity[]): Opportunity[] {
   return Array.from(byId.values());
 }
 
-/**
- * Merges reused + embedded-so-far + not-yet-embedded records' prior cached vectors. Partial
- * re-embed only; a full re-embed's priors are the old model (see computeStopOutcome). When `dims`
- * is given, both `reused` and a not-yet-embedded record's cached vector are only kept if their
- * length matches it — a defense against ever writing a mixed-dimension corpus even if the plan's
- * `fullReembed` flag was wrong (e.g. it trusted a configured dims value the embedder didn't
- * actually return).
- */
+/** Partial re-embed stop: reused + embedded-so-far + cached priors of the rest, dropping any vector whose length isn't `dims`. */
 export function mergePartialSave(
   reused: Opportunity[],
   embeddedSoFar: Opportunity[],
@@ -126,18 +114,12 @@ export function mergePartialSave(
 }
 
 export interface StopOutcome {
-  /** Whether the corpus file should be (re)written at all. */
   save: boolean;
-  /** Only meaningful when `save` is true. */
   corpus: Opportunity[];
   status: { lastStoppedAt: string; stopped: true; savedCount: number };
 }
 
-/**
- * Full re-embed (including a same-model dimensionality change): prior vectors are incompatible,
- * leave corpus untouched. Partial re-embed: merge and save. Never writes lastCompletedAt for a
- * stopped run — lastStoppedAt is a distinct field so a stop never reads back as a successful run.
- */
+/** Saves only a stop during a partial re-embed; a full re-embed's priors are incompatible, so the corpus is left untouched. */
 export function computeStopOutcome(params: {
   stoppedAt: string;
   duringEmbedding: boolean;

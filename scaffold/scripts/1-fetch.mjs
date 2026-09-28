@@ -13,8 +13,7 @@ const DETAIL_BATCH = 300; // stop is checked between batches, so a stop lands wi
 
 const RAW_DIR = process.env.RAW_DIR || "data/raw";
 const GRANTS_ONLY = process.env.GRANTS_ONLY === "1";
-// Only refresh-corpus.mjs sets this. A standalone `npm run data:fetch` / `data:all` must never
-// honor a leftover stop-request file or write live progress meant for that other run.
+// Set only by refresh-corpus.mjs, so a standalone data:fetch ignores stop requests and progress.
 const UNDER_REFRESH = process.env.GRANTED_REFRESH_RUN === "1";
 const rawPath = (name) => join(RAW_DIR, name);
 

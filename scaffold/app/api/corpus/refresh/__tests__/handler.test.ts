@@ -80,9 +80,6 @@ describe("POST /api/corpus/refresh (handler)", () => {
   });
 
   test("clears a stale stop-request right after acquiring the lock, before spawning", async () => {
-    // The Settings Stop button appears as soon as this POST returns 202, and tsx boot in the
-    // spawned script takes 1-3s on Windows — a Stop clicked in that window must not be erased
-    // by the script's own startup, so the request must be cleared here, before spawn.
     const order: string[] = [];
     await handleRefreshPost(fakeReq(), {
       isLoopbackRequest: () => true,

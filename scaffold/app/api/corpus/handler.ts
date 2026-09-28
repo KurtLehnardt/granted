@@ -30,12 +30,7 @@ export function buildCorpusStatus(deps: Partial<CorpusStatusDeps> = {}) {
     ...(status.lastError ? { lastError: status.lastError } : {}),
     ...(status.progress ? { progress: status.progress } : {}),
     ...(status.stopped ? { stopped: status.stopped, savedCount: status.savedCount ?? 0 } : {}),
-    // Survives a modal close/reopen: a stop was requested but the child hasn't finished handling it
-    // yet. Gated on isRefreshing() too — a stop-request file can outlive the run it was meant for
-    // (a hard kill / shutdown before the child's finally block, or the stop-handler's
-    // isRefreshing-check-then-write race with the child's own release-then-clear), and reporting a
-    // stale flag as if it applied to a brand-new run leaves that run's Stop button permanently
-    // replaced by "Stopping after the current step…".
+    // A stop-request file can outlive its run (hard kill); never let it hide the next run's Stop button.
     ...(d.isRefreshing() && d.isStopRequested() ? { stopRequested: true } : {}),
   };
 }

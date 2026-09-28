@@ -54,17 +54,7 @@ const maxFlag = process.argv.indexOf("--max");
 const requestedMax = Number(maxFlag !== -1 ? process.argv[maxFlag + 1] : process.env.CORPUS_MAX);
 const MAX_CORPUS_SIZE = Number.isFinite(requestedMax) ? clampCorpusSize(requestedMax) : DEFAULT_CORPUS_SIZE;
 
-/**
- * Embeds `toEmbedList` in batches, reporting progress and honoring a stop mid-run. When
- * `allowReembedEscalation` is set (the plan wasn't already a full re-embed), the very first
- * batch's actual vector length is checked against priorDims (meta.dims, or else a prior vector's actual length): EMBEDDINGS_DIMENSIONS is
- * unset for any non-OpenAI endpoint (lib/embed.ts), so a same-model switch to a differently-sized
- * local embedder wouldn't otherwise be caught until it's too late — either mixing dims into
- * reused priors, or, with nothing to reuse, letting a Stop mid-embedding save a dims-changed
- * corpus truncated to just what was embedded so far. On a mismatch this returns
- * `{ escalate: true }` without embedding anything, so the caller can replan as a full re-embed
- * and retry — this fixes a completed run, not just a stopped one.
- */
+/** `{ escalate: true }` when the first batch's real dims differ from priorDims (EMBEDDINGS_DIMENSIONS is unset off OpenAI). */
 async function embedAll(toEmbedList, { foundCount, keptCount, allowReembedEscalation, priorDims }) {
   const embedded = [];
   for (let i = 0; i < toEmbedList.length; i += EMBED_BATCH) {
@@ -114,8 +104,6 @@ function run(label, script, env, { tsx = false } = {}) {
   const res = spawnSync(process.execPath, args, {
     stdio: "inherit",
     windowsHide: true,
-    // Tells 1-fetch.mjs it's safe to honor a stop request / write progress — a leftover
-    // stop file must never affect a standalone `npm run data:fetch` / `data:all`.
     env: { ...process.env, GRANTED_REFRESH_RUN: "1", ...env },
   });
   if (res.status === STOP_EXIT_CODE) return { stopped: true };
@@ -140,10 +128,6 @@ async function main() {
   let existingById = new Map();
 
   async function applyStop(opts) {
-    // The run's REAL dims come from what the embedder actually returned this run, not the
-    // configured value — EMBEDDINGS_DIMENSIONS is unset for any non-OpenAI endpoint (lib/embed.ts),
-    // so a native dimension change there would otherwise slip past this check entirely and land a
-    // mixed-dimension corpus. Falls back to config/meta only when nothing was embedded this run.
     const realDims = opts.embeddedSoFar?.[0]?.embedding?.length;
     const outcome = computeStopOutcome({
       stoppedAt: new Date().toISOString(),
@@ -263,8 +247,7 @@ async function main() {
         priorById.set(o.id, { embedding: o.embedding, text: opportunityEmbedText(o) });
       }
     }
-    // Older corpora predate meta.dims; fall back to an actual prior vector's length so a
-    // same-model dims change is still caught instead of trusting a stale/missing meta value.
+    // Older corpora (incl. the committed snapshot) predate meta.dims.
     const priorDims = existingMeta.dims ?? priorById.values().next().value?.embedding?.length;
 
     let plan = planEmbedding(
