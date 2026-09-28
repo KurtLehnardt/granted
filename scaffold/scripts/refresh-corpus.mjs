@@ -54,6 +54,32 @@ const maxFlag = process.argv.indexOf("--max");
 const requestedMax = Number(maxFlag !== -1 ? process.argv[maxFlag + 1] : process.env.CORPUS_MAX);
 const MAX_CORPUS_SIZE = Number.isFinite(requestedMax) ? clampCorpusSize(requestedMax) : DEFAULT_CORPUS_SIZE;
 
+/**
+ * Embeds `toEmbedList` in batches, reporting progress and honoring a stop mid-run. When
+ * `allowReembedEscalation` is set (a partial re-embed that's reusing prior vectors), the very
+ * first batch's actual vector length is checked against existingMeta.dims: EMBEDDINGS_DIMENSIONS
+ * is unset for any non-OpenAI endpoint (lib/embed.ts), so a same-model switch to a differently-
+ * sized local embedder wouldn't otherwise be caught until it's too late to avoid mixing dims into
+ * the reused priors. On a mismatch this returns `{ escalate: true }` without embedding anything,
+ * so the caller can replan as a full re-embed and retry — this fixes a completed run, not just a
+ * stopped one.
+ */
+async function embedAll(toEmbedList, { foundCount, keptCount, allowReembedEscalation, priorDims }) {
+  const embedded = [];
+  for (let i = 0; i < toEmbedList.length; i += EMBED_BATCH) {
+    if (isStopRequested()) return { embedded, stopped: true };
+    const slice = toEmbedList.slice(i, i + EMBED_BATCH);
+    const vectors = await embedBatchWithRetry(slice.map((o) => opportunityEmbedText(o)));
+    if (allowReembedEscalation && i === 0 && priorDims != null && vectors[0] && vectors[0].length !== priorDims) {
+      return { escalate: true };
+    }
+    slice.forEach((o, k) => embedded.push({ ...o, embedding: vectors[k].map((v) => Math.round(v * 1e5) / 1e5) }));
+    process.stdout.write(`\rembedded ${Math.min(i + EMBED_BATCH, toEmbedList.length)}/${toEmbedList.length}`);
+    reportProgress("embedding", { done: embedded.length, total: toEmbedList.length, foundCount, keptCount });
+  }
+  return { embedded, stopped: false };
+}
+
 async function embedBatchWithRetry(texts, attempt = 0) {
   try {
     return await embedBatch(texts);
@@ -113,6 +139,11 @@ async function main() {
   let existingById = new Map();
 
   async function applyStop(opts) {
+    // The run's REAL dims come from what the embedder actually returned this run, not the
+    // configured value — EMBEDDINGS_DIMENSIONS is unset for any non-OpenAI endpoint (lib/embed.ts),
+    // so a native dimension change there would otherwise slip past this check entirely and land a
+    // mixed-dimension corpus. Falls back to config/meta only when nothing was embedded this run.
+    const realDims = opts.embeddedSoFar?.[0]?.embedding?.length;
     const outcome = computeStopOutcome({
       attemptAt,
       duringEmbedding: false,
@@ -121,7 +152,7 @@ async function main() {
       embeddedSoFar: [],
       notYetEmbedded: [],
       priorById: existingById,
-      dims: EMBEDDINGS_DIMENSIONS ?? existingMeta.dims,
+      dims: realDims ?? EMBEDDINGS_DIMENSIONS ?? existingMeta.dims,
       ...opts,
     });
     if (outcome.save) {
@@ -232,7 +263,7 @@ async function main() {
       }
     }
 
-    const plan = planEmbedding(
+    let plan = planEmbedding(
       fresh,
       priorById,
       existingMeta.embeddingModel,
@@ -246,20 +277,32 @@ async function main() {
     );
     reportProgress("embedding", { done: 0, total: plan.toEmbed.length, foundCount, keptCount });
 
-    const embedded = [];
-    let stoppedDuringEmbedding = false;
-    for (let i = 0; i < plan.toEmbed.length; i += EMBED_BATCH) {
-      if (isStopRequested()) {
-        stoppedDuringEmbedding = true;
-        break;
-      }
-      const slice = plan.toEmbed.slice(i, i + EMBED_BATCH);
-      const vectors = await embedBatchWithRetry(slice.map((o) => opportunityEmbedText(o)));
-      slice.forEach((o, k) => embedded.push({ ...o, embedding: vectors[k].map((v) => Math.round(v * 1e5) / 1e5) }));
-      process.stdout.write(`\rembedded ${Math.min(i + EMBED_BATCH, plan.toEmbed.length)}/${plan.toEmbed.length}`);
-      reportProgress("embedding", { done: embedded.length, total: plan.toEmbed.length, foundCount, keptCount });
+    let result = await embedAll(plan.toEmbed, {
+      foundCount,
+      keptCount,
+      allowReembedEscalation: plan.reused.length > 0 && !plan.fullReembed,
+      priorDims: existingMeta.dims,
+    });
+    if (result.escalate) {
+      console.warn(
+        "\n  embedder's actual output dims differ from the corpus's recorded dims — forcing a full " +
+          "re-embed so the corpus never mixes dimensions.",
+      );
+      plan = planEmbedding(
+        fresh,
+        priorById,
+        existingMeta.embeddingModel,
+        EMBEDDINGS_MODEL,
+        EMBEDDINGS_DIMENSIONS ?? existingMeta.dims,
+        existingMeta.dims,
+        true,
+      );
+      reportProgress("embedding", { done: 0, total: plan.toEmbed.length, foundCount, keptCount });
+      result = await embedAll(plan.toEmbed, { foundCount, keptCount, allowReembedEscalation: false });
     }
     if (plan.toEmbed.length) process.stdout.write("\n");
+    const embedded = result.embedded;
+    const stoppedDuringEmbedding = result.stopped;
 
     if (stoppedDuringEmbedding) {
       const notYetEmbedded = plan.toEmbed.slice(embedded.length);

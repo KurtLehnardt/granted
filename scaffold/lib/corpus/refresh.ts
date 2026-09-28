@@ -34,9 +34,10 @@ export function planEmbedding(
   currentModel: string,
   dims?: number,
   priorDims?: number,
+  forceFullReembed = false,
 ): EmbeddingPlan {
   const dimsChanged = dims != null && priorDims != null && priorDims !== dims;
-  const fullReembed = (priorModel || LEGACY_EMBEDDING_MODEL) !== currentModel || dimsChanged;
+  const fullReembed = (priorModel || LEGACY_EMBEDDING_MODEL) !== currentModel || dimsChanged || forceFullReembed;
   const reused: Opportunity[] = [];
   const toEmbed: Opportunity[] = [];
   let added = 0;
@@ -97,8 +98,10 @@ export function dedupeById(records: Opportunity[]): Opportunity[] {
 /**
  * Merges reused + embedded-so-far + not-yet-embedded records' prior cached vectors. Partial
  * re-embed only; a full re-embed's priors are the old model (see computeStopOutcome). When `dims`
- * is given, a not-yet-embedded record's cached vector is only kept if its length matches — a
- * defense against ever writing a mixed-dimension corpus even if the fullReembed flag is wrong.
+ * is given, both `reused` and a not-yet-embedded record's cached vector are only kept if their
+ * length matches it — a defense against ever writing a mixed-dimension corpus even if the plan's
+ * `fullReembed` flag was wrong (e.g. it trusted a configured dims value the embedder didn't
+ * actually return).
  */
 export function mergePartialSave(
   reused: Opportunity[],
@@ -107,7 +110,8 @@ export function mergePartialSave(
   priorById: Map<string, Opportunity>,
   dims?: number,
 ): Opportunity[] {
-  const out = [...reused, ...embeddedSoFar];
+  const reusedOk = dims == null ? reused : reused.filter((o) => Array.isArray(o.embedding) && o.embedding.length === dims);
+  const out = [...reusedOk, ...embeddedSoFar];
   const seen = new Set(out.map((o) => o.id));
   for (const o of notYetEmbedded) {
     if (seen.has(o.id)) continue;
