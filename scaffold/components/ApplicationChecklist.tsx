@@ -217,12 +217,12 @@ function sourceApplyStep(opportunity: Opportunity, now?: number): Step {
     }
     case "sbir":
     case "sbir.gov": {
-      // Past-award listing, not an open solicitation — background only, never labeled as this award's own page.
+      // Past-award SBIR/STTR records (source "sbir", id "sbir-award-*") are
+      // never matchable (lib/corpus/pastAwards.ts), so a "sbir" match reaching
+      // this checklist is always a genuine open solicitation — background on
+      // where to submit, not the application portal itself.
       const intro = `Search ${opportunity.agency}'s SBIR/STTR program site for the current solicitation and where to submit. This record is background, not an application portal.`;
       if (!opportunity.url) return [intro];
-      if (opportunity.url === "https://www.sbir.gov/awards") {
-        return [`${intro} See `, sourcePointer(opportunity, "SBIR.gov awards search"), "."];
-      }
       return isHttpUrl(opportunity.url)
         ? [`${intro} Awardee: `, sourcePointer(opportunity, "the awardee's website"), "."]
         : [`${intro} Awardee website: ${opportunity.url}.`];
@@ -241,14 +241,9 @@ function sourceApplyStep(opportunity: Opportunity, now?: number): Step {
       const pointer = sourcePointer(opportunity, "this opportunity's page");
       return [`Respond through SAM.gov Contract Opportunities, following ${opportunity.agency}'s solicitation instructions. Details: `, pointer, `.`];
     }
-    case "usaspending": {
-      const pointer = sourcePointer(opportunity, "this past award record");
-      return [
-        `This is a record of a past award from USAspending, not an open opportunity — check SAM.gov for any current solicitation from ${opportunity.agency}. Details: `,
-        pointer,
-        `.`,
-      ];
-    }
+    // "usaspending" has no case here: every USAspending record is a closed/past
+    // contract award (status "closed"), which is never matchable
+    // (lib/corpus/pastAwards.ts) — this source can never reach this checklist.
     case "agency-feed":
     default: {
       const pointer = sourcePointer(opportunity, "this opportunity's page");

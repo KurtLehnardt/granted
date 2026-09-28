@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { embedBatch, EMBEDDINGS_DIMENSIONS, EMBEDDINGS_MODEL } from "../lib/embed.ts";
 import { clampCorpusSize, DEFAULT_CORPUS_SIZE } from "../lib/searchSettings.ts";
 import { dropExpiredOpportunities } from "../lib/corpus/expiry.ts";
+import { dropPastAwards } from "../lib/corpus/pastAwards.ts";
 import { selectCorpusWithinCap } from "../lib/corpus/selection.ts";
 import {
   computeStopOutcome,
@@ -223,11 +224,18 @@ async function main() {
     ].filter((o) => o && o.description && o.description.length >= 60);
     fresh = dedupeById(fresh);
     fresh = dropExpiredOpportunities(fresh);
+    // Past awards (SBIR/STTR award records, closed USAspending contracts) are never
+    // matchable — owner decision, see lib/corpus/pastAwards.ts. Dropped here so a
+    // refresh also removes any of them already sitting in data/local.
+    fresh = dropPastAwards(fresh);
     const foundCount = fresh.length;
-    console.log(`\nAssembled ${foundCount} open records (expired deadlines dropped).`);
+    console.log(`\nAssembled ${foundCount} open records (expired deadlines and past awards dropped).`);
     reportProgress("selecting", { foundCount });
 
-    const unhealthy = findUnhealthySources(countBySource(existing), countBySource(fresh));
+    // `existing` predates the past-awards filter (it may still carry sbir-award-*/
+    // closed-usaspending rows), so drop them from BOTH sides before comparing —
+    // otherwise their now-intentional removal reads as a fetcher outage.
+    const unhealthy = findUnhealthySources(countBySource(dropPastAwards(existing)), countBySource(fresh));
     if (unhealthy.length) {
       throw new Error(`refresh aborted — source count dropped sharply: ${unhealthy.join("; ")}`);
     }

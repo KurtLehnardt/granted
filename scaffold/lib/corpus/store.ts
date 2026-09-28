@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { Opportunity } from "../types";
+import { dropPastAwards } from "./pastAwards";
 
 export interface CorpusMeta {
   builtAt?: string;
@@ -70,7 +71,7 @@ export class CorpusStore {
       source = "committed";
       opportunities = tryReadOpportunities(this.paths(source).oppsPath);
     }
-    opportunities ??= [];
+    opportunities = dropPastAwards(opportunities ?? []);
     const { metaPath } = this.paths(source);
     const meta: CorpusMeta = { ...readJson<CorpusMeta>(metaPath, {}), count: opportunities.length };
     this.cache = { key, keyMtimeMs, metaPath, metaMtimeMs: mtimeOf(metaPath), opportunities, meta, source };

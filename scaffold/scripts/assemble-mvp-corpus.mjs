@@ -28,6 +28,13 @@ import "./_loadEnvLocal.mjs"; // honor scaffold/.env.local when run as plain `no
 import { readFile, writeFile } from "node:fs/promises";
 import { normalizeSamRow, normalizeSbirAward, normalizeProcurementRecord } from "./lib/normalizeNewSources.mjs";
 
+// Mirrors lib/corpus/pastAwards.ts's isPastAward — duplicated (not imported)
+// because this script runs under plain `node`, not tsx. Past awards are never
+// matchable (owner decision); keep this in sync with that file.
+const isPastAward = (o) =>
+  (o.source === "sbir" && o.id.startsWith("sbir-award-")) ||
+  (o.source === "usaspending" && o.status === "closed");
+
 const KEY = process.env.OPENAI_API_KEY;
 if (!KEY) {
   console.error("OPENAI_API_KEY is not set. Add it to .env.local (or your environment).");
@@ -39,7 +46,10 @@ const read = async (p, fallback = []) => {
 };
 
 // ---- Load the existing (already-embedded) corpus and the new raw sources ----
-const existing = await read("data/opportunities.json");
+// Past awards are dropped here too (not just from `newRecords` below) so a
+// re-run of assembly also cleans any that reached data/opportunities.json
+// before this predicate existed.
+const existing = (await read("data/opportunities.json")).filter((o) => !isPastAward(o));
 const existingIds = new Set(existing.map((o) => o.id));
 const sam = await read("data/raw/sam-assistance.json");
 const sbir = await read("data/raw/sbir-corpus.json");
@@ -49,7 +59,7 @@ const newRecords = [
   ...sam.map(normalizeSamRow),
   ...sbir.map(normalizeSbirAward),
   ...procurement.map(normalizeProcurementRecord),
-].filter(Boolean);
+].filter(Boolean).filter((o) => !isPastAward(o));
 
 // ---- Dedup (never collide with an existing id; drop thin/dup new records) ----
 const seen = new Set(existingIds);

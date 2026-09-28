@@ -1,10 +1,15 @@
 import type { Opportunity } from "../types";
 import { dropExpiredOpportunities } from "./expiry";
+import { dropPastAwards } from "./pastAwards";
 
+// "sbir" and "usaspending" have no weight here: every "usaspending" record is
+// a closed/past contract award, and the only "sbir" records the pipeline
+// produces today are past awards too (see lib/corpus/pastAwards.ts) — both are
+// dropped as past awards before this ever runs, so a weight for them would be
+// dead. A future genuine open-solicitations source falls back to the default
+// weight of 1 (see `score()` below) same as any other unlisted source.
 export const DEFAULT_SOURCE_WEIGHTS: Record<string, number> = {
   "grants.gov": 2,
-  sbir: 2,
-  usaspending: 1,
   "assistance-listings": 1,
 };
 
@@ -107,7 +112,7 @@ export function selectCorpusWithinCap(
   weights: Record<string, number> = DEFAULT_SOURCE_WEIGHTS,
   now: number = Date.now(),
 ): Opportunity[] {
-  const open = dropExpiredOpportunities(records, now);
+  const open = dropPastAwards(dropExpiredOpportunities(records, now));
   if (cap <= 0 || open.length <= cap) return open;
 
   const bySource = new Map<string, Opportunity[]>();

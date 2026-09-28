@@ -18,6 +18,7 @@ describe("allocateCap", () => {
     const alloc = allocateCap(
       { "grants.gov": 1000, sbir: 1000, usaspending: 1000, "assistance-listings": 1000 },
       1000,
+      { "grants.gov": 2, sbir: 2, usaspending: 1, "assistance-listings": 1 },
     );
     assert.equal(alloc["grants.gov"] + alloc.sbir + alloc.usaspending + alloc["assistance-listings"], 1000);
     // 2:2:1:1 weights -> grants.gov and sbir get the larger shares.
@@ -40,7 +41,11 @@ describe("allocateCap", () => {
   test("splits by weight x availability, not weight alone", () => {
     // A low-availability, high-weight source shouldn't out-earn a
     // high-availability, low-weight one just because of its weight.
-    const alloc = allocateCap({ "grants.gov": 1521, sbir: 260, usaspending: 106, "assistance-listings": 2872 }, 1000);
+    const alloc = allocateCap(
+      { "grants.gov": 1521, sbir: 260, usaspending: 106, "assistance-listings": 2872 },
+      1000,
+      { "grants.gov": 2, sbir: 2, usaspending: 1, "assistance-listings": 1 },
+    );
     assert.ok(alloc["grants.gov"] > alloc["assistance-listings"]);
     assert.ok(alloc["assistance-listings"] > alloc.sbir);
     assert.ok(alloc.sbir > alloc.usaspending);

@@ -328,18 +328,6 @@ describe("buildNextSteps", () => {
     assert.equal(linkPart?.href, "https://www.some-awardee.example/");
   });
 
-  test("a SBIR/STTR step with the generic sbir.gov fallback URL labels it as the awards search, not the awardee", () => {
-    const step = buildNextSteps(
-      asMatch({ ...RD_OPPORTUNITY, url: "https://www.sbir.gov/awards" }),
-      true,
-    )[0];
-    const text = stepText(step);
-    assert.doesNotMatch(text, /Awardee: /i);
-    assert.match(text, /See /i);
-    const linkPart = step.find((p) => typeof p !== "string") as { text: string; href: string } | undefined;
-    assert.equal(linkPart?.text, "SBIR.gov awards search");
-  });
-
   test("a bare-domain SBIR website (no http/https scheme) is rendered as plain text, never a broken relative link or a mislabeled listing", () => {
     const step = buildNextSteps(
       asMatch({ ...RD_OPPORTUNITY, url: "www.aspectaerospace.com" }),
@@ -360,17 +348,17 @@ describe("buildNextSteps", () => {
     );
   });
 
-  test("a USAspending record is described as a past award pointing to SAM.gov, never as open for applications", () => {
+  // A USAspending record is always a closed/past contract award (status
+  // "closed" on every record `normalizeProcurementRecord` produces) and is
+  // never matchable (lib/corpus/pastAwards.ts) — so `sourceApplyStep` has no
+  // "usaspending" case, and one reaching it falls to the generic default.
+  test("a USAspending record (never matchable, but defensively) falls to the generic apply step, not a past-award label", () => {
     const url = "https://www.usaspending.gov/award/CONT_AWD_W911QX25C0002_9700_-NONE-_-NONE-";
     const step = buildNextSteps(
       asMatch({ ...BARE_OPPORTUNITY, source: "usaspending", kind: "procurement", status: "closed", url }),
       true,
     )[0];
-    assert.equal(
-      stepText(step),
-      `This is a record of a past award from USAspending, not an open opportunity — check SAM.gov for any current solicitation from ${BARE_OPPORTUNITY.agency}. Details: this past award record.`,
-    );
-    assert.deepEqual(step.find((p) => typeof p !== "string"), { text: "this past award record", href: url });
+    assert.match(stepText(step), /Read the full opportunity listing at/i);
   });
 
   test("a forecasted grants.gov opportunity is described as not yet open, using its own flag — not a fixed deadline claim", () => {
