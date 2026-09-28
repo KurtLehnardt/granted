@@ -198,6 +198,43 @@ test("intake: Find opportunities enables while still typing the last required fi
   await expect(page.getByText(FIXTURE_PROGRAM).first()).toBeVisible();
 });
 
+test("intake: the form collapses to a summary bar after a real search starts, and expands back with values intact on click", async ({ page }) => {
+  await stubBackend(page);
+  await skipWelcomeGuide(page);
+  await page.goto("/");
+
+  const description = "AI diagnostics for rural clinics, built for overworked front-desk staff.";
+  await page.getByLabel("Company description").fill(description);
+  await page.getByLabel("Industry / market").fill("Health IT");
+  await page.getByLabel("Core technology").fill("Diagnostic imaging software");
+  await page.getByLabel("Primary US location").fill("Boise, Idaho");
+  await page.getByLabel("Use of funds").fill("Hire two engineers");
+  await page.getByLabel("Use of funds").blur();
+  const toggle = page.locator('button[aria-controls="pq-form-fields"]');
+  await expect(toggle).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Find opportunities" }).click();
+
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(toggle).toContainText(description);
+  await expect(toggle).toBeFocused();
+  await expect(page.getByLabel("Company description")).toHaveCount(0);
+  await expect(page.getByText(FIXTURE_PROGRAM).first()).toBeVisible();
+
+  await toggle.click();
+  const descriptionField = page.getByLabel("Company description");
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await expect(descriptionField).toHaveValue(description);
+  await expect(descriptionField).toBeFocused();
+  await expect(page.getByLabel("Industry / market")).toHaveValue("Health IT");
+  await expect(page.getByText(FIXTURE_PROGRAM).first()).toBeVisible();
+
+  await descriptionField.fill(`${description} Now piloting in three states.`);
+  await page.getByRole("button", { name: "Find opportunities" }).click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(toggle).toContainText("Now piloting in three states.");
+});
+
 // Journey 3 — Interview (needs r1_interview on + a short description).
 test.fixme("interview: a short description shows the pre-search interview before results", async ({ page }) => {
   await page.route("**/api/interview", (route) =>

@@ -41,6 +41,7 @@ export default function IntakeForm({
 }) {
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(false);
+  const [formCollapsed, setFormCollapsed] = useState<boolean | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   // H1: the exact description the last search actually ran on, so the error
   // state can offer a real "Try again" that re-runs it (independent of later
@@ -59,6 +60,9 @@ export default function IntakeForm({
   // externalNonce below (B1b). No-op flag-off (nothing ever calls
   // requestSearchDraft then).
   const { pending } = useSearchDraft();
+  useEffect(() => {
+    if (pending) setFormCollapsed((c) => (c ? false : c));
+  }, [pending]);
 
   // R1 (FE-03): pre-search interview. Off (default) = today's behavior
   // EXACTLY — beginSearch() below short-circuits straight to run(), and
@@ -337,6 +341,7 @@ export default function IntakeForm({
   // beginSearch() exactly as free-text always has, so the flag-gated R1
   // interview can still ask about whatever's left.
   function handleQuestionnaireSubmit(description: string, meta: { complete: boolean }) {
+    setFormCollapsed(true);
     if (meta.complete) {
       run(description);
     } else {
@@ -378,6 +383,8 @@ export default function IntakeForm({
           externalNonce={pending?.nonce}
           onDescriptionChange={setText}
           onSubmit={handleQuestionnaireSubmit}
+          collapsed={formCollapsed}
+          onToggleCollapsed={() => setFormCollapsed((c) => !c)}
         />
       )}
 

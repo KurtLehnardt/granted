@@ -13,6 +13,7 @@ import {
 import type { Provenance, Provenanced } from "@/lib/contracts/primitives";
 import type { StartupProfile } from "@/lib/types";
 import { readJSON, writeJSON } from "@/lib/localStore";
+import { ChevronIcon } from "@/components/OpportunityCard";
 
 /**
  * B1b — ProfileQuestionnaire: the structured, gap-first intake form.
@@ -287,6 +288,9 @@ export interface ProfileQuestionnaireProps {
    *  material field (all 13) is provided — the parent uses this to skip the
    *  R1 AI interview entirely (a fully-filled form asks zero questions). */
   onSubmit: (description: string, meta: { complete: boolean }) => void;
+  /** Omitted until the first search: no summary bar, form always expanded. */
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
 }
 
 export default function ProfileQuestionnaire({
@@ -295,6 +299,8 @@ export default function ProfileQuestionnaire({
   externalNonce,
   onDescriptionChange,
   onSubmit,
+  collapsed,
+  onToggleCollapsed,
 }: ProfileQuestionnaireProps) {
   const [profile, setProfile] = useState<ProfileDraft>({});
   const [values, setValues] = useState<Record<string, string>>({});
@@ -311,6 +317,21 @@ export default function ProfileQuestionnaire({
   // only a real click sets `manualOpenRef`.
   const materialHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const manualOpenRef = useRef(false);
+
+  const toggleBarRef = useRef<HTMLButtonElement | null>(null);
+  const rawTextRef = useRef<HTMLTextAreaElement | null>(null);
+  const requiredHeadingRef = useRef<HTMLHeadingElement | null>(null);
+  const prevCollapsedRef = useRef(collapsed);
+  useEffect(() => {
+    const wasCollapsed = prevCollapsedRef.current;
+    prevCollapsedRef.current = collapsed;
+    if (collapsed && !wasCollapsed) {
+      toggleBarRef.current?.focus();
+    } else if (wasCollapsed && !collapsed) {
+      if (rawTextRef.current && !rawTextRef.current.disabled) rawTextRef.current.focus();
+      else requiredHeadingRef.current?.focus();
+    }
+  }, [collapsed]);
 
   // Hydrate the draft from localStorage once, client-only (readJSON no-ops
   // during SSR and returns the fallback).
@@ -586,6 +607,7 @@ export default function ProfileQuestionnaire({
         </label>
         <textarea
           id={`pq-${meta.field}`}
+          ref={meta.field === "raw_text" ? rawTextRef : undefined}
           rows={isBig ? 5 : 2}
           value={value}
           disabled={disabled}
@@ -610,92 +632,127 @@ export default function ProfileQuestionnaire({
   }
 
   const requiredFields = PROFILE_FIELD_META.filter((m) => m.requirement === "required");
+  const expanded = collapsed !== true;
 
   return (
     <div>
-      {/* Required fields — the search needs these to route at all. Grid:
-          single column on mobile (each field always full-width), two
-          columns from `sm:` up, with the description box and any other
-          "wide" field spanning both. */}
-      <div className="mt-5">
-        <h2 className={sectionHeadingClass}>Tell us about your company</h2>
-        {requiredProgressText(requiredFields.length, requiredGaps.length) && (
-          <p aria-live="polite" className={introClass}>
-            {requiredProgressText(requiredFields.length, requiredGaps.length)}
-          </p>
-        )}
-        <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {requiredFields.map((m) => renderField(m, isWideField(m.field) ? "sm:col-span-2" : ""))}
-        </div>
-      </div>
+      {collapsed !== undefined && (
+        <button
+          ref={toggleBarRef}
+          type="button"
+          onClick={onToggleCollapsed}
+          aria-expanded={expanded}
+          aria-controls="pq-form-fields"
+          className="flex w-full items-center justify-between gap-4 rounded-sm border border-structure-on-canvas bg-canvas-alt px-4 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2"
+        >
+          <span className="min-w-0">
+            <span className={sectionHeadingClass}>Your company</span>
+            {collapsed && (
+              <span className="mt-0.5 block truncate font-body text-[14px] text-foreground">
+                {draftValue(profile, values, "raw_text") || "No description yet"}
+              </span>
+            )}
+          </span>
+          <span className={`${hintTextClass} flex shrink-0 items-center gap-1.5`}>
+            <span className="hidden sm:inline">{expanded ? "Hide details" : "Show details"}</span>
+            <ChevronIcon className={`h-5 w-5 shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`} />
+          </span>
+        </button>
+      )}
 
-      {/* Optional-but-material fields — progressive disclosure: revealed on
-          demand via the toggle. Grouped under two user-facing headings
-          (Company & product / Financials) so the list reads as organized
-          sections, not one long form. */}
-      <div className="mt-5 border-t border-structure-on-canvas pt-4">
-        {!showOptional ? (
-          <button
-            type="button"
-            onClick={() => {
-              manualOpenRef.current = true;
-              setShowOptional(true);
-            }}
-            disabled={disabled}
-            aria-expanded={false}
-            aria-controls="pq-material-fields"
-            className={secondaryButtonClass}
-          >
-            + Add optional details (improves matches)
-          </button>
-        ) : (
-          <div id="pq-material-fields">
+      {expanded && (
+        <div id="pq-form-fields" className="reveal mt-5">
+          {/* Required fields — the search needs these to route at all. Grid:
+              single column on mobile (each field always full-width), two
+              columns from `sm:` up, with the description box and any other
+              "wide" field spanning both. */}
+          <div>
             <h2
-              ref={materialHeadingRef}
+              ref={requiredHeadingRef}
               tabIndex={-1}
               className={`${sectionHeadingClass} rounded-sm focus:outline-none focus:ring-2 focus:ring-structure-on-canvas`}
             >
-              A few more details (optional)
+              Tell us about your company
             </h2>
-            <p className={introClass}>
-              None of these are required — but each one changes which programs match.
-            </p>
-            <div className="mt-4 flex flex-col gap-5">
-              {MATERIAL_FIELD_GROUPS.map((group) => {
-                const fields = group.fields
-                  .map((f) => PROFILE_FIELD_META_BY_KEY[f])
-                  .filter((m): m is ProfileFieldMeta => Boolean(m));
-                if (fields.length === 0) return null;
-                return (
-                  <div key={group.heading}>
-                    <h3 className={groupHeadingClass}>{group.heading}</h3>
-                    <div className="mt-2 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                      {fields.map((m) => renderField(m, isWideField(m.field) ? "sm:col-span-2" : ""))}
-                    </div>
-                  </div>
-                );
-              })}
+            {requiredProgressText(requiredFields.length, requiredGaps.length) && (
+              <p aria-live="polite" className={introClass}>
+                {requiredProgressText(requiredFields.length, requiredGaps.length)}
+              </p>
+            )}
+            <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {requiredFields.map((m) => renderField(m, isWideField(m.field) ? "sm:col-span-2" : ""))}
             </div>
           </div>
-        )}
-      </div>
 
-      <div className="mt-5 flex flex-wrap items-center gap-3">
-        <button type="button" onClick={handleSubmit} disabled={disabled || !canSubmit} className={primaryButtonClass}>
-          Find opportunities
-        </button>
-        {requiredGaps.length > 0 && (
-          <span className={hintTextClass}>
-            {requiredGaps.length} required field{requiredGaps.length === 1 ? "" : "s"} left
-          </span>
-        )}
-        <button type="button" onClick={clearSaved} disabled={disabled} className={clearLinkClass}>
-          Clear saved answers
-        </button>
-        <span className={hintTextClass} role="status" aria-live="polite">
-          {clearedVisible ? "Cleared" : ""}
-        </span>
-      </div>
+          {/* Optional-but-material fields — progressive disclosure: revealed on
+              demand via the toggle. Grouped under two user-facing headings
+              (Company & product / Financials) so the list reads as organized
+              sections, not one long form. */}
+          <div className="mt-5 border-t border-structure-on-canvas pt-4">
+            {!showOptional ? (
+              <button
+                type="button"
+                onClick={() => {
+                  manualOpenRef.current = true;
+                  setShowOptional(true);
+                }}
+                disabled={disabled}
+                aria-expanded={false}
+                aria-controls="pq-material-fields"
+                className={secondaryButtonClass}
+              >
+                + Add optional details (improves matches)
+              </button>
+            ) : (
+              <div id="pq-material-fields">
+                <h2
+                  ref={materialHeadingRef}
+                  tabIndex={-1}
+                  className={`${sectionHeadingClass} rounded-sm focus:outline-none focus:ring-2 focus:ring-structure-on-canvas`}
+                >
+                  A few more details (optional)
+                </h2>
+                <p className={introClass}>
+                  None of these are required — but each one changes which programs match.
+                </p>
+                <div className="mt-4 flex flex-col gap-5">
+                  {MATERIAL_FIELD_GROUPS.map((group) => {
+                    const fields = group.fields
+                      .map((f) => PROFILE_FIELD_META_BY_KEY[f])
+                      .filter((m): m is ProfileFieldMeta => Boolean(m));
+                    if (fields.length === 0) return null;
+                    return (
+                      <div key={group.heading}>
+                        <h3 className={groupHeadingClass}>{group.heading}</h3>
+                        <div className="mt-2 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                          {fields.map((m) => renderField(m, isWideField(m.field) ? "sm:col-span-2" : ""))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="mt-5 flex flex-wrap items-center gap-3">
+            <button type="button" onClick={handleSubmit} disabled={disabled || !canSubmit} className={primaryButtonClass}>
+              Find opportunities
+            </button>
+            {requiredGaps.length > 0 && (
+              <span className={hintTextClass}>
+                {requiredGaps.length} required field{requiredGaps.length === 1 ? "" : "s"} left
+              </span>
+            )}
+            <button type="button" onClick={clearSaved} disabled={disabled} className={clearLinkClass}>
+              Clear saved answers
+            </button>
+            <span className={hintTextClass} role="status" aria-live="polite">
+              {clearedVisible ? "Cleared" : ""}
+            </span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
