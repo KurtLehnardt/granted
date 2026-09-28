@@ -1,9 +1,8 @@
 /**
  * MVP data-breadth — the single ATOMIC assembly step.
  *
- * The three new fetchers (1-fetch-sam-assistance / 1-fetch-sbir-corpus /
- * 1-fetch-procurement) each write ONLY their own raw file. THIS is the one place
- * that combines every source into data/opportunities.json — so parallel fetchers
+ * 1-fetch-sam-assistance writes ONLY its own raw file. THIS is the one place
+ * that combines it into data/opportunities.json — so parallel fetchers
  * never collide on the corpus (plan: "fetchers write their own raw files; one
  * assembly step regenerates opportunities.json").
  *
@@ -15,25 +14,23 @@
  *
  * New records normalize into the A0 taxonomy:
  *   SAM assistance   → source:"assistance-listings", kind: assistance|loan|scholarship (evergreen: no deadline, no funding)
- *   SBIR             → source:"sbir",               kind:"rd"          (ongoing SBIR/STTR; honest "recent award" framing)
- *   USAspending      → source:"usaspending",        kind:"procurement" (gov-as-customer; a past contract, no deadline)
+ *
+ * SBIR/STTR award and USAspending records are NOT assembled here — every
+ * record either source produces is a past award/closed contract, never
+ * matchable (lib/corpus/pastAwards.ts). 1-fetch-sbir-corpus.mjs and
+ * 1-fetch-procurement.mjs are no longer part of `npm run data:mvp`.
  *
  * Embedding matches 3-embed.mjs exactly (text-embedding-3-small, dimensions:512,
  * rounded to 5 decimals) so new vectors are comparable to the user query
  * embedded at request time by lib/embed.ts.
  *
- * Run AFTER the three fetchers: `node scripts/assemble-mvp-corpus.mjs`
+ * Run AFTER the fetcher: `node --import tsx scripts/assemble-mvp-corpus.mjs`
+ * (tsx, not plain node — it imports the shared TypeScript `isPastAward`.)
  */
 import "./_loadEnvLocal.mjs"; // honor scaffold/.env.local when run as plain `node`
 import { readFile, writeFile } from "node:fs/promises";
-import { normalizeSamRow, normalizeSbirAward, normalizeProcurementRecord } from "./lib/normalizeNewSources.mjs";
-
-// Mirrors lib/corpus/pastAwards.ts's isPastAward — duplicated (not imported)
-// because this script runs under plain `node`, not tsx. Past awards are never
-// matchable (owner decision); keep this in sync with that file.
-const isPastAward = (o) =>
-  (o.source === "sbir" && o.id.startsWith("sbir-award-")) ||
-  (o.source === "usaspending" && o.status === "closed");
+import { normalizeSamRow } from "./lib/normalizeNewSources.mjs";
+import { isPastAward } from "../lib/corpus/pastAwards.ts";
 
 const KEY = process.env.OPENAI_API_KEY;
 if (!KEY) {
@@ -46,20 +43,17 @@ const read = async (p, fallback = []) => {
 };
 
 // ---- Load the existing (already-embedded) corpus and the new raw sources ----
-// Past awards are dropped here too (not just from `newRecords` below) so a
-// re-run of assembly also cleans any that reached data/opportunities.json
-// before this predicate existed.
+// Past awards are filtered from `existing` too, but this only takes effect
+// when there's something new to write: if `cleanNew` below ends up empty (every
+// SAM id already present), the script exits before ever calling writeFile, so
+// a past award already sitting in data/opportunities.json is NOT cleaned by a
+// re-run with nothing new to add — run `npm run data:refresh` (or edit the
+// committed file directly) to clean an already-shipped one.
 const existing = (await read("data/opportunities.json")).filter((o) => !isPastAward(o));
 const existingIds = new Set(existing.map((o) => o.id));
 const sam = await read("data/raw/sam-assistance.json");
-const sbir = await read("data/raw/sbir-corpus.json");
-const procurement = await read("data/raw/usaspending-contracts.json");
 
-const newRecords = [
-  ...sam.map(normalizeSamRow),
-  ...sbir.map(normalizeSbirAward),
-  ...procurement.map(normalizeProcurementRecord),
-].filter(Boolean).filter((o) => !isPastAward(o));
+const newRecords = sam.map(normalizeSamRow).filter(Boolean).filter((o) => !isPastAward(o));
 
 // ---- Dedup (never collide with an existing id; drop thin/dup new records) ----
 const seen = new Set(existingIds);

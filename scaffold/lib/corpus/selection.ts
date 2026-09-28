@@ -2,14 +2,15 @@ import type { Opportunity } from "../types";
 import { dropExpiredOpportunities } from "./expiry";
 import { dropPastAwards } from "./pastAwards";
 
-// "sbir" and "usaspending" have no weight here: every "usaspending" record is
-// a closed/past contract award, and the only "sbir" records the pipeline
-// produces today are past awards too (see lib/corpus/pastAwards.ts) — both are
-// dropped as past awards before this ever runs, so a weight for them would be
-// dead. A future genuine open-solicitations source falls back to the default
-// weight of 1 (see `score()` below) same as any other unlisted source.
+// "usaspending" has no weight here: every "usaspending" record is a
+// closed/past contract award (see lib/corpus/pastAwards.ts) and is dropped as
+// a past award before this ever runs, so a weight for it would be dead.
+// "sbir" DOES keep a weight: it's shared by genuine open SBIR/STTR
+// solicitations (normalizeSbirSolicitation, id "sbir-<id>") — only the
+// "sbir-award-*" ids are past awards, and those are filtered the same way.
 export const DEFAULT_SOURCE_WEIGHTS: Record<string, number> = {
   "grants.gov": 2,
+  sbir: 2,
   "assistance-listings": 1,
 };
 
@@ -65,21 +66,21 @@ export function allocateCap(
   return alloc;
 }
 
-const FY_RE = /FY\s?(\d{4})/i;
 const BUSINESS_KEYWORDS = [
   "business", "research", "technology", "technological", "innovation", "innovative",
   "startup", "entrepreneur", "science", "scientific", "engineering", "r&d",
   "commercialization", "manufacturing",
 ];
 
-/** Solicitation deadline, else the award's FY from its description. */
+/** Open solicitation's deadline; a record with none (or an unparseable one)
+ *  sorts last. Every "sbir" record reaching this is a genuine open
+ *  solicitation (past-award "sbir-award-*" ids are dropped before this ever
+ *  runs), so there's no award-FY text to fall back to here. */
 function recencyKey(o: Opportunity): number {
   if (typeof o.deadline === "string") {
     const t = Date.parse(o.deadline);
     if (!Number.isNaN(t)) return t;
   }
-  const m = FY_RE.exec(o.description ?? "");
-  if (m) return Date.UTC(Number(m[1]), 0, 1);
   return 0;
 }
 

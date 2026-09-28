@@ -55,10 +55,13 @@ const MATCH_RATE_WINDOW_MS = Number(process.env.MATCH_RATE_WINDOW_MS) || 60_000;
  * mocked { buildOpportunityMap, cached } — no network, no model spend.
  */
 
-/** Demo-day insurance: pre-baked results for the four judged test cases. */
-export function cached(description: string) {
+/** Demo-day insurance: pre-baked results for the four judged test cases.
+ *  `source` defaults to the real committed precomputed.json and is overridable
+ *  only so a test can exercise the past-award strip against a fixture map
+ *  without touching the shipped data. */
+export function cached(description: string, source: any[] = precomputed as any[]) {
   const key = description.trim().slice(0, 120);
-  const hit = (precomputed as any[]).find((p) => p.key === key);
+  const hit = source.find((p) => p.key === key);
   return hit ? dropExpiredMatches(dropPastAwardMatches(hit.map)) : undefined;
 }
 

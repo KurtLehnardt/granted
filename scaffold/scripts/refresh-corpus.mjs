@@ -30,7 +30,7 @@ import {
 } from "../lib/corpus/refreshStatus.ts";
 import { overallPct } from "../lib/corpus/refreshProgress.ts";
 import { normalizeGrantsRecord, normalizeSbirSolicitation } from "./lib/normalizeGrants.mjs";
-import { normalizeSamRow, normalizeSbirAward, normalizeProcurementRecord } from "./lib/normalizeNewSources.mjs";
+import { normalizeSamRow } from "./lib/normalizeNewSources.mjs";
 
 const LOCAL_DIR = "data/local";
 const RAW_DIR = join(LOCAL_DIR, "raw");
@@ -184,24 +184,19 @@ async function main() {
     run("SAM.gov assistance (everything open)", "scripts/1-fetch-sam-assistance.mjs", { ...rawEnv, SAM_FETCH_MODE: "all" });
     runningFound += (await readJson(join(RAW_DIR, "sam-assistance.json"), [])).length;
 
-    reportProgress("sbir", { foundCount: runningFound });
-    if (isStopRequested()) return await applyStop({});
-    run("SBIR/STTR", "scripts/1-fetch-sbir-corpus.mjs", { ...rawEnv, SBIR_CAP_TOTAL: "260", SBIR_CAP_PER_AGENCY: "60" });
-    runningFound += (await readJson(join(RAW_DIR, "sbir-corpus.json"), [])).length;
-
-    reportProgress("procurement", { foundCount: runningFound });
-    if (isStopRequested()) return await applyStop({});
-    run("Procurement", "scripts/1-fetch-procurement.mjs", { ...rawEnv, PROCUREMENT_PER_QUERY: "24", PROCUREMENT_UTAH_LIMIT: "40" });
-    runningFound += (await readJson(join(RAW_DIR, "usaspending-contracts.json"), [])).length;
-
+    // No "sbir"/"procurement" fetch stage: 1-fetch-sbir-corpus.mjs and
+    // 1-fetch-procurement.mjs only ever produced past-award records (SBIR/STTR
+    // awards, closed USAspending contracts) — never matchable, see
+    // lib/corpus/pastAwards.ts — so those network calls were removed rather than
+    // kept to feed a "found" count nobody can act on. Genuine open SBIR/STTR
+    // solicitations still arrive via sbir-solicitations.json, fetched above as
+    // part of the grants.gov search stage (scripts/1-fetch.mjs).
     if (isStopRequested()) return await applyStop({});
 
-    const [grants, sbirSolicitations, samAssistance, sbirAwards, procurement] = await Promise.all([
+    const [grants, sbirSolicitations, samAssistance] = await Promise.all([
       readJson(join(RAW_DIR, "grants.json"), []),
       readJson(join(RAW_DIR, "sbir-solicitations.json"), []),
       readJson(join(RAW_DIR, "sam-assistance.json"), []),
-      readJson(join(RAW_DIR, "sbir-corpus.json"), []),
-      readJson(join(RAW_DIR, "usaspending-contracts.json"), []),
     ]);
 
     const existing = await readJson(LOCAL_OPPS, await readJson("data/opportunities.json", []));
@@ -219,14 +214,13 @@ async function main() {
       ...normalizedGrants,
       ...sbirSolicitations.map(normalizeSbirSolicitation),
       ...samAssistance.map(normalizeSamRow),
-      ...sbirAwards.map(normalizeSbirAward),
-      ...procurement.map(normalizeProcurementRecord),
     ].filter((o) => o && o.description && o.description.length >= 60);
     fresh = dedupeById(fresh);
     fresh = dropExpiredOpportunities(fresh);
-    // Past awards (SBIR/STTR award records, closed USAspending contracts) are never
-    // matchable — owner decision, see lib/corpus/pastAwards.ts. Dropped here so a
-    // refresh also removes any of them already sitting in data/local.
+    // No fetch stage feeds a past-award record any more, but `existing`/data/local
+    // can still carry one left over from before this filter shipped — drop it here
+    // so a refresh also removes any already sitting in data/local (see
+    // lib/corpus/pastAwards.ts).
     fresh = dropPastAwards(fresh);
     const foundCount = fresh.length;
     console.log(`\nAssembled ${foundCount} open records (expired deadlines and past awards dropped).`);

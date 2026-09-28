@@ -186,7 +186,7 @@ ollama pull nomic-embed-text
 EMBEDDINGS_BASE_URL=http://localhost:11434/v1
 EMBEDDINGS_MODEL=nomic-embed-text
 # then just run (data:embed reads scaffold/.env.local — no inline env needed):
-npm run data:embed        # re-embeds the 968-opportunity corpus locally
+npm run data:embed        # re-embeds the 791-opportunity corpus locally
 ```
 Now nothing leaves your machine.
 
@@ -252,11 +252,11 @@ Portal field selectors (grants.gov, NIH ASSIST, Research.gov, SBIR.gov) are stil
 
 ## Refreshing the data (optional)
 
-The corpus (`scaffold/data/opportunities.json`, 968 opportunities across grants.gov, SAM.gov, SBIR, USAspending) is committed, so you don't need this to run. To rebuild it from the live public sources:
+The corpus (`scaffold/data/opportunities.json`, 791 opportunities across grants.gov and SAM.gov assistance listings) is committed, so you don't need this to run. To rebuild it from the live public sources:
 
 ```bash
 cd scaffold
-npm run data:mvp        # fetch SAM assistance + SBIR + procurement, assemble
+npm run data:mvp        # fetch SAM assistance, assemble
 npm run data:embed      # embed everything (~1 min, <$1 of OpenAI)
 npm run data:precompute # (optional) freeze the demo test cases for instant renders
 ```
@@ -268,7 +268,7 @@ To stay current, `npm run data:refresh` (or Settings → "Refresh cached grants"
 ## How it works
 
 1. **Intake.** Describe your company in natural language; Claude extracts a structured profile + expands it into government vocabulary.
-2. **Retrieval.** OpenAI embeddings + in-memory cosine similarity over the 968-opportunity corpus (no vector DB); per-type quotas keep every instrument reachable.
+2. **Retrieval.** OpenAI embeddings + in-memory cosine similarity over the 791-opportunity corpus (no vector DB); per-type quotas keep every instrument reachable.
 3. **Scoring.** Claude scores each candidate 0–100 on the criteria a program officer would apply, with a met/unmet checklist and plain-language explanations.
 4. **Eligibility screen.** A rules layer buckets eligibility from *stated* facts; it never turns a model guess into an exclusion.
 5. **Discernment** *(flag)*. Recommend / verify / **don't-recommend** per match, plus a whole-map verdict, so a weak idea gets an honest "don't apply" instead of a wall of maybes.
@@ -292,7 +292,7 @@ Results **stream**. Progress and grounded evidence appear in seconds rather than
     │   ├── recommend.ts          (the discernment verdict logic)
     │   ├── flags/registry.ts     (every feature flag)
     │   └── prompts/registry.ts   (all LLM prompts, hash-locked)
-    ├── data/opportunities.json   (the committed 968-opportunity corpus)
+    ├── data/opportunities.json   (the committed 791-opportunity corpus)
     ├── app/api/match/route.ts    (the streaming matching endpoint)
     └── app/{welcome,readiness}/  (marketing landing + free readiness tool)
 ```

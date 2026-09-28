@@ -43,9 +43,9 @@
       },
       "followUps": [],
       "summary": {
-        "highPotential": 4,
+        "highPotential": 3,
         "fundingIdentified": 1400000,
-        "agencies": 4,
+        "agencies": 3,
         "closingIn90Days": 4
       },
       "matches": [
@@ -12717,11 +12717,6 @@
           "agency": "Office of the National Coordinator",
           "why": "LEAP seeks technology that overcomes documented barriers in health IT adoption and interoperability; your EHR-integrated, AI-powered automation for nurses is a credible fit for tha",
           "opportunityCount": 1
-        },
-        {
-          "agency": "Department of the Interior",
-          "why": "ONC is the federal office most directly focused on health information technology modernization and interoperability, which is the same ecosystem your product operates in — this app",
-          "opportunityCount": 1
         }
       ]
     }
@@ -12777,9 +12772,9 @@
         "What specific lightweight materials or manufacturing processes differentiate your components?"
       ],
       "summary": {
-        "highPotential": 11,
+        "highPotential": 4,
         "fundingIdentified": 0,
-        "agencies": 5,
+        "agencies": 3,
         "closingIn90Days": 0
       },
       "matches": [
@@ -21939,19 +21934,9 @@
           "opportunityCount": 1
         },
         {
-          "agency": "Department of Defense",
-          "why": "The contract was awarded for R&D services addressing advanced manufacturing challenges — the same technical domain this company operates in — suggesting the Army actively buys in t",
-          "opportunityCount": 5
-        },
-        {
           "agency": "Air Force -- Research Lab",
           "why": "The program's name and focus on aerospace materials and capabilities appears to align with this company's work in lightweight composites for aerospace — but the sparse description ",
           "opportunityCount": 1
-        },
-        {
-          "agency": "General Services Administration",
-          "why": "Your advanced manufacturing capabilities appear to align with the GSA Federal Acquisition Service's procurement of engineering and manufacturing services, particularly in the advan",
-          "opportunityCount": 2
         },
         {
           "agency": "NATIONAL AERONAUTICS AND SPACE ADMINISTRATION, NATIONAL AERONAUTICS AND SPACE ADMINISTRATION",
@@ -32173,9 +32158,9 @@
         "Which federal agencies or programs have you already engaged with, if any?"
       ],
       "summary": {
-        "highPotential": 10,
+        "highPotential": 1,
         "fundingIdentified": 0,
-        "agencies": 5,
+        "agencies": 1,
         "closingIn90Days": 0
       },
       "matches": [
@@ -41180,28 +41165,8 @@
       ],
       "agencyIntelligence": [
         {
-          "agency": "Department of Transportation",
-          "why": "Your ML-based threat detection platform appears to align with DOT's documented concern about ML solutions that fail on limited, disparate data from cyber-physical systems — a probl",
-          "opportunityCount": 1
-        },
-        {
-          "agency": "Department of Defense",
-          "why": "Your AI-powered threat detection platform appears to align directly with the Army's stated need for AI/ML-integrated cyber analytics and detection capabilities.",
-          "opportunityCount": 6
-        },
-        {
-          "agency": "Department of Commerce",
-          "why": "The funded project (AI + NIST compliance + OT cybersecurity) shares three core technology pillars with your platform — AI/ML, network security, and compliance tooling — making this",
-          "opportunityCount": 1
-        },
-        {
           "agency": "Army Contracting Command Rock Island",
           "why": "The BAA is broad enough that AI-driven threat detection, anomaly detection, or adversarial ML robustness could plausibly fit under applied or advanced research topics relevant to A",
-          "opportunityCount": 1
-        },
-        {
-          "agency": "Department of the Interior",
-          "why": "The contract scope — AI and ML programmatic support for a federal agency — appears to overlap with your platform's capabilities, and the Interior Department is an active buyer in t",
           "opportunityCount": 1
         }
       ]

@@ -16,6 +16,7 @@
 import { STORAGE_KEYS } from "@/lib/mockAuth";
 import { readJSON, writeJSON } from "@/lib/localStore";
 import type { OpportunityMap } from "@/lib/types";
+import { dropPastAwardMatches } from "@/lib/corpus/pastAwards";
 
 /** How many recent runs to keep. Small — this is "don't lose the last result",
  *  not a full history feature. */
@@ -38,11 +39,18 @@ function isSavedRun(v: unknown): v is SavedRun {
   );
 }
 
-/** All saved runs, most-recent first. Tolerant of malformed stored data. */
+/** All saved runs, most-recent first. Tolerant of malformed stored data.
+ *  A run saved before the past-award filter shipped (or a corpus regeneration
+ *  that reintroduces one) can have past-award matches baked into its map — strip
+ *  those on every read so a restored run never resurfaces one. */
 export function loadRuns(): SavedRun[] {
   const raw = readJSON<unknown>(STORAGE_KEYS.runs, []);
   if (!Array.isArray(raw)) return [];
-  return raw.filter(isSavedRun);
+  // Never throw (module contract, see header) — a malformed/legacy stored map
+  // without a real `matches` array is left as-is rather than crashing the read.
+  return raw.filter(isSavedRun).map((run) =>
+    Array.isArray(run.map?.matches) ? { ...run, map: dropPastAwardMatches(run.map) } : run,
+  );
 }
 
 /** The most recent saved run, or null. */

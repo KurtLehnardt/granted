@@ -83,6 +83,17 @@ describe("selectCorpusWithinCap", () => {
     assert.equal(out.length, 2);
   });
 
+  test("never includes a past-award record (sbir-award-* or a closed usaspending contract)", () => {
+    const records = [
+      opp({ id: "sbir-award-1", source: "sbir" }),
+      opp({ id: "usasp-1", source: "usaspending", status: "closed" }),
+      opp({ id: "sbir-open-1", source: "sbir" }),
+      opp({ id: "grants-1", source: "grants.gov" }),
+    ];
+    const out = selectCorpusWithinCap(records, 10);
+    assert.deepEqual(out.map((o) => o.id).sort(), ["grants-1", "sbir-open-1"]);
+  });
+
   test("never includes an expired record", () => {
     const records = [
       opp({ id: "a", source: "grants.gov", deadline: "2000-01-01" }),
@@ -117,15 +128,20 @@ describe("selectCorpusWithinCap", () => {
     assert.deepEqual(out.map((o) => o.id), ["open-soon", "open-far"]);
   });
 
-  test("sbir: most recent first (open solicitation beats an older award)", () => {
-    const future = new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10);
+  test("sbir: open solicitations rank by deadline, ahead of one with no deadline at all", () => {
+    // Every "sbir" record reaching selection is a genuine open solicitation —
+    // "sbir-award-*" ids (the only past-award shape) are dropped before this
+    // ever runs (lib/corpus/pastAwards.ts) — so these fixtures are all
+    // solicitation-shaped, not award-shaped.
+    const soon = new Date(Date.now() + 10 * 864e5).toISOString().slice(0, 10);
+    const later = new Date(Date.now() + 90 * 864e5).toISOString().slice(0, 10);
     const records = [
-      opp({ id: "old-award", source: "sbir", description: "Recent SBIR/STTR award (FY2019) to a firm." }),
-      opp({ id: "new-award", source: "sbir", description: "Recent SBIR/STTR award (FY2025) to a firm." }),
-      opp({ id: "open-sol", source: "sbir", deadline: future }),
+      opp({ id: "no-deadline", source: "sbir" }),
+      opp({ id: "soon", source: "sbir", deadline: soon }),
+      opp({ id: "later", source: "sbir", deadline: later }),
     ];
     const out = selectCorpusWithinCap(records, 2);
-    assert.deepEqual(out.map((o) => o.id), ["open-sol", "new-award"]);
+    assert.deepEqual(out.map((o) => o.id), ["later", "soon"]);
   });
 
   test("assistance-listings: business/research/technology relevance wins ties", () => {

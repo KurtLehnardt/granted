@@ -3,8 +3,6 @@ export const STAGE_ORDER = [
   "grants.gov search",
   "grants.gov details",
   "sam.gov",
-  "sbir",
-  "procurement",
   "selecting",
   "embedding",
   "saving",
@@ -12,15 +10,16 @@ export const STAGE_ORDER = [
 
 export type RefreshStage = (typeof STAGE_ORDER)[number];
 
-/** Rough share of wall-clock time each stage tends to take; must sum to 100. */
+/** Rough share of wall-clock time each stage tends to take; must sum to 100.
+ *  No "sbir"/"procurement" stage — those only ever fetched past-award records
+ *  (lib/corpus/pastAwards.ts), which are filtered out entirely, so the network
+ *  calls were removed rather than kept to feed a progress bar. */
 export const STAGE_WEIGHTS: Record<RefreshStage, number> = {
   "grants.gov search": 5,
-  "grants.gov details": 25,
+  "grants.gov details": 35,
   "sam.gov": 10,
-  sbir: 10,
-  procurement: 10,
   selecting: 5,
-  embedding: 30,
+  embedding: 40,
   saving: 5,
 };
 
@@ -28,8 +27,6 @@ const STAGE_LABELS: Record<RefreshStage, string> = {
   "grants.gov search": "Searching grants.gov",
   "grants.gov details": "Fetching grants.gov details",
   "sam.gov": "Fetching SAM.gov",
-  sbir: "Fetching SBIR/STTR",
-  procurement: "Fetching procurement records",
   selecting: "Selecting…",
   embedding: "Embedding",
   saving: "Saving",

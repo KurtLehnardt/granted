@@ -701,14 +701,7 @@ export async function buildOpportunityMap(
     }
   }
 
-  // "Strong" = the headline high-potential set. Under discernment that's the
-  // matches we actually RECOMMEND; otherwise the legacy score>=scoreFloor set.
-  const strong = discernment
-    ? matches.filter((m) => m.recommendation?.recommendation === "recommend")
-    : matches.filter((m) => m.score >= CALIBRATION.scoreFloor);
-  const verifying = discernment
-    ? matches.filter((m) => m.recommendation?.recommendation === "verify")
-    : [];
+  const { strong, verifying } = strongAndVerifying(matches, discernment);
 
   // Whole-map verdict (discernment only): decouples the honest-no from "zero clear
   // the floor" — one lucky marginal yields `thin_map` ("even our best is a
@@ -748,7 +741,7 @@ export async function buildOpportunityMap(
     return !Number.isNaN(d) && d > now && d - now < 90 * 864e5;
   }).length;
 
-  const agencies = Array.from(new Set(strong.map((m) => m.opportunity.agency)));
+  const { agencies, agencyIntelligence } = agencyIntelFor(strong);
 
   const result: OpportunityMap = {
     // §3.6 — stamp the contract version on every live write so consumers can
@@ -769,14 +762,43 @@ export async function buildOpportunityMap(
     ...(verdict ? { mapVerdict: verdict } : {}),
     matches,
     weakFieldFinding: weak,
+    agencyIntelligence,
+  };
+  finalizeCost(meter, result);
+  return result;
+}
+
+/** Shared with `dropPastAwardMatches` (lib/corpus/pastAwards.ts), which rebuilds
+ *  a cached/precomputed map's summary+agencyIntelligence the same way after
+ *  filtering matches, so a past-award match can never linger in either field. */
+export function strongAndVerifying(
+  matches: Match[],
+  discernment: boolean,
+): { strong: Match[]; verifying: Match[] } {
+  // "Strong" = the headline high-potential set. Under discernment that's the
+  // matches we actually RECOMMEND; otherwise the legacy score>=scoreFloor set.
+  const strong = discernment
+    ? matches.filter((m) => m.recommendation?.recommendation === "recommend")
+    : matches.filter((m) => m.score >= CALIBRATION.scoreFloor);
+  const verifying = discernment
+    ? matches.filter((m) => m.recommendation?.recommendation === "verify")
+    : [];
+  return { strong, verifying };
+}
+
+export function agencyIntelFor(strong: Match[]): {
+  agencies: string[];
+  agencyIntelligence: OpportunityMap["agencyIntelligence"];
+} {
+  const agencies = Array.from(new Set(strong.map((m) => m.opportunity.agency)));
+  return {
+    agencies,
     agencyIntelligence: agencies.slice(0, 5).map((agency) => ({
       agency,
       why: strong.find((m) => m.opportunity.agency === agency)?.whyFit?.slice(0, 180) ?? "",
       opportunityCount: strong.filter((m) => m.opportunity.agency === agency).length,
     })),
   };
-  finalizeCost(meter, result);
-  return result;
 }
 
 async function weakField(

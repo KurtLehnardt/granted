@@ -219,13 +219,14 @@ function sourceApplyStep(opportunity: Opportunity, now?: number): Step {
     case "sbir.gov": {
       // Past-award SBIR/STTR records (source "sbir", id "sbir-award-*") are
       // never matchable (lib/corpus/pastAwards.ts), so a "sbir" match reaching
-      // this checklist is always a genuine open solicitation — background on
-      // where to submit, not the application portal itself.
-      const intro = `Search ${opportunity.agency}'s SBIR/STTR program site for the current solicitation and where to submit. This record is background, not an application portal.`;
-      if (!opportunity.url) return [intro];
-      return isHttpUrl(opportunity.url)
-        ? [`${intro} Awardee: `, sourcePointer(opportunity, "the awardee's website"), "."]
-        : [`${intro} Awardee website: ${opportunity.url}.`];
+      // this checklist is always a genuine open solicitation, and its `url`
+      // (normalizeSbirSolicitation) is the AGENCY's own solicitation page.
+      const pointer = sourcePointer(opportunity, "the agency's solicitation page");
+      const register = "Register in SAM.gov and on sbir.gov (most agencies require both before you can submit)";
+      const deadline = formatDate(opportunity.deadline);
+      return deadline
+        ? [`${register}, then read and apply through `, pointer, ` before its deadline of ${deadline}.`]
+        : [`${register}, then read and apply through `, pointer, `. No deadline is listed — confirm the submission window on the agency page.`];
     }
     case "assistance-listings":
     case "sam.gov": {

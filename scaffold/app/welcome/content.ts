@@ -6,8 +6,8 @@
  * type-only import (erased at runtime), so this module loads under plain node.
  *
  * Every claim here is grounded in the shipped corpus (data/opportunities.json:
- * 968 opportunities from grants.gov, SAM.gov assistance listings, SBIR/STTR, and
- * USAspending). No mock/flag-gated capability is claimed.
+ * 791 opportunities from grants.gov and SAM.gov assistance listings). No
+ * mock/flag-gated capability is claimed.
  */
 import type { Metadata } from "next";
 import { BRAND } from "@/lib/brand";
@@ -19,7 +19,7 @@ export const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:30
 export const TITLE = "Granted — find federal funding matched to your business or research";
 
 export const DESCRIPTION =
-  "Describe your business or research in plain English and Granted maps you to 968 real federal funding opportunities — grants, SBIR/STTR, and procurement — scored on the criteria a program officer would actually apply. Grounded in real federal award data.";
+  "Describe your business or research in plain English and Granted maps you to 791 real federal funding opportunities — grants, assistance listings, loans, and scholarships — scored on the criteria a program officer would actually apply. Grounded in real federal award data.";
 
 export const metadata: Metadata = {
   title: TITLE,
@@ -27,8 +27,6 @@ export const metadata: Metadata = {
   applicationName: BRAND,
   keywords: [
     "federal grants",
-    "SBIR",
-    "STTR",
     "grant eligibility",
     "grant fit",
     "non-dilutive funding",
@@ -72,7 +70,7 @@ export const structuredData = {
       operatingSystem: "Web",
       url: SITE_URL,
       description:
-        "Describe your business or research in plain English and Granted scores your fit across 968 real federal funding opportunities — grants.gov, SAM.gov, SBIR/STTR, and USAspending — screens eligibility, and scores each match, grounded in real federal award data.",
+        "Describe your business or research in plain English and Granted scores your fit across 791 real federal funding opportunities — grants.gov and SAM.gov assistance listings — screens eligibility, and scores each match, grounded in real federal award data.",
       offers: {
         "@type": "Offer",
         price: "0",
