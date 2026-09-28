@@ -280,11 +280,8 @@ function WelcomeGuideModal({
               <p className={bodyClass}>
                 Open <strong>Settings</strong> (the highlighted button) to pick your model. If you're
                 running a local model, every installed Ollama model shows up in the model picker
-                there. Prefer a cloud model? Set{" "}
-                <code className="font-mono text-[13px]">LLM_PROVIDER=anthropic</code> and{" "}
-                <code className="font-mono text-[13px]">ANTHROPIC_API_KEY</code> in{" "}
-                <code className="font-mono text-[13px]">scaffold/.env.local</code> to use Claude
-                instead.
+                there. Prefer a cloud model? Open Settings → Model, choose Cloud (Claude), and
+                paste your API key.
               </p>
 
               {selected && (

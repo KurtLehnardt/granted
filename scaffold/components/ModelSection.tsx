@@ -195,8 +195,8 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
           )}
           {info?.openAiEmbeddings && (
             <p className="mt-2 rounded-r-sm border-l-2 border-error bg-canvas-alt px-3 py-2 font-body text-[12px] text-foreground">
-              Search embeddings still use OpenAI, so searches won&apos;t run on Local until EMBEDDINGS_BASE_URL
-              points at a local embedder (see the README&apos;s &ldquo;Fully offline&rdquo; section).
+              Search embeddings still use OpenAI, so searches won&apos;t run on Local until embeddings are
+              switched to a local model too (see the README&apos;s &ldquo;Fully offline&rdquo; section).
             </p>
           )}
         </div>

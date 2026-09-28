@@ -35,8 +35,8 @@ describe("ModelSection — renders the right panel per provider", () => {
   });
 
   test("provider: ollama with OpenAI embeddings -> warns searches won't run", () => {
-    assert.match(render({ provider: "ollama", local: true, hasAnthropicKey: false, openAiEmbeddings: true }), /EMBEDDINGS_BASE_URL/);
-    assert.doesNotMatch(render({ provider: "ollama", local: true, hasAnthropicKey: false, openAiEmbeddings: false }), /EMBEDDINGS_BASE_URL/);
+    assert.match(render({ provider: "ollama", local: true, hasAnthropicKey: false, openAiEmbeddings: true }), /run on Local until embeddings/);
+    assert.doesNotMatch(render({ provider: "ollama", local: true, hasAnthropicKey: false, openAiEmbeddings: false }), /run on Local until embeddings/);
   });
 
   test("provider: anthropic, no key -> cloud panel with a password input", () => {
