@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { handleTestKeyPost, type TestKeyDeps } from "../handler";
 import type { CloudConfig } from "@/lib/llm/config";
 import type { ProbeOutcome } from "@/lib/llm/cloudModels";
+import { MODEL } from "@/lib/claude";
 
 function fakeReq(body?: unknown): { headers: { get(name: string): string | null }; json: () => Promise<unknown> } {
   return {
@@ -201,6 +202,24 @@ describe("POST /api/llm/test-key", () => {
     await res.json();
     assert.equal(res.status, 200);
     assert.equal(sent.anthropicWorkspaceId, undefined);
+  });
+
+  test("anthropic draft with no model probes the app's default search model", async () => {
+    let sent: any;
+    await handleTestKeyPost(
+      fakeReq({ providerId: "anthropic", keySource: { type: "inline", key: "sk-ant-abcXYZ1234567890" } }),
+      fakeDeps({ probeCloudKey: (async (params: any) => { sent = params; return { ok: true }; }) as any }),
+    );
+    assert.equal(sent.model, MODEL);
+  });
+
+  test("non-anthropic draft with no model leaves the fallback to probeCloudKey", async () => {
+    let sent: any;
+    await handleTestKeyPost(
+      fakeReq({ providerId: "mistral", keySource: { type: "inline", key: "key0000000000000000" } }),
+      fakeDeps({ probeCloudKey: (async (params: any) => { sent = params; return { ok: true }; }) as any }),
+    );
+    assert.equal(sent.model, undefined);
   });
 
   test("invalid draft anthropicWorkspaceId shape -> 400, no provider call", async () => {

@@ -31,27 +31,32 @@ const KEY_TOOLTIP_TEXT =
 function KeyInfoTooltip({ id }: { id: string }) {
   const [visible, setVisible] = useState(false);
   return (
-    <span className="relative ml-1 inline-block align-middle">
+    <span
+      className="relative ml-1 inline-block align-middle"
+      onMouseEnter={() => setVisible(true)}
+      onMouseLeave={() => setVisible(false)}
+    >
       <button
         type="button"
         aria-describedby={id}
         aria-label="Key requirements"
         className="inline-flex h-3.5 w-3.5 cursor-help select-none items-center justify-center rounded-full border border-structure-on-canvas font-mono text-[9px] leading-none text-structure-on-canvas outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas"
-        onMouseEnter={() => setVisible(true)}
-        onMouseLeave={() => setVisible(false)}
         onFocus={() => setVisible(true)}
         onBlur={() => setVisible(false)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") setVisible(false);
+        }}
       >
         ⓘ
       </button>
       <span
         id={id}
         role="tooltip"
-        className={`absolute left-1/2 top-full z-10 mt-1.5 w-56 -translate-x-1/2 rounded-sm border border-structure-on-canvas bg-canvas px-2.5 py-1.5 font-body text-[12px] leading-snug text-foreground shadow-md ${
-          visible ? "block" : "hidden"
-        }`}
+        className={`absolute left-1/2 top-full z-10 w-56 -translate-x-1/2 pt-1.5 ${visible ? "block" : "hidden"}`}
       >
-        {KEY_TOOLTIP_TEXT}
+        <span className="block rounded-sm border border-structure-on-canvas bg-canvas px-2.5 py-1.5 font-body text-[12px] leading-snug text-foreground shadow-md">
+          {KEY_TOOLTIP_TEXT}
+        </span>
       </span>
     </span>
   );

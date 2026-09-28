@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { isLoopbackRequest } from "@/lib/corpus/loopback";
-import { resolveCloudConfig, resolveCloudModel } from "@/lib/llm/config";
+import { resolveCloudConfig, resolveCloudModel, isValidAnthropicWorkspaceId } from "@/lib/llm/config";
 import { isCloudProviderId, isValidHttpsUrl } from "@/lib/llm/providers";
 import { normalizeOpenAiBaseUrl } from "@/lib/llm/baseUrl";
 import { resolveDraftKey, savedKeySourceFor } from "@/lib/llm/validateCloudConfig";
 import { probeCloudKey } from "@/lib/llm/cloudModels";
-import { isValidAnthropicWorkspaceId } from "@/lib/llm/config";
+import { MODEL } from "@/lib/claude";
 
 // POST /api/llm/test-key — "Test key" button, every cloud provider. Loopback-only
 // (spends real credit / hits the provider). Accepts either a draft (not-yet-saved)
@@ -80,15 +80,13 @@ export async function handleTestKeyPost(
   const draft = resolveDraftKey(providerId as any, keySourceInput, saved);
   if (draft.error) return NextResponse.json({ ok: false, error: draft.error }, { status: 400 });
 
-  // No fallback model here — probeCloudKey resolves the provider's own default
-  // (or, absent one, the first model its own list call just returned) when
-  // `model` is omitted, rather than defaulting to this app's Anthropic model
-  // id, which would be wrong for every non-Anthropic provider.
+  // Anthropic searches run on MODEL unless one is configured, so probe that;
+  // other providers resolve their own default inside probeCloudKey.
   const outcome = await d.probeCloudKey({
     providerId: providerId as any,
     baseUrl,
     key: draft.key!,
-    model,
+    model: model ?? (providerId === "anthropic" ? MODEL : undefined),
     anthropicWorkspaceId,
   });
   if (outcome.ok) return NextResponse.json({ ok: true });

@@ -8,20 +8,41 @@ import Anthropic from "@anthropic-ai/sdk";
 // token embedded in the message (e.g. a provider echoing back what it saw).
 const SECRET_TOKEN_PATTERN = /\bsk-(?:ant-)?[A-Za-z0-9_-]{6,}\b/g;
 const MAX_PROVIDER_MESSAGE_LENGTH = 300;
+const HTML_PATTERN = /^\s*<|<html\b/i;
+
+export function redactKey(text: string, key?: string): string {
+  return key && key.length >= 6 ? text.split(key).join("[redacted]") : text;
+}
 
 export function sanitizeProviderMessage(message: string, key?: string): string {
-  let out = message;
-  if (key && key.length >= 6) out = out.split(key).join("[redacted]");
+  let out = redactKey(message, key);
   out = out.replace(SECRET_TOKEN_PATTERN, "[redacted]");
   out = out.trim();
   if (out.length > MAX_PROVIDER_MESSAGE_LENGTH) out = `${out.slice(0, MAX_PROVIDER_MESSAGE_LENGTH)}…`;
   return out;
 }
 
-export function anthropicRawMessage(err: InstanceType<typeof Anthropic.APIError>): string {
+/** The human-readable message from a provider's error body (JSON `error.message`
+ * or `message`, incl. Gemini's array-wrapped shape, or plain text). Undefined for
+ * an empty body, an HTML error page, or JSON with no message. */
+export function providerMessageFromBody(text: string): string | undefined {
+  if (!text || HTML_PATTERN.test(text)) return undefined;
+  let json: any;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    return text;
+  }
+  const e = Array.isArray(json) ? json[0] : json;
+  const msg = e?.error?.message ?? e?.error ?? e?.message;
+  return typeof msg === "string" && msg ? msg : undefined;
+}
+
+export function anthropicRawMessage(err: InstanceType<typeof Anthropic.APIError>): string | undefined {
   const body: any = (err as any).error;
   const bodyMessage = body?.error?.message ?? body?.message;
-  return typeof bodyMessage === "string" ? bodyMessage : err.message;
+  const raw = typeof bodyMessage === "string" ? bodyMessage : err.message;
+  return raw && !HTML_PATTERN.test(raw.replace(/^\d{3}\s+/, "")) ? raw : undefined;
 }
 
 /** Thrown by the OpenAI-compatible chat shim (lib/llm/client.ts) so callers can
@@ -45,18 +66,11 @@ export class ProviderHttpError extends Error {
  * network / unknown errors, which keep the caller's generic message.
  */
 export function sanitizedProviderErrorFor4xx(err: unknown): string | undefined {
+  let raw: string | undefined;
   if (err instanceof Anthropic.APIError) {
-    const status = err.status;
-    if (typeof status === "number" && status >= 400 && status < 500) {
-      return sanitizeProviderMessage(anthropicRawMessage(err));
-    }
-    return undefined;
+    if (typeof err.status === "number" && err.status >= 400 && err.status < 500) raw = anthropicRawMessage(err);
+  } else if (err instanceof ProviderHttpError) {
+    if (err.status >= 400 && err.status < 500) raw = providerMessageFromBody(err.raw);
   }
-  if (err instanceof ProviderHttpError) {
-    if (err.status >= 400 && err.status < 500) {
-      return sanitizeProviderMessage(err.raw);
-    }
-    return undefined;
-  }
-  return undefined;
+  return raw ? sanitizeProviderMessage(raw) : undefined;
 }

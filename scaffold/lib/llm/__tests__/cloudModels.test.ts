@@ -43,6 +43,26 @@ describe("probeCloudKey — OpenAI-compatible providers", () => {
     if (!outcome.ok) assert.match(outcome.message, /credit balance is too low/);
   });
 
+  test("a reasoning model rejecting max_tokens is retried with max_completion_tokens, like the search shim", async () => {
+    const bodies: any[] = [];
+    globalThis.fetch = (async (url: string, init: any) => {
+      if (url.endsWith("/chat/completions")) {
+        const body = JSON.parse(init.body);
+        bodies.push(body);
+        if ("max_tokens" in body) {
+          return { ok: false, status: 400, text: async () => "Unsupported parameter: 'max_tokens'. Use 'max_completion_tokens' instead." };
+        }
+        return { ok: true, json: async () => ({ choices: [] }) };
+      }
+      return { ok: true, json: async () => ({ data: [] }) };
+    }) as unknown as typeof fetch;
+
+    const outcome = await probeCloudKey({ providerId: "openai", key: "sk-goodkey0000000000", model: "gpt-5-mini" });
+    assert.equal(outcome.ok, true);
+    assert.equal(bodies.length, 2);
+    assert.equal(bodies[1].max_completion_tokens, 1);
+  });
+
   test("models list ok, but the message probe 404s the model -> invalid_model, not a key error", async () => {
     globalThis.fetch = (async (url: string) => {
       if (url.endsWith("/chat/completions")) return { ok: false, status: 404 };

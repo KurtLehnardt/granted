@@ -3,7 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { normalizeOpenAiBaseUrl } from "./baseUrl";
 import { currentLocalModel } from "./modelContext";
 import { resolveProvider, resolveCloudConfig, resolveCloudApiKey, resolveCloudBaseUrl, resolveCloudModel } from "./config";
-import { ProviderHttpError } from "./errors";
+import { ProviderHttpError, redactKey } from "./errors";
 
 /** Test-only: the SDK binds node-fetch at import, so hosted tests inject fetch here. */
 const hostedFetchAls = new AsyncLocalStorage<typeof fetch>();
@@ -130,7 +130,7 @@ function withAnthropicModelOverride(client: Anthropic, model: string): LlmClient
 type ChatPayload = Record<string, unknown>;
 
 /** Newer OpenAI models (o-series, gpt-5) reject `max_tokens` and `temperature: 0`; retry in their dialect. */
-function adaptRejectedParams(payload: ChatPayload, errorBody: string): ChatPayload | undefined {
+export function adaptRejectedParams(payload: ChatPayload, errorBody: string): ChatPayload | undefined {
   const { max_tokens, temperature, ...rest } = payload;
   if (max_tokens !== undefined && errorBody.includes("max_completion_tokens")) {
     return { ...rest, ...(temperature !== undefined ? { temperature } : {}), max_completion_tokens: max_tokens };
@@ -217,7 +217,8 @@ function makeOpenAiCompatClient(opts: {
             const hint = res.status === 404
               ? " — a 404 here usually means the base URL is missing the OpenAI-compatible path; it must end in /v1 (e.g. http://localhost:11434/v1)"
               : "";
-            throw new ProviderHttpError(res.status, body, `LLM request failed (${res.status}) at ${baseUrl}: ${body.slice(0, 200)}${hint}`);
+            const safeBody = redactKey(body, apiKey);
+            throw new ProviderHttpError(res.status, safeBody, `LLM request failed (${res.status}) at ${baseUrl}: ${safeBody.slice(0, 200)}${hint}`);
           }
           const json: any = await res.json();
           const text: string = json?.choices?.[0]?.message?.content ?? "";

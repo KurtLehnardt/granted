@@ -1,8 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { getCloudProvider, type CloudProviderId } from "./providers";
-import { currentHostedFetch } from "./client";
+import { currentHostedFetch, adaptRejectedParams } from "./client";
 import { normalizeOpenAiBaseUrl } from "./baseUrl";
-import { sanitizeProviderMessage, anthropicRawMessage } from "./errors";
+import { sanitizeProviderMessage, anthropicRawMessage, providerMessageFromBody } from "./errors";
 
 function anthropicClient(apiKey: string, timeout: number, workspaceId?: string): Anthropic {
   return new Anthropic({
@@ -65,29 +65,19 @@ function describeAnthropicError(err: unknown, key?: string, model?: string): Pro
   // Any other 4xx (400, 402, 422, ...) — surface the provider's own message,
   // sanitized, instead of the generic "didn't work" (e.g. a key that's valid
   // but not scoped to a workspace, which needs a different fix from the user).
-  if (typeof status === "number" && status >= 400 && status < 500 && status !== 404) {
-    const raw = err instanceof Anthropic.APIError ? anthropicRawMessage(err) : "That key didn't work. Double-check it and try again.";
+  const raw = err instanceof Anthropic.APIError && status !== 404 ? anthropicRawMessage(err) : undefined;
+  if (raw && typeof status === "number" && status >= 400 && status < 500) {
     return { ok: false, kind: "other", message: withWorkspaceHint(sanitizeProviderMessage(raw, key)) };
   }
   return { ok: false, kind: "other", message: "That key didn't work. Double-check it and try again." };
 }
 
 async function extractHttpErrorMessage(res: Response): Promise<string | undefined> {
-  let text: string;
   try {
-    text = await res.text();
+    return providerMessageFromBody(await res.text());
   } catch {
     return undefined;
   }
-  if (!text || text.trimStart().startsWith("<")) return undefined;
-  try {
-    const json = JSON.parse(text);
-    const msg = json?.error?.message ?? json?.error ?? json?.message;
-    if (typeof msg === "string" && msg) return msg;
-  } catch {
-    /* not JSON — fall through to the raw text */
-  }
-  return text;
 }
 
 /** `model`: when set, a 404 is worded as "this model isn't available" (a
@@ -152,13 +142,24 @@ async function probeAnthropicModel(client: Anthropic, model: string, key: string
 }
 
 async function probeOpenAiCompatModel(baseUrl: string, key: string, model: string): Promise<ProbeOutcome> {
-  try {
-    const res = await fetch(`${baseUrl}/chat/completions`, {
+  let payload: Record<string, unknown> = { model, max_tokens: 1, messages: [{ role: "user", content: "hi" }] };
+  const post = () =>
+    fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-      body: JSON.stringify({ model, max_tokens: 1, messages: [{ role: "user", content: "hi" }] }),
+      body: JSON.stringify(payload),
       signal: AbortSignal.timeout(15_000),
     });
+  try {
+    let res = await post();
+    // Same dialect retry as the search shim (o-series/gpt-5 reject max_tokens).
+    if (res.status === 400) {
+      const text = await res.text().catch(() => "");
+      const adapted = adaptRejectedParams(payload, text);
+      if (!adapted) return await describeHttpStatus(400, new Response(text), key, model);
+      payload = adapted;
+      res = await post();
+    }
     if (res.ok) return { ok: true };
     return await describeHttpStatus(res.status, res, key, model);
   } catch {

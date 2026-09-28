@@ -173,8 +173,20 @@ test("an OpenAI-compatible provider 4xx (ProviderHttpError) also surfaces its sa
   const res = await handleMatchRequest(post(JSON.stringify({ description: VALID_DESCRIPTION })), deps);
   const lines = await readLines(res);
   const err = lines.find((l) => l.type === "error");
-  assert.ok(err);
-  assert.match(err.error, /Insufficient balance/);
+  assert.equal(err.error, "Insufficient balance for this request.");
+});
+
+test("a ProviderHttpError 4xx with an HTML body keeps the generic message", async () => {
+  const deps: MatchDeps = {
+    cached: () => undefined,
+    buildOpportunityMap: async () => {
+      throw new ProviderHttpError(403, "<html><body>Forbidden</body></html>");
+    },
+  };
+  const res = await handleMatchRequest(post(JSON.stringify({ description: VALID_DESCRIPTION })), deps);
+  const lines = await readLines(res);
+  const err = lines.find((l) => l.type === "error");
+  assert.equal(err.error, "The search didn't complete. Please try again.");
 });
 
 test("a provider 5xx keeps the generic message — no raw provider internals shown", async () => {
