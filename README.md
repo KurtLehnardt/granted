@@ -12,6 +12,8 @@ Run it with your own API keys or a fully local model — see **Run it yourself**
 
 Every OS below ends up running the exact same `npm` commands — the setup scripts detect your platform automatically. Only the prerequisite installs (Node, git, Ollama) differ, so pick yours:
 
+`npm run dev` only listens on this machine; `npm run dev:lan` opts in to exposing it to your local network.
+
 ## Install on macOS
 
 **1. Prerequisites**
