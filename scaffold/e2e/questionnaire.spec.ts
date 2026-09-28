@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { skipWelcomeGuide } from "./fixtures";
 
 const STORAGE_KEY = "ff.questionnaire.profile.v1";
 
@@ -12,6 +13,7 @@ test("a field with a saved value renders as an editable control with no Edit but
       }),
     ],
   );
+  await skipWelcomeGuide(page);
   await page.goto("/");
 
   const industry = page.getByLabel("Industry / market");
@@ -32,6 +34,7 @@ test("typing into a restored boolean_text detail box keeps the radio checked and
       }),
     ],
   );
+  await skipWelcomeGuide(page);
   await page.goto("/");
   await page.getByRole("button", { name: /add optional details/i }).click();
 
