@@ -115,6 +115,24 @@ describe("probeCloudKey — OpenAI-compatible providers", () => {
     assert.equal(outcome.ok, false);
     if (!outcome.ok) assert.ok(outcome.message.length <= 305);
   });
+
+  test("other 4xx: a non-sk- key echoed in a plain-text body is redacted", async () => {
+    const key = "gsk_Live0123456789abcdefXYZ";
+    globalThis.fetch = (async () => ({ ok: false, status: 400, text: async () => `Bad request for Authorization: Bearer ${key}` })) as unknown as typeof fetch;
+    const outcome = await probeCloudKey({ providerId: "other", baseUrl: "https://my-proxy.example.com/v1", key, model: "" });
+    assert.equal(outcome.ok, false);
+    if (!outcome.ok) {
+      assert.equal(outcome.message.includes(key), false);
+      assert.match(outcome.message, /\[redacted\]/);
+    }
+  });
+
+  test("other 4xx: an HTML error page falls back to the generic message", async () => {
+    globalThis.fetch = (async () => ({ ok: false, status: 400, text: async () => "<html><body>400 Bad Request</body></html>" })) as unknown as typeof fetch;
+    const outcome = await probeCloudKey({ providerId: "other", baseUrl: "https://my-proxy.example.com/v1", key: "sk-mysecretkeyvalue0", model: "" });
+    assert.equal(outcome.ok, false);
+    if (!outcome.ok) assert.match(outcome.message, /didn't work/i);
+  });
 });
 
 describe("listCloudModels", () => {
@@ -211,7 +229,7 @@ describe("probeCloudKey — anthropic", () => {
         if (!outcome.ok) {
           assert.equal(outcome.kind, "other");
           assert.match(outcome.message, /not scoped to a workspace/);
-          assert.match(outcome.message, /Add your Workspace ID below\./);
+          assert.match(outcome.message, /Check the Workspace ID field/);
         }
       },
     );
@@ -287,6 +305,40 @@ describe("listCloudModels — anthropic", () => {
         const result = await listCloudModels({ providerId: "anthropic", key: "sk-ant-badkey00000000" });
         assert.equal(result.models, undefined);
         assert.match(result.error!, /didn't work/i);
+      },
+    );
+  });
+
+  test("sends anthropic-workspace-id when a workspace id is given", async () => {
+    const { withHostedFetch } = await import("../client");
+    let sentHeader: string | undefined;
+    await withHostedFetch(
+      (async (_url: any, init: any) => {
+        sentHeader = init?.headers?.["anthropic-workspace-id"];
+        return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { "content-type": "application/json" } });
+      }) as any,
+      async () => {
+        await listCloudModels({ providerId: "anthropic", key: "sk-ant-abcXYZ1234567890", anthropicWorkspaceId: "wrkspc_abc123" });
+      },
+    );
+    assert.equal(sentHeader, "wrkspc_abc123");
+  });
+
+  test("400 not-scoped-to-workspace -> provider message with the key redacted", async () => {
+    const { withHostedFetch } = await import("../client");
+    const key = "sk-ant-api03-Zz9Yy8Xx7Ww6Vv5Uu4Tt3-AA";
+    await withHostedFetch(
+      (async () =>
+        new Response(JSON.stringify({ error: { type: "invalid_request_error", message: `Key ${key} is not scoped to a workspace.` } }), {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        })) as any,
+      async () => {
+        const result = await listCloudModels({ providerId: "anthropic", key });
+        assert.equal(result.models, undefined);
+        assert.equal(result.error!.includes(key), false);
+        assert.equal(result.error!.includes("Zz9Yy8Xx7Ww6"), false);
+        assert.match(result.error!, /not scoped to a workspace/);
       },
     );
   });

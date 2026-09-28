@@ -37,7 +37,7 @@ function sanitizeProviderMessage(message: string, key?: string): string {
 
 /** Nudges the user toward the fix when Anthropic's own message already explains it. */
 function withWorkspaceHint(message: string): string {
-  return /workspace/i.test(message) ? `${message} Add your Workspace ID below.` : message;
+  return /workspace/i.test(message) ? `${message} Check the Workspace ID field and try again.` : message;
 }
 
 function anthropicRawMessage(err: InstanceType<typeof Anthropic.APIError>): string {
@@ -85,7 +85,7 @@ async function extractHttpErrorMessage(res: Response): Promise<string | undefine
   } catch {
     return undefined;
   }
-  if (!text) return undefined;
+  if (!text || text.trimStart().startsWith("<")) return undefined;
   try {
     const json = JSON.parse(text);
     const msg = json?.error?.message ?? json?.error ?? json?.message;
