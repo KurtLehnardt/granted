@@ -10,6 +10,8 @@ Run it with your own API keys or a fully local model — see **Run it yourself**
 
 **No API keys? Still works.** Clone it, install, run it, and try the 4 built-in sample companies (in the welcome guide, replayable from Settings) — their results are cached, so they need no keys at all. You only need API keys (or a local model) to search your *own* company description.
 
+`npm run dev` only listens on this machine; `npm run dev:lan` opts in to exposing it to your local network.
+
 Every OS below ends up running the exact same `npm` commands — the setup scripts detect your platform automatically. Only the prerequisite installs (Node, git, Ollama) differ, so pick yours:
 
 ## Install on macOS
@@ -44,19 +46,28 @@ Verified end to end on this flow: a 32GB Mac auto-picked `qwen2.5:14b` and compl
 
 ## Install on Windows
 
-*Verified end to end on Windows 11 (HP ZBook, 32GB RAM, 4GB Quadro P1000): qwen2.5:3b + nomic-embed-text, fully local, a novel-company search scoring 34 candidates completed in 7m33s.*
+*The app's local-model flow is verified end to end on Windows 11 (HP ZBook, 32GB RAM, 4GB Quadro P1000): qwen2.5:3b + nomic-embed-text, fully local, a novel-company search scoring 34 candidates completed in 7m33s. `install-windows.ps1` itself is separately verified on a fresh Windows Server 2022 box with no `winget` present, forcing the direct-download fallback path for both Node and git.*
 
-**1. Prerequisites**
-- [Node 20+](https://nodejs.org), or `winget install OpenJS.NodeJS.LTS`. (Node 22+ avoids an `EBADENGINE` warning one dependency now emits on 20 — the app runs fine either way.)
-- [git](https://git-scm.com/download/win), or `winget install Git.Git`.
-- PowerShell (default on Windows 10/11) or Git Bash — both work with everything below.
-
-**2. Clone and try it with zero keys**
+**1. Install prerequisites + clone (one command, PowerShell)**
 ```powershell
+irm https://raw.githubusercontent.com/KurtLehnardt/granted/main/install-windows.ps1 | iex
+```
+Installs Node 20+ and git if missing — via `winget` where available, otherwise a direct official-installer download (winget isn't present on every Windows box, notably Windows Server, which this was verified against) — clones the repo into `.\granted`, and runs `npm install`. Safe to re-run.
+
+Prefer to do it by hand?
+```powershell
+winget install OpenJS.NodeJS.LTS
+winget install Git.Git
 git clone https://github.com/KurtLehnardt/granted.git
 cd granted/scaffold
-npm install
-npm run dev        # → http://localhost:3000
+```
+No `winget`? Grab [Node 20+](https://nodejs.org) and [git](https://git-scm.com/download/win) directly instead. (Node 22+ avoids an `EBADENGINE` warning one dependency now emits on 20 — the app runs fine either way.) PowerShell (default on Windows 10/11) or Git Bash both work with everything below.
+
+**2. Try it with zero keys**
+```powershell
+cd granted/scaffold
+npm install            # already done if you used install-windows.ps1
+npm run dev            # → http://localhost:3000
 ```
 Try the 4 sample companies now — no keys needed.
 
@@ -287,7 +298,8 @@ Results **stream**. Progress and grounded evidence appear in seconds rather than
 - **A flag change did nothing** → `NEXT_PUBLIC_*` vars are read at build/start; restart the dev server (and redeploy on Vercel).
 - **Vercel build fails immediately** → you probably didn't set **Root Directory = `scaffold`**.
 - **Sign-in redirects to the wrong place** → fix Supabase → *Authentication → URL Configuration* (Site URL + Redirect URLs).
-- **Port 3000 in use** → Next picks the next free port; watch the `npm run dev` output for the URL.
+- **Port 3000 in use** → Next picks the next free port; watch the `npm run dev` output for the URL. If `localhost:3000` shows a different app (on Windows, an app listening on all interfaces doesn't block the `127.0.0.1` bind), pick a port: `npm run dev -- -p 3001`.
+- **Can't reach it from another device or a cloud VM** → `npm run dev` only listens on `127.0.0.1`. From a remote box, tunnel instead: `ssh -L 3000:127.0.0.1:3000 you@host`, then open `http://localhost:3000`. Use `npm run dev:lan` only on a network you trust.
 
 ---
 

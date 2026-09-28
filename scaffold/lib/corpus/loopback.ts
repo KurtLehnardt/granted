@@ -21,8 +21,8 @@ function isLoopbackHost(host: string | null): boolean {
 
 /**
  * Next fills X-Forwarded-For from the socket unless the client sent one. Browsers can't forge these
- * headers, which stops LAN pages, cross-site pages and DNS rebinding; a raw client can, so bind the
- * server to 127.0.0.1 on an untrusted network.
+ * headers, which stops LAN pages, cross-site pages and DNS rebinding; a raw client can, which is why
+ * `npm run dev`/`start` bind 127.0.0.1 (use `dev:lan` only on a trusted network).
  */
 export function isLoopbackRequest(req: { headers: { get(name: string): string | null } }): boolean {
   const hop = firstForwardedHop(req.headers.get("x-forwarded-for"));
