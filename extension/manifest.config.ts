@@ -22,7 +22,7 @@ export default defineManifest({
   name: "Granted Assisted Fill",
   version: pkg.version,
   description:
-    "Fills a grant-portal form in your own session from your Granted package. You review; your AOR submits. It never submits.",
+    "Fills a grant-portal form in your own session from your Granted package. You review; your AOR submits.",
   minimum_chrome_version: "116",
 
   permissions: ["storage", "scripting", "activeTab"],
