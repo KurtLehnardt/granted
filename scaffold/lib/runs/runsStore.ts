@@ -39,15 +39,10 @@ function isSavedRun(v: unknown): v is SavedRun {
   );
 }
 
-/** All saved runs, most-recent first. Tolerant of malformed stored data.
- *  A run saved before the past-award filter shipped (or a corpus regeneration
- *  that reintroduces one) can have past-award matches baked into its map — strip
- *  those on every read so a restored run never resurfaces one. */
+/** All saved runs, most-recent first, with past-award matches stripped. Tolerant of malformed stored data. */
 export function loadRuns(): SavedRun[] {
   const raw = readJSON<unknown>(STORAGE_KEYS.runs, []);
   if (!Array.isArray(raw)) return [];
-  // Never throw (module contract, see header) — a malformed/legacy stored map
-  // without a real `matches` array is left as-is rather than crashing the read.
   return raw.filter(isSavedRun).map((run) =>
     Array.isArray(run.map?.matches) ? { ...run, map: dropPastAwardMatches(run.map) } : run,
   );

@@ -10,10 +10,7 @@ export const STAGE_ORDER = [
 
 export type RefreshStage = (typeof STAGE_ORDER)[number];
 
-/** Rough share of wall-clock time each stage tends to take; must sum to 100.
- *  No "sbir"/"procurement" stage — those only ever fetched past-award records
- *  (lib/corpus/pastAwards.ts), which are filtered out entirely, so the network
- *  calls were removed rather than kept to feed a progress bar. */
+/** Rough share of wall-clock time each stage tends to take; must sum to 100. */
 export const STAGE_WEIGHTS: Record<RefreshStage, number> = {
   "grants.gov search": 5,
   "grants.gov details": 35,

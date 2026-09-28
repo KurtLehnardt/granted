@@ -2,12 +2,6 @@ import type { Opportunity } from "../types";
 import { dropExpiredOpportunities } from "./expiry";
 import { dropPastAwards } from "./pastAwards";
 
-// "usaspending" has no weight here: every "usaspending" record is a
-// closed/past contract award (see lib/corpus/pastAwards.ts) and is dropped as
-// a past award before this ever runs, so a weight for it would be dead.
-// "sbir" DOES keep a weight: it's shared by genuine open SBIR/STTR
-// solicitations (normalizeSbirSolicitation, id "sbir-<id>") — only the
-// "sbir-award-*" ids are past awards, and those are filtered the same way.
 export const DEFAULT_SOURCE_WEIGHTS: Record<string, number> = {
   "grants.gov": 2,
   sbir: 2,
@@ -72,10 +66,7 @@ const BUSINESS_KEYWORDS = [
   "commercialization", "manufacturing",
 ];
 
-/** Open solicitation's deadline; a record with none (or an unparseable one)
- *  sorts last. Every "sbir" record reaching this is a genuine open
- *  solicitation (past-award "sbir-award-*" ids are dropped before this ever
- *  runs), so there's no award-FY text to fall back to here. */
+/** Deadline; records without a parseable one sort last. */
 function recencyKey(o: Opportunity): number {
   if (typeof o.deadline === "string") {
     const t = Date.parse(o.deadline);

@@ -56,11 +56,7 @@ test("each new resource type is represented with a healthy count", () => {
   for (const o of opps) counts[(o as any).kind] = (counts[(o as any).kind] || 0) + 1;
   // ≥N per new type (the ingest acceptance). Thresholds are deliberately well
   // below what we ship (assistance 240 / loan 45 / scholarship 30) so
-  // trimming tweaks don't spuriously fail the gate. `rd`/`procurement` (SBIR
-  // awards / USAspending contracts) have no floor: today every corpus record
-  // of either kind is a past award, which owner decision excludes entirely
-  // (lib/corpus/pastAwards.ts) — see the "past awards are never in the
-  // committed corpus" test below.
+  // trimming tweaks don't spuriously fail the gate.
   assert.ok(counts.assistance >= 25, `assistance=${counts.assistance}`);
   assert.ok(counts.loan >= 10, `loan=${counts.loan}`);
   assert.ok(counts.scholarship >= 10, `scholarship=${counts.scholarship}`);
@@ -71,11 +67,6 @@ test("new sources are present under the A0 source vocabulary", () => {
   for (const s of ["grants.gov", "assistance-listings"]) {
     assert.ok(sources.has(s), `expected source ${s} in the corpus`);
   }
-  // "sbir"/"usaspending" aren't asserted present: the only records either
-  // source has ever produced are past awards, which are excluded (see below).
-  // A future genuine open SBIR/STTR solicitation would still carry
-  // source:"sbir" and belongs in the corpus — only source:"usaspending" (a
-  // past USAspending contract) can never be.
 });
 
 test("no past-award record (SBIR/STTR award or closed USAspending contract) is in the committed corpus", () => {

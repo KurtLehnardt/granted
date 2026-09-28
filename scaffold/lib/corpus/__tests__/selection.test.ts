@@ -129,10 +129,6 @@ describe("selectCorpusWithinCap", () => {
   });
 
   test("sbir: open solicitations rank by deadline, ahead of one with no deadline at all", () => {
-    // Every "sbir" record reaching selection is a genuine open solicitation —
-    // "sbir-award-*" ids (the only past-award shape) are dropped before this
-    // ever runs (lib/corpus/pastAwards.ts) — so these fixtures are all
-    // solicitation-shaped, not award-shaped.
     const soon = new Date(Date.now() + 10 * 864e5).toISOString().slice(0, 10);
     const later = new Date(Date.now() + 90 * 864e5).toISOString().slice(0, 10);
     const records = [

@@ -4,13 +4,6 @@ import assert from "node:assert/strict";
 import { cached } from "../handler";
 import type { OpportunityMap, Match } from "@/lib/types";
 
-/**
- * `cached()` is the precomputed-lookup used by the demo-day short-circuit
- * (handleMatchRequest). It must strip past-award matches (a stale precomputed
- * map predates that filter, or a future regeneration could reintroduce one)
- * the same way the live match flow's corpus loader does.
- */
-
 function opp(over: { id: string; source: string } & Record<string, unknown>) {
   return { kind: "grant", program: "Program", agency: "Agency", description: "A description.", ...over };
 }

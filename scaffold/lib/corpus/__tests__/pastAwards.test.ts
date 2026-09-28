@@ -71,8 +71,6 @@ describe("dropPastAwardMatches", () => {
       version: "1.0.0",
       profile: {} as OpportunityMap["profile"],
       followUps: [],
-      // Stale precomputed values, as if all 3 matches (all score >= scoreFloor)
-      // were once counted, including the two past awards below.
       summary: { highPotential: 3, fundingIdentified: 0, agencies: 2, closingIn90Days: 1 },
       matches: [
         match({ id: "grants-1", source: "grants.gov", deadline: soon, agency: "NSF" }),
@@ -94,12 +92,29 @@ describe("dropPastAwardMatches", () => {
     const out = dropPastAwardMatches(map);
     assert.deepEqual(out.matches.map((m) => m.opportunity.id), ["grants-1"]);
     assert.equal(out.summary.closingIn90Days, 1);
-    // highPotential/agencies must be RECOMPUTED from the surviving matches, not
-    // left at the stale precomputed value (would still equal 3/2 if the recompute
-    // were missing, since those inputs happen to differ from the correct output).
     assert.equal(out.summary.highPotential, 1);
     assert.equal(out.summary.agencies, 1);
-    // The past-award DoD entry, and its award-quoting `why`, must not survive.
     assert.deepEqual(out.agencyIntelligence, [{ agency: "NSF", why: "", opportunityCount: 1 }]);
+  });
+
+  test("rebuilds a discernment map's worthVerifying and mapVerdict from the surviving matches", () => {
+    const rec = (recommendation: string) => ({ recommendation, reasons: [] });
+    const map = {
+      version: "1.0.0",
+      profile: {},
+      followUps: [],
+      summary: { highPotential: 1, worthVerifying: 1, fundingIdentified: 0, agencies: 1, closingIn90Days: 0 },
+      mapVerdict: "strong_map",
+      matches: [
+        { ...match({ id: "sbir-award-1", source: "sbir" }), recommendation: rec("recommend") },
+        { ...match({ id: "grants-1", source: "grants.gov" }), recommendation: rec("verify") },
+      ],
+      agencyIntelligence: [{ agency: "Agency", why: "", opportunityCount: 1 }],
+    } as unknown as OpportunityMap;
+    const out = dropPastAwardMatches(map);
+    assert.equal(out.summary.highPotential, 0);
+    assert.equal(out.summary.worthVerifying, 1);
+    assert.equal(out.mapVerdict, "thin_map");
+    assert.deepEqual(out.agencyIntelligence, []);
   });
 });

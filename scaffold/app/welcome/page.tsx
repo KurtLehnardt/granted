@@ -16,7 +16,7 @@
  *
  * Every factual claim is grounded in the shipped corpus: 791 real opportunities
  * (data/opportunities.json) from grants.gov and SAM.gov assistance listings,
- * spanning 4 funding types. Nothing here claims a mock/flag-gated capability
+ * spanning four funding types. Nothing here claims a mock/flag-gated capability
  * (no auto-filing of applications).
  *
  * TO PROMOTE /welcome TO ROOT LATER: rename this route to app/page.tsx (moving
@@ -104,7 +104,7 @@ export default function WelcomePage() {
               <p className="mt-2 font-body text-[15px] leading-relaxed text-foreground">
                 <span className="font-semibold">791 real federal opportunities</span>{" "}
                 from keyless, public sources — grants.gov and SAM.gov assistance
-                listings — across 4 funding types.
+                listings — across four funding types.
               </p>
               <ul className="mt-4 flex flex-wrap gap-2">
                 {[

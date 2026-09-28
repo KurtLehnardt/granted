@@ -176,21 +176,12 @@ async function main() {
     );
     if (grantsRun.stopped) return await applyStop({});
 
-    // Running found count: unique grants.gov ids, then each source's count as it finishes.
-    let runningFound = new Set((await readJson(join(RAW_DIR, "grants.json"), [])).map((g) => g.id)).size;
+    const grantsFound = new Set((await readJson(join(RAW_DIR, "grants.json"), [])).map((g) => g.id)).size;
 
-    reportProgress("sam.gov", { foundCount: runningFound });
+    reportProgress("sam.gov", { foundCount: grantsFound });
     if (isStopRequested()) return await applyStop({});
     run("SAM.gov assistance (everything open)", "scripts/1-fetch-sam-assistance.mjs", { ...rawEnv, SAM_FETCH_MODE: "all" });
-    runningFound += (await readJson(join(RAW_DIR, "sam-assistance.json"), [])).length;
 
-    // No "sbir"/"procurement" fetch stage: their fetch scripts only ever
-    // produced past-award records (SBIR/STTR awards, closed USAspending
-    // contracts) — never matchable, see lib/corpus/pastAwards.ts — so those
-    // scripts and network calls were removed rather than kept to feed a
-    // "found" count nobody can act on. Genuine open SBIR/STTR solicitations
-    // still arrive via sbir-solicitations.json, fetched above as part of the
-    // grants.gov search stage (scripts/1-fetch.mjs).
     if (isStopRequested()) return await applyStop({});
 
     const [grants, sbirSolicitations, samAssistance] = await Promise.all([
@@ -217,19 +208,11 @@ async function main() {
     ].filter((o) => o && o.description && o.description.length >= 60);
     fresh = dedupeById(fresh);
     fresh = dropExpiredOpportunities(fresh);
-    // `fresh` is built only from grants/sbir-solicitations/SAM rows, none of
-    // which can normalize into a past-award shape (lib/corpus/pastAwards.ts),
-    // so it needs no dropPastAwards() pass. `data/local` gets cleaned anyway
-    // because `final` below is rebuilt entirely from `fresh` (plus
-    // selectCorpusWithinCap's own past-award filter, belt-and-suspenders for
-    // any legacy record).
     const foundCount = fresh.length;
-    console.log(`\nAssembled ${foundCount} open records (expired deadlines and past awards dropped).`);
+    console.log(`\nAssembled ${foundCount} open records (expired deadlines dropped).`);
     reportProgress("selecting", { foundCount });
 
-    // `existing` predates the past-awards filter (it may still carry sbir-award-*/
-    // closed-usaspending rows), so drop them from BOTH sides before comparing —
-    // otherwise their now-intentional removal reads as a fetcher outage.
+    // Legacy past awards in `existing` aren't a source outage.
     const unhealthy = findUnhealthySources(countBySource(dropPastAwards(existing)), countBySource(fresh));
     if (unhealthy.length) {
       throw new Error(`refresh aborted — source count dropped sharply: ${unhealthy.join("; ")}`);

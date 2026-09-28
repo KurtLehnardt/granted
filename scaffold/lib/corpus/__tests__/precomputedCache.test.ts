@@ -4,13 +4,6 @@ import precomputed from "../../../data/precomputed.json";
 import { isPastAward, dropPastAwardMatches } from "../pastAwards";
 import type { OpportunityMap } from "../../types";
 
-/**
- * The committed demo-day cache (data/precomputed.json, read by
- * app/api/match/handler.ts's `cached()`) must never surface a past award, and
- * its summary/agencyIntelligence must be derived from its own (already
- * past-award-free) matches — not left stale from before those matches were
- * filtered. See lib/corpus/pastAwards.ts.
- */
 describe("data/precomputed.json", () => {
   const entries = precomputed as unknown as { id: string; key: string; map: OpportunityMap }[];
 

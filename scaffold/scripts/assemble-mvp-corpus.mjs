@@ -15,22 +15,15 @@
  * New records normalize into the A0 taxonomy:
  *   SAM assistance   → source:"assistance-listings", kind: assistance|loan|scholarship (evergreen: no deadline, no funding)
  *
- * SBIR/STTR award and USAspending records are NOT assembled here — every
- * record either source produces is a past award/closed contract, never
- * matchable (lib/corpus/pastAwards.ts), and their fetch scripts have been
- * removed; they are not part of `npm run data:mvp`.
- *
  * Embedding matches 3-embed.mjs exactly (text-embedding-3-small, dimensions:512,
  * rounded to 5 decimals) so new vectors are comparable to the user query
  * embedded at request time by lib/embed.ts.
  *
- * Run AFTER the fetcher: `node --import tsx scripts/assemble-mvp-corpus.mjs`
- * (tsx, not plain node — it imports the shared TypeScript `isPastAward`.)
+ * Run AFTER the fetcher: `node scripts/assemble-mvp-corpus.mjs`
  */
 import "./_loadEnvLocal.mjs"; // honor scaffold/.env.local when run as plain `node`
 import { readFile, writeFile } from "node:fs/promises";
 import { normalizeSamRow } from "./lib/normalizeNewSources.mjs";
-import { isPastAward } from "../lib/corpus/pastAwards.ts";
 
 const KEY = process.env.OPENAI_API_KEY;
 if (!KEY) {
@@ -43,17 +36,11 @@ const read = async (p, fallback = []) => {
 };
 
 // ---- Load the existing (already-embedded) corpus and the new raw sources ----
-// Past awards are filtered from `existing` too, but this only takes effect
-// when there's something new to write: if `cleanNew` below ends up empty (every
-// SAM id already present), the script exits before ever calling writeFile, so
-// a past award already sitting in data/opportunities.json is NOT cleaned by a
-// re-run with nothing new to add — run `npm run data:refresh` (or edit the
-// committed file directly) to clean an already-shipped one.
-const existing = (await read("data/opportunities.json")).filter((o) => !isPastAward(o));
+const existing = await read("data/opportunities.json");
 const existingIds = new Set(existing.map((o) => o.id));
 const sam = await read("data/raw/sam-assistance.json");
 
-const newRecords = sam.map(normalizeSamRow).filter(Boolean).filter((o) => !isPastAward(o));
+const newRecords = sam.map(normalizeSamRow).filter(Boolean);
 
 // ---- Dedup (never collide with an existing id; drop thin/dup new records) ----
 const seen = new Set(existingIds);

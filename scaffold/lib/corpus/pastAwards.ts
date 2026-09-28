@@ -1,53 +1,38 @@
 import type { Opportunity, OpportunityMap } from "../types";
+import { mapVerdict } from "../recommend";
 import { strongAndVerifying, agencyIntelFor } from "../summary";
 
-/**
- * Owner decision: a past award must never surface as a match. Users don't
- * want to see what someone else already got — that context belongs only in
- * the award-history ("previously awarded companies") and competitor-analysis
- * features, which read `data/awards.json` / their own live retrieval
- * (`lib/competitors/retrieve.ts`), never the matchable corpus.
- *
- * Two record shapes in the corpus are past awards, not open opportunities:
- *   - SBIR/STTR: source "sbir", id "sbir-award-*" (that id scheme was produced
- *     by fetch/normalize scripts since removed — any such records left in a
- *     cache or data/local are filtered here). A genuine open SBIR/STTR
- *     solicitation is also source "sbir" but id "sbir-*" (no "-award-"), from
- *     `normalizeSbirSolicitation` — so the id prefix, not the source, is what
- *     distinguishes them.
- *   - USAspending: source "usaspending", status "closed" (that source/status
- *     pair was produced by a fetch/normalize script since removed — any such
- *     records left in a cache or data/local are filtered here).
- */
-export function isPastAward(o: Pick<Opportunity, "source" | "id"> & { status?: string }): boolean {
+type AwardShape = Pick<Opportunity, "source" | "id"> & { status?: string };
+
+/** Past awards (SBIR/STTR award records, closed USAspending contracts) are never
+ *  matches; award history and competitor analysis cover them. Open SBIR/STTR
+ *  solicitations share source "sbir" but not the "sbir-award-" id prefix. */
+export function isPastAward(o: AwardShape): boolean {
   if (o.source === "sbir" && o.id.startsWith("sbir-award-")) return true;
-  if (o.source === "usaspending" && o.status === "closed") return true;
-  return false;
+  return o.source === "usaspending" && o.status === "closed";
 }
 
-export function dropPastAwards<T extends Pick<Opportunity, "source" | "id"> & { status?: string }>(
-  opportunities: T[],
-): T[] {
+export function dropPastAwards<T extends AwardShape>(opportunities: T[]): T[] {
   return opportunities.filter((o) => !isPastAward(o));
 }
 
-/** Mirrors `dropExpiredMatches` (lib/corpus/expiry.ts): filters a cached/precomputed
- *  map's matches, then rebuilds every field `lib/match.ts` derives FROM matches
- *  (summary, agencyIntelligence) the same way it does — a stale past-award match
- *  must not linger in a "5 opportunities" agency count or a whyFit narrative
- *  quoting the award, even after the record itself is filtered out. */
+/** Strips past-award matches from a stored map and rebuilds what lib/match.ts derives from them. */
 export function dropPastAwardMatches(map: OpportunityMap, now: number = Date.now()): OpportunityMap {
-  const matches = map.matches.filter((m) => !isPastAward(m.opportunity as Opportunity));
+  const matches = map.matches.filter((m) => !isPastAward(m.opportunity));
   const closingIn90Days = matches.filter((m) => {
     const d = m.opportunity.deadline ? Date.parse(m.opportunity.deadline) : NaN;
     return !Number.isNaN(d) && d > now && d - now < 90 * 864e5;
   }).length;
-  // The map's own matches carry `recommendation` on every entry when it was
-  // built under the discernment layer (lib/match.ts) — reuse that presence to
-  // pick the same strong/verifying rule the original build used.
   const discernment = map.matches.some((m) => m.recommendation != null);
   const { strong, verifying } = strongAndVerifying(matches, discernment);
   const { agencies, agencyIntelligence } = agencyIntelFor(strong);
+  const verdict = map.mapVerdict
+    ? mapVerdict({
+        recommendCount: strong.length,
+        verifyCount: verifying.length,
+        maxScore: matches.reduce((mx, m) => Math.max(mx, m.score), 0),
+      })
+    : undefined;
   return {
     ...map,
     matches,
@@ -59,6 +44,7 @@ export function dropPastAwardMatches(map: OpportunityMap, now: number = Date.now
       agencies: agencies.length,
       closingIn90Days,
     },
+    ...(verdict ? { mapVerdict: verdict } : {}),
     agencyIntelligence,
   };
 }

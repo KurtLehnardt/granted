@@ -769,7 +769,6 @@ export async function buildOpportunityMap(
   return result;
 }
 
-
 async function weakField(
   profile: StartupProfile,
   followUps: string[],

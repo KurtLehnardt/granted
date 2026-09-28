@@ -217,10 +217,6 @@ function sourceApplyStep(opportunity: Opportunity, now?: number): Step {
     }
     case "sbir":
     case "sbir.gov": {
-      // Past-award SBIR/STTR records (source "sbir", id "sbir-award-*") are
-      // never matchable (lib/corpus/pastAwards.ts), so a "sbir" match reaching
-      // this checklist is always a genuine open solicitation, and its `url`
-      // (normalizeSbirSolicitation) is the AGENCY's own solicitation page.
       const pointer = sourcePointer(opportunity, "the agency's solicitation page");
       const register = "Register in SAM.gov and on sbir.gov (most agencies require both before you can submit)";
       const deadline = formatDate(opportunity.deadline);
@@ -242,9 +238,6 @@ function sourceApplyStep(opportunity: Opportunity, now?: number): Step {
       const pointer = sourcePointer(opportunity, "this opportunity's page");
       return [`Respond through SAM.gov Contract Opportunities, following ${opportunity.agency}'s solicitation instructions. Details: `, pointer, `.`];
     }
-    // "usaspending" has no case here: every USAspending record is a closed/past
-    // contract award (status "closed"), which is never matchable
-    // (lib/corpus/pastAwards.ts) — this source can never reach this checklist.
     case "agency-feed":
     default: {
       const pointer = sourcePointer(opportunity, "this opportunity's page");

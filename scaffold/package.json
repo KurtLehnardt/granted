@@ -22,7 +22,7 @@
     "data:competitors": "node --import tsx scripts/5-competitors.mjs",
     "data:all": "npm run data:fetch && npm run data:normalize && npm run data:embed",
     "data:fetch:sam": "node scripts/1-fetch-sam-assistance.mjs",
-    "data:assemble": "node --import tsx scripts/assemble-mvp-corpus.mjs",
+    "data:assemble": "node scripts/assemble-mvp-corpus.mjs",
     "data:mvp": "npm run data:fetch:sam && npm run data:assemble",
     "data:refresh": "node --import tsx scripts/refresh-corpus.mjs",
     "check:hex": "node scripts/design/check-hex.mjs",
