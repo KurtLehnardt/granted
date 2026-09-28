@@ -57,20 +57,37 @@ describe("resolveKeySource — file", () => {
     assert.match(r.error!, /absolute/);
   });
 
+  function withTempHome(fn: (home: string) => void): void {
+    const saved = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "granted-keysource-home-"));
+    process.env.HOME = home;
+    process.env.USERPROFILE = home;
+    try {
+      fn(home);
+    } finally {
+      for (const [name, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  }
+
   test("~ expands to the home directory", () => {
-    const homeDir = path.join(os.homedir(), ".fcc");
-    fs.mkdirSync(homeDir, { recursive: true });
-    fs.writeFileSync(path.join(homeDir, "granted-keysource-test-token"), "sk-hometoken000\n", "utf8");
-    const r = resolveKeySource({ type: "file", path: "~/.fcc/granted-keysource-test-token" });
-    assert.deepEqual(r, { key: "sk-hometoken000" });
-    fs.rmSync(path.join(homeDir, "granted-keysource-test-token"), { force: true });
+    withTempHome((home) => {
+      assert.equal(os.homedir(), home);
+      fs.mkdirSync(path.join(home, ".fcc"));
+      fs.writeFileSync(path.join(home, ".fcc", "proxy_auth_token"), "sk-hometoken000\n", "utf8");
+      assert.deepEqual(resolveKeySource({ type: "file", path: "~/.fcc/proxy_auth_token" }), { key: "sk-hometoken000" });
+    });
   });
 
-  test("bare ~ alone (no trailing content) is still relative-path-shaped after expansion, not crashing", () => {
-    const r = resolveKeySource({ type: "file", path: "~" });
-    // Expands to the home directory itself, which is a directory, not a file.
-    assert.equal(r.key, undefined);
-    assert.match(r.error!, /Couldn't read/);
+  test("bare ~ expands to the home directory itself, which isn't a readable key file", () => {
+    withTempHome(() => {
+      const r = resolveKeySource({ type: "file", path: "~" });
+      assert.equal(r.key, undefined);
+      assert.match(r.error!, /Couldn't read/);
+    });
   });
 
   test("missing file -> \"Couldn't read <path>\"", () => {
