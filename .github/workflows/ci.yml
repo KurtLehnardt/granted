@@ -1,0 +1,71 @@
+name: ci
+
+# Typecheck + unit tests on every PR and every push to main.
+#
+# Both commands are hermetic: the suite needs no API keys, no .env.local, no
+# network and no database (verified by running it with .env.local removed), so
+# this job needs no secrets. Anything that WOULD need a key belongs in a
+# separate workflow, not here — a required check that depends on a secret
+# silently stops working for forks.
+#
+# Playwright (`npm run e2e`) is deliberately NOT run here: it needs browser
+# binaries and a built app, which is a different job with a different runtime
+# budget. Add it separately rather than making this check slow enough that
+# people stop waiting for it.
+#
+# Node versions: 22 (current LTS) and 24. NOT 20, even though that is the floor
+# the README gives for RUNNING the app — `npm test` passes glob patterns to the
+# Node test runner, and glob expansion only arrived in Node 22. On 20 the runner
+# takes the pattern literally and exits 1 with "Could not find
+# '.../lib/**/__tests__/**/*.test.ts'" before running a single test. So 20 is a
+# valid floor for running Granted but not for developing it. If the test script
+# is ever made 20-compatible, add "20" back to the matrix.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # One run per branch/PR. Cancelling superseded runs is safe: this job only
+  # reads the tree and publishes nothing.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typecheck-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      # Report every failing Node version, not just whichever tripped first.
+      fail-fast: false
+      matrix:
+        node-version: ["22", "24"]
+    defaults:
+      run:
+        working-directory: scaffold
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: "npm"
+          cache-dependency-path: scaffold/package-lock.json
+
+      # `npm ci` (not `install`) so a lockfile that has drifted from
+      # package.json fails the build instead of being silently rewritten.
+      - name: Install dependencies
+        run: npm ci
+
+      # Kept as separate steps so a red build names which one broke.
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
