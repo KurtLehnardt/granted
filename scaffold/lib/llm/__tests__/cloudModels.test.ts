@@ -329,7 +329,7 @@ describe("probeCloudKey — anthropic", () => {
     );
   });
 
-  test("400 not-scoped-to-workspace -> surfaces the provider message, sanitized, with a nudge to fill in Workspace ID", async () => {
+  test("400 not-scoped-to-workspace -> surfaces the provider message, sanitized, with a create-key-in-a-workspace nudge", async () => {
     const { withHostedFetch } = await import("../client");
     const providerMessage =
       "This API key is not scoped to a workspace, so this request must include the anthropic-workspace-id header with the ID of the workspace to use.";
@@ -341,7 +341,8 @@ describe("probeCloudKey — anthropic", () => {
         if (!outcome.ok) {
           assert.equal(outcome.kind, "other");
           assert.match(outcome.message, /not scoped to a workspace/);
-          assert.match(outcome.message, /Check the Workspace ID field/);
+          assert.match(outcome.message, /isn't tied to a workspace/);
+          assert.match(outcome.message, /open a workspace/);
         }
       },
     );
@@ -364,36 +365,6 @@ describe("probeCloudKey — anthropic", () => {
         }
       },
     );
-  });
-
-  test("sends anthropic-workspace-id when a workspace id is given", async () => {
-    const { withHostedFetch } = await import("../client");
-    let sentHeader: string | null = null;
-    await withHostedFetch(
-      (async (_url: any, init: any) => {
-        sentHeader = init?.headers?.["anthropic-workspace-id"] ?? null;
-        return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { "content-type": "application/json" } });
-      }) as any,
-      async () => {
-        await probeCloudKey({ providerId: "anthropic", key: "sk-ant-abcXYZ1234567890", model: "claude-x", anthropicWorkspaceId: "wrkspc_abc123" });
-      },
-    );
-    assert.equal(sentHeader, "wrkspc_abc123");
-  });
-
-  test("no anthropic-workspace-id header when none is given", async () => {
-    const { withHostedFetch } = await import("../client");
-    let sentHeader: string | null | undefined = "unset";
-    await withHostedFetch(
-      (async (_url: any, init: any) => {
-        sentHeader = init?.headers?.["anthropic-workspace-id"];
-        return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { "content-type": "application/json" } });
-      }) as any,
-      async () => {
-        await probeCloudKey({ providerId: "anthropic", key: "sk-ant-abcXYZ1234567890", model: "claude-x" });
-      },
-    );
-    assert.equal(sentHeader, undefined);
   });
 });
 
@@ -419,21 +390,6 @@ describe("listCloudModels — anthropic", () => {
         assert.match(result.error!, /didn't work/i);
       },
     );
-  });
-
-  test("sends anthropic-workspace-id when a workspace id is given", async () => {
-    const { withHostedFetch } = await import("../client");
-    let sentHeader: string | undefined;
-    await withHostedFetch(
-      (async (_url: any, init: any) => {
-        sentHeader = init?.headers?.["anthropic-workspace-id"];
-        return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { "content-type": "application/json" } });
-      }) as any,
-      async () => {
-        await listCloudModels({ providerId: "anthropic", key: "sk-ant-abcXYZ1234567890", anthropicWorkspaceId: "wrkspc_abc123" });
-      },
-    );
-    assert.equal(sentHeader, "wrkspc_abc123");
   });
 
   test("400 not-scoped-to-workspace -> provider message with the key redacted", async () => {

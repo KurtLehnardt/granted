@@ -4,13 +4,12 @@ import { currentHostedFetch, adaptRejectedParams } from "./client";
 import { normalizeOpenAiBaseUrl } from "./baseUrl";
 import { sanitizeProviderMessage, anthropicRawMessage, providerMessageFromBody } from "./errors";
 
-function anthropicClient(apiKey: string, timeout: number, workspaceId?: string): Anthropic {
+function anthropicClient(apiKey: string, timeout: number): Anthropic {
   return new Anthropic({
     apiKey,
     timeout,
     maxRetries: 0,
     fetch: currentHostedFetch() as any,
-    ...(workspaceId ? { defaultHeaders: { "anthropic-workspace-id": workspaceId } } : {}),
   });
 }
 
@@ -21,9 +20,11 @@ export type ProbeOutcome =
   | { ok: true }
   | { ok: false; kind: "invalid_key" | "rate_limited" | "network" | "other" | "invalid_model"; message: string };
 
-/** Nudges the user toward the fix when Anthropic's own message already explains it. */
+/** Nudges the user toward the fix when Anthropic's own message says the key isn't scoped to a workspace. */
 function withWorkspaceHint(message: string): string {
-  return /workspace/i.test(message) ? `${message} Check the Workspace ID field and try again.` : message;
+  return /workspace/i.test(message)
+    ? `${message} This key isn't tied to a workspace. In the Anthropic Console, open a workspace (e.g. Default) and create the API key there.`
+    : message;
 }
 
 /** A key can be valid and reach the provider, yet name a model that provider
@@ -123,8 +124,6 @@ export interface CloudProbeParams {
   /** Configured model to probe. Falls back to the provider's default (or, if
    * it has none, the first model the list call above returned) when omitted. */
   model?: string;
-  /** Anthropic only: sent as the anthropic-workspace-id header when the key isn't scoped to a workspace. */
-  anthropicWorkspaceId?: string;
 }
 
 /** Real-world finding: a key can pass `models.list` (free) yet have NO credit
@@ -174,7 +173,7 @@ async function probeOpenAiCompatModel(baseUrl: string, key: string, model: strin
  * instead of at search time. */
 export async function probeCloudKey(params: CloudProbeParams): Promise<ProbeOutcome> {
   if (params.providerId === "anthropic") {
-    const client = anthropicClient(params.key, 15_000, params.anthropicWorkspaceId);
+    const client = anthropicClient(params.key, 15_000);
     let models: string[] = [];
     try {
       const page: any = await client.models.list();
@@ -228,11 +227,10 @@ export async function listCloudModels(params: {
   providerId: CloudProviderId;
   baseUrl?: string;
   key: string;
-  anthropicWorkspaceId?: string;
 }): Promise<ModelsListResult> {
   if (params.providerId === "anthropic") {
     try {
-      const page: any = await anthropicClient(params.key, 10_000, params.anthropicWorkspaceId).models.list();
+      const page: any = await anthropicClient(params.key, 10_000).models.list();
       const models = (page?.data ?? []).map((m: any) => m.id).filter((id: unknown) => typeof id === "string");
       return { models };
     } catch (err) {
