@@ -56,3 +56,50 @@ export function setModel(value: string | null): void {
     /* localStorage unavailable — nothing to persist */
   }
 }
+
+/** Off by default: no government API calls unless the user opts in. */
+const AUTO_UPDATE_KEY = "granted:autoUpdateCorpus";
+
+export function getAutoUpdateCorpus(): boolean {
+  try {
+    return window.localStorage.getItem(AUTO_UPDATE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function setAutoUpdateCorpus(value: boolean): void {
+  try {
+    if (value) window.localStorage.setItem(AUTO_UPDATE_KEY, "1");
+    else window.localStorage.removeItem(AUTO_UPDATE_KEY);
+  } catch {
+    /* localStorage unavailable — nothing to persist */
+  }
+}
+
+const MAX_CORPUS_SIZE_KEY = "granted:maxCorpusSize";
+export const MIN_CORPUS_SIZE = 1000;
+export const MAX_CORPUS_SIZE = 20000;
+export const DEFAULT_CORPUS_SIZE = 1000;
+
+export function clampCorpusSize(n: number): number {
+  return Math.min(MAX_CORPUS_SIZE, Math.max(MIN_CORPUS_SIZE, Math.floor(n)));
+}
+
+export function getMaxCorpusSize(): number {
+  try {
+    const raw = window.localStorage.getItem(MAX_CORPUS_SIZE_KEY);
+    const n = raw == null ? NaN : Number(raw);
+    return Number.isFinite(n) ? clampCorpusSize(n) : DEFAULT_CORPUS_SIZE;
+  } catch {
+    return DEFAULT_CORPUS_SIZE;
+  }
+}
+
+export function setMaxCorpusSize(value: number): void {
+  try {
+    window.localStorage.setItem(MAX_CORPUS_SIZE_KEY, String(clampCorpusSize(value)));
+  } catch {
+    /* localStorage unavailable — nothing to persist */
+  }
+}

@@ -13,8 +13,12 @@
  * Run on your laptop: `node scripts/1-fetch-procurement.mjs`
  */
 import { writeFile, mkdir } from "node:fs/promises";
+import { join } from "node:path";
 
-await mkdir("data/raw", { recursive: true });
+const RAW_DIR = process.env.RAW_DIR || "data/raw";
+const rawPath = (name) => join(RAW_DIR, name);
+
+await mkdir(RAW_DIR, { recursive: true });
 
 const ENDPOINT = "https://api.usaspending.gov/api/v2/search/spending_by_award/";
 const FIELDS = [
@@ -32,8 +36,8 @@ const KEYWORD_QUERIES = [
   "aerospace", "water treatment", "environmental monitoring",
   "health information technology",
 ];
-const PER_QUERY = 12;
-const UTAH_LIMIT = 20;
+const PER_QUERY = Number(process.env.PROCUREMENT_PER_QUERY) || 12;
+const UTAH_LIMIT = Number(process.env.PROCUREMENT_UTAH_LIMIT) || 20;
 
 async function search(filters, limit) {
   const body = { filters, fields: FIELDS, page: 1, limit, sort: "Award Amount", order: "desc" };
@@ -90,9 +94,9 @@ async function main() {
   }
 
   const out = [...byId.values()];
-  await writeFile("data/raw/usaspending-contracts.json", JSON.stringify(out, null, 2));
+  await writeFile(rawPath("usaspending-contracts.json"), JSON.stringify(out, null, 2));
   console.log(`\nprocurement  kept ${out.length} unique contract awards`);
-  console.log("→ data/raw/usaspending-contracts.json\n");
+  console.log(`→ ${rawPath("usaspending-contracts.json")}\n`);
 }
 
 await main();

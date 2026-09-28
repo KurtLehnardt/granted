@@ -18,8 +18,12 @@
  * Run on your laptop: `node scripts/1-fetch-sam-assistance.mjs`
  */
 import { writeFile, mkdir } from "node:fs/promises";
+import { join } from "node:path";
 
-await mkdir("data/raw", { recursive: true });
+const RAW_DIR = process.env.RAW_DIR || "data/raw";
+const rawPath = (name) => join(RAW_DIR, name);
+
+await mkdir(RAW_DIR, { recursive: true });
 
 const FAL_URL =
   "https://falextracts.s3.amazonaws.com/Assistance%20Listings/datagov/AssistanceListings_DataGov_PUBLIC_CURRENT.csv";
@@ -88,7 +92,10 @@ function classifyKind(typesOfAssistance, title) {
 /** Per-kind caps keep the corpus (and cold-start bundle) bounded AND stop the
  *  demo's case 5 from over-matching a flood of education/community listings.
  *  We still guarantee a healthy spread of every new kind. */
-const CAPS = { assistance: 240, loan: 45, scholarship: 30 };
+const FETCH_ALL = process.env.SAM_FETCH_MODE === "all";
+const CAPS = FETCH_ALL
+  ? { assistance: Infinity, loan: Infinity, scholarship: Infinity }
+  : { assistance: 240, loan: 45, scholarship: 30 };
 
 async function main() {
   console.log("SAM assistance  downloading FAL extract (~22MB, keyless)…");
@@ -115,7 +122,7 @@ async function main() {
     if (!title) continue;
     const hay = `${title} ${objectives} ${r[iUses] ?? ""}`.toLowerCase();
     const matched = DOMAIN_KEYWORDS.filter((k) => hay.includes(k));
-    if (matched.length === 0) continue;
+    if (!FETCH_ALL && matched.length === 0) continue;
 
     const kind = classifyKind(r[iTypes] ?? "", title);
     if (counts[kind] >= CAPS[kind]) continue;
@@ -138,10 +145,10 @@ async function main() {
     });
   }
 
-  await writeFile("data/raw/sam-assistance.json", JSON.stringify(out, null, 2));
+  await writeFile(rawPath("sam-assistance.json"), JSON.stringify(out, null, 2));
   console.log(`SAM assistance  kept ${out.length} of ${rows.length - 1} programs`);
   console.log(`  by kind: assistance=${counts.assistance} loan=${counts.loan} scholarship=${counts.scholarship}`);
-  console.log("→ data/raw/sam-assistance.json\n");
+  console.log(`→ ${rawPath("sam-assistance.json")}\n`);
 }
 
 await main();

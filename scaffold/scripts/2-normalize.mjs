@@ -5,6 +5,7 @@
  */
 import "./_loadEnvLocal.mjs"; // honor scaffold/.env.local when run as plain `node`
 import { readFile, writeFile } from "node:fs/promises";
+import { normalizeGrantsRecord, normalizeSbirSolicitation } from "./lib/normalizeGrants.mjs";
 
 const read = async (p, fallback = []) => {
   try { return JSON.parse(await readFile(p, "utf8")); } catch { return fallback; }
@@ -13,53 +14,6 @@ const read = async (p, fallback = []) => {
 const grants = await read("data/raw/grants.json");
 const sols = await read("data/raw/sbir-solicitations.json");
 const awards = await read("data/raw/sbir-awards.json");
-
-/** grants.gov detail text (synopsisDesc / forecastDesc / applicantEligibilityDesc)
- * comes back as raw HTML (often Office-pasted markup). Strip tags/entities so
- * it embeds and reads cleanly. */
-/** Common named entities seen in grants.gov HTML (Office-pasted markup uses
- * smart quotes/dashes/bullets far more than the handful this used to cover). */
-const NAMED_ENTITIES = {
-  nbsp: " ", amp: "&", lt: "<", gt: ">", quot: '"', apos: "'",
-  rsquo: "’", lsquo: "‘", ldquo: "“", rdquo: "”",
-  ndash: "–", mdash: "—", sect: "§", trade: "™",
-  bull: "•", hellip: "…", copy: "©", reg: "®",
-  atilde: "ã", eacute: "é", iacute: "í", ocirc: "ô",
-};
-
-// One decode pass: numeric entities (&#8239; / &#x2019; style — covers
-// ligatures and exotic punctuation the named map doesn't list) then named.
-const decodeEntitiesOnce = (s) =>
-  s
-    .replace(/&#x([0-9a-fA-F]+);/gi, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
-    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(parseInt(dec, 10)))
-    .replace(/&([a-zA-Z]+);/g, (m, name) => NAMED_ENTITIES[name.toLowerCase()] ?? m);
-
-// Only match real HTML tags (`<` or `</` immediately followed by a letter).
-// A bare `<`/`>` used as a comparison operator (e.g. "< 500 employees") has
-// no letter right after `<`, so it's left alone instead of being treated as
-// an unclosed tag that swallows everything up to the next `>`.
-const TAG_RE = /<\/?[a-zA-Z][^>]*>/g;
-
-const stripHtml = (html) => {
-  if (!html) return "";
-  let text = html.replace(TAG_RE, " ");
-  // grants.gov double-escapes some fields (e.g. "&amp;#64257;" — a literal
-  // "&" HTML-escaped around an already-numeric entity). One decode pass
-  // turns "&amp;" into "&", which unmasks a fresh "&#64257;" that a single
-  // pass would miss. Loop (bounded) until a pass makes no further change.
-  for (let i = 0; i < 3; i++) {
-    const next = decodeEntitiesOnce(text);
-    if (next === text) break;
-    text = next;
-  }
-  // decoding can also unmask entities that were themselves escaped tags
-  // (e.g. "&lt;br&gt;" -> "<br>"); strip once more to catch those.
-  return text
-    .replace(TAG_RE, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-};
 
 /**
  * grants.gov agency names are sub-agency/office level ("Army Contracting
@@ -94,47 +48,10 @@ const agencyKey = (name) => {
   return null;
 };
 
-const opportunities = [];
-
-for (const g of grants) {
-  const detail = g._detail ?? {};
-  const title = stripHtml(g.title) || "Untitled opportunity";
-  const descText = stripHtml(detail.synopsisDesc ?? detail.forecastDesc);
-  const eligText = stripHtml(detail.applicantEligibilityDesc) ||
-    stripHtml((detail.applicantTypes ?? []).map((t) => t.description).filter(Boolean).join("; "));
-  opportunities.push({
-    id: `grants-${g.id ?? g.number}`,
-    source: "grants.gov",
-    kind: "grant",
-    program: title,
-    agency: g.agency ?? g.agencyCode ?? "Unknown agency",
-    description: [title, descText, g._keyword].filter(Boolean).join(". ").slice(0, 4000),
-    eligibility: eligText,
-    fundingLow: Number(detail.awardFloor) || undefined,
-    fundingHigh: Number(detail.awardCeiling) || undefined,
-    deadline: g.closeDate || undefined,
-    forecasted: (g.oppStatus ?? "").toLowerCase() === "forecasted",
-    industryTags: [g._keyword].filter(Boolean),
-    url: g.id ? `https://www.grants.gov/search-results-detail/${g.id}` : undefined,
-  });
-}
-
-for (const s of sols) {
-  const solTitle = stripHtml(s.solicitation_title) || "SBIR/STTR solicitation";
-  opportunities.push({
-    id: `sbir-${s.solicitation_id ?? s.solicitation_number}`,
-    source: "sbir",
-    kind: "rd",
-    program: solTitle,
-    agency: s.agency ?? "Unknown agency",
-    description: [solTitle, (s.solicitation_topics ?? [])
-      .map((t) => `${stripHtml(t.topic_title)}: ${stripHtml(t.topic_description) ?? ""}`).join(" ")]
-      .filter(Boolean).join(". ").slice(0, 4000),
-    eligibility: "US small business, generally under 500 employees",
-    deadline: s.close_date ?? undefined,
-    url: s.solicitation_agency_url ?? undefined,
-  });
-}
+const opportunities = [
+  ...grants.map(normalizeGrantsRecord),
+  ...sols.map(normalizeSbirSolicitation),
+];
 
 // Deduplicate and drop anything with no usable description to embed.
 const seen = new Set();

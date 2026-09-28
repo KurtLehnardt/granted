@@ -1,6 +1,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { parseBuiltAt, corpusAsOf } from "../meta";
+import { parseBuiltAt } from "../meta";
+import committedMeta from "@/data/corpus-meta.json";
 
 /**
  * Data-freshness: the corpus "as of" stamp. Pure/hermetic (node:test + assert,
@@ -45,7 +46,7 @@ describe("parseBuiltAt", () => {
 
 describe("corpusAsOf (the committed data/corpus-meta.json)", () => {
   test("surfaces a valid, non-null as-of for the shipped corpus", () => {
-    const result = corpusAsOf();
+    const result = parseBuiltAt(committedMeta);
     assert.ok(result, "the committed corpus-meta.json should parse to an as-of surface");
     // A human, date-shaped label (e.g. "August 15, 2026").
     assert.match(result!.label, /^[A-Z][a-z]+ \d{1,2}, \d{4}$/);

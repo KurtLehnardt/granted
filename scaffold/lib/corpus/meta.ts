@@ -1,5 +1,3 @@
-import rawCorpusMeta from "@/data/corpus-meta.json";
-
 /**
  * corpus/meta.ts — the committed corpus's "as of" stamp (data-freshness surface).
  *
@@ -71,13 +69,4 @@ export function parseBuiltAt(meta: CorpusMeta | null | undefined): CorpusAsOf | 
   if (Number.isNaN(t)) return null; // guard Invalid Date — never fabricate.
   const d = new Date(t);
   return { iso: d.toISOString(), label: formatUtcDate(d) };
-}
-
-/**
- * The committed corpus's "as of" surface, read from `data/corpus-meta.json`.
- * `null` when the stamp is missing/invalid (safe fallback). Reads only the
- * committed file — no network, no request-time state.
- */
-export function corpusAsOf(): CorpusAsOf | null {
-  return parseBuiltAt(rawCorpusMeta as CorpusMeta);
 }

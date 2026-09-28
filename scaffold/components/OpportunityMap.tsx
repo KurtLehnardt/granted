@@ -12,7 +12,7 @@ import type { OpportunityMap as MapT, Match } from "@/lib/types";
 import { isFlagEnabled } from "@/lib/flags";
 import { aggregateSimilarCompanies } from "@/lib/similar/aggregate";
 import { fundingCell, closingSoonCount, expiredCount } from "@/lib/ui/opportunitySummary";
-import { corpusAsOf } from "@/lib/corpus/meta";
+import { useCorpusAsOf } from "@/lib/corpus/useCorpusAsOf";
 
 /** Cards to render. We never wall the user with the 20+ "none" rows. Exported
  *  so the progressive preview list (app/page.tsx, while a search is still
@@ -86,9 +86,9 @@ export default function OpportunityMap({ map }: { map: MapT }) {
   // deadlines as current. Works on cached/precomputed maps too — it reads only
   // `m.opportunity.deadline`, which every map shape carries.
   const expired = expiredCount(shown);
-  // The corpus "as of" stamp (from data/corpus-meta.json). `null` when the
+  // The corpus "as of" stamp (GET /api/corpus). `null` when the
   // stamp is absent/invalid — the footer then degrades to a date-free caveat.
-  const asOf = corpusAsOf();
+  const asOf = useCorpusAsOf();
 
   // R8 / ELG-04: map the REAL determinations attached by buildOpportunityMap
   // (screen() + freshness) into the FE-04 three-bucket display's item shape.

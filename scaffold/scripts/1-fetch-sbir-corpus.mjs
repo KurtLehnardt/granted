@@ -23,11 +23,15 @@
 import { writeFile, mkdir, unlink } from "node:fs/promises";
 import { createReadStream } from "node:fs";
 import { Readable } from "node:stream";
+import { join } from "node:path";
 
-await mkdir("data/raw", { recursive: true });
+const RAW_DIR = process.env.RAW_DIR || "data/raw";
+const rawPath = (name) => join(RAW_DIR, name);
+
+await mkdir(RAW_DIR, { recursive: true });
 
 const CSV_URL = "https://data.www.sbir.gov/mod_awarddatapublic/award_data.csv";
-const TMP = "data/raw/_sbir_abstract.csv.tmp";
+const TMP = rawPath("_sbir_abstract.csv.tmp");
 
 const DOMAIN_KEYWORDS = [
   "artificial intelligence", "machine learning", "health information",
@@ -39,8 +43,8 @@ const DOMAIN_KEYWORDS = [
   "workforce", "autonomy", "autonomous",
 ];
 const RECENT_MIN_YEAR = 2022;
-const CAP_TOTAL = 130;
-const CAP_PER_AGENCY = 30;
+const CAP_TOTAL = Number(process.env.SBIR_CAP_TOTAL) || 130;
+const CAP_PER_AGENCY = Number(process.env.SBIR_CAP_PER_AGENCY) || 30;
 
 /** Streaming RFC4180-ish parser: feed chunks, get complete rows via onRow.
  *  Bounds memory — we never hold the whole 108MB file as one array. */
@@ -153,9 +157,9 @@ async function main() {
   });
 
   await unlink(TMP).catch(() => {});
-  await writeFile("data/raw/sbir-corpus.json", JSON.stringify(out, null, 2));
+  await writeFile(rawPath("sbir-corpus.json"), JSON.stringify(out, null, 2));
   console.log(`SBIR corpus   kept ${out.length} R&D records (scanned ${scanned}, ${Object.keys(perAgency).length} agencies, FY≥${RECENT_MIN_YEAR})`);
-  console.log("→ data/raw/sbir-corpus.json\n");
+  console.log(`→ ${rawPath("sbir-corpus.json")}\n`);
 }
 
 await main();

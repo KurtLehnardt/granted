@@ -4,6 +4,7 @@ import { AuthProvider } from "@/components/AuthProvider";
 import { SettingsPanelProvider } from "@/components/AppMenu";
 import { SearchDraftProvider } from "@/components/SearchDraftProvider";
 import { AnalyticsProvider } from "@/components/AnalyticsProvider";
+import CorpusAutoUpdate from "@/components/CorpusAutoUpdate";
 import { BRAND } from "@/lib/brand";
 import "./globals.css";
 
@@ -52,7 +53,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <AuthProvider>
           <SearchDraftProvider>
             <SettingsPanelProvider>
-              <AnalyticsProvider>{children}</AnalyticsProvider>
+              <AnalyticsProvider>
+                <CorpusAutoUpdate />
+                {children}
+              </AnalyticsProvider>
             </SettingsPanelProvider>
           </SearchDraftProvider>
         </AuthProvider>

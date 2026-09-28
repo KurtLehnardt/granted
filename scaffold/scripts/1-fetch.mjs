@@ -5,8 +5,13 @@
  */
 import "./_loadEnvLocal.mjs"; // honor scaffold/.env.local when run as plain `node`
 import { writeFile, mkdir } from "node:fs/promises";
+import { join } from "node:path";
 
-await mkdir("data/raw", { recursive: true });
+const RAW_DIR = process.env.RAW_DIR || "data/raw";
+const GRANTS_ONLY = process.env.GRANTS_ONLY === "1";
+const rawPath = (name) => join(RAW_DIR, name);
+
+await mkdir(RAW_DIR, { recursive: true });
 
 /** Keywords shaped around the five standard test cases. Widen if you add cases. */
 const KEYWORDS = [
@@ -62,23 +67,72 @@ function parseCsv(text) {
   return rows;
 }
 
-async function grantsGov() {
-  const out = [];
-  for (const kw of KEYWORDS) {
+const FETCH_ALL = process.env.GRANTS_FETCH_MODE === "all";
+const ALL_PAGE_SIZE = 1000;
+const ALL_MAX_PAGES = 50;
+
+async function fetchSearch2Page(page) {
+  for (let attempt = 0; attempt <= 3; attempt++) {
     try {
       const res = await fetch("https://api.grants.gov/v1/api/search2", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rows: 50, keyword: kw, oppStatuses: "forecasted|posted" }),
+        body: JSON.stringify({
+          rows: ALL_PAGE_SIZE,
+          startRecordNum: page * ALL_PAGE_SIZE,
+          oppStatuses: "forecasted|posted",
+        }),
       });
-      const json = await res.json();
-      const hits = json?.data?.oppHits ?? [];
-      out.push(...hits.map((h) => ({ ...h, _keyword: kw })));
-      console.log(`grants.gov  ${kw.padEnd(32)} ${hits.length}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
     } catch (e) {
-      console.warn(`grants.gov  ${kw} FAILED — ${e.message}`);
+      if (attempt === 3) throw new Error(`grants.gov page ${page} failed after retries — ${e.message}`);
+      console.warn(`grants.gov  page ${page} attempt ${attempt + 1} FAILED — ${e.message}, retrying`);
+      await new Promise((r) => setTimeout(r, 500 * 2 ** attempt));
     }
+  }
+}
+
+async function fetchAllPostedForecasted() {
+  const out = [];
+  let hitCount = null;
+  for (let page = 0; page < ALL_MAX_PAGES; page++) {
+    const json = await fetchSearch2Page(page);
+    const hits = json?.data?.oppHits ?? [];
+    if (hitCount == null && typeof json?.data?.hitCount === "number") hitCount = json.data.hitCount;
+    out.push(...hits);
+    console.log(`grants.gov  page ${page}  ${hits.length} (${out.length} total)`);
+    if (hits.length < ALL_PAGE_SIZE) break;
     await new Promise((r) => setTimeout(r, 250));
+  }
+  const uniqueCount = new Set(out.map((o) => o.id)).size;
+  if (hitCount != null && uniqueCount < hitCount) {
+    throw new Error(`grants.gov returned only ${uniqueCount} of ${hitCount} reported opportunities`);
+  }
+  return out;
+}
+
+async function grantsGov() {
+  let out = [];
+  if (FETCH_ALL) {
+    out = await fetchAllPostedForecasted();
+  } else {
+    for (const kw of KEYWORDS) {
+      try {
+        const res = await fetch("https://api.grants.gov/v1/api/search2", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ rows: 50, keyword: kw, oppStatuses: "forecasted|posted" }),
+        });
+        const json = await res.json();
+        const hits = json?.data?.oppHits ?? [];
+        out.push(...hits.map((h) => ({ ...h, _keyword: kw })));
+        console.log(`grants.gov  ${kw.padEnd(32)} ${hits.length}`);
+      } catch (e) {
+        console.warn(`grants.gov  ${kw} FAILED — ${e.message}`);
+      }
+      await new Promise((r) => setTimeout(r, 250));
+    }
   }
 
   // search2 only returns search-hit summaries: id/number/title/agency/
@@ -93,20 +147,25 @@ async function grantsGov() {
   const uniqueIds = [...new Set(out.map((o) => o.id).filter(Boolean))];
   console.log(`grants.gov  fetching detail for ${uniqueIds.length} unique opportunities...`);
   let doneDetail = 0;
-  const pairs = await mapWithConcurrency(uniqueIds, 8, async (id) => {
+  const detailConcurrency = FETCH_ALL ? 16 : 8;
+  const pairs = await mapWithConcurrency(uniqueIds, detailConcurrency, async (id) => {
     let detail = null;
-    try {
-      const res = await fetch("https://api.grants.gov/v1/api/fetchOpportunity", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ opportunityId: Number(id) }),
-      });
-      if (res.ok) {
-        const json = await res.json();
-        detail = json?.data?.synopsis ?? json?.data?.forecast ?? null;
+    for (let attempt = 0; attempt <= 2 && detail == null; attempt++) {
+      try {
+        const res = await fetch("https://api.grants.gov/v1/api/fetchOpportunity", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ opportunityId: Number(id) }),
+        });
+        if (res.ok) {
+          const json = await res.json();
+          detail = json?.data?.synopsis ?? json?.data?.forecast ?? null;
+        } else if (attempt < 2) {
+          await new Promise((r) => setTimeout(r, 500 * 2 ** attempt));
+        }
+      } catch {
+        if (attempt < 2) await new Promise((r) => setTimeout(r, 500 * 2 ** attempt));
       }
-    } catch {
-      detail = null;
     }
     doneDetail++;
     if (doneDetail % 50 === 0) process.stdout.write(`\r  detail ${doneDetail}/${uniqueIds.length}`);
@@ -121,19 +180,19 @@ async function grantsGov() {
   }
   console.log(`grants.gov  ${withDetail}/${out.length} records got full detail`);
 
-  await writeFile("data/raw/grants.json", JSON.stringify(out, null, 2));
+  await writeFile(rawPath("grants.json"), JSON.stringify(out, null, 2));
   console.log(`\n→ ${out.length} grants.gov records\n`);
 }
 
-async function sbir() {
+async function sbirSolicitations() {
   const out = [];
-  // Solicitations: as of this run, api.www.sbir.gov returns 403 Forbidden on
-  // every variant we tried (bare, open=1, agency=, keyword=) — this matches
-  // SBIR.gov's own posted notice that its public APIs are "currently
-  // undergoing maintenance" (checked live + via web search, Aug 2026). Left
-  // in place so it self-heals automatically if the outage clears before the
-  // demo; the Array.isArray guard prevents the "Spread syntax requires
-  // ...iterable" crash that a 403's {"message":"Forbidden"} body caused.
+  // As of this run, api.www.sbir.gov returns 403 Forbidden on every variant
+  // we tried (bare, open=1, agency=, keyword=) — this matches SBIR.gov's own
+  // posted notice that its public APIs are "currently undergoing
+  // maintenance" (checked live + via web search, Aug 2026). Left in place so
+  // it self-heals automatically if the outage clears before the demo; the
+  // Array.isArray guard prevents the "Spread syntax requires ...iterable"
+  // crash that a 403's {"message":"Forbidden"} body caused.
   try {
     const res = await fetch("https://api.www.sbir.gov/public/api/solicitations?open=1&rows=200");
     const json = await res.json();
@@ -146,8 +205,10 @@ async function sbir() {
   } catch (e) {
     console.warn(`sbir solicitations FAILED — ${e.message}`);
   }
-  await writeFile("data/raw/sbir-solicitations.json", JSON.stringify(out, null, 2));
+  await writeFile(rawPath("sbir-solicitations.json"), JSON.stringify(out, null, 2));
+}
 
+async function sbirAwardsCsv() {
   // Historical awards: the awards API is down for the same reason. Pull the
   // public bulk CSV export instead — data.www.sbir.gov is a different host
   // than the blocked api.www.sbir.gov and is unaffected — then filter locally
@@ -190,7 +251,7 @@ async function sbir() {
   } catch (e) {
     console.warn(`sbir awards bulk CSV FAILED — ${e.message}`);
   }
-  await writeFile("data/raw/sbir-awards.json", JSON.stringify(awards, null, 2));
+  await writeFile(rawPath("sbir-awards.json"), JSON.stringify(awards, null, 2));
   console.log(`\n→ ${awards.length} SBIR award records\n`);
 }
 
@@ -215,15 +276,18 @@ async function usaspending() {
       body: JSON.stringify(body),
     });
     const json = await res.json();
-    await writeFile("data/raw/usaspending.json", JSON.stringify(json?.results ?? [], null, 2));
+    await writeFile(rawPath("usaspending.json"), JSON.stringify(json?.results ?? [], null, 2));
     console.log(`→ ${json?.results?.length ?? 0} USAspending records\n`);
   } catch (e) {
     console.warn(`usaspending FAILED — ${e.message}`);
-    await writeFile("data/raw/usaspending.json", "[]");
+    await writeFile(rawPath("usaspending.json"), "[]");
   }
 }
 
 await grantsGov();
-await sbir();
-await usaspending();
-console.log("Raw data in data/raw/. Next: npm run data:normalize");
+await sbirSolicitations();
+if (!GRANTS_ONLY) {
+  await sbirAwardsCsv();
+  await usaspending();
+}
+console.log(`Raw data in ${RAW_DIR}/. Next: npm run data:normalize`);
