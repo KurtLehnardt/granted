@@ -370,16 +370,7 @@ export async function buildOpportunityMap(
     return weakField(profile, followUps, meter, d.explainWeakField, signal);
   }
 
-  // Early eligibility screen: run the SAME deterministic screen() the final map
-  // attaches to every match, but BEFORE LLM scoring, so a candidate `screen()`
-  // already rules `excluded` — a DEFINITIVE, rule-based disqualification (a
-  // human-reviewed rule + a trustworthy failing fact; see screen.ts's R8.4
-  // invariants) — costs zero model calls. Only `excluded` is pulled forward:
-  // every other bucket (`eligible`/`conditionally_eligible`/`unknown`) reflects
-  // an uncertain or non-blocking signal and must still reach the scorer (never
-  // drop a candidate on uncertain signals). DEFENSIVE: a screening error here
-  // must never drop a candidate — it just scores normally, exactly as before,
-  // and gets re-screened in the normal per-match pass below.
+  // Only a definitive, rule-based `excluded` skips the LLM; every other bucket is still scored.
   const companyProfile = toCompanyProfile(profile, companyFacts);
   const preExcluded: { o: Opportunity; determination: EligibilityDetermination }[] = [];
   const toScore: typeof scored = [];
@@ -391,74 +382,39 @@ export async function buildOpportunityMap(
         continue;
       }
     } catch {
-      // Screening failed — fall through to normal scoring; re-screened below.
+      // Screening failed — score it normally; re-screened below.
     }
     toScore.push(x);
   }
 
   step({ key: "score", label: "Scoring and explaining your matches", pct: 52 });
   // Per-batch progress: interpolate between the score milestone (52) and the
-  // assemble milestone (90) as batches settle, so the ~83s scoring stage no
-  // longer sits frozen at 52%. `total` is every RETRIEVED candidate (including
-  // the early-filtered ones, already "done" for free) so the bar reflects the
-  // whole search, not just the subset that reaches the LLM.
+  // assemble milestone (90) as batches settle. `detail` counts LLM work only
+  // (SearchProgress extrapolates remaining time from it); two-pass `done` is
+  // cost-weighted, so its label uses the real Pass A/B counts instead.
   const total = scored.length;
   const preDone = preExcluded.length;
-  // `doneInScoring` drives `pct` — for two-pass it's `twoPassProgress`'s
-  // cost-weighted value (see lib/claude.ts), scaled to look right against wall
-  // clock, NOT a count of anything scored. The LABEL must never render that
-  // number; when two-pass supplies `twoPassDetail` (the real Pass A/B counts)
-  // it's used instead, so the text stays truthful across both passes.
-  // `preDone` counts toward `pct` (it's real, free progress) but NEVER toward
-  // `detail` — SearchProgress derives a per-candidate LLM rate from
-  // done/total to estimate remaining time, and pre-excluded candidates never
-  // touched the LLM, so folding them in would skew that rate.
-  const scorable = toScore.length;
-  const emitScoreProgress = (doneInScoring: number, twoPassDetail?: TwoPassProgressDetail) => {
+  const emitScoreProgress = (doneInScoring: number, twoPass?: TwoPassProgressDetail) => {
     const done = preDone + doneInScoring;
     const pct = total > 0 ? 52 + Math.round((done / total) * 36) : 52;
-    const label = twoPassDetail
-      ? twoPassDetail.promotedCount > 0
-        ? `Scored ${preDone + twoPassDetail.passAScored} of ${total} programs, writing ${twoPassDetail.passBScored} of ${twoPassDetail.promotedCount} summaries`
-        : `Scored ${preDone + twoPassDetail.passAScored} of ${total} programs`
-      : `Scored ${done} of ${total} programs`;
-    step({ key: "score-progress", label, pct, detail: `${doneInScoring}/${scorable}` });
+    const scoredLabel = `Scored ${preDone + (twoPass ? twoPass.passAScored : doneInScoring)} of ${total} programs`;
+    const label = twoPass?.promotedCount
+      ? `${scoredLabel}, writing ${twoPass.passBScored} of ${twoPass.promotedCount} summaries`
+      : scoredLabel;
+    step({ key: "score-progress", label, pct, detail: `${doneInScoring}/${toScore.length}` });
   };
-  // `byId` covers every retrieved candidate (including pre-excluded ones), used
-  // both by the progressive preview below (as each result lands) and by the
-  // final `matches` assembly once every result is in.
   const byId = new Map(scored.map((s) => [s.o.id, s.o]));
-  // E3: two-pass (Pass A score-only sweep, Pass B narrates only the top
-  // promoted candidates) is now the DEFAULT scorer for local models — a small
-  // local model's ~30s/candidate full-narrative call is too slow to run over
-  // every retrieved candidate, so cutting narration to the top few is load-
-  // bearing there, not just a cost optimization. `NEXT_PUBLIC_FLAG_E3_TWO_PASS=false`
-  // forces single-pass back on for local (an explicit opt-out, not just unset).
-  // Hosted keeps its existing flag-controlled behavior (`e3_two_pass`, default
-  // off). Both scorers return the same `Assessment[]` shape, so everything
-  // below (tiering, eligibility, summary) is untouched either way.
-  const useTwoPass = isLocalLlm()
-    ? !isFlagExplicitlyDisabled("e3_two_pass")
-    : isFlagEnabled("e3_two_pass");
+  // E3: two-pass is the default on local (a small model's per-candidate narrative is
+  // too slow to run over every candidate); NEXT_PUBLIC_FLAG_E3_TWO_PASS=false opts out.
+  // Hosted keeps the flag's default-off behavior.
+  const useTwoPass = isLocalLlm() ? !isFlagExplicitlyDisabled("e3_two_pass") : isFlagEnabled("e3_two_pass");
   const candidatesToScore = toScore.map((s) => s.o);
-  // Progressive preview: emit (or re-emit, updating the same card in place —
-  // see IntakeForm/page.tsx's id-keyed preview list) a Match the instant an
-  // assessment is available. Single pass emits once per candidate (full
-  // narrative); two-pass emits twice for a narrated candidate (score-only, then
-  // full narrative) and once for a score-only-forever candidate — same
-  // `onMatch` mechanism either way.
+  // Two-pass emits a narrated candidate twice (score-only, then narrative); the UI updates the card in place.
   const previewAssessment = (a: Assessment) => {
     const opp = byId.get(a.id);
     if (!opp) return;
-    // Best-effort: this must never affect the authoritative `matches` built
-    // below from the complete, awaited scorer return — only ever an early
-    // (and possibly later-superseded) preview for the UI to render.
     try { onMatch?.(baseMatchFromAssessment(a, opp, profile)); } catch { /* progressive rendering is best-effort */ }
   };
-  // Every candidate may have been early-filtered (e.g. an out-of-state,
-  // state-restricted search) — skip the scorer call entirely rather than
-  // asking it to score zero candidates (both scorers treat "every batch
-  // failed" as fatal, and zero candidates means zero batches).
   const assessments: Assessment[] =
     candidatesToScore.length === 0
       ? []
@@ -483,9 +439,6 @@ export async function buildOpportunityMap(
           );
   step({ key: "assemble", label: "Writing your opportunity map", pct: 90 });
 
-  // Early-filtered candidates never reached the scorer — score-only (0, tier
-  // `none`) so they still appear in the final map (with the eligibility
-  // determination already computed above), never silently dropped.
   const allAssessments: Assessment[] = [
     ...assessments,
     ...preExcluded.map(({ o, determination }) => ({
@@ -511,8 +464,6 @@ export async function buildOpportunityMap(
   // corpus has only free-text eligibility), so the universal overlay drives the
   // buckets. DEFENSIVE: a screening error must NEVER break the search — each
   // screen() is wrapped, and a failure simply omits the field for that match.
-  // Pre-excluded matches were already screened above — reuse that determination
-  // rather than paying for a second (idempotent) screen() call.
   const preExcludedById = new Map(preExcluded.map((p) => [p.o.id, p.determination]));
   for (const m of matches) {
     const known = preExcludedById.get(m.opportunity.id);

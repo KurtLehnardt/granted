@@ -21,16 +21,7 @@ import { useCorpusAsOf } from "@/lib/corpus/useCorpusAsOf";
  *  preview list is replaced by the final, complete map. */
 export const CARD_CAP = 8;
 
-/**
- * Cards to render: real fits (tier != none), best-scored first, capped at
- * `CARD_CAP` — plus any eligibility-EXCLUDED candidate, which must stay
- * VISIBLE (a reviewed, rule-based `excluded` determination — C1's own
- * comment, R8.2) rather than silently vanish behind the tier-`none` filter
- * that hides the rest of the `none` bulk. Excluded matches are appended
- * outside the cap (they don't compete with real fits for the 8 card slots)
- * and kept OUT of `real` so header stats (closingSoon/funding/expired) never
- * count a program the user was screened out of. Exported for unit testing.
- */
+/** Real fits (best first, capped) plus rule-excluded candidates, which stay visible (R8.2) but outside the cap and header stats. */
 export function selectShownMatches(matches: Match[]): { real: Match[]; excluded: Match[] } {
   const real = matches
     .filter((m) => m && m.tier !== "none")
@@ -88,13 +79,10 @@ export default function OpportunityMap({ map }: { map: MapT }) {
   // CompetitorResults deep-analysis flow, which this never reads or affects.
   const similarRecipients = aggregateSimilarCompanies(matches, { limit: 10 });
 
-  // Cards: real fits (likely / verify / adjacent), best first, capped — plus
-  // any visible `excluded` candidate (see `selectShownMatches`).
   const { real: shownReal, excluded: excludedShown } = selectShownMatches(matches);
   const shown = [...shownReal, ...excludedShown];
 
-  // Header stats derived from REAL fits only — an excluded candidate isn't a
-  // program the user can pursue, so it never inflates these counts.
+  // Header stats derived from real fits only — keeps them honest and consistent.
   const highPotential = shownReal.filter((m) => m.tier === "likely" || m.tier === "verify").length;
   // Evergreen-safe (F1): a rolling/continuous/standing program is never
   // counted here, even if a stray deadline-shaped value is present on the

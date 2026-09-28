@@ -3,13 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { normalizeOpenAiBaseUrl } from "./baseUrl";
 import { currentLocalModel } from "./modelContext";
 
-/**
- * Test-only seam (mirrors `withLocalModel`/`currentLocalModel` above): lets a
- * hermetic test stand in for the hosted Anthropic client's transport without
- * going through `LLM_PROVIDER`/network, since the SDK's Node runtime binds
- * `node-fetch` at import time rather than reading `globalThis.fetch`. Unset in
- * production, so `makeLlmClient` behaves exactly as before.
- */
+/** Test-only: the SDK binds node-fetch at import, so hosted tests inject fetch here. */
 const hostedFetchAls = new AsyncLocalStorage<typeof fetch>();
 export function withHostedFetch<T>(fetchImpl: typeof fetch | undefined, fn: () => T): T {
   return fetchImpl ? hostedFetchAls.run(fetchImpl, fn) : fn();

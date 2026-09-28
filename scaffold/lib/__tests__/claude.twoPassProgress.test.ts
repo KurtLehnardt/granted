@@ -1,7 +1,7 @@
 import { test, describe, afterEach } from "node:test";
 import assert from "node:assert/strict";
 
-import { explainMatchesTwoPass, twoPassProgress } from "../claude";
+import { explainMatchesTwoPass, twoPassProgress, type TwoPassProgressDetail } from "../claude";
 import type { Opportunity, StartupProfile } from "../types";
 
 /**
@@ -104,4 +104,19 @@ test("integration: onBatch events stay monotonic, cost-weighted, and reach total
   assert.ok(afterPassA, "should have at least one intermediate event before completion");
 
   assert.equal(result.length, candidates.length);
+});
+
+test("detail reports no promoted count until Pass A has finished", async () => {
+  process.env.LLM_PROVIDER = "ollama";
+  globalThis.fetch = fakeFetch();
+
+  const details: TwoPassProgressDetail[] = [];
+  await explainMatchesTwoPass(profile, candidates, undefined, (_done, _total, detail) => {
+    if (detail) details.push(detail);
+  });
+
+  const duringPassA = details.filter((d) => d.passAScored < candidates.length);
+  assert.ok(duringPassA.length > 0);
+  assert.ok(duringPassA.every((d) => d.promotedCount === 0));
+  assert.equal(details[details.length - 1].promotedCount, 3);
 });

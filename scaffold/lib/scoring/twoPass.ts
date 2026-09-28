@@ -43,14 +43,9 @@ export type PassAScore = { id: string; score: number };
  *
  * Tied to `tierFromScore`'s ADJACENT boundary (25) — the LOWEST band that
  * renders as a real tier (adjacent/verify/likely all render; only `none` < 25
- * does not). On HOSTED (`lib/claude.ts`'s `e3TwoPassTopN`, uncapped there),
- * every candidate that could render as a real tier still gets a full narrative
- * under two-pass, and only the non-rendering `none` bulk is skipped — which is
- * exactly where the cost/latency is saved. On LOCAL, Pass B additionally caps
- * narration to the top `E3_TWO_PASS_TOP_N` promoted candidates by Pass-A score
- * (a small local model is too slow to narrate every promoted candidate) — a
- * promoted candidate past that cap still renders its real tier, just with a
- * blank narrative, via `scoreOnlyAssessment`'s Pass-A score. Kept as a literal
+ * does not). So every candidate that could render as a real tier is eligible
+ * for a full narrative, and only the non-rendering `none` bulk is skipped (local
+ * also caps narration at `E3_TWO_PASS_TOP_N`; see `lib/claude.ts`). Kept as a literal
  * (not imported from `lib/match.ts`) to avoid a circular import; the value must
  * stay equal to that adjacent boundary. If `tierFromScore`'s adjacent boundary
  * ever moves, move this with it.
@@ -67,11 +62,9 @@ export function promotedIds(passA: PassAScore[], floor: number = PROMOTION_FLOOR
 }
 
 /**
- * A score-only assessment for a NON-promoted candidate: its Pass-A score, empty
+ * A score-only assessment for an un-narrated candidate: its Pass-A score, empty
  * narrative/criteria. `lib/match.ts` recomputes the tier from the score via
- * `tierFromScore`, so the `tier` field here is only a self-consistent
- * placeholder — a non-promoted candidate is (by definition of `PROMOTION_FLOOR`)
- * below the adjacent boundary, i.e. tier `none`.
+ * `tierFromScore`, so the `tier` field here is only a placeholder.
  */
 export function scoreOnlyAssessment(id: string, score: number): Assessment {
   return {
@@ -94,13 +87,11 @@ export function scoreOnlyAssessment(id: string, score: number): Assessment {
  * For each candidate id:
  *   - if Pass B returned a full assessment for it → use that Pass-B assessment
  *     (its score is the authoritative one, same as the single pass would have
- *     produced). WHICH candidates Pass B narrates (floor + top-N-by-score) is
- *     entirely the caller's decision (`lib/claude.ts`) — this merge just takes
- *     whatever Pass B actually returned;
+ *     produced);
  *   - otherwise → a score-only assessment carrying its Pass-A score, so it still
  *     computes a tier downstream and is never silently dropped. This also covers
- *     a candidate the caller SELECTED for narration whose Pass-B batch failed
- *     (graceful degradation): it keeps its Pass-A score rather than vanishing.
+ *     a candidate whose Pass-B batch failed (graceful degradation): it
+ *     keeps its Pass-A score rather than vanishing.
  *
  * A Pass-A score is required for a candidate to appear at all; a candidate with
  * no Pass-A score (Pass A failed to return it) is omitted, mirroring how the

@@ -567,10 +567,7 @@ async function scorePassA(
   onScore?: (scores: PassAScore[]) => void,
 ): Promise<PassAScore[]> {
   const SYSTEM = scorerPrompt("scoreMatches");
-  // Score-only output is tiny, so hosted can batch generously to cut call count.
-  // Local: JSON-object mode tends to return one bare object per call, so a
-  // multi-candidate local batch silently drops candidates (the bug PR #197 fixed
-  // for the single pass) — one candidate per call, run serially, below.
+  // Local: 1/batch, serial — JSON-object mode drops candidates from bigger batches (see explainMatches).
   const BATCH_A = Number(process.env.LLM_PASS_A_BATCH_SIZE) || (isLocalLlm() ? 1 : 12);
   const groups: Opportunity[][] = [];
   for (let i = 0; i < candidates.length; i += BATCH_A) groups.push(candidates.slice(i, i + BATCH_A));
@@ -611,10 +608,6 @@ async function scorePassA(
   };
 
   const fanOutStart = performance.now();
-  // A local single-GPU backend serves requests SERIALLY (mirrors `explainMatches`
-  // below) — firing every batch at once just queues them behind each other
-  // anyway, each blowing its own per-call timeout while it waits. Hosted keeps
-  // the concurrent fan-out.
   let settled: PromiseSettledResult<PassAScore[]>[];
   if (isLocalLlm()) {
     settled = [];
@@ -656,8 +649,6 @@ async function narratePassB(
 ): Promise<TwoPassAssessment[]> {
   if (promoted.length === 0) return [];
   const SYSTEM = scorerPrompt("explainMatches");
-  // Same local-vs-hosted split as `explainMatches`: local JSON-object mode drops
-  // candidates from a multi-candidate batch, so local narrates one at a time.
   const BATCH = Number(process.env.LLM_PASS_B_BATCH_SIZE) || (isLocalLlm() ? 1 : 8);
   const groups: Opportunity[][] = [];
   for (let i = 0; i < promoted.length; i += BATCH) groups.push(promoted.slice(i, i + BATCH));
@@ -710,8 +701,6 @@ async function narratePassB(
         throw reason;
       },
     );
-  // Local runs serially, one candidate per call, exactly like Pass A and the
-  // single pass — a self-host GPU serves one request at a time regardless.
   let settled: PromiseSettledResult<TwoPassAssessment[]>[];
   if (isLocalLlm()) {
     settled = [];
@@ -736,63 +725,30 @@ async function narratePassB(
   return ok.flat().map((a) => ({ ...a, score: clampScore(a.score) }));
 }
 
-/**
- * How many Pass-A-promoted candidates Pass B narrates, at most, in score order
- * (highest first). Even a candidate set with many opportunities clearing
- * `PROMOTION_FLOOR` only gets the expensive narrative call for its top hits —
- * the rest keep their (cheap) Pass-A score, which still tiers correctly.
- * Env-overridable for tuning without a code change; read live (not cached at
- * module load) so a per-request/test override takes effect.
- */
+/** Pass B narrates at most this many promoted candidates, best Pass-A score first. Uncapped on hosted. */
 function e3TwoPassTopN(): number {
   const envN = Number(process.env.E3_TWO_PASS_TOP_N);
   if (Number.isFinite(envN) && envN > 0) return envN;
-  // Hosted must stay unchanged from its pre-existing flag-controlled behavior:
-  // narrate every candidate that clears PROMOTION_FLOOR, uncapped (this is
-  // what `assembleTwoPass`/`lib/scoring/twoPass.ts`'s PROMOTION_FLOOR invariant
-  // assumes). The top-N cap is a LOCAL-only necessity — a small local model's
-  // ~30s/candidate narrative is too slow to run over every promoted candidate.
   return isLocalLlm() ? 8 : Infinity;
 }
 
-/**
- * How many Pass-A ("score-only") units one Pass-B ("full narrative") candidate
- * costs, wall-clock. Measured on local models: ~2s/candidate for Pass A vs
- * ~30s/candidate for Pass B's ~800-token narrative — about 15x. Counting both
- * as one flat unit (the pre-fix behavior) made `done/total` race far ahead of
- * real elapsed time once Pass A finished, since the still-narrating handful of
- * Pass-B candidates is where nearly all the remaining wall-clock time lives.
- */
+/** Wall-clock cost of one Pass-B narrative in Pass-A score units (~30s vs ~2s on local). */
 const PASS_B_COST_WEIGHT = Number(process.env.E3_TWO_PASS_PASS_B_WEIGHT) || 15;
 
-/**
- * Cost-weighted `done` for the two-pass progress bar, scaled back onto the
- * original `0..total` candidate-count range so callers (`lib/match.ts`'s
- * `onBatch`, and `SearchProgress`'s linear extrapolation off it) don't need to
- * change how they read it. `promotedCount` candidates each cost 1 (already
- * counted via `passAScored`) plus `PASS_B_COST_WEIGHT - 1` extra units as Pass
- * B narrates them.
- */
+/** Cost-weighted progress scaled onto 0..total, so a bar/rate reading `done/total` tracks wall-clock time. */
 export function twoPassProgress(passAScored: number, promotedCount: number, passBScored: number, total: number): number {
   const totalUnits = total + promotedCount * (PASS_B_COST_WEIGHT - 1);
   const doneUnits = passAScored + passBScored * (PASS_B_COST_WEIGHT - 1);
   return totalUnits > 0 ? Math.min(total, Math.round((doneUnits / totalUnits) * total)) : 0;
 }
 
-/**
- * The REAL (non-cost-weighted) counts behind a two-pass progress tick, for
- * callers that need a truthful label rather than the weighted `done` above
- * (which only exists to make the progress bar's rate match wall-clock time —
- * it is not a count of anything and must never be rendered as one).
- */
+/** Real Pass A/B counts for the progress label; `promotedCount` is 0 until Pass A finishes. */
 export type TwoPassProgressDetail = {
   passAScored: number;
-  passATotal: number;
   promotedCount: number;
   passBScored: number;
 };
 
-/** The floor-clearing candidates, ranked by Pass-A score and capped at `topN`. */
 function selectPassBCandidates(
   candidates: Opportunity[],
   passA: PassAScore[],
@@ -809,20 +765,15 @@ function selectPassBCandidates(
 }
 
 /**
- * Stage 2 (two-pass) — the flag-ON counterpart to `explainMatches`. Same
- * signature and same return shape, so `lib/match.ts` can call either behind the
- * `e3_two_pass` flag with no other change. Runs Pass A over all candidates,
+ * Stage 2 (two-pass) — the counterpart to `explainMatches`, with the same
+ * return shape (default on local, `e3_two_pass` on hosted). Runs Pass A over all candidates,
  * narrates only the top `E3_TWO_PASS_TOP_N` candidates (by Pass-A score) that
  * clear `PROMOTION_FLOOR`, and merges back into one `Assessment[]` (narrated →
  * full narrative; others → score-only). Scores are clamped server-side (§5.5)
  * in each pass.
  *
- * `onAssessment`, when given, fires TWICE per narrated candidate — once with
- * its score-only Pass-A assessment (the instant Pass A scores it), once again
- * with the full Pass-B narrative (the instant Pass B finishes it) — and ONCE
- * for every other candidate (score-only, final). This lets `lib/match.ts`
- * stream a preview card the moment a score is known and upgrade it in place
- * once the narrative lands, mirroring the single pass's progressive rendering.
+ * `onAssessment` fires with each Pass-A score-only assessment, then again with
+ * each Pass-B narrative, so a preview card can be upgraded in place.
  */
 export async function explainMatchesTwoPass(
   profile: StartupProfile,
@@ -833,9 +784,6 @@ export async function explainMatchesTwoPass(
   onAssessment?: (a: TwoPassAssessment) => void,
 ): Promise<TwoPassAssessment[]> {
   const total = candidates.length;
-  // Pass B narrates at most this many candidates; used as the promoted-count
-  // estimate for the cost-weighted progress bar DURING Pass A, before the
-  // actual (<= reserved) promoted set is known.
   const topN = e3TwoPassTopN();
   const reserved = Math.min(topN, total);
   let passAScored = 0;
@@ -845,8 +793,7 @@ export async function explainMatchesTwoPass(
     try {
       onBatch?.(twoPassProgress(passAScored, reserved, 0, total), total, {
         passAScored,
-        passATotal: total,
-        promotedCount: reserved,
+        promotedCount: 0,
         passBScored: 0,
       });
     } catch { /* best-effort */ }
@@ -857,12 +804,9 @@ export async function explainMatchesTwoPass(
 
   const promoted = selectPassBCandidates(candidates, passA, topN);
 
-  // Pass A is fully done; re-anchor the estimate on the ACTUAL promoted count
-  // (may be < `reserved`) now that it's known.
   try {
     onBatch?.(twoPassProgress(total, promoted.length, 0, total), total, {
       passAScored: total,
-      passATotal: total,
       promotedCount: promoted.length,
       passBScored: 0,
     });
@@ -876,7 +820,6 @@ export async function explainMatchesTwoPass(
       try {
         onBatch?.(twoPassProgress(total, promoted.length, doneInPassB, total), total, {
           passAScored: total,
-          passATotal: total,
           promotedCount: promoted.length,
           passBScored: doneInPassB,
         });
