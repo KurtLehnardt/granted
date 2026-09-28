@@ -220,8 +220,8 @@ test("requiredProgressText: partially complete", () => {
   assert.equal(requiredProgressText(5, 2), "3 of 5 required fields complete");
 });
 
-test("requiredProgressText: all complete uses a distinct, celebratory-but-honest message", () => {
-  assert.equal(requiredProgressText(5, 0), "All 5 required fields complete.");
+test("requiredProgressText: all complete renders nothing", () => {
+  assert.equal(requiredProgressText(5, 0), null);
 });
 
 test("requiredProgressText: singular field count doesn't say '1 fields'", () => {

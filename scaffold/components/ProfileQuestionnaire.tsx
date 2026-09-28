@@ -195,9 +195,9 @@ export const MATERIAL_FIELD_GROUPS: readonly { heading: string; fields: readonly
 ];
 
 /** User-facing progress copy for the required-fields section. */
-export function requiredProgressText(totalRequired: number, remaining: number): string {
+export function requiredProgressText(totalRequired: number, remaining: number): string | null {
   const done = Math.max(0, totalRequired - remaining);
-  if (remaining <= 0) return `All ${totalRequired} required fields complete.`;
+  if (remaining <= 0) return null;
   return `${done} of ${totalRequired} required field${totalRequired === 1 ? "" : "s"} complete`;
 }
 
@@ -675,9 +675,11 @@ export default function ProfileQuestionnaire({
           "wide" field spanning both. */}
       <div className="mt-5">
         <h2 className={sectionHeadingClass}>Tell us about your company</h2>
-        <p aria-live="polite" className={introClass}>
-          {requiredProgressText(requiredFields.length, requiredGaps.length)}
-        </p>
+        {requiredProgressText(requiredFields.length, requiredGaps.length) && (
+          <p aria-live="polite" className={introClass}>
+            {requiredProgressText(requiredFields.length, requiredGaps.length)}
+          </p>
+        )}
         <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
           {requiredFields.map((m) => renderField(m, isWideField(m.field) ? "sm:col-span-2" : ""))}
         </div>
