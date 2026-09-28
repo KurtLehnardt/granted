@@ -66,7 +66,6 @@ function parseCloud(raw: unknown): CloudConfig | undefined {
   const cloud: CloudConfig = { providerId: r.providerId, keySource };
   if (typeof r.baseUrl === "string" && r.baseUrl.length > 0) cloud.baseUrl = r.baseUrl;
   if (typeof r.model === "string" && r.model.length > 0) cloud.model = r.model;
-  // r.anthropicWorkspaceId (a #219 field) is ignored on read for back-compat with configs that still have it.
   return cloud;
 }
 

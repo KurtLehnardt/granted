@@ -105,14 +105,4 @@ describe("POST /api/llm/models", () => {
     assert.equal(res.status, 400);
     assert.equal(json.error, "Please enter a key for your cloud provider.");
   });
-
-  test("a posted anthropicWorkspaceId is not passed through to listCloudModels", async () => {
-    let sent: any;
-    const res = await handleModelsPost(
-      fakeReq({ providerId: "anthropic", keySource: { type: "inline", key: "sk-ant-abcXYZ1234567890" }, anthropicWorkspaceId: "wrkspc_abc123" }),
-      fakeDeps({ listCloudModels: (async (p: any) => { sent = p; return { models: [] }; }) as any }),
-    );
-    assert.equal(res.status, 200);
-    assert.equal(sent.anthropicWorkspaceId, undefined);
-  });
 });

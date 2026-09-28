@@ -1,7 +1,7 @@
 import { isCloudProviderId, getCloudProvider, isValidHttpsUrl, isSameCloudTarget, type CloudProviderId } from "./providers";
 import { resolveKeySource, ENV_NAME_PATTERN, type KeySource } from "./keySource";
 import { normalizeOpenAiBaseUrl } from "./baseUrl";
-import { type CloudConfig } from "./config";
+import type { CloudConfig } from "./config";
 
 // Shared validation for POST /api/llm/config's `cloud` payload: provider,
 // base URL (only for "other"), and a key that both resolves and passes the

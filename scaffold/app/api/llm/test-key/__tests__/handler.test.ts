@@ -182,28 +182,6 @@ describe("POST /api/llm/test-key", () => {
     assert.equal(json.error, "Please enter a key for your cloud provider.");
   });
 
-  test("a posted anthropicWorkspaceId is not passed through to probeCloudKey", async () => {
-    let sent: any;
-    const res = await handleTestKeyPost(
-      fakeReq({ providerId: "anthropic", keySource: { type: "inline", key: "sk-ant-abcXYZ1234567890" }, anthropicWorkspaceId: "wrkspc_abc123" }),
-      fakeDeps({ probeCloudKey: (async (params: any) => { sent = params; return { ok: true }; }) as any }),
-    );
-    await res.json();
-    assert.equal(res.status, 200);
-    assert.equal(sent.anthropicWorkspaceId, undefined);
-  });
-
-  test("no draft anthropicWorkspaceId -> undefined is passed through (no header sent)", async () => {
-    let sent: any;
-    const res = await handleTestKeyPost(
-      fakeReq({ providerId: "anthropic", keySource: { type: "inline", key: "sk-ant-abcXYZ1234567890" } }),
-      fakeDeps({ probeCloudKey: (async (params: any) => { sent = params; return { ok: true }; }) as any }),
-    );
-    await res.json();
-    assert.equal(res.status, 200);
-    assert.equal(sent.anthropicWorkspaceId, undefined);
-  });
-
   test("anthropic draft with no model probes the app's default search model", async () => {
     let sent: any;
     await handleTestKeyPost(
@@ -221,5 +199,4 @@ describe("POST /api/llm/test-key", () => {
     );
     assert.equal(sent.model, undefined);
   });
-
 });

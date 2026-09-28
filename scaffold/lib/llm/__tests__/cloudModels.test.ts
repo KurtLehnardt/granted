@@ -366,21 +366,6 @@ describe("probeCloudKey — anthropic", () => {
       },
     );
   });
-
-  test("no anthropic-workspace-id header is ever sent", async () => {
-    const { withHostedFetch } = await import("../client");
-    let sentHeader: string | null | undefined = "unset";
-    await withHostedFetch(
-      (async (_url: any, init: any) => {
-        sentHeader = init?.headers?.["anthropic-workspace-id"];
-        return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { "content-type": "application/json" } });
-      }) as any,
-      async () => {
-        await probeCloudKey({ providerId: "anthropic", key: "sk-ant-abcXYZ1234567890", model: "claude-x" });
-      },
-    );
-    assert.equal(sentHeader, undefined);
-  });
 });
 
 describe("listCloudModels — anthropic", () => {

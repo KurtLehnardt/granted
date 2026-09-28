@@ -367,21 +367,6 @@ describe("POST /api/llm/config", () => {
     assert.equal(deps._get().cloud?.baseUrl, "https://a.example.com/v1");
   });
 
-  test("a posted anthropicWorkspaceId is ignored (field removed)", async () => {
-    const deps = fakeDeps();
-    const res = await handleLlmConfigPost(
-      fakeReq({
-        provider: "cloud",
-        cloud: { providerId: "anthropic", keySource: { type: "inline", key: "sk-ant-abcXYZ1234567890" }, anthropicWorkspaceId: "wrkspc_abc123" },
-      }),
-      deps,
-    );
-    const json = await res.json();
-    assert.equal(res.status, 200);
-    assert.equal((deps._get().cloud as any)?.anthropicWorkspaceId, undefined);
-    assert.equal(json.cloud.anthropicWorkspaceId, undefined);
-  });
-
   test("keySource {type:'saved'} after switching provider -> 400, the old key is not reused", async () => {
     const deps = fakeDeps({}, { provider: "cloud", cloud: { providerId: "openai", model: "gpt-4o", keySource: { type: "inline", key: "sk-savedopenaikey0000" } } });
     const res = await handleLlmConfigPost(

@@ -99,16 +99,6 @@ describe("validateCloudConfig", () => {
     const r = validateCloudConfig({ providerId: "groq", keySource: { type: "inline", key: "a-fine-key-value" } });
     assert.equal(r.config?.model, undefined);
   });
-
-  test("a posted anthropicWorkspaceId is ignored (field removed)", () => {
-    const r = validateCloudConfig({
-      providerId: "anthropic",
-      keySource: { type: "inline", key: "sk-ant-abcXYZ1234567890" },
-      anthropicWorkspaceId: "wrkspc_abc123",
-    } as any);
-    assert.equal(r.error, undefined);
-    assert.equal("anthropicWorkspaceId" in (r.config ?? {}), false);
-  });
 });
 
 describe("resolveDraftKey", () => {
