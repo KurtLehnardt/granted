@@ -6,6 +6,7 @@ import type { EligibilityBucket } from "./contracts/eligibilityDetermination";
 import { loadPrompt } from "./prompts";
 import { isFlagEnabled } from "./flags";
 import type { CostMeter } from "./metering/meter";
+import { describeErrorForLog } from "./llm/errors";
 import {
   type Assessment as TwoPassAssessment,
   type PassAScore,
@@ -193,15 +194,26 @@ export function coerceEmployees(value: unknown): number | undefined {
  * Coerce at the boundary, right after JSON-parsing the model's output: an
  * array of primitives joins into a readable comma-separated string, any other
  * object/array becomes a compact JSON string (still readable, never dropped),
- * and already-string/null/undefined values pass through untouched. This is
- * deliberately generic (a fixed field list + one coercion rule) rather than
- * enumerating local-model quirks, so it covers both cloud and local output.
+ * a bare number/boolean stringifies, `null` is dropped (the field is
+ * `optional()`, not `nullable()` — a `null` fails the same boundary check a
+ * number does), and already-string/undefined values pass through untouched.
+ * This is deliberately generic (a fixed field list + one coercion rule)
+ * rather than enumerating local-model quirks, so it covers both cloud and
+ * local output.
  */
 export function coerceProfileStrings(profile: Record<string, unknown>): StartupProfile {
   const out: Record<string, unknown> = { ...profile };
   for (const field of STARTUP_PROFILE_STRING_FIELDS) {
     const value = out[field];
-    if (value == null || typeof value === "string") continue;
+    if (value === undefined || typeof value === "string") continue;
+    // `StartupProfileSchema` declares these `z.string().optional()` — optional
+    // allows a missing key, not `null`. A model that returns `null` (rather
+    // than omitting the field) fails the boundary the same way a number does;
+    // drop the key so it's absent instead.
+    if (value === null) {
+      delete out[field];
+      continue;
+    }
     if (Array.isArray(value)) {
       out[field] = value.every((v) => v == null || ["string", "number", "boolean"].includes(typeof v))
         ? value.filter((v) => v != null).join(", ")
@@ -456,6 +468,7 @@ export async function explainMatches(
   // of the whole fan-out, not a sum of the per-batch latencies recorded above
   // (summing would overcount — this overwrites that sum with the real span).
   meter?.recordStageLatency("candidate_analysis", performance.now() - fanOutStart);
+  logSkippedBatches("candidate_analysis", settled, groups);
   const ok = settled
     .filter((s): s is PromiseFulfilledResult<Assessment[]> => s.status === "fulfilled")
     .map((s) => s.value);
@@ -467,6 +480,25 @@ export async function explainMatches(
   // (a crafted description could otherwise push an out-of-range score into the
   // tier/summary math). NaN/missing degrades to 0.
   return ok.flat().map((a) => ({ ...a, score: clampScore(a.score) }));
+}
+
+/**
+ * Log one concise warning per rejected batch from an `allSettled` fan-out —
+ * otherwise a batch that silently drops out (see `ok`/ `settled.filter`
+ * above) leaves no server-side trace of which/how many candidates went
+ * unscored. Never logs the raw error (could echo request/response bodies,
+ * incl. keys) — always the sanitized message from `describeErrorForLog`.
+ */
+function logSkippedBatches(stage: string, settled: PromiseSettledResult<unknown>[], groups: Opportunity[][]): void {
+  settled.forEach((s, i) => {
+    if (s.status !== "rejected") return;
+    const { status, message } = describeErrorForLog(s.reason);
+    console.warn(
+      `[${stage}] batch skipped: ${groups[i]?.length ?? 0} candidate(s) unscored` +
+        (status != null ? `, status ${status}` : "") +
+        ` — ${message}`,
+    );
+  });
 }
 
 /** Clamp a model-supplied score to the contract's valid 0-100 range. */
@@ -622,6 +654,7 @@ async function scorePassA(
     settled = await Promise.allSettled(groups.map((group) => scoreGroup(group)));
   }
   meter?.recordStageLatency("candidate_prescore", performance.now() - fanOutStart);
+  logSkippedBatches("candidate_prescore", settled, groups);
   const ok = settled
     .filter((s): s is PromiseFulfilledResult<PassAScore[]> => s.status === "fulfilled")
     .map((s) => s.value);
@@ -715,6 +748,7 @@ async function narratePassB(
     settled = await Promise.allSettled(groups.map(runGroup));
   }
   meter?.recordStageLatency("candidate_analysis", performance.now() - fanOutStart);
+  logSkippedBatches("candidate_analysis", settled, groups);
   const ok = settled
     .filter((s): s is PromiseFulfilledResult<TwoPassAssessment[]> => s.status === "fulfilled")
     .map((s) => s.value);
