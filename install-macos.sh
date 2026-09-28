@@ -3,7 +3,7 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/KurtLehnardt/granted/main/install-macos.sh | bash
 #
-# Installs git + Node.js 20+ if missing, clones the repo, runs `npm install`,
+# Installs git + Node.js 22+ if missing, clones the repo, runs `npm install`,
 # and (optionally) installs Ollama for a fully local run. Safe to re-run: skips
 # anything already present/done.
 #
@@ -14,7 +14,7 @@ set -euo pipefail
 
 REPO_URL="https://github.com/KurtLehnardt/granted.git"
 TARGET_DIR="${GRANTED_INSTALL_DIR:-granted}"
-NODE_MAJOR_MIN=20
+NODE_MAJOR_MIN=22
 # Lowest macOS major version Ollama's .app/.dmg (and the Homebrew cask) support.
 # Keep in sync with OLLAMA_MIN_MACOS in scaffold/scripts/setup-local.mjs.
 OLLAMA_MIN_MACOS=14
@@ -130,7 +130,7 @@ else
   die "Finish the 'Command Line Tools' install dialog that just opened, then re-run this script."
 fi
 
-# 2) Node.js 20+.
+# 2) Node.js 22+.
 NODE_OK=0
 if command -v node >/dev/null 2>&1; then
   NODE_MAJOR=$(node -v | sed 's/^v//' | cut -d. -f1)
@@ -163,7 +163,7 @@ if [ "$NODE_OK" -ne 1 ]; then
     # rather than `head -1`: under `set -o pipefail`, head closing the pipe
     # early can SIGPIPE the upstream process and abort the whole script.
     PKG_INDEX="$(curl -fsSL "$PKG_URL")" || die "Couldn't reach $PKG_URL — install Node from https://nodejs.org and re-run."
-    # nodejs.org lists hrefs as ABSOLUTE paths ("/dist/latest-v20.x/node-v20.20.2.pkg"),
+    # nodejs.org lists hrefs as ABSOLUTE paths ("/dist/latest-v22.x/node-v22.23.3.pkg"),
     # so match any leading directory and keep only the basename.
     PKG_NAME="$(printf '%s\n' "$PKG_INDEX" | sed -n 's|.*href="[^"]*/\(node-v[0-9.]*\.pkg\)".*|\1|p' | sed -n '1p')"
     [ -n "$PKG_NAME" ] || die "Couldn't find a Node .pkg at $PKG_URL — install Node from https://nodejs.org and re-run."

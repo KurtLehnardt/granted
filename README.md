@@ -22,11 +22,11 @@ Every OS below ends up running the exact same `npm` commands — the setup scrip
 ```bash
 curl -fsSL https://raw.githubusercontent.com/KurtLehnardt/granted/main/install-macos.sh | bash
 ```
-Installs Node 20+ and git if missing — via Homebrew where available, otherwise the Xcode Command Line Tools for git and the official nodejs.org `.pkg` for Node — clones the repo into `./granted`, runs `npm install`, and installs Ollama with the method your macOS version actually supports (see the note below). Safe to re-run.
+Installs Node 22+ and git if missing — via Homebrew where available, otherwise the Xcode Command Line Tools for git and the official nodejs.org `.pkg` for Node — clones the repo into `./granted`, runs `npm install`, and installs Ollama with the method your macOS version actually supports (see the note below). Safe to re-run.
 
 Prefer to do it by hand?
 ```bash
-brew install node git             # or Node from https://nodejs.org, git via xcode-select --install
+brew install node git             # Node 22+; or from https://nodejs.org, git via xcode-select --install
 git clone https://github.com/KurtLehnardt/granted.git
 cd granted/scaffold
 npm install
@@ -70,7 +70,7 @@ npm run dev
 ```powershell
 irm https://raw.githubusercontent.com/KurtLehnardt/granted/main/install-windows.ps1 | iex
 ```
-Installs Node 20+ and git if missing — via `winget` where available, otherwise a direct official-installer download (winget isn't present on every Windows box, notably Windows Server, which this was verified against) — clones the repo into `.\granted`, and runs `npm install`. Safe to re-run.
+Installs Node 22+ and git if missing — via `winget` where available, otherwise a direct official-installer download (winget isn't present on every Windows box, notably Windows Server, which this was verified against) — clones the repo into `.\granted`, and runs `npm install`. Safe to re-run.
 
 Prefer to do it by hand?
 ```powershell
@@ -79,7 +79,7 @@ winget install Git.Git
 git clone https://github.com/KurtLehnardt/granted.git
 cd granted/scaffold
 ```
-No `winget`? Grab [Node 20+](https://nodejs.org) and [git](https://git-scm.com/download/win) directly instead. (Node 22+ avoids an `EBADENGINE` warning one dependency now emits on 20 — the app runs fine either way.) PowerShell (default on Windows 10/11) or Git Bash both work with everything below.
+No `winget`? Grab [Node 22+](https://nodejs.org) and [git](https://git-scm.com/download/win) directly instead. PowerShell (default on Windows 10/11) or Git Bash both work with everything below.
 
 **2. Try it with zero keys**
 ```powershell
@@ -109,21 +109,21 @@ npm run dev
 ```bash
 curl -fsSL https://raw.githubusercontent.com/KurtLehnardt/granted/main/install-linux.sh | bash
 ```
-Installs git and Node 20+ if missing (supports `apt`, `dnf`, and `yum` — verified end to end on both Ubuntu and Amazon Linux 2023), clones the repo into `./granted`, and runs `npm install`. Safe to re-run.
+Installs git and Node 22+ if missing (supports `apt`, `dnf`, and `yum` — verified end to end on both Ubuntu and Amazon Linux 2023), clones the repo into `./granted`, and runs `npm install`. Safe to re-run.
 
 On a distro it doesn't cover, or prefer to do it by hand?
 ```bash
 # Debian/Ubuntu
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
 sudo apt-get install -y nodejs git
 # Amazon Linux 2023 / Fedora / RHEL
-curl -fsSL https://rpm.nodesource.com/setup_20.x | sudo -E bash -
+curl -fsSL https://rpm.nodesource.com/setup_22.x | sudo -E bash -
 sudo dnf install -y nodejs git   # older releases: sudo yum install -y nodejs git
 
 git clone https://github.com/KurtLehnardt/granted.git
 cd granted/scaffold
 ```
-Both install Node 20, which throws a harmless `EBADENGINE` warning during `npm install` (some dependencies now want 22+; the app runs fine on 20 regardless) — use `setup_22.x` above instead to avoid it.
+Both install Node 22, which is also what the one-shot script installs — see **Which Node version** below for why 22 and not 20.
 
 **2. Try it with zero keys**
 ```bash
@@ -147,6 +147,23 @@ npm run setup:local -- --yes        # picks a model sized for your RAM, pulls it
 npm run dev
 ```
 Verified end to end via `install-linux.sh` on a fresh Amazon Linux 2023 box (2 vCPU, 8GB RAM, no GPU — the smallest realistic case): auto-picked `llama3.2:1b` and completed a full novel-company search (21 candidates, fully local) in **18 minutes 58 seconds**. The same flow on Ubuntu, same hardware class, ran comparably (20m43s). A machine with a GPU or more cores will be dramatically faster — the macOS and Windows numbers above are the same engine, just more hardware.
+
+## Which Node version
+
+**Running** Granted needs Node 20+. **Developing** it needs **Node 22+**, and the
+installers above give you 22 so you are never caught out by the difference.
+
+The split is real: `npm test` hands glob patterns to Node's built-in test
+runner, and glob expansion only arrived in **Node 22**. On Node 20 the runner
+takes the pattern literally and exits without running a single test:
+
+```
+Could not find '/…/scaffold/lib/**/__tests__/**/*.test.ts'
+```
+
+Nothing about the app itself requires 22 — `npm install`, `npm run typecheck`
+and `npm run dev` are all fine on 20, which is why `engines` still allows it.
+CI runs the suite on Node 22 and 24.
 
 ## What you need (and where to get it)
 
@@ -303,6 +320,7 @@ Results **stream**. Progress and grounded evidence appear in seconds rather than
 - **Anthropic 400 "credit balance too low"** → top up at console.anthropic.com; every search spends credits.
 - **A flag change did nothing** → `NEXT_PUBLIC_*` vars are read at build/start; restart the dev server.
 - **Sign-in redirects to the wrong place** → fix Supabase → *Authentication → URL Configuration* (Site URL + Redirect URLs).
+- **`npm test` prints `Could not find '…/**/*.test.ts'` and runs nothing** → you're on Node 20. The test runner only learned to expand globs in Node 22; upgrade to 22+ (see **Which Node version**). Running the app is unaffected.
 - **Port 3000 in use** → Next picks the next free port; watch the `npm run dev` output for the URL. If `localhost:3000` shows a different app (on Windows, an app listening on all interfaces doesn't block the `127.0.0.1` bind), pick a port: `npm run dev -- -p 3001`.
 - **Can't reach it from another device or a cloud VM** → `npm run dev` only listens on `127.0.0.1`. From a remote box, tunnel instead: `ssh -L 3000:127.0.0.1:3000 you@host`, then open `http://localhost:3000`. Use `npm run dev:lan` only on a network you trust.
 
