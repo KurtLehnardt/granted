@@ -63,9 +63,7 @@ export function formatSearchDuration(ms: number): string {
   return m === 0 ? `${s}s` : `${m}m ${s}s`;
 }
 
-// Two-stage scoring (#201) measured on a 4GB GPU with qwen2.5:3b: instant
-// provisional cards land in ~1 min (seconds once first-cards land), full
-// analysis over the candidate set runs ~2.5–5.5 min after that.
+// Two-pass (#201), qwen2.5:3b on a 4GB GPU, ~35 candidates: first cards at ~40s, done in 4–5.5 min.
 const LOCAL_ESTIMATE_RANGES: Array<{ maxB: number; range: string }> = [
   { maxB: 4, range: "3–6 minutes" },
   { maxB: 9, range: "4–10 minutes" },
@@ -82,9 +80,7 @@ export function localModelLabel(model?: string, paramsB?: number): string {
   return paramsB != null && Number.isFinite(paramsB) ? `${model} (${paramsB}B)` : model;
 }
 
-// Two-stage scoring (#201): instant provisional cards land first, then the full
-// per-candidate analysis fills them in. Update to "in a few seconds" once
-// feat/instant-provisional-cards has merged and first cards land near-instantly.
+// Revisit once #212 (instant provisional cards) merges: first cards then land in seconds.
 const FIRST_MATCHES_ETA = "in about a minute";
 
 export function localTwoPhaseMessage(model?: string, paramsB?: number): string {

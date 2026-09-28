@@ -681,11 +681,9 @@ export default function ProfileQuestionnaire({
         <button type="button" onClick={clearSaved} disabled={disabled} className={clearLinkClass}>
           Clear saved answers
         </button>
-        {clearedVisible && (
-          <span className={hintTextClass} aria-live="polite">
-            Cleared
-          </span>
-        )}
+        <span className={hintTextClass} role="status" aria-live="polite">
+          {clearedVisible ? "Cleared" : ""}
+        </span>
       </div>
     </div>
   );
