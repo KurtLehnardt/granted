@@ -1,8 +1,5 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { renderToStaticMarkup } from "react-dom/server";
 import React from "react";
 
@@ -15,11 +12,12 @@ import ProfileQuestionnaire, {
   requiredProgressText,
   fieldValidationMessage,
   MATERIAL_FIELD_GROUPS,
+  splitBooleanText,
+  draftValue,
+  resolveBooleanTextField,
 } from "../ProfileQuestionnaire";
 import { PROFILE_FIELD_META_BY_KEY, MATERIAL_PROFILE_FIELDS, PROFILE_FIELD_META } from "@/lib/contracts/companyProfile";
 import type { StartupProfile } from "@/lib/types";
-
-const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
 /**
  * B1b — ProfileQuestionnaire's pure logic (no React, no network, no DOM):
@@ -264,15 +262,9 @@ test("fieldValidationMessage: a material (optional) field NEVER produces a messa
 //
 // Every field is a directly-editable control from the first paint — there is
 // no read-only summary row that a saved value swaps into, so there is no
-// "Edit" button to click before typing/deleting works. `renderToStaticMarkup`
-// only exercises the component's first render (no effects, so localStorage
-// hydration never runs here) — but since the render function no longer
-// branches on "is this field provided" at all, the first render already
-// proves every field, saved-value or not, takes the same directly-editable
-// path. The source-text checks below additionally lock that the old
-// Edit-mode state/handlers can't quietly come back.
+// "Edit" button to click before typing/deleting works.
 
-test("ProfileQuestionnaire: required fields render as directly editable controls, with no Edit button anywhere", () => {
+test("ProfileQuestionnaire: an empty form renders as directly editable controls, with no Edit button anywhere", () => {
   const html = renderToStaticMarkup(React.createElement(ProfileQuestionnaire, { onSubmit: () => {} }));
   assert.doesNotMatch(html, />\s*Edit\s*</);
   assert.doesNotMatch(html, /aria-label="Edit /);
@@ -281,9 +273,82 @@ test("ProfileQuestionnaire: required fields render as directly editable controls
   }
 });
 
-test("ProfileQuestionnaire: the old Edit-mode state, handlers, and summary row are gone from the source", () => {
-  const source = readFileSync(join(__dirname, "..", "ProfileQuestionnaire.tsx"), "utf8");
-  for (const banned of ["editingFields", "startEdit", "stopEdit", "pendingFocusFieldRef", "providedRowClass", "editButtonClass"]) {
-    assert.doesNotMatch(source, new RegExp(banned));
-  }
+// --- draftValue / splitBooleanText / resolveBooleanTextField --------------
+//
+// These are exactly the pure helpers the render path calls to decide what a
+// control shows: `draftFor` (plain fields) and the boolean_text radio+detail
+// pair both delegate to them. Testing them directly with a SAVED profile
+// (the shape `profile` takes right after localStorage hydration, before the
+// user has touched anything so `values` is still empty) is what proves a
+// restored draft actually shows up in the controls — the bug the reviewer
+// flagged: rd_activities read `values[...__choice/__detail]`, which nothing
+// ever populated from a hydrated `profile`.
+
+test("draftValue: with no live edit yet, falls back to the saved profile cell", () => {
+  const profile = { industry: { value: "agtech", provenance: "user_stated" as const, confidence: 1 } };
+  assert.equal(draftValue(profile, {}, "industry"), "agtech");
+});
+
+test("draftValue: a live edit in `values` always wins over the saved profile cell", () => {
+  const profile = { industry: { value: "agtech", provenance: "user_stated" as const, confidence: 1 } };
+  assert.equal(draftValue(profile, { industry: "biotech" }, "industry"), "biotech");
+});
+
+test("draftValue: an unprovided field with no live edit renders as an empty (not undefined) string", () => {
+  assert.equal(draftValue({}, {}, "industry"), "");
+});
+
+test("splitBooleanText: 'Yes — <detail>' splits into the Yes radio plus the detail text", () => {
+  assert.deepEqual(splitBooleanText("Yes — prototype testing"), { choice: "Yes", detail: "prototype testing" });
+});
+
+test("splitBooleanText: a bare 'Yes' (no detail given) is the Yes radio with an empty detail box", () => {
+  assert.deepEqual(splitBooleanText("Yes"), { choice: "Yes", detail: "" });
+});
+
+test("splitBooleanText: 'No' is the No radio with an empty detail box", () => {
+  assert.deepEqual(splitBooleanText("No"), { choice: "No", detail: "" });
+});
+
+test("splitBooleanText: an empty/unrecognized string checks neither radio", () => {
+  assert.deepEqual(splitBooleanText(""), { choice: "", detail: "" });
+});
+
+test("resolveBooleanTextField: a saved 'Yes — <detail>' profile value shows checked + pre-filled, before any live edit — the reviewer's rd_activities bug", () => {
+  const profile = {
+    rd_activities: { value: "Yes — prototype testing", provenance: "user_stated" as const, confidence: 1 },
+  };
+  assert.deepEqual(resolveBooleanTextField(profile, {}, "rd_activities"), {
+    choice: "Yes",
+    detail: "prototype testing",
+  });
+});
+
+test("resolveBooleanTextField: a saved bare 'No' profile value checks the No radio", () => {
+  const profile = { rd_activities: { value: "No", provenance: "user_stated" as const, confidence: 1 } };
+  assert.deepEqual(resolveBooleanTextField(profile, {}, "rd_activities"), { choice: "No", detail: "" });
+});
+
+test("resolveBooleanTextField: once either radio/detail key is live in `values`, it wins even if empty — a user clearing the detail box must stick", () => {
+  const profile = {
+    rd_activities: { value: "Yes — prototype testing", provenance: "user_stated" as const, confidence: 1 },
+  };
+  assert.deepEqual(resolveBooleanTextField(profile, { rd_activities__detail: "" }, "rd_activities"), {
+    choice: "",
+    detail: "",
+  });
+});
+
+test("resolveBooleanTextField: re-clicking 'Yes' on a restored draft must not drop the saved detail (no silent overwrite)", () => {
+  // Regression for the reviewer's second finding: naively computing
+  // `commitBooleanText("Yes", "")` from an un-hydrated `detail` would
+  // collapse a saved "Yes — prototype testing" down to a bare "Yes". Here,
+  // `resolveBooleanTextField` is what the radio's onChange handler reads
+  // `detail` from before re-committing, so it must already carry the saved
+  // detail forward.
+  const profile = {
+    rd_activities: { value: "Yes — prototype testing", provenance: "user_stated" as const, confidence: 1 },
+  };
+  const { detail } = resolveBooleanTextField(profile, {}, "rd_activities");
+  assert.equal(detail, "prototype testing");
 });

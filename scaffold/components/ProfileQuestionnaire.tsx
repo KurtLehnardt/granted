@@ -194,6 +194,56 @@ export const MATERIAL_FIELD_GROUPS: readonly { heading: string; fields: readonly
   },
 ];
 
+/**
+ * Split a saved/draft boolean_text value ("Yes — detail", "Yes", "No", or "")
+ * into its radio choice and detail-box text. Pure — used both to seed the
+ * boolean_text control's local state from `draftFor` and, indirectly, to
+ * know what `commitBooleanText` should preserve when only one half changes.
+ */
+export function splitBooleanText(draft: string): { choice: string; detail: string } {
+  const trimmed = draft.trim();
+  if (trimmed === "No") return { choice: "No", detail: "" };
+  if (trimmed === "Yes") return { choice: "Yes", detail: "" };
+  const prefix = "Yes — ";
+  if (trimmed.startsWith(prefix)) return { choice: "Yes", detail: trimmed.slice(prefix.length) };
+  return { choice: "", detail: "" };
+}
+
+/**
+ * The current display value for a plain (non-boolean_text) field: whatever
+ * the user is actively typing (`values[field]`) if present, else whatever
+ * `profile` (freshly hydrated from a saved draft, or not) already holds.
+ * Pure/parameterized so it's testable without mounting the component.
+ */
+export function draftValue(profile: ProfileDraft, values: Record<string, string>, field: string): string {
+  if (field in values) return values[field] ?? "";
+  const bag = profile as Record<string, { value?: unknown } | undefined>;
+  const value = bag[field]?.value;
+  if (value === undefined || value === null) return "";
+  return Array.isArray(value) ? value.join(", ") : String(value);
+}
+
+/**
+ * The current radio choice + detail text for a boolean_text field. Once the
+ * user has touched either control this session, `values` holds the live
+ * truth; until then — including right after a saved draft is hydrated from
+ * localStorage — it's derived from the saved combined string in `profile`
+ * via `splitBooleanText`, so a restored "Yes — prototype testing" shows the
+ * "Yes" radio checked with the detail box pre-filled, not a blank control.
+ */
+export function resolveBooleanTextField(
+  profile: ProfileDraft,
+  values: Record<string, string>,
+  field: string,
+): { choice: string; detail: string } {
+  const choiceKey = `${field}__choice`;
+  const detailKey = `${field}__detail`;
+  if (choiceKey in values || detailKey in values) {
+    return { choice: values[choiceKey] ?? "", detail: values[detailKey] ?? "" };
+  }
+  return splitBooleanText(draftValue(profile, values, field));
+}
+
 /** User-facing progress copy for the required-fields section. */
 export function requiredProgressText(totalRequired: number, remaining: number): string | null {
   const done = Math.max(0, totalRequired - remaining);
@@ -332,11 +382,7 @@ export default function ProfileQuestionnaire({
   }
 
   function draftFor(field: string): string {
-    if (field in values) return values[field] ?? "";
-    const bag = profile as Record<string, { value?: unknown } | undefined>;
-    const value = bag[field]?.value;
-    if (value === undefined || value === null) return "";
-    return Array.isArray(value) ? value.join(", ") : String(value);
+    return draftValue(profile, values, field);
   }
 
   function handleSubmit() {
@@ -482,8 +528,7 @@ export default function ProfileQuestionnaire({
     if (meta.inputType === "boolean_text") {
       const choiceKey = `${meta.field}__choice`;
       const detailKey = `${meta.field}__detail`;
-      const choice = values[choiceKey] ?? "";
-      const detail = values[detailKey] ?? "";
+      const { choice, detail } = resolveBooleanTextField(profile, values, meta.field);
       const commitBooleanText = (nextChoice: string, nextDetail: string) => {
         const combined =
           nextChoice === "Yes" ? (nextDetail.trim() ? `Yes — ${nextDetail.trim()}` : "Yes") : nextChoice === "No" ? "No" : "";
