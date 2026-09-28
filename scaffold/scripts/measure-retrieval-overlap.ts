@@ -1,7 +1,8 @@
 /**
  * §3 — retrieval-quality report: candidate-set overlap between this branch's
- * profile-based retrieval (cosine + BM25 fusion) and origin/main's retrieval
- * (cosine + per-type quota only, no BM25) for the 5 standard test cases.
+ * profile-based retrieval (cosine + quota, BM25 as a pure ADDITIVE supplement)
+ * and origin/main's retrieval (cosine + per-type quota only, no BM25) for the
+ * 5 standard test cases.
  *
  * Computes retrieval ONLY — embeds via the local Ollama embedder configured
  * in .env.local, calls extractProfile once per case (needed for the real
@@ -14,7 +15,6 @@ import { embed, cosine } from "../lib/embed";
 import { extractProfile } from "../lib/claude";
 import { getCorpus } from "../lib/corpus/store";
 import { getBM25Index, bm25Query } from "../lib/retrieval/bm25";
-import { fuseRankings } from "../lib/retrieval/hybrid";
 import { CALIBRATION, clampCandidateCount } from "../lib/match";
 import type { Opportunity, StartupProfile } from "../lib/types";
 
@@ -26,17 +26,15 @@ const CASES: [string, string][] = [
   ["5 marketplace", "We're an 8-person Utah technology startup running a marketplace connecting parents with local youth activities and enrichment programs. $750K revenue, raised $1M, looking for $250K–$1M for expansion and technology development."],
 ];
 
-function topNByQuota(corpus: Opportunity[], queryVec: number[], candidateCount: number, fuseBm25Ids?: string[]) {
+/** Mirrors `lib/match.ts`'s `retrieve()`: cosine+quota decides the base
+ *  selection (byte-for-byte main's algorithm); BM25 (when `supplementIds` is
+ *  passed) only ADDS floor-clearing ids the base selection missed, up to
+ *  `CALIBRATION.bm25SupplementCount` — it never reorders or evicts. */
+function topNByQuota(corpus: Opportunity[], queryVec: number[], candidateCount: number, supplementIds?: string[]) {
   const floorCleared = corpus
     .map((o) => ({ o, sim: o.embedding ? cosine(queryVec, o.embedding) : 0 }))
     .filter((x) => x.sim >= CALIBRATION.candidateFloor)
     .sort((a, b) => b.sim - a.sim || (a.o.id < b.o.id ? -1 : a.o.id > b.o.id ? 1 : 0));
-
-  if (fuseBm25Ids) {
-    const fusedOrder = fuseRankings(floorCleared.map((x) => x.o.id), fuseBm25Ids);
-    const byFusedRank = new Map(fusedOrder.map((id, i) => [id, i]));
-    floorCleared.sort((a, b) => (byFusedRank.get(a.o.id) ?? 0) - (byFusedRank.get(b.o.id) ?? 0));
-  }
 
   const selectedIds = new Set(floorCleared.slice(0, candidateCount).map((x) => x.o.id));
   const perKindTaken = new Map<string, number>();
@@ -47,6 +45,18 @@ function topNByQuota(corpus: Opportunity[], queryVec: number[], candidateCount: 
       selectedIds.add(x.o.id);
     }
   }
+
+  if (supplementIds) {
+    const floorClearedIds = new Set(floorCleared.map((x) => x.o.id));
+    let added = 0;
+    for (const id of supplementIds) {
+      if (added >= CALIBRATION.bm25SupplementCount) break;
+      if (!floorClearedIds.has(id) || selectedIds.has(id)) continue;
+      selectedIds.add(id);
+      added++;
+    }
+  }
+
   return floorCleared.filter((x) => selectedIds.has(x.o.id)).map((x) => x.o.id);
 }
 
@@ -87,9 +97,19 @@ async function main() {
     const union = new Set([...mainIds, ...branchIds]);
     const jaccard = union.size > 0 ? intersection.length / union.size : 1;
 
+    // The quality-critical metric: of main's own top-8-by-cosine, how many
+    // does this branch's selection still include? BM25-as-supplement should
+    // keep this at (or very near) 8/8 every time, since it can only add.
+    const top8ByCosine = corpus
+      .map((o) => ({ id: o.id, sim: o.embedding ? cosine(queryVec, o.embedding) : 0 }))
+      .sort((a, b) => b.sim - a.sim)
+      .slice(0, 8)
+      .map((x) => x.id);
+    const top8Survive = top8ByCosine.filter((x) => branchSet.has(x)).length;
+
     const secs = ((Date.now() - t0) / 1000).toFixed(1);
     console.log(
-      `${id.padEnd(16)} main=${mainIds.length} branch=${branchIds.length} overlap=${intersection.length} jaccard=${jaccard.toFixed(2)} (${secs}s)`,
+      `${id.padEnd(16)} main=${mainIds.length} branch=${branchIds.length} overlap=${intersection.length} jaccard=${jaccard.toFixed(2)} top8-survive=${top8Survive}/8 (${secs}s)`,
     );
   }
 }

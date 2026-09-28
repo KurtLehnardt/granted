@@ -63,14 +63,24 @@ describe("<WeakerMatches/> — collapsed 'More matches' section", () => {
   });
 
   test("an unscored candidate renders a 'Couldn't score' placeholder, never a fake number", () => {
-    // Force the section open by asserting on markup a naive open-state probe
-    // can't reach via SSR alone — instead assert the collapsed markup never
-    // leaks a percentage for the unscored id, and the label counts it.
     const html = renderToStaticMarkup(
       React.createElement(WeakerMatches, {
         matches: [match("unscored-1", { unscored: true, final: true, score: 0 })],
+        defaultOpen: true,
       }),
     );
-    assert.match(html, /More matches \(1\)/);
+    assert.match(html, /Couldn.t score/);
+    assert.doesNotMatch(html, /0%/, "an unscored candidate must never render its placeholder score as a real number");
+  });
+
+  test("a real scored match still renders its percentage, not the 'Couldn't score' placeholder", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(WeakerMatches, {
+        matches: [match("real-1", { unscored: false, tier: "adjacent", score: 28 })],
+        defaultOpen: true,
+      }),
+    );
+    assert.doesNotMatch(html, /Couldn.t score/);
+    assert.match(html, />28<|>28\s*</);
   });
 });

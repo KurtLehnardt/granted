@@ -29,7 +29,7 @@ export const CARD_CAP = 8;
 /** Real fits (best first, capped at `CARD_CAP`) plus rule-excluded candidates,
  *  which stay visible (R8.2) but outside the cap and header stats. Everything
  *  that doesn't make the main list — a plain tier-"none" candidate, a real
- *  match past the cap, or an unscored candidate — goes in `more`, shown
+ *  match past the cap, or an unscored candidate — goes in `weaker`, shown
  *  collapsed in the ONE "More matches" section below (never silently
  *  dropped; §2). */
 export function selectShownMatches(matches: Match[]): { real: Match[]; excluded: Match[]; weaker: Match[] } {

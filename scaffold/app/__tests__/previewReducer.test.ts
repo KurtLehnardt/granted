@@ -124,6 +124,27 @@ describe("partitionPreview", () => {
     );
   });
 
+  test("a scored high-score card is never outranked by a still-provisional spinner (regression: +Infinity ranking)", () => {
+    // The reported repro: PROVISIONAL_PREVIEW_COUNT (12) provisional cards
+    // arrive first, then the top 3 get scored (88, 81, 75) while 9 remain
+    // spinners. Ranking a spinner as +Infinity meant ALL 8 CARD_CAP slots
+    // filled with spinners before any real score, pushing even an 88% match
+    // into "More matches" behind unscored placeholders.
+    let prev: PreviewItem[] = [];
+    for (let i = 0; i < 12; i++) prev = previewReducer(prev, provisional(`c${i}`));
+    prev = previewReducer(prev, match("c0", 88));
+    prev = previewReducer(prev, match("c1", 81));
+    prev = previewReducer(prev, match("c2", 75));
+
+    const { shown, weaker } = partitionPreview(prev, CARD_CAP);
+    assert.deepEqual(
+      shown.map((p) => p.opportunity.id),
+      ["c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7"],
+      "the 3 scored cards keep their slots (already within the cap) and stay first by score; the rest remain spinners in arrival order",
+    );
+    assert.deepEqual(weaker.map((p) => p.opportunity.id), ["c8", "c9", "c10", "c11"]);
+  });
+
   test("an unscored candidate is never shown as a real card — always in 'more matches'", () => {
     const items: PreviewItem[] = [
       match("real-1", 70, "likely"),

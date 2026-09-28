@@ -20,7 +20,7 @@ export function isProvisional(p: PreviewItem): p is ProvisionalMatch {
  *
  * Nothing is ever removed here, including a final tier-"none" score — a
  * provisional card must never vanish abruptly. The caller partitions a
- * tier-"none" item into a separate "Weaker matches" section instead (see
+ * tier-"none" item into a separate "More matches" section instead (see
  * `partitionPreview` below); this reducer only tracks the accumulated set.
  *
  * A stale provisional event that arrives AFTER a real score for the same id
@@ -46,12 +46,18 @@ export function previewReducer(prev: PreviewItem[], m: PreviewItem): PreviewItem
  * `selectShownMatches` for the streaming view (§2, never-vanish list), so a
  * candidate never just disappears once it stops fitting the main list.
  *
- * The main list is the top `cap` matches by score; a still-provisional card
- * (no score yet) keeps its current position in the list until it's scored,
- * so it doesn't jump around while scoring is in flight. Everything else — a
- * final tier-"none" score, a real match ranked past `cap`, or an unscored
- * candidate — goes into `weaker`. `cap` bounds the main list the same way the
- * finished map does (CARD_CAP); pass it explicitly to avoid this module
+ * A still-provisional card (no score yet) keeps the exact slot it already
+ * has — it is NOT ranked against scored cards. Only the scored items among
+ * `candidates` are ranked (by score, descending) and slotted back into the
+ * positions scored items occupy, highest score first; every provisional
+ * item's own position is left untouched. Treating an unscored spinner as
+ * rank-Infinity (the previous approach) meant every spinner outranked every
+ * real score, so as soon as `PROVISIONAL_PREVIEW_COUNT` (12) exceeded `cap`
+ * (8), a freshly scored 88% match got pushed into "More matches" behind 8
+ * still-unscored spinners — the opposite of what §2 requires. Everything
+ * else — a final tier-"none" score, or an unscored candidate — goes into
+ * `weaker` outright, same as before. `cap` bounds the main list the same way
+ * the finished map does (CARD_CAP); pass it explicitly to avoid this module
  * depending on the component tree.
  */
 export function partitionPreview(
@@ -68,17 +74,11 @@ export function partitionPreview(
     }
   }
 
-  // Rank `candidates` for the cap cut. A still-provisional card has no score
-  // yet, so it's treated as rank-Infinity — it stays in the running (keeps
-  // its position) instead of being displaced by a real score, exactly until
-  // it gets one. Stable by arrival index among ties.
-  const withIndex = candidates.map((it, i) => ({ it, i }));
-  withIndex.sort((a, b) => {
-    const sa = isProvisional(a.it) ? Infinity : a.it.score ?? 0;
-    const sb = isProvisional(b.it) ? Infinity : b.it.score ?? 0;
-    return sb - sa || a.i - b.i;
-  });
-  const sorted = withIndex.map((x) => x.it);
+  const scoredSorted = candidates
+    .filter((it): it is Match => !isProvisional(it))
+    .sort((a, b) => b.score - a.score);
+  let si = 0;
+  const merged = candidates.map((it) => (isProvisional(it) ? it : scoredSorted[si++]));
 
-  return { shown: sorted.slice(0, cap), weaker: [...sorted.slice(cap), ...weaker] };
+  return { shown: merged.slice(0, cap), weaker: [...merged.slice(cap), ...weaker] };
 }

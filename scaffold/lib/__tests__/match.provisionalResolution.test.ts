@@ -2,6 +2,7 @@ import { test, describe, afterEach } from "node:test";
 import assert from "node:assert/strict";
 
 import { buildOpportunityMap, type BuildDeps } from "../match";
+import { assembleTwoPass } from "../scoring/twoPass";
 import type { EligibilityDetermination } from "../contracts/eligibilityDetermination";
 import type { Opportunity, StartupProfile } from "../types";
 
@@ -137,6 +138,57 @@ describe("§1 — every provisional id is resolved", () => {
     assert.ok(dropped);
     assert.equal(dropped!.unscored, true);
     assert.equal(dropped!.final, true);
+  });
+
+  test("two-pass through the REAL assembleTwoPass merge: a Pass-A-dropped id still gets a streamed terminal event, not just a place in the final map", async () => {
+    // A mock that returns assembleTwoPass(...)'s own output — exactly what the
+    // real explainMatchesTwoPass returns — is the regression case: it puts an
+    // `unscored` assessment for "dropped" into the return value WITHOUT ever
+    // calling onAssessment for it (Pass A's own callback only fires for ids a
+    // batch actually returned). A fix that checks `matches` membership instead
+    // of "was actually streamed" wrongly treats this id as already resolved.
+    process.env.NEXT_PUBLIC_FLAG_E3_TWO_PASS = "true";
+    const corpus = [opp("passA-kept"), opp("passA-dropped")];
+    const { map, matchEvents } = await run(corpus, {
+      extractProfile: async () => ({ profile, followUps: [] }),
+      embed: async () => QUERY_VEC,
+      explainMatchesTwoPass: async (_p, candidates, _meter, onBatch, _signal, onAssessment) => {
+        const passA = [{ id: "passA-kept", score: 70 }]; // Pass A never returns "passA-dropped" at all.
+        for (const s of passA) onAssessment?.({ ...assess(s.id, s.score), final: true });
+        onBatch?.(1, candidates.length, { passAScored: 1, promotedCount: 0, passBScored: 0 });
+        return assembleTwoPass(candidates.map((c) => c.id), passA, []);
+      },
+      explainWeakField: async () => ({ headline: "h", reasoning: "r", redirects: [] }),
+    });
+
+    assert.ok(matchEvents.includes("passA-dropped"), "onMatch fired for the dropped id, not just 'kept'");
+    const dropped = map.matches.find((m) => m.opportunity.id === "passA-dropped");
+    assert.ok(dropped);
+    assert.equal(dropped!.unscored, true);
+    assert.equal(dropped!.final, true);
+  });
+
+  test("a pre-excluded candidate gets its terminal event streamed immediately, not just present in the final map", async () => {
+    const corpus = [opp("excluded-1"), opp("scored-1")];
+    const determination: EligibilityDetermination = {
+      bucket: "excluded",
+      failed_rules: [{ rule_id: "r1", description: "Not eligible.", severity: "hard" }],
+      passed_rules: [],
+      unknown_facts: [],
+      required_steps: [],
+    } as unknown as EligibilityDetermination;
+
+    const { matchEvents } = await run(corpus, {
+      extractProfile: async () => ({ profile, followUps: [] }),
+      embed: async () => QUERY_VEC,
+      explainMatches: async () => [assess("scored-1")],
+      explainWeakField: async () => ({ headline: "h", reasoning: "r", redirects: [] }),
+      screen: (_profile, o) => (o.id === "excluded-1" ? determination : {
+        bucket: "eligible", failed_rules: [], passed_rules: [], unknown_facts: [], required_steps: [],
+      } as unknown as EligibilityDetermination),
+    });
+
+    assert.ok(matchEvents.includes("excluded-1"), "a terminal onMatch event fired for the pre-excluded id");
   });
 
   test("no unresolved provisional id remains in the collapsed section's absence — every id has a final Match", async () => {

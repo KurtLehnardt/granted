@@ -64,9 +64,11 @@ function HomeShell({ sidebarOn }: { sidebarOn: boolean }) {
   }
 
   // Instant cards: a retrieved-but-unscored candidate (spinner card) or a
-  // fully scored Pass-A/Pass-B match — both upserted in place, never
-  // re-sorted mid-stream (previewReducer), so cards don't jump around while
-  // they're still being scored.
+  // fully scored Pass-A/Pass-B match — both upserted in place by id
+  // (previewReducer never reorders its own accumulated list). A spinner
+  // keeps its slot until it's scored; partitionPreview then ranks only the
+  // scored cards among themselves for the main-list cap cut, so a spinner
+  // never gets to outrank a real score.
   function handleMatchPreview(m: PreviewItem) {
     setPreviewMatches((prev) => previewReducer(prev, m));
   }

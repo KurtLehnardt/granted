@@ -18,11 +18,16 @@ import { isProvisional, type PreviewItem } from "@/lib/ui/previewReducer";
 export default function WeakerMatches({
   matches,
   startupProfile,
+  defaultOpen,
 }: {
   matches: PreviewItem[];
   startupProfile?: StartupProfile;
+  /** Test-only escape hatch: SSR (renderToStaticMarkup) can't simulate the
+   *  toggle click, so a test asserting on the expanded content's markup needs
+   *  a way to start it open. Production never passes this — defaults closed. */
+  defaultOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen ?? false);
   if (matches.length === 0) return null;
 
   return (

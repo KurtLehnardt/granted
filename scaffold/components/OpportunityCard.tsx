@@ -2,7 +2,7 @@
 // Explicit React import: needed under the plain `tsx`-run node:test runner
 // (this repo's tsconfig `"jsx": "preserve"` falls back to the classic JSX
 // runtime there) — see the same note in components/ApplicationChecklist.tsx.
-import React, { useEffect, useRef, useState, type ReactNode } from "react";
+import React, { useEffect, useId, useState, type ReactNode } from "react";
 import { TIER_LABEL, type Match, type StartupProfile } from "@/lib/types";
 import { isProvisional, type PreviewItem } from "@/lib/ui/previewReducer";
 import type { EligibilityBucket } from "@/lib/contracts/eligibilityDetermination";
@@ -121,29 +121,55 @@ function eyebrowClass(extra = "") {
  * rotation (`.analyzing-ring` in globals.css). Rotation is disabled under
  * `prefers-reduced-motion` by the existing global rule (a static ring
  * remains). Ring text is `aria-hidden`; the caller supplies the accessible
- * label on the badge itself so a screen reader hears "Analyzing, score may
- * change" once, not the raw repeated ring text.
+ * label on the badge itself so a screen reader hears it once, not the raw
+ * repeated ring text.
+ *
+ * Sized with a large FIXED additive inset (not the old `-inset-4`/`+2rem`,
+ * ~16px each side), so the ring's real physical size stays roughly constant
+ * — and legible — regardless of the tiny badge it wraps (a bare "—" for a
+ * provisional card, "100%" for a scored one). Under the old sizing the ring's
+ * real CSS px box tracked the badge 1:1 (badge ~50-80px → ring ~80-110px),
+ * so the same 6.5-viewBox-unit font rendered under 6 real px. `textLength` +
+ * `spacingAndGlyphs` stretches the label to the exact circumference so it
+ * wraps the full ring instead of covering a partial arc.
  */
 function AnalyzingRing({ children, fading }: { children: ReactNode; fading?: boolean }) {
+  const pathId = useId();
+  const r = 42;
+  const circumference = 2 * Math.PI * r;
   return (
     <span className="relative inline-flex items-center justify-center">
       <svg
         aria-hidden="true"
         viewBox="0 0 100 100"
-        className={`analyzing-ring pointer-events-none absolute -inset-4 h-[calc(100%+2rem)] w-[calc(100%+2rem)] text-structure-on-canvas transition-opacity duration-300 ${
+        className={`analyzing-ring pointer-events-none absolute -inset-[3.5rem] h-[calc(100%+7rem)] w-[calc(100%+7rem)] text-structure-on-canvas transition-opacity duration-300 ${
           fading ? "opacity-0" : "opacity-100"
         }`}
       >
         <defs>
-          <path id="analyzing-ring-path" d="M 50,50 m -42,0 a 42,42 0 1,1 84,0 a 42,42 0 1,1 -84,0" fill="none" />
+          <path id={pathId} d={`M 50,50 m -${r},0 a ${r},${r} 0 1,1 ${2 * r},0 a ${r},${r} 0 1,1 -${2 * r},0`} fill="none" />
         </defs>
-        <text className="fill-current font-mono uppercase" style={{ fontSize: "6.5px", letterSpacing: "0.5px" }}>
-          <textPath href="#analyzing-ring-path">ANALYZING &middot; ANALYZING &middot; ANALYZING &middot; </textPath>
+        <text className="fill-current font-mono uppercase" style={{ fontSize: "7px", letterSpacing: "1px" }}>
+          <textPath href={`#${pathId}`} textLength={circumference} lengthAdjust="spacingAndGlyphs">
+            ANALYZING &middot; ANALYZING &middot; ANALYZING &middot;{" "}
+          </textPath>
         </text>
       </svg>
       {children}
     </span>
   );
+}
+
+/**
+ * ANALYZING ring fade-out (§5) — pure state-transition rule, kept separate
+ * from the component so "the fade starts in the SAME render `final` flips
+ * true" is unit-testable without a DOM: `true` exactly when the previous
+ * render was still analyzing (`prevFinal === false`) and this one no longer
+ * is. Called during render (not from an effect), which runs it before React
+ * commits the render that would otherwise unmount the ring outright.
+ */
+export function nextRingFading(prevFinal: boolean | undefined, nextFinal: boolean | undefined): boolean {
+  return prevFinal === false && nextFinal !== false;
 }
 
 export default function OpportunityCard({
@@ -163,9 +189,10 @@ export default function OpportunityCard({
 
 /**
  * Instant cards — a retrieved-but-unscored candidate. No score, no tier, no
- * narrative yet: just the program identity plus an accessible "Scoring…"
- * spinner in place of the match percentage. Deliberately shows no number —
- * a fake or placeholder score would be worse than an honest "not yet".
+ * narrative yet: just the program identity plus an em dash and an
+ * "Analyzing, score may change" accessible label (role="status") in place of
+ * the match percentage. Deliberately shows no number — a fake or placeholder
+ * score would be worse than an honest "not yet".
  */
 function ProvisionalCard({ opportunity, index }: { opportunity: Match["opportunity"]; index: number }) {
   const articleClass =
@@ -213,21 +240,26 @@ function ScoredOpportunityCard({
   // ANALYZING ring fade-out (§5): once `final` flips true, keep the ring
   // mounted for one short CSS transition instead of yanking it away —
   // "the ring fades out leaving the plain badge," not an instant swap.
-  const wasAnalyzing = useRef(m.final === false);
+  //
+  // `ringFading` must flip to true in the SAME render where `final` flips to
+  // true, not in a later effect — an effect runs after that render commits,
+  // so the ring (still showing at opacity-100) would already have unmounted
+  // by the time the effect asked for a fade, and the element a moment later
+  // would just mount fresh at opacity-0 with nothing to transition from. This
+  // is React's documented "adjust state during render" pattern: comparing
+  // `m.final` against the last render's value lets the fade start on the
+  // very same commit the ring would otherwise disappear on.
+  const [prevFinal, setPrevFinal] = useState(m.final);
   const [ringFading, setRingFading] = useState(false);
+  if (prevFinal !== m.final) {
+    setPrevFinal(m.final);
+    setRingFading(nextRingFading(prevFinal, m.final));
+  }
   useEffect(() => {
-    if (m.final === false) {
-      wasAnalyzing.current = true;
-      setRingFading(false);
-      return;
-    }
-    if (wasAnalyzing.current) {
-      wasAnalyzing.current = false;
-      setRingFading(true);
-      const t = setTimeout(() => setRingFading(false), 300);
-      return () => clearTimeout(t);
-    }
-  }, [m.final]);
+    if (!ringFading) return;
+    const t = setTimeout(() => setRingFading(false), 300);
+    return () => clearTimeout(t);
+  }, [ringFading]);
   const showRing = m.final === false || ringFading;
   // The assisted-apply flow (sign-in / requirements form / package assembly)
   // was unreliable, so it's been pulled from the UI for now (code stays in
@@ -452,12 +484,13 @@ function ScoredOpportunityCard({
             {/* ANALYZING ring (§5) — `final === false` means Pass A scored this
                 candidate but it's promoted for Pass B, which may still change
                 its score. Once the final score lands (`final` true/absent),
-                the ring is simply not rendered — no fade-out state to track. */}
+                `ringFading` keeps the ring mounted for one fade-out transition
+                before it stops rendering (see the state above). */}
             {showRing ? (
               <AnalyzingRing fading={ringFading}>
                 <div
                   role="status"
-                  aria-label="Analyzing, score may change"
+                  aria-label={`Analyzing, ${m.score}%, score may change`}
                   className="font-display text-[26px] font-bold leading-none tabular-nums text-foreground"
                 >
                   {m.score}

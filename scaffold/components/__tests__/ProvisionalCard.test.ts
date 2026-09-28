@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import React from "react";
 import type { Opportunity, Match } from "../../lib/types";
 import type { PreviewItem } from "../../lib/ui/previewReducer";
-import OpportunityCard from "../OpportunityCard";
+import OpportunityCard, { nextRingFading } from "../OpportunityCard";
 
 /**
  * Instant cards — the provisional (unscored) card, and the ANALYZING ring
@@ -79,5 +79,45 @@ describe("<OpportunityCard/> — ANALYZING ring on a scored card", () => {
     const m = match("a", { score: 62 });
     const html = renderToStaticMarkup(React.createElement(OpportunityCard, { m, index: 0 }));
     assert.doesNotMatch(html, /ANALYZING/);
+  });
+
+  test("the accessible label announces the real interim score, not just 'Analyzing'", () => {
+    const m = match("a", { final: false, score: 41 });
+    const html = renderToStaticMarkup(React.createElement(OpportunityCard, { m, index: 0 }));
+    assert.match(html, /aria-label="Analyzing, 41%, score may change"/);
+  });
+});
+
+describe("nextRingFading — ANALYZING ring fade-out state transition", () => {
+  test("starts fading exactly when final flips from false to true/absent", () => {
+    assert.equal(nextRingFading(false, true), true);
+    assert.equal(nextRingFading(false, undefined), true);
+  });
+
+  test("never fades if it wasn't analyzing (final was already true/absent)", () => {
+    assert.equal(nextRingFading(true, true), false);
+    assert.equal(nextRingFading(undefined, true), false);
+  });
+
+  test("never fades while still analyzing (final stays false)", () => {
+    assert.equal(nextRingFading(false, false), false);
+  });
+});
+
+describe("<OpportunityCard/> — ANALYZING ring ids are unique per card", () => {
+  test("two analyzing rings on the same page never share a path id (no duplicate DOM ids)", () => {
+    const a = match("a", { final: false, score: 30 });
+    const b = match("b", { final: false, score: 40 });
+    const html = renderToStaticMarkup(
+      React.createElement(
+        React.Fragment,
+        null,
+        React.createElement(OpportunityCard, { m: a, index: 0 }),
+        React.createElement(OpportunityCard, { m: b, index: 1 }),
+      ),
+    );
+    const ids = Array.from(html.matchAll(/<path id="([^"]+)"/g)).map((m) => m[1]);
+    assert.equal(ids.length, 2);
+    assert.notEqual(ids[0], ids[1], "each AnalyzingRing must generate its own unique path id via useId");
   });
 });
