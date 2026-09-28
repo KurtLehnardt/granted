@@ -10,7 +10,8 @@ function anthropicClient(
   provider?: { baseUrl?: string; authMode?: CloudProviderPreset["authMode"] },
 ): Anthropic {
   return new Anthropic({
-    ...(provider?.authMode === "authToken" ? { authToken: apiKey } : { apiKey }),
+    // See client.ts's makeAnthropicClientForKey for why both fields are set explicitly.
+    ...(provider?.authMode === "authToken" ? { apiKey: null, authToken: apiKey } : { apiKey, authToken: null }),
     ...(provider?.baseUrl ? { baseURL: provider.baseUrl } : {}),
     timeout,
     maxRetries: 0,
@@ -196,7 +197,7 @@ export async function probeCloudKey(params: CloudProbeParams): Promise<ProbeOutc
     } catch (err) {
       return describeAnthropicError(err, params.key);
     }
-    const model = params.model || models[0];
+    const model = params.model || sdkPreset.defaultModel || models[0];
     if (!model) return { ok: true }; // no model configured or listed — key alone is all we can confirm
     return probeAnthropicModel(client, model, params.key);
   }

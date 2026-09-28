@@ -1,7 +1,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import Anthropic from "@anthropic-ai/sdk";
-import { withRetry429, withConcurrencyLimit } from "../rateLimit";
+import { withRetry429, withConcurrencyLimit, getSharedLimiter } from "../rateLimit";
 import { ProviderHttpError } from "../errors";
 
 function anthropicRateLimitError(retryAfterHeader?: string): InstanceType<typeof Anthropic.APIError> {
@@ -145,5 +145,63 @@ describe("withConcurrencyLimit", () => {
     );
     await Promise.all([wrapped.messages.create({}), wrapped.messages.create({}), wrapped.messages.create({})]);
     assert.equal(maxActive, 3);
+  });
+
+  test("a shared limiter state is enforced across separately-wrapped clients", async () => {
+    const state = getSharedLimiter("test-shared-key-1", 1);
+    let active = 0;
+    let maxActive = 0;
+    const makeClient = () =>
+      withConcurrencyLimit(
+        client(async () => {
+          active++;
+          maxActive = Math.max(maxActive, active);
+          await new Promise((r) => setTimeout(r, 10));
+          active--;
+          return { ok: true };
+        }),
+        1,
+        state,
+      );
+    await Promise.all([makeClient().messages.create({}), makeClient().messages.create({}), makeClient().messages.create({})]);
+    assert.equal(maxActive, 1);
+  });
+});
+
+describe("withRetry429 / withConcurrencyLimit — abort", () => {
+  test("a cancelled call rejects with the abort reason instead of waiting out a 429 backoff", async () => {
+    let calls = 0;
+    const wrapped = withRetry429(
+      client(async () => {
+        calls++;
+        throw anthropicRateLimitError("10"); // 10s wait, under the 60s cap — would hang the test if not aborted
+      }),
+    );
+    const ac = new AbortController();
+    const reason = new Error("cancelled");
+    const promise = wrapped.messages.create({}, { signal: ac.signal });
+    ac.abort(reason);
+    await assert.rejects(promise, (err) => err === reason);
+    assert.equal(calls, 1);
+  });
+
+  test("a cancelled call waiting in the concurrency queue rejects instead of waiting for a slot", async () => {
+    let release: () => void = () => {};
+    const held = new Promise<void>((r) => (release = r));
+    const wrapped = withConcurrencyLimit(
+      client(async () => {
+        await held;
+        return { ok: true };
+      }),
+      1,
+    );
+    const first = wrapped.messages.create({}); // takes the only slot
+    const ac = new AbortController();
+    const reason = new Error("cancelled");
+    const queued = wrapped.messages.create({}, { signal: ac.signal });
+    ac.abort(reason);
+    await assert.rejects(queued, (err) => err === reason);
+    release();
+    await first;
   });
 });

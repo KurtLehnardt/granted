@@ -5,7 +5,7 @@ import { currentLocalModel } from "./modelContext";
 import { resolveProvider, resolveCloudConfig, resolveCloudApiKey, resolveCloudBaseUrl, resolveCloudModel, resolveAnthropicSdkBaseUrl } from "./config";
 import { getCloudProvider, type CloudProviderPreset } from "./providers";
 import { ProviderHttpError, redactKey, retryAfterMsFromResponse } from "./errors";
-import { withRetry429, withConcurrencyLimit } from "./rateLimit";
+import { withRetry429, withConcurrencyLimit, getSharedLimiter } from "./rateLimit";
 
 /** Test-only: the SDK binds node-fetch at import, so hosted tests inject fetch here. */
 const hostedFetchAls = new AsyncLocalStorage<typeof fetch>();
@@ -95,7 +95,8 @@ export function makeLlmClient(opts: LlmClientOptions = {}): LlmClient {
     const client = makeAnthropicClientForKey(resolved.key, opts, { baseUrl, authMode: preset.authMode });
     const model = cfg ? resolveCloudModel(cfg) : undefined;
     const withModel = model ? withAnthropicModelOverride(client, model) : client;
-    return withConcurrencyLimit(withRetry429(withModel), preset.concurrency);
+    const limiter = preset.concurrency ? getSharedLimiter(concurrencyKey(providerId, baseUrl), preset.concurrency) : undefined;
+    return withConcurrencyLimit(withRetry429(withModel), preset.concurrency, limiter);
   }
 
   const baseUrl = cfg ? resolveCloudBaseUrl(cfg) : undefined;
@@ -109,7 +110,17 @@ export function makeLlmClient(opts: LlmClientOptions = {}): LlmClient {
     getModel: () => currentLocalModel() || model,
     timeoutMs: opts.timeout ?? 120_000,
   });
-  return withConcurrencyLimit(withRetry429(shim), preset?.concurrency);
+  const limiter = preset?.concurrency ? getSharedLimiter(concurrencyKey(providerId, baseUrl), preset.concurrency) : undefined;
+  return withConcurrencyLimit(withRetry429(shim), preset?.concurrency, limiter);
+}
+
+/** Shares one concurrency cap across every `makeLlmClient()` call that targets
+ * the same provider + base URL — a per-call limiter would otherwise start
+ * empty each time and never actually cap the app's real parallel fan-out
+ * (lib/claude.ts, apply/draft.ts, apply/requirements.ts, competitors/analyze.ts
+ * all construct a new client per batch/call). */
+function concurrencyKey(providerId: string, baseUrl?: string): string {
+  return `${providerId}|${baseUrl ?? ""}`;
 }
 
 /** Anthropic client for an explicit key — used by the test-key endpoint, which
@@ -122,7 +133,13 @@ export function makeAnthropicClientForKey(
   provider?: { baseUrl?: string; authMode?: CloudProviderPreset["authMode"] },
 ): Anthropic {
   return new Anthropic({
-    ...(provider?.authMode === "authToken" ? { authToken: apiKey } : { apiKey }),
+    // Explicit `null` on the unused credential, not just omission: the SDK
+    // defaults apiKey from ANTHROPIC_API_KEY when unset, and authHeaders()
+    // prefers x-api-key over Authorization: Bearer — so with both present
+    // (e.g. ANTHROPIC_API_KEY set in the environment for the real Anthropic
+    // API) an authToken-mode client would silently send the paid key instead
+    // of the proxy token.
+    ...(provider?.authMode === "authToken" ? { apiKey: null, authToken: apiKey } : { apiKey, authToken: null }),
     ...(provider?.baseUrl ? { baseURL: provider.baseUrl } : {}),
     timeout: opts.timeout,
     maxRetries: opts.maxRetries ?? 0,
