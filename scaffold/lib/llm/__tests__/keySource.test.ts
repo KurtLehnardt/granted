@@ -52,9 +52,25 @@ describe("resolveKeySource — env", () => {
 
 describe("resolveKeySource — file", () => {
   test("relative path is rejected", () => {
-    const r = resolveKeySource({ type: "file", path: "~/relative/path.key" });
+    const r = resolveKeySource({ type: "file", path: "relative/path.key" });
     assert.equal(r.key, undefined);
     assert.match(r.error!, /absolute/);
+  });
+
+  test("~ expands to the home directory", () => {
+    const homeDir = path.join(os.homedir(), ".fcc");
+    fs.mkdirSync(homeDir, { recursive: true });
+    fs.writeFileSync(path.join(homeDir, "granted-keysource-test-token"), "sk-hometoken000\n", "utf8");
+    const r = resolveKeySource({ type: "file", path: "~/.fcc/granted-keysource-test-token" });
+    assert.deepEqual(r, { key: "sk-hometoken000" });
+    fs.rmSync(path.join(homeDir, "granted-keysource-test-token"), { force: true });
+  });
+
+  test("bare ~ alone (no trailing content) is still relative-path-shaped after expansion, not crashing", () => {
+    const r = resolveKeySource({ type: "file", path: "~" });
+    // Expands to the home directory itself, which is a directory, not a file.
+    assert.equal(r.key, undefined);
+    assert.match(r.error!, /Couldn't read/);
   });
 
   test("missing file -> \"Couldn't read <path>\"", () => {

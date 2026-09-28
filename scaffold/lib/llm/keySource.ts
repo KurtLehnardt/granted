@@ -1,4 +1,6 @@
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 // Resolves a cloud provider's key from one of three sources, at use time —
 // never persisted to the config file except by reference (see ./config).
@@ -20,6 +22,13 @@ export interface ResolvedKey {
 function isAbsolutePath(p: string): boolean {
   // POSIX absolute ("/...") or Windows absolute ("C:\..." / "C:/...").
   return /^(\/|[a-zA-Z]:[\\/])/.test(p);
+}
+
+/** Expands a leading "~" (POSIX) or "~/"/"~\" to the user's home directory, e.g. "~/.fcc/proxy_auth_token". */
+export function expandHome(p: string): string {
+  if (p === "~") return os.homedir();
+  if (p.startsWith("~/") || p.startsWith("~\\")) return path.join(os.homedir(), p.slice(2));
+  return p;
 }
 
 let fileCache: { path: string; mtimeMs: number; content: string } | null = null;
@@ -66,10 +75,12 @@ export function resolveKeySource(source: KeySource, isValid?: (key: string) => b
   }
 
   // file
-  if (!source.path || !isAbsolutePath(source.path)) {
+  if (!source.path) return { error: "Enter the key file's full (absolute) path." };
+  const expandedPath = expandHome(source.path);
+  if (!isAbsolutePath(expandedPath)) {
     return { error: "Enter the key file's full (absolute) path." };
   }
-  const { content, error } = readKeyFile(source.path);
+  const { content, error } = readKeyFile(expandedPath);
   if (error) return { error };
 
   const lines = (content ?? "")

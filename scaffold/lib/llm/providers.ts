@@ -1,8 +1,10 @@
-import { normalizeOpenAiBaseUrl } from "./baseUrl";
+import { normalizeOpenAiBaseUrl, normalizeAnthropicBaseUrl } from "./baseUrl";
+import { isLoopbackIp } from "../corpus/loopback";
 
-// Cloud provider registry. Anthropic runs through the real SDK (see client.ts);
-// every other preset is an OpenAI-compatible endpoint reached through the
-// existing OpenAI-compat shim, with the preset's base URL and a bearer key.
+// Cloud provider registry. Anthropic (and any other preset with
+// usesAnthropicSdk) runs through the real SDK (see client.ts); every other
+// preset is an OpenAI-compatible endpoint reached through the existing
+// OpenAI-compat shim, with the preset's base URL and a bearer key.
 
 export type CloudProviderId =
   | "anthropic"
@@ -11,16 +13,36 @@ export type CloudProviderId =
   | "openrouter"
   | "groq"
   | "mistral"
+  | "fcc"
   | "other";
+
+/** A key source suggested by default when a preset is first selected — see keySource.ts. */
+export type DefaultKeySource = { type: "file"; path: string };
 
 export interface CloudProviderPreset {
   id: CloudProviderId;
   label: string;
-  /** Fixed base URL for a preset provider. Undefined only for "other", which takes a user-entered URL. */
+  /** Fixed base URL for a preset provider. Undefined for "other"/"fcc", which take a user-entered URL. */
   baseUrl?: string;
+  /** True when the base URL is user-entered rather than fixed ("other", "fcc"). */
+  editableBaseUrl?: boolean;
+  /** "fcc" only: http is accepted for a loopback host (localhost/127.0.0.1/[::1]); every other base URL requires https. */
+  allowHttpLoopbackOnly?: boolean;
   defaultModel?: string;
   /** Authenticated GET used by "Test key"; defaults to /models. */
   keyProbePath?: string;
+  /** True for a preset reached through the real Anthropic SDK (client.ts) rather than the OpenAI-compat shim. */
+  usesAnthropicSdk?: boolean;
+  /** How the SDK sends the credential when usesAnthropicSdk: "apiKey" (x-api-key, default) or "authToken" (Authorization: Bearer). */
+  authMode?: "apiKey" | "authToken";
+  /** False hides/disables "Load models" for a preset with no models endpoint. Every current preset has one. */
+  hasModelsEndpoint?: boolean;
+  /** Suggested key source the UI prefills when this preset is first selected. */
+  defaultKeySource?: DefaultKeySource;
+  /** Caps simultaneous in-flight calls for this preset (gentler free-tier concurrency). Undefined = unlimited. */
+  concurrency?: number;
+  /** One-line privacy note shown in Settings when this preset is selected. */
+  privacyNote?: string;
   isKeyValid(key: string): boolean;
 }
 
@@ -65,6 +87,7 @@ export const CLOUD_PROVIDERS: readonly CloudProviderPreset[] = [
   {
     id: "anthropic",
     label: "Anthropic (Claude)",
+    usesAnthropicSdk: true,
     isKeyValid: isValidAnthropicKeyFormat,
   },
   {
@@ -86,6 +109,7 @@ export const CLOUD_PROVIDERS: readonly CloudProviderPreset[] = [
     label: "OpenRouter",
     baseUrl: "https://openrouter.ai/api/v1",
     keyProbePath: "/key", // its /models is public, so it can't tell a bad key from a good one
+    concurrency: 2, // gentle on free-tier (:free) rate limits
     isKeyValid: genericKeyCheck,
   },
   {
@@ -93,6 +117,7 @@ export const CLOUD_PROVIDERS: readonly CloudProviderPreset[] = [
     label: "Groq",
     baseUrl: "https://api.groq.com/openai/v1",
     defaultModel: "llama-3.3-70b-versatile",
+    concurrency: 2, // gentle on free-tier rate limits
     isKeyValid: genericKeyCheck,
   },
   {
@@ -102,8 +127,24 @@ export const CLOUD_PROVIDERS: readonly CloudProviderPreset[] = [
     isKeyValid: genericKeyCheck,
   },
   {
+    id: "fcc",
+    label: "Anthropic-compatible proxy (e.g. Free Claude Code)",
+    baseUrl: "http://127.0.0.1:8082",
+    editableBaseUrl: true,
+    allowHttpLoopbackOnly: true,
+    usesAnthropicSdk: true,
+    authMode: "authToken", // FCC validates "Authorization: Bearer <token>", never x-api-key
+    defaultModel: "claude-sonnet-4-20250514", // an id FCC's catalog maps to a configured free-provider model
+    hasModelsEndpoint: true, // FCC implements GET /v1/models
+    defaultKeySource: { type: "file", path: "~/.fcc/proxy_auth_token" },
+    concurrency: 2, // gentle on free-tier upstream rate limits
+    privacyNote: "Prompts are forwarded to third-party free providers, which may log them.",
+    isKeyValid: genericKeyCheck,
+  },
+  {
     id: "other",
     label: "Other (OpenAI-compatible)",
+    editableBaseUrl: true,
     isKeyValid: genericKeyCheck,
   },
 ];
@@ -116,9 +157,9 @@ export function getCloudProvider(id: string): CloudProviderPreset | undefined {
   return CLOUD_PROVIDERS.find((p) => p.id === id);
 }
 
-/** Anthropic runs through the SDK, never the OpenAI-compat shim. */
+/** Anthropic (and any usesAnthropicSdk preset) runs through the SDK, never the OpenAI-compat shim. */
 export function isAnthropicProvider(id: CloudProviderId): boolean {
-  return id === "anthropic";
+  return getCloudProvider(id)?.usesAnthropicSdk === true;
 }
 
 export function isValidHttpsUrl(url: string): boolean {
@@ -129,9 +170,35 @@ export function isValidHttpsUrl(url: string): boolean {
   }
 }
 
+function isLoopbackUrlHost(url: string): boolean {
+  try {
+    // URL().hostname keeps the brackets on an IPv6 literal ("[::1]"); isLoopbackIp expects "::1".
+    const hostname = new URL(url).hostname.replace(/^\[|\]$/g, "");
+    return isLoopbackIp(hostname);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Validates a user-entered base URL for one preset: https always works;
+ * http only for a preset that allows it (allowHttpLoopbackOnly), and only
+ * when the host is loopback (localhost/127.0.0.1/[::1]).
+ */
+export function isValidCloudBaseUrl(url: string, preset: CloudProviderPreset | undefined): boolean {
+  if (isValidHttpsUrl(url)) return true;
+  if (!preset?.allowHttpLoopbackOnly) return false;
+  try {
+    return new URL(url).protocol === "http:" && isLoopbackUrlHost(url);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Whether a draft targets the same endpoint as a saved config, so the saved
- * key may be reused for it: same provider and, for "other", the same base URL.
+ * key may be reused for it: same provider and, for a preset with an editable
+ * base URL, the same base URL.
  */
 export function isSameCloudTarget(
   saved: { providerId: CloudProviderId; baseUrl?: string } | undefined,
@@ -139,6 +206,8 @@ export function isSameCloudTarget(
   baseUrl?: string,
 ): boolean {
   if (!saved || saved.providerId !== providerId) return false;
-  if (providerId !== "other") return true;
-  return normalizeOpenAiBaseUrl(saved.baseUrl) === normalizeOpenAiBaseUrl(baseUrl);
+  const preset = getCloudProvider(providerId);
+  if (!preset?.editableBaseUrl) return true;
+  const normalize = preset.usesAnthropicSdk ? normalizeAnthropicBaseUrl : normalizeOpenAiBaseUrl;
+  return normalize(saved.baseUrl) === normalize(baseUrl);
 }

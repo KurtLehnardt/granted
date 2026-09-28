@@ -186,7 +186,7 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
         provider: "cloud",
         cloud: {
           providerId,
-          ...(providerId === "other" ? { baseUrl: baseUrl.trim() } : {}),
+          ...(preset?.editableBaseUrl ? { baseUrl: baseUrl.trim() } : {}),
           ...(cloudModel.trim() ? { model: cloudModel.trim() } : {}),
           keySource: currentKeySource(),
         },
@@ -242,7 +242,7 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           providerId,
-          ...(providerId === "other" ? { baseUrl: baseUrl.trim() } : {}),
+          ...(preset?.editableBaseUrl ? { baseUrl: baseUrl.trim() } : {}),
           ...(cloudModel.trim() ? { model: cloudModel.trim() } : {}),
           keySource: currentKeySource(),
         }),
@@ -265,7 +265,7 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           providerId,
-          ...(providerId === "other" ? { baseUrl: baseUrl.trim() } : {}),
+          ...(preset?.editableBaseUrl ? { baseUrl: baseUrl.trim() } : {}),
           keySource: currentKeySource(),
         }),
       });
@@ -400,12 +400,19 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
             id={providerSelectId}
             value={providerId}
             onChange={(e) => {
-              setProviderId(e.target.value as CloudProviderId);
+              const next = e.target.value as CloudProviderId;
+              setProviderId(next);
               // A model picked for one provider is never valid for another — the
               // "gpt-4o-mini" carried onto an Anthropic save was exactly this bug.
               setCloudModel("");
               setCloudModelsList([]);
               setModelsError(null);
+              const nextPreset = CLOUD_PROVIDERS.find((p) => p.id === next);
+              setBaseUrl(nextPreset?.editableBaseUrl ? (nextPreset.baseUrl ?? "") : "");
+              if (nextPreset?.defaultKeySource) {
+                setKeySourceType("file");
+                setFilePath(nextPreset.defaultKeySource.path);
+              }
             }}
             className={inputClass}
           >
@@ -416,7 +423,7 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
             ))}
           </select>
 
-          {providerId === "other" && (
+          {preset?.editableBaseUrl && (
             <div className="mt-3">
               <label className={legendClass} htmlFor={baseUrlId}>
                 Base URL
@@ -426,10 +433,16 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
                 type="text"
                 value={baseUrl}
                 onChange={(e) => setBaseUrl(e.target.value)}
-                placeholder="https://your-endpoint.example.com/v1"
+                placeholder={preset.baseUrl ?? "https://your-endpoint.example.com/v1"}
                 className={inputClass}
               />
             </div>
+          )}
+
+          {preset?.privacyNote && (
+            <p className="mt-3 rounded-r-sm border-l-2 border-structure-on-canvas bg-canvas-alt px-3 py-2 font-body text-[12px] text-foreground" data-testid="cloud-privacy-note">
+              {preset.privacyNote}
+            </p>
           )}
 
           <div className="mt-3">
@@ -513,12 +526,18 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
                 ))}
               </datalist>
             )}
-            <div className="mt-2 flex items-center gap-2">
-              <button type="button" className={smallBtnClass} onClick={handleLoadModels} disabled={loadingModels}>
-                {loadingModels ? "Loading models…" : "Load models"}
-              </button>
-              {modelsError && <span className="font-body text-[12px] text-foreground">{modelsError}</span>}
-            </div>
+            {preset?.hasModelsEndpoint === false ? (
+              <p className="mt-2 font-body text-[12px] text-foreground opacity-70">
+                This provider doesn&apos;t support listing models — enter the model name directly.
+              </p>
+            ) : (
+              <div className="mt-2 flex items-center gap-2">
+                <button type="button" className={smallBtnClass} onClick={handleLoadModels} disabled={loadingModels}>
+                  {loadingModels ? "Loading models…" : "Load models"}
+                </button>
+                {modelsError && <span className="font-body text-[12px] text-foreground">{modelsError}</span>}
+              </div>
+            )}
           </div>
 
           <div className="mt-3 flex flex-wrap gap-2">

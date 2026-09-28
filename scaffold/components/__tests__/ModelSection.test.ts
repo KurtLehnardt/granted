@@ -43,7 +43,16 @@ describe("ModelSection — renders the right panel per provider", () => {
     const html = render({ provider: "cloud", local: false });
     assert.match(html, /model-panel-cloud/);
     assert.doesNotMatch(html, /model-panel-local/);
-    for (const label of ["Anthropic (Claude)", "OpenAI", "Google Gemini", "OpenRouter", "Groq", "Mistral", "Other (OpenAI-compatible)"]) {
+    for (const label of [
+      "Anthropic (Claude)",
+      "OpenAI",
+      "Google Gemini",
+      "OpenRouter",
+      "Groq",
+      "Mistral",
+      "Anthropic-compatible proxy (e.g. Free Claude Code)",
+      "Other (OpenAI-compatible)",
+    ]) {
       assert.match(html, new RegExp(label.replace(/[()]/g, "\\$&")));
     }
     assert.doesNotMatch(html, /cloud-key-status/);
@@ -165,6 +174,33 @@ describe("ModelSection — renders the right panel per provider", () => {
     assert.ok(describedByMatch, "key input has no aria-describedby");
     const tooltipId = describedByMatch![1];
     assert.match(html, new RegExp(`id="${tooltipId}"[^>]*role="tooltip"`));
+  });
+
+  test("fcc: shows an editable base URL field and its privacy note", () => {
+    const html = render({
+      provider: "cloud",
+      local: false,
+      cloud: { providerId: "fcc", baseUrl: "http://127.0.0.1:8082", hasKey: false, keySource: { type: "file", path: "~/.fcc/proxy_auth_token" } },
+    });
+    assert.match(html, /Base URL/);
+    assert.match(html, /value="http:\/\/127\.0\.0\.1:8082"/);
+    assert.match(html, /cloud-privacy-note/);
+    assert.match(html, /Prompts are forwarded to third-party free providers, which may log them\./);
+  });
+
+  test("privacy note is absent for a preset with none (e.g. openai)", () => {
+    const html = render({ provider: "cloud", local: false, cloud: { providerId: "openai", hasKey: false, keySource: { type: "inline" } } });
+    assert.doesNotMatch(html, /cloud-privacy-note/);
+  });
+
+  test("fcc: not marked required (has a default model) and shows the secret-file path", () => {
+    const html = render({
+      provider: "cloud",
+      local: false,
+      cloud: { providerId: "fcc", hasKey: true, keySource: { type: "file", path: "~/.fcc/proxy_auth_token" } },
+    });
+    assert.doesNotMatch(html, /Model \(required\)/);
+    assert.match(html, /~\/\.fcc\/proxy_auth_token/);
   });
 
   test("a saved inline key never reprefills the draft field, but its placeholder says the key is kept if left blank", () => {

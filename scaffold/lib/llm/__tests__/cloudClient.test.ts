@@ -182,6 +182,52 @@ describe("makeLlmClient — anthropic cloud path", () => {
     assert.equal(typeof client.messages.create, "function");
   });
 
+  test("fcc: sends Authorization: Bearer (authToken, not x-api-key) to the configured base URL, and the configured model", async () => {
+    delete process.env.LLM_PROVIDER;
+    writeLlmConfig({
+      provider: "cloud",
+      cloud: { providerId: "fcc", baseUrl: "http://127.0.0.1:8082", model: "claude-opus-4-20250514", keySource: { type: "inline", key: "fcc-token-value-0000" } },
+    });
+    let sentUrl = "";
+    let sentAuth: string | undefined;
+    let sentApiKeyHeader: string | undefined;
+    let sentModel = "";
+    const { withHostedFetch } = await import("../client");
+    await withHostedFetch((async (url: any, init: any) => {
+      sentUrl = String(url);
+      sentAuth = init?.headers?.["Authorization"] ?? init?.headers?.authorization;
+      sentApiKeyHeader = init?.headers?.["x-api-key"];
+      sentModel = JSON.parse(init.body).model;
+      return new Response(JSON.stringify({ id: "x", content: [{ type: "text", text: "ok" }], usage: {} }), { status: 200 });
+    }) as any, async () => {
+      const client = makeLlmClient({ timeout: 5000 });
+      await client.messages.create({ model: "ignored", max_tokens: 5, messages: [{ role: "user", content: "hi" }] });
+    });
+
+    assert.equal(sentUrl, "http://127.0.0.1:8082/v1/messages");
+    assert.equal(sentAuth, "Bearer fcc-token-value-0000");
+    assert.equal(sentApiKeyHeader, undefined); // FCC only validates Authorization: Bearer, never x-api-key
+    assert.equal(sentModel, "claude-opus-4-20250514");
+  });
+
+  test("fcc: no saved model falls back to the preset's default (a Claude id FCC's catalog maps)", async () => {
+    delete process.env.LLM_PROVIDER;
+    writeLlmConfig({
+      provider: "cloud",
+      cloud: { providerId: "fcc", baseUrl: "http://127.0.0.1:8082", keySource: { type: "inline", key: "fcc-token-value-0000" } },
+    });
+    let sentModel = "";
+    const { withHostedFetch } = await import("../client");
+    await withHostedFetch((async (_url: any, init: any) => {
+      sentModel = JSON.parse(init.body).model;
+      return new Response(JSON.stringify({ id: "x", content: [{ type: "text", text: "ok" }], usage: {} }), { status: 200 });
+    }) as any, async () => {
+      const client = makeLlmClient({ timeout: 5000 });
+      await client.messages.create({ model: "call-site-model", max_tokens: 5, messages: [{ role: "user", content: "hi" }] });
+    });
+    assert.equal(sentModel, "claude-sonnet-4-20250514");
+  });
+
   test("with a saved model: overrides whatever model the call site passes", async () => {
     delete process.env.LLM_PROVIDER;
     writeLlmConfig({ provider: "cloud", cloud: { providerId: "anthropic", model: "claude-haiku-4-5", keySource: { type: "inline", key: "sk-ant-abcXYZ1234567890" } } });
