@@ -5,7 +5,6 @@ import { resolvePortalForUrl, type PortalFieldMap } from "../config";
 import { isTerminalStep, type StepDetection, type AdvanceOutcome } from "../content/navigator";
 import type { FillResult, FillSummary } from "../content/fillEngine";
 import {
-  NOTHING_SUBMITTED_BANNER,
   IMPORT_SCREEN,
   REVIEW_SCREEN,
   FILL_PROGRESS_SCREEN,
@@ -27,10 +26,8 @@ interface StoredPackage {
 
 /**
  * The popup (spec §5). Screens: Import → Review → Fill/Progress → Navigate →
- * terminal "Review & submit via your authorized AOR". The
- * "nothing has been submitted" banner (INV-12) is rendered on every screen
- * except the terminal one, which instead shows the verbatim AOR_HANDOFF
- * panel (which itself opens with the same statement).
+ * terminal "Review & submit via your authorized AOR", which shows the
+ * verbatim AOR_HANDOFF panel.
  *
  * No control in this component can trigger a portal submit. This component
  * only ever: imports (client-side validation, spec §6.3), asks the content
@@ -196,22 +193,6 @@ export function Popup(): React.JSX.Element {
         <strong>Granted Assisted Fill</strong>
       </header>
 
-      {screen !== "terminal" && (
-        <div
-          role="status"
-          style={{
-            background: "#fef3c7",
-            color: "#92400e",
-            borderRadius: 6,
-            padding: "8px 10px",
-            fontSize: 12,
-            marginBottom: 12,
-          }}
-        >
-          {NOTHING_SUBMITTED_BANNER}
-        </div>
-      )}
-
       {screen === "import" && (
         <section>
           <h2 style={{ fontSize: 14 }}>{IMPORT_SCREEN.title}</h2>
@@ -284,7 +265,7 @@ export function Popup(): React.JSX.Element {
               <div style={{ marginTop: 12 }}>
                 {showTerminalHint && (
                   <p style={{ fontSize: 12, color: "#6b7280" }}>
-                    This is the last section. Review it, then continue — nothing is submitted automatically.
+                    This is the last section. Review it, then continue.
                   </p>
                 )}
                 <button onClick={() => void onAdvance()}>{NAVIGATE_SCREEN.nextButton}</button>

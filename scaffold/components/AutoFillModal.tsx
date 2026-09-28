@@ -122,8 +122,7 @@ export default function AutoFillModal({
         <p id="auto-fill-modal-desc" className={bodyClass}>
           Auto Fill would help you prepare federal applications — you always review and file them
           yourself. We're still finishing the integrations with each grant site, so it isn't live yet.
-          {commercial ? " When it ships, it will be part of a Pro plan we're building toward." : ""} Nothing is
-          submitted anywhere today.
+          {commercial ? " When it ships, it will be part of a Pro plan we're building toward." : ""}
         </p>
 
         <p className={bodyClass}>
@@ -157,8 +156,7 @@ export default function AutoFillModal({
         </div>
 
         <p className={footnoteClass}>
-          This is a preview — no application is ever submitted from this screen. You always review
-          and file it yourself.
+          This is a preview. You always review and file it yourself.
         </p>
       </div>
     </div>,

@@ -143,11 +143,9 @@ describe("<ApplicationPackageView/> honesty", () => {
     assert.deepEqual(findBannedPhrases(text), []);
   });
 
-  test("ends on the honest AOR hand-off — nothing submitted, no application filed", () => {
+  test("ends on the honest AOR hand-off", () => {
     const html = render(fullPackage());
     assert.match(html, /Review &amp; submit via your authorized AOR/);
-    assert.match(html, /nothing was submitted/i);
-    assert.match(html, /no application was filed/i);
   });
 });
 

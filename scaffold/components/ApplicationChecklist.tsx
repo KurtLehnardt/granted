@@ -6,6 +6,7 @@
 import React from "react";
 import type { Match, Opportunity } from "@/lib/types";
 import { isDeadlinePassed, isForecasted } from "@/lib/ui/opportunitySummary";
+import { isFlagEnabled } from "@/lib/flags";
 
 /**
  * D6 — Application Assistant checklist (honest, per-opportunity).
@@ -256,8 +257,8 @@ function sourceApplyStep(opportunity: Opportunity, now?: number): Step {
   }
 }
 
-/** Ordered next actions. The LAST step always restates the honesty boundary: this
- *  tool never submits anything — a human AOR does, through the official portal. */
+/** Ordered next actions. The LAST step always points to the opportunity's
+ *  official portal, after the org's AOR has reviewed the draft. */
 export function buildNextSteps(match: Match, allRegistrationsSatisfied: boolean, now?: number): Step[] {
   const opportunity = match.opportunity;
   const steps: Step[] = [];
@@ -266,9 +267,11 @@ export function buildNextSteps(match: Match, allRegistrationsSatisfied: boolean,
     steps.push([`From your match assessment, before applying verify: ${match.whatToVerify.trim()}`]);
   }
   steps.push([
-    allRegistrationsSatisfied
-      ? "Your registrations in Settings are marked satisfied — confirm they're still active/current in SAM.gov."
-      : "Complete the registrations checklist in Settings — most federal portals block submission without them.",
+    isFlagEnabled("r6_auto_fill")
+      ? allRegistrationsSatisfied
+        ? "Your registrations in Settings are marked satisfied — confirm they're still active/current in SAM.gov."
+        : "Complete the registrations checklist in Settings — most federal portals block submission without them."
+      : "Make sure your SAM.gov registration is Active and your UEI, AOR, and E-Biz POC delegation are in place — most federal portals block submission without them.",
   ]);
   steps.push(["Draft answers to the questions below and gather the documents listed."]);
   if (match.whatToDoNext?.trim()) {
@@ -276,7 +279,7 @@ export function buildNextSteps(match: Match, allRegistrationsSatisfied: boolean,
   }
   steps.push(["Have your organization's AOR review the draft before anything is submitted."]);
   steps.push([
-    "Submit only through the opportunity's official portal (e.g., Grants.gov or SAM.gov) — this checklist never submits anything on your behalf.",
+    "Submit only through the opportunity's official portal (e.g., Grants.gov or SAM.gov).",
   ]);
   return steps;
 }
@@ -343,7 +346,7 @@ export default function ApplicationChecklist({
 
   return (
     <section aria-labelledby="application-checklist-heading" className="mt-4">
-      <p className={eyebrowClass}>Preparation checklist &middot; not a submission</p>
+      <p className={eyebrowClass}>Preparation checklist</p>
       <h3 id="application-checklist-heading" className={titleClass}>
         {model.title}
       </h3>

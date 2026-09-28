@@ -15,7 +15,7 @@
 chrome.runtime.onInstalled.addListener(() => {
   // No network call, no telemetry. Local-only lifecycle marker for debugging
   // via chrome://extensions "service worker" console.
-  console.log("[Granted Assisted Fill] installed. Nothing has been submitted. No network egress in this extension.");
+  console.log("[Granted Assisted Fill] installed. No network egress in this extension.");
 });
 
 type ClearPackageMessage = { type: "CLEAR_PACKAGE" };

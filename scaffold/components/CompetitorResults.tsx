@@ -297,7 +297,7 @@ export default function CompetitorResults({
       <p className="mt-6 border-t border-structure-on-canvas pt-4 text-pretty font-body text-[11px] leading-relaxed text-foreground">
         This {live ? "analysis" : "example"} never invents a company, an amount, or an award — every figure and
         quote above is copied from the linked public record. It is analysis to help you position, not a
-        guarantee of funding; nothing here is submitted on your behalf.
+        guarantee of funding.
       </p>
     </div>
   );

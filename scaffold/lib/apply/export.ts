@@ -132,13 +132,9 @@ export function exportFileName(pkg: AssembledPackage): string {
 // ---------------------------------------------------------------------------
 
 /**
- * The honest copy shown next to the export button. Mirrors the register of
- * `AOR_HANDOFF`/`PACKAGE_INTRO` in `./package.ts`: this exports a
- * submission-READY draft for the browser extension to fill in; NOTHING is
- * submitted by this export, fundFinder never files anything, and the human
- * AOR still reviews and submits through the program's own portal. Exported so
- * tests can assert the honesty invariants directly against the source of
- * truth, exactly as `AOR_HANDOFF`/`PACKAGE_INTRO` are tested.
+ * The honest copy shown next to the export button, mirroring the register of
+ * `AOR_HANDOFF`/`PACKAGE_INTRO` in `./package.ts`. Exported so tests can
+ * assert the honesty invariants directly against the source of truth.
  */
 export const EXTENSION_EXPORT_COPY = {
   eyebrow: "Optional · browser autofill extension",
@@ -146,11 +142,10 @@ export const EXTENSION_EXPORT_COPY = {
   body:
     "Download this exact draft as a .granted.json file to import into the Granted browser " +
     "extension. The extension fills the visible fields of the official grant portal's form in " +
-    "your OWN authenticated session and stops before any submit or signature control — it never " +
-    "submits, signs, or files anything. Nothing here is submitted or sent to fundFinder or anyone " +
-    "else; the file only ever leaves this device when you choose to move it. You, or your " +
-    "organization's Authorized Organization Representative (AOR), still review the filled-in form " +
-    "and submit it yourselves, through the program's official portal.",
+    "your OWN authenticated session and stops before any submit or signature control; the file " +
+    "only ever leaves this device when you choose to move it. You, or your organization's " +
+    "Authorized Organization Representative (AOR), still review the filled-in form and submit it " +
+    "yourselves, through the program's official portal.",
   downloadCta: "Download .granted.json",
   copyCta: "Copy to clipboard",
 } as const;

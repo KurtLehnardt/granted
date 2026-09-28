@@ -222,8 +222,7 @@ describe("exportFileName", () => {
 // Honest export copy (mirrors package.test.ts's "honest copy invariants")
 // ---------------------------------------------------------------------------
 
-/** Positive submission/eligibility CONFIRMATIONS the export copy must never state.
- *  Crafted NOT to match honest negations ("nothing is submitted"). */
+/** Positive submission/eligibility CONFIRMATIONS the export copy must never state. */
 const SUBMIT_CONFIRMATION_PATTERNS: RegExp[] = [
   /application (has been |was )?submitted\b/i,
   /we (have |)submitted/i,
@@ -254,9 +253,8 @@ describe("EXTENSION_EXPORT_COPY honesty", () => {
     }
   });
 
-  test("states plainly that nothing is submitted and the human AOR still submits", () => {
-    assert.match(EXTENSION_EXPORT_COPY.body, /never submits, signs, or files/i);
-    assert.match(EXTENSION_EXPORT_COPY.body, /nothing here is submitted/i);
+  test("states plainly that the extension stops before submit and the human AOR still submits", () => {
+    assert.match(EXTENSION_EXPORT_COPY.body, /stops before any submit or signature control/i);
     assert.match(EXTENSION_EXPORT_COPY.body, /authorized organization representative/i);
   });
 });

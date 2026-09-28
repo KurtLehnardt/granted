@@ -35,11 +35,8 @@ import type { ApplicationBudget } from "../contracts/applicationBudget";
  *     narrative, and always carries the DETERMINISTIC parts (forms + budget +
  *     checklist inputs) so a degraded model step (`narrativeStatus:
  *     "unavailable"`) still yields a partially-useful package.
- *   - `AOR_HANDOFF` is the honest hand-off copy: the tool assembled a
- *     submission-ready DRAFT, nothing was submitted, no application was filed,
- *     and final legal submission is the user's authorized AOR's — never a
- *     "submitted"/"filed"/"won"/"approved" confirmation, never a definitive
- *     eligibility claim.
+ *   - `AOR_HANDOFF` is the honest hand-off copy: never a "submitted"/"filed"/
+ *     "won"/"approved" confirmation, never a definitive eligibility claim.
  *
  * `FOUNDER_TODO_PATTERN` is REUSED from `applicationDraft.ts` (not re-defined)
  * so G5 scans every WS-G surface with the one convention G2/G3/G4 all emit.
@@ -286,21 +283,16 @@ export function packageProgramTitle(opp: Opportunity): string {
 // ---------------------------------------------------------------------------
 
 /**
- * The honest hand-off copy, consistent with `components/AutoFillFlow.tsx`: the
- * tool drafted a submission-READY package, nothing was submitted, no application
- * was filed, and final legal submission is the user's authorized AOR's,
- * through the program's official portal. Every string here is deliberately clear
- * of any "submitted"/"filed"/"won"/"approved" CONFIRMATION and of any banned
- * definitive-eligibility phrasing. Exported so tests can assert the invariants
- * directly against the source of truth.
+ * The honest hand-off copy: never a "submitted"/"filed"/"won"/"approved"
+ * confirmation, never a definitive-eligibility claim. Exported so tests can
+ * assert the invariants directly against the source of truth.
  */
 export const AOR_HANDOFF = {
-  eyebrow: "Final step · nothing has been submitted",
+  eyebrow: "Final step",
   headline: "Review & submit via your authorized AOR",
   body:
     "This is a submission-ready draft assembled from your profile and this program's own stated " +
-    "requirements. To be clear about what just happened: nothing was submitted to Grants.gov, SAM.gov, " +
-    "or any agency, no application was filed, and no payment was taken. Complete every highlighted " +
+    "requirements. Complete every highlighted " +
     "[you to provide: …] blank above, then have your organization's Authorized Organization " +
     "Representative (AOR) review the finished package and submit it through the program's official portal.",
   cta: "Review & submit via your authorized AOR",
@@ -312,9 +304,9 @@ export const AOR_HANDOFF = {
  * eligibility determination.
  */
 export const PACKAGE_INTRO = {
-  eyebrow: "Submission-ready draft · not a submission",
+  eyebrow: "Submission-ready draft",
   note:
     "Everything below is a draft grounded in what you've told us and this program's own announcement " +
     "text. Any fact we don't have is left as a blank for you to fill in, never guessed. " +
-    "This tool does not determine eligibility and never submits anything on your behalf.",
+    "This tool does not determine eligibility.",
 } as const;

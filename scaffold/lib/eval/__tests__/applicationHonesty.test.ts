@@ -111,9 +111,7 @@ function allVisibleText(pkg: AssembledPackage): string {
 
 /**
  * Positive submission/award/eligibility CONFIRMATIONS the package must never
- * state, anywhere. Regex/set-based (not brittle exact-string matches), and
- * deliberately crafted NOT to match the honest AOR hand-off's own negations
- * ("nothing was submitted", "no application was filed").
+ * state, anywhere. Regex/set-based (not brittle exact-string matches).
  */
 const SUBMIT_CONFIRMATION_PATTERNS: readonly RegExp[] = [
   /application (has been |was )?submitted\b/i,
@@ -121,8 +119,7 @@ const SUBMIT_CONFIRMATION_PATTERNS: readonly RegExp[] = [
   /automatically submit/i,
   /you('ve| have) won\b/i,
   /application (was |has been )?approved\b/i,
-  // Negative lookbehind excludes the honest negation "no application was
-  // filed" (AOR_HANDOFF.body) while still catching a bare positive claim.
+  // Lookbehind allows the negation "no application was filed".
   /(?<!no )application (was |has been )?filed\b/i,
   // Word-boundary on BOTH sides — an unanchored `awarded\b` would false-positive
   // inside "subawarded" (a real budget-category term: "contracted or

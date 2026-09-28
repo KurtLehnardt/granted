@@ -214,8 +214,7 @@ describe("assemblePackage", () => {
 // ---------------------------------------------------------------------------
 
 /** Positive submission/eligibility CONFIRMATIONS the package must never state.
- *  Mirrors the D6 ApplicationChecklist test; crafted NOT to match honest
- *  negations ("nothing was submitted", "no application was filed"). */
+ *  Mirrors the D6 ApplicationChecklist test. */
 const SUBMIT_CONFIRMATION_PATTERNS: RegExp[] = [
   /application (has been |was )?submitted\b/i,
   /we (have |)submitted/i,
@@ -248,8 +247,6 @@ describe("honest AOR hand-off + intro copy", () => {
 
   test("ends on the honest 'Review & submit via your authorized AOR' hand-off", () => {
     assert.equal(AOR_HANDOFF.cta, "Review & submit via your authorized AOR");
-    assert.match(AOR_HANDOFF.body, /nothing was submitted/i);
-    assert.match(AOR_HANDOFF.body, /no application was filed/i);
     assert.match(AOR_HANDOFF.body, /authorized organization representative/i);
   });
 });

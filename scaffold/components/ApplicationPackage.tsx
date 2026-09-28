@@ -33,12 +33,9 @@ import type { BudgetLineItem } from "@/lib/contracts/applicationBudget";
  * result. `<ApplicationPackageView/>` (named) is the PURE presentational split
  * so the honesty invariants can be tested with a static fixture and no network.
  *
- * HONESTY (R7.7, consistent with AutoFillFlow.tsx): the tool drafted a
- * submission-ready DRAFT — nothing was submitted, no application was filed, and
- * final legal submission is the user's authorized AOR's. Every
- * `[you to provide: …]` blank is highlighted for the user to complete.
- * This view NEVER renders a "submitted"/"filed"/"won"/"approved" confirmation
- * and never asserts a definitive eligibility determination.
+ * HONESTY (R7.7, consistent with AutoFillFlow.tsx): this view NEVER renders a
+ * "submitted"/"filed"/"won"/"approved" confirmation and never asserts a
+ * definitive eligibility determination.
  */
 
 // ---------------------------------------------------------------------------
@@ -479,7 +476,7 @@ function ExportForExtensionSection({ pkg }: { pkg: AssembledPackage }) {
         {downloadStatus === "downloaded" && (
           <span className={sourceNoteClass} aria-live="polite">
             Saved to your browser&rsquo;s Downloads folder. Next: open the Granted extension &rarr;
-            &ldquo;Choose a .granted.json file&rdquo; and pick it. Nothing was submitted or sent anywhere.
+            &ldquo;Choose a .granted.json file&rdquo; and pick it.
           </span>
         )}
         {downloadStatus === "error" && (
@@ -646,8 +643,8 @@ export default function ApplicationPackage({
         <p className={eyebrowClass}>{PACKAGE_INTRO.eyebrow}</p>
         <p className={`mt-2 ${bodyClass}`} aria-live="polite">
           {state.drafting
-            ? "Drafting the narrative section with your model — this can take a minute or two on a local model. The page updates on its own when it's done, so you can leave it open. Nothing is submitted."
-            : "Assembling your submission-ready draft — pre-filling forms, building the budget, and preparing the checklist… Nothing is submitted."}
+            ? "Drafting the narrative section with your model — this can take a minute or two on a local model. The page updates on its own when it's done, so you can leave it open."
+            : "Assembling your submission-ready draft — pre-filling forms, building the budget, and preparing the checklist…"}
         </p>
       </div>
     );
