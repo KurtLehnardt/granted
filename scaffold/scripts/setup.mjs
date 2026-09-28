@@ -8,7 +8,7 @@
  * installs dependencies, and prints exactly what to do next. Idempotent and safe
  * to re-run — it never overwrites a key you've already set, and it never prints a
  * key back to the screen. It does NOT touch any cloud account; the README covers
- * the Supabase / Google-OAuth / Vercel steps that genuinely require a dashboard.
+ * the Supabase / Google-OAuth steps that genuinely require a dashboard.
  */
 import { readFileSync, writeFileSync, existsSync, copyFileSync } from "node:fs";
 import { createInterface } from "node:readline";
@@ -180,7 +180,6 @@ console.log(`  • Run fully on a local model    → ${c.g("npm run setup:local"
 console.log(`  • Live competitor web results  → add ${c.g("EXA_API_KEY")} + set ${c.g("NEXT_PUBLIC_FLAG_R5_DEEP_ANALYSIS=true")}`);
 console.log(`  • The honest "don't apply" layer → set ${c.g("NEXT_PUBLIC_FLAG_DISCERNMENT_LAYER=true")}`);
 console.log(`  • Real Google sign-in           → a Supabase project + Google OAuth (README: "Real sign-in")`);
-console.log(`  • Deploy                        → Vercel, root directory ${c.g("scaffold")} (README: "Deploy")`);
 console.log("");
 
 // Clean, deterministic exit (no lingering readline handles on any platform).

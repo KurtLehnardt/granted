@@ -12,7 +12,8 @@ import type { Opportunity, StartupProfile } from "../types";
  *    Jaccard-overlap regression: fusing BM25 over the whole corpus with a
  *    long expandedTerms-driven query text replaced ~55% of the cosine set,
  *    including main's own top-cosine candidates). BM25 may only ADD a
- *    floor-clearing candidate cosine+quota missed.
+ *    candidate cosine+quota missed — including one below the cosine floor,
+ *    which is the case a lexical layer exists to catch — never displace one.
  *  - `expandedTerms` must still shape the profile-based retrieval re-run,
  *    both the embed() query text and the BM25 supplement query.
  *  - The final scored set stays capped at the profile-based retrieval's own
@@ -113,6 +114,81 @@ describe("retrieval quality — BM25 only supplements, never displaces, cosine+q
     );
 
     assert.ok(!captured.includes("target-no-keywords"), "no cosine, quota, or keyword reason to include it");
+  });
+
+  test("a keyword-strong opp the EMBEDDINGS missed (below the cosine floor) is still rescued", async () => {
+    // The whole point of a lexical layer: catch what the vector space doesn't.
+    // This target is a near-verbatim match on a distinctive term but sits BELOW
+    // candidateFloor (0.22), so cosine alone would never surface it.
+    const noise = [0.9, 0.8, 0.7, 0.6].map((sim, i) => opp({ id: `noise-${i}` }, sim));
+    const target = opp(
+      { id: "below-floor-keyword", program: "hydrofoil sensing pilot program", description: "hydrofoil water sensing." },
+      0.05,
+    );
+    const corpus = [...noise, target];
+    const captured: string[] = [];
+    const profile: StartupProfile = {
+      description: "We build advanced sensing hardware.",
+      expandedTerms: ["hydrofoil"],
+    };
+
+    await buildOpportunityMap(
+      profile.description,
+      undefined,
+      {
+        corpus,
+        extractProfile: async () => ({ profile, followUps: [] }),
+        embed: async () => QUERY_VEC,
+        explainMatches: async (_p, candidates) => {
+          captured.push(...candidates.map((c) => c.id));
+          return candidates.map((c) => assess(c.id));
+        },
+        explainWeakField: async () => ({ headline: "h", reasoning: "r", redirects: [] }),
+        screen: realScreen,
+      },
+      undefined,
+      undefined,
+      4,
+    );
+
+    assert.ok(
+      captured.includes("below-floor-keyword"),
+      "BM25 must be able to rescue a keyword-strong opp the embeddings ranked below the floor",
+    );
+    // And it still must not cost cosine+quota any of its own picks.
+    for (const n of noise) assert.ok(captured.includes(n.id), `${n.id} (cosine+quota) must survive`);
+  });
+
+  test("a below-floor opp with NO keyword overlap stays out (the floor still holds)", async () => {
+    const noise = [0.9, 0.8, 0.7, 0.6].map((sim, i) => opp({ id: `noise-${i}` }, sim));
+    const target = opp({ id: "below-floor-no-keywords" }, 0.05);
+    const corpus = [...noise, target];
+    const captured: string[] = [];
+    const profile: StartupProfile = { description: "We build advanced sensing hardware." };
+
+    await buildOpportunityMap(
+      profile.description,
+      undefined,
+      {
+        corpus,
+        extractProfile: async () => ({ profile, followUps: [] }),
+        embed: async () => QUERY_VEC,
+        explainMatches: async (_p, candidates) => {
+          captured.push(...candidates.map((c) => c.id));
+          return candidates.map((c) => assess(c.id));
+        },
+        explainWeakField: async () => ({ headline: "h", reasoning: "r", redirects: [] }),
+        screen: realScreen,
+      },
+      undefined,
+      undefined,
+      4,
+    );
+
+    assert.ok(
+      !captured.includes("below-floor-no-keywords"),
+      "rescuing on keywords must not become 'anything below the floor gets in'",
+    );
   });
 });
 

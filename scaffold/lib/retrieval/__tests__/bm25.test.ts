@@ -87,3 +87,46 @@ describe("bm25Query", () => {
     assert.notEqual(first, third, "a different corpus array reference must rebuild the index");
   });
 });
+
+describe("distinctiveScore: separates a specific match from generic overlap", () => {
+  test("a rare term contributes to distinctiveScore; a corpus-wide term does not", () => {
+    // "federal" appears in EVERY doc (df/n = 1.0, far above RARE_DF_RATIO);
+    // "hydrofoil" appears in exactly one.
+    const corpus = [
+      opp({ id: "a", description: "federal opportunity for hydrofoil research" }),
+      opp({ id: "b", description: "federal opportunity for agriculture" }),
+      opp({ id: "c", description: "federal opportunity for housing" }),
+      opp({ id: "d", description: "federal opportunity for education" }),
+      opp({ id: "e", description: "federal opportunity for transit" }),
+    ];
+    const index = buildBM25Index(corpus);
+
+    const generic = bm25Query(index, "federal opportunity");
+    assert.ok(generic.length > 0, "the generic query still matches");
+    for (const h of generic) {
+      assert.equal(h.distinctiveScore, 0, `${h.id}: corpus-wide terms are not distinctive`);
+      assert.ok(h.score > 0, `${h.id}: it still scores — only distinctiveness is withheld`);
+    }
+
+    const specific = bm25Query(index, "hydrofoil");
+    assert.equal(specific.length, 1);
+    assert.equal(specific[0].id, "a");
+    assert.ok(specific[0].distinctiveScore > 0, "a rare term IS distinctive");
+    assert.equal(specific[0].distinctiveScore, specific[0].score, "here the whole score is distinctive");
+  });
+
+  test("a mixed query counts only the rare part as distinctive", () => {
+    const corpus = [
+      opp({ id: "a", description: "federal opportunity for hydrofoil research" }),
+      opp({ id: "b", description: "federal opportunity for agriculture" }),
+      opp({ id: "c", description: "federal opportunity for housing" }),
+      opp({ id: "d", description: "federal opportunity for education" }),
+      opp({ id: "e", description: "federal opportunity for transit" }),
+    ];
+    const index = buildBM25Index(corpus);
+    const hit = bm25Query(index, "federal opportunity hydrofoil").find((h) => h.id === "a");
+    assert.ok(hit);
+    assert.ok(hit.distinctiveScore > 0, "the rare term still registers");
+    assert.ok(hit.distinctiveScore < hit.score, "the generic terms score but do not count as distinctive");
+  });
+});

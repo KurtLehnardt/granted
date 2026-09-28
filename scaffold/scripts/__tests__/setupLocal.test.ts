@@ -16,6 +16,8 @@ import {
   parseWinBytes,
   parseOllamaList,
   installGuidance,
+  parseMacosMajor,
+  OLLAMA_MIN_MACOS,
 } from "../setup-local.mjs";
 
 /**
@@ -179,12 +181,47 @@ describe("command-output parsers", () => {
   });
 });
 
+describe("parseMacosMajor (sw_vers -productVersion)", () => {
+  test("reads the major version", () => {
+    assert.equal(parseMacosMajor("12.7.6"), 12);
+    assert.equal(parseMacosMajor("26.4"), 26);
+    assert.equal(parseMacosMajor("15"), 15);
+    assert.equal(parseMacosMajor(" 14.2.1 \n"), 14);
+  });
+  test("junk/empty degrades to null rather than a wrong number", () => {
+    for (const bad of ["", "   ", "sonoma", null, undefined]) {
+      assert.equal(parseMacosMajor(bad as never), null);
+    }
+  });
+});
+
 describe("installGuidance: platform-specific, no wrong-OS instructions", () => {
   test("macOS mentions the download page and brew, not apt/curl-sh", () => {
     const g = installGuidance("darwin");
     assert.match(g, /ollama\.com\/download/);
     assert.match(g, /brew install ollama/);
     assert.doesNotMatch(g, /install\.sh/);
+  });
+  test("a macOS older than Ollama's app floor gets the CLI tarball, NOT brew/the app", () => {
+    const g = installGuidance("darwin", OLLAMA_MIN_MACOS - 1);
+    // The .dmg and the Homebrew cask both fail there. They may be NAMED (to say
+    // so), but must never be offered as the install path, and the app can't launch.
+    assert.doesNotMatch(g, /Install Ollama:\s+https/);
+    assert.match(g, /will NOT work/);
+    assert.doesNotMatch(g, /open the Ollama app/);
+    assert.match(g, /ollama-darwin\.tgz/);
+    assert.match(g, /ollama serve/);
+    assert.doesNotMatch(g, /install\.sh/);
+  });
+  test("a supported macOS still gets the normal app guidance", () => {
+    for (const v of [OLLAMA_MIN_MACOS, OLLAMA_MIN_MACOS + 12]) {
+      const g = installGuidance("darwin", v);
+      assert.match(g, /brew install ollama/);
+      assert.doesNotMatch(g, /ollama-darwin\.tgz/);
+    }
+  });
+  test("an undetectable macOS version degrades to the normal guidance", () => {
+    assert.equal(installGuidance("darwin", null), installGuidance("darwin"));
   });
   test("Windows points at the download page, not a shell installer", () => {
     const g = installGuidance("win32");

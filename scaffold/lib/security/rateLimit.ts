@@ -4,13 +4,11 @@
  * `/api/interview`). These routes drive real Anthropic/OpenAI spend, so an
  * unthrottled caller is a denial-of-wallet exposure (security review MEDIUM).
  *
- * IMPORTANT — serverless limitation: this counter lives in a single function
- * instance's memory. On Vercel (and any horizontally-scaled host) requests fan
- * out across instances that do NOT share this map, so a determined distributed
- * flood can still get through. This is a deliberate soft cap: it blunts a naive
- * burst / accidental retry loop from one client cheaply and with zero infra. A
- * hard global guarantee needs an edge middleware or a shared KV counter — a
- * documented follow-up, out of scope for this pass.
+ * SCOPE: this counter lives in one process's memory. Granted runs locally as a
+ * single instance, so that is the whole population and the cap holds. It stays a
+ * deliberate soft cap — it blunts a naive burst / accidental retry loop from one
+ * client cheaply and with zero infra. If this is ever fronted by more than one
+ * process, the map is not shared and a hard guarantee would need a shared counter.
  *
  * Pure and dependency-free; never throws.
  */
@@ -63,10 +61,10 @@ export function rateLimit(
 }
 
 /**
- * Best-effort client identifier from proxy headers. Vercel/most proxies set
- * `x-forwarded-for` (client is the FIRST hop) or `x-real-ip`. Falls back to a
- * shared bucket when neither is present (e.g. local dev) — which just means the
- * cap is shared, never that it errors.
+ * Best-effort client identifier from proxy headers. Running locally there is no
+ * proxy, so this normally falls back to the shared bucket — which just means the
+ * cap is shared, never that it errors. `x-forwarded-for` (client is the FIRST
+ * hop) and `x-real-ip` are still honored if a reverse proxy is put in front.
  */
 export function clientKey(req: Request): string {
   const xff = req.headers.get("x-forwarded-for");

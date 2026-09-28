@@ -27,8 +27,8 @@ import {
  *   - LLM-provider-side retention (OpenAI/Anthropic API data retention
  *     policy) — that's a vendor policy question, not statically checkable
  *     from this repo.
- *   - Hosting-platform request/access logs (e.g. Vercel's own request
- *     logging) — not visible to a repo-local static scan.
+ *   - Request/access logs from any reverse proxy or host put in front of the
+ *     local app — not visible to a repo-local static scan.
  *   - Any logging call built from a dynamically-concatenated string, a
  *     multi-line call whose "description"-mentioning argument lands on a
  *     different line than `console.x(`, or any other pattern this file's

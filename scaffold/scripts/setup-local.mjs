@@ -48,6 +48,25 @@ const DEFAULT_MODEL_WHEN_UNKNOWN = "llama3.2:3b";
 // ---------------------------------------------------------------------------
 
 /**
+ * Lowest macOS major version Ollama's .app/.dmg (and the Homebrew cask) support.
+ * Below this the app won't launch and Homebrew has no bottle — only the release's
+ * CLI tarball runs. Bump this if Ollama raises its floor again.
+ */
+export const OLLAMA_MIN_MACOS = 14;
+
+/**
+ * Parse `sw_vers -productVersion` ("12.7.6", "26.4") → major version number.
+ * Returns null on anything unparseable, so a failed detection degrades to the
+ * generic guidance rather than wrongly claiming a Mac is too old.
+ */
+export function parseMacosMajor(text) {
+  const m = String(text ?? "").trim().match(/^(\d+)/);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/**
  * Memory (GB) → recommended Ollama chat model. A small, easy-to-edit table of
  * WIDELY-AVAILABLE public tags. Ordered high→low; `recommendModel` picks the
  * first tier the machine clears.
@@ -216,8 +235,37 @@ export function parseOllamaList(stdout) {
 }
 
 /** Platform → the human install guidance shown when Ollama is missing. */
-export function installGuidance(platform) {
+/**
+ * Platform-specific Ollama install instructions.
+ *
+ * @param {string} platform - a `process.platform` value ("darwin"/"win32"/…).
+ * @param {number | null} [macosMajor] - macOS major version from
+ *   `parseMacosMajor`, or null when unknown/not macOS. When null the generic
+ *   guidance is returned, so a failed detection never wrongly claims a Mac is
+ *   too old for Ollama's app.
+ * @returns {string}
+ */
+export function installGuidance(platform, macosMajor = null) {
   if (platform === "darwin") {
+    // Ollama's .app/.dmg (and the Homebrew cask) are built for macOS
+    // OLLAMA_MIN_MACOS+. On an older Mac the download page hands you an app that
+    // refuses to launch, and Homebrew itself has dropped those releases (no
+    // bottles), so `brew install ollama` fails too. The release's CLI tarball is
+    // a universal binary that DOES run there — it just has no .app wrapper, so
+    // the daemon has to be started by hand and won't survive a reboot.
+    if (macosMajor !== null && macosMajor < OLLAMA_MIN_MACOS) {
+      return [
+        `  Your macOS (${macosMajor}) is older than Ollama's app requires (${OLLAMA_MIN_MACOS}+),`,
+        "  so the download page and `brew install ollama` will NOT work. Use the CLI build:",
+        "",
+        "    curl -fsSL -o ollama-darwin.tgz \\",
+        "      https://github.com/ollama/ollama/releases/latest/download/ollama-darwin.tgz",
+        "    mkdir -p ~/.local/ollama && tar xzf ollama-darwin.tgz -C ~/.local/ollama",
+        "    ln -sf ~/.local/ollama/ollama /usr/local/bin/ollama",
+        "",
+        "  Then start it:   `ollama serve` in another terminal (re-run after each reboot).",
+      ].join("\n");
+    }
     return [
       "  Install Ollama:  https://ollama.com/download   (or: brew install ollama)",
       "  Then start it:   open the Ollama app, or run `ollama serve` in another terminal.",
@@ -418,6 +466,7 @@ async function main() {
   const platform = process.platform;
   const osName =
     platform === "darwin" ? "macOS" : platform === "win32" ? "Windows" : platform === "linux" ? "Linux" : platform;
+  const macosMajor = platform === "darwin" ? parseMacosMajor(run("sw_vers", ["-productVersion"])) : null;
   console.log(`${c.g("✓")} Detected OS: ${c.b(osName)} ${c.dim(`(${platform})`)}`);
 
   // 2) Ollama installed + daemon reachable.
@@ -425,7 +474,7 @@ async function main() {
   const version = run("ollama", ["--version"]);
   if (!version) {
     console.log(c.y("  Ollama isn't installed (or not on your PATH).\n"));
-    console.log(installGuidance(platform));
+    console.log(installGuidance(platform, macosMajor));
     console.log(c.dim("\n  Install + start Ollama, then re-run: ") + c.g("npm run setup:local"));
     process.exit(1);
   }
@@ -434,7 +483,7 @@ async function main() {
   const daemonModels = await ollamaDaemonModels();
   if (daemonModels === null) {
     console.log(c.y("\n  Ollama is installed but its daemon isn't reachable at localhost:11434.\n"));
-    console.log(installGuidance(platform));
+    console.log(installGuidance(platform, macosMajor));
     console.log(c.dim("\n  Start the daemon, then re-run: ") + c.g("npm run setup:local"));
     process.exit(1);
   }
