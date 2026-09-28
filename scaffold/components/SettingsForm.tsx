@@ -129,7 +129,10 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
       });
       if (res.status === 202) {
         setStopPending(false);
-        setCorpusStatus((s) => (s ? { ...s, refreshing: true, stopped: false } : s));
+        // Drop any stale stopRequested from before this run started — the effect below reacts to
+        // it on every refreshing/stopRequested change, and a leftover `true` here would flip
+        // stopPending back on right after the line above clears it.
+        setCorpusStatus((s) => (s ? { ...s, refreshing: true, stopped: false, stopRequested: false } : s));
       }
       if (res.status === 202 || res.status === 409) await fetchCorpusStatus();
       else {

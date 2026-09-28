@@ -85,15 +85,29 @@ describe("GET /api/corpus", () => {
 
   test("surfaces stopRequested while a running refresh hasn't yet handled a stop", () => {
     const baseDir = makeBaseDir();
+    assert.equal(acquireRefreshLock(baseDir), true);
     requestStop(baseDir);
     const body = buildCorpusStatus(depsFor(baseDir));
     assert.equal(body.stopRequested, true);
+    releaseRefreshLock(baseDir);
     rmSync(baseDir, { recursive: true, force: true });
   });
 
   test("omits stopRequested when no stop was requested", () => {
     const baseDir = makeBaseDir();
     const body = buildCorpusStatus(depsFor(baseDir));
+    assert.equal(body.stopRequested, undefined);
+    rmSync(baseDir, { recursive: true, force: true });
+  });
+
+  test("omits a stale stopRequested once nothing is running (BLOCKER regression guard)", () => {
+    // A leftover stop-request file — the child died before its finally block, or lost a race with
+    // the stop handler — must never read back as "stop pending" for a run that isn't happening,
+    // which would otherwise hide the Stop button on the NEXT refresh too (see SettingsForm.tsx).
+    const baseDir = makeBaseDir();
+    requestStop(baseDir); // no acquireRefreshLock: nothing is actually running
+    const body = buildCorpusStatus(depsFor(baseDir));
+    assert.equal(body.refreshing, false);
     assert.equal(body.stopRequested, undefined);
     rmSync(baseDir, { recursive: true, force: true });
   });
