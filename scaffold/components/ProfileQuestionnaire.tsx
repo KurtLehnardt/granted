@@ -364,11 +364,23 @@ export default function ProfileQuestionnaire({
     onSubmit(buildDescriptionFromProfile(profile), { complete: isComplete });
   }
 
+  const [clearedVisible, setClearedVisible] = useState(false);
+  const clearedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (clearedTimerRef.current) clearTimeout(clearedTimerRef.current);
+    };
+  }, []);
+
   function clearSaved() {
     setProfile({});
     setValues({});
     setShowOptional(false);
     writeJSON(STORAGE_KEY, {});
+    if (clearedTimerRef.current) clearTimeout(clearedTimerRef.current);
+    setClearedVisible(true);
+    clearedTimerRef.current = setTimeout(() => setClearedVisible(false), 2000);
   }
 
   // ---- styling: dual-class design-token / v1 pattern, matching
@@ -669,6 +681,11 @@ export default function ProfileQuestionnaire({
         <button type="button" onClick={clearSaved} disabled={disabled} className={clearLinkClass}>
           Clear saved answers
         </button>
+        {clearedVisible && (
+          <span className={hintTextClass} aria-live="polite">
+            Cleared
+          </span>
+        )}
       </div>
     </div>
   );

@@ -63,22 +63,32 @@ export function formatSearchDuration(ms: number): string {
   return m === 0 ? `${s}s` : `${m}m ${s}s`;
 }
 
-// Measured on ~32-candidate searches (one scoring call each): 3B on a 4GB Quadro P1000
-// took 16–31 min; 14B on a 32GB Mac ran ~37s/candidate.
+// Two-stage scoring (#201) measured on a 4GB GPU with qwen2.5:3b: instant
+// provisional cards land in ~1 min (seconds once first-cards land), full
+// analysis over the candidate set runs ~2.5–5.5 min after that.
 const LOCAL_ESTIMATE_RANGES: Array<{ maxB: number; range: string }> = [
-  { maxB: 4, range: "15–30 minutes" },
-  { maxB: 9, range: "20–40 minutes" },
-  { maxB: 16, range: "20–45 minutes" },
+  { maxB: 4, range: "3–6 minutes" },
+  { maxB: 9, range: "4–10 minutes" },
+  { maxB: 16, range: "5–15 minutes" },
 ];
 
 export function localModelEstimateRange(paramsB?: number): string {
-  if (paramsB == null || !Number.isFinite(paramsB)) return "15 minutes or more";
-  return LOCAL_ESTIMATE_RANGES.find((r) => paramsB <= r.maxB)?.range ?? "30–60 minutes or more";
+  if (paramsB == null || !Number.isFinite(paramsB)) return "a few minutes or more";
+  return LOCAL_ESTIMATE_RANGES.find((r) => paramsB <= r.maxB)?.range ?? "10–30 minutes";
 }
 
 export function localModelLabel(model?: string, paramsB?: number): string {
   if (!model) return "a local model";
   return paramsB != null && Number.isFinite(paramsB) ? `${model} (${paramsB}B)` : model;
+}
+
+// Two-stage scoring (#201): instant provisional cards land first, then the full
+// per-candidate analysis fills them in. Update to "in a few seconds" once
+// feat/instant-provisional-cards has merged and first cards land near-instantly.
+const FIRST_MATCHES_ETA = "in about a minute";
+
+export function localTwoPhaseMessage(model?: string, paramsB?: number): string {
+  return `First matches appear ${FIRST_MATCHES_ETA}. Full analysis with ${localModelLabel(model, paramsB)} usually takes ${localModelEstimateRange(paramsB)}, depending on your hardware. You can explore the first results while the rest are analyzed.`;
 }
 
 /** Linear extrapolation from the observed scoring rate; null when there's nothing to extrapolate. */
@@ -184,11 +194,12 @@ export default function SearchProgress({
   const localLive = llm?.local && remainingMs != null
     ? `Running ${localModelLabel(llm.model, llm.paramsB)} locally, ${formatDuration(remainingMs)} left.`
     : null;
+  const isTwoPhase = !!llm?.local && !localLive;
   const statusMessage = localLive ?? (!llm
     ? "This scores your fit across the candidate programs."
     : !llm.local
       ? "This scores your fit across the candidate programs and usually takes a minute or two."
-      : `Running ${localModelLabel(llm.model, llm.paramsB)} locally — this can take ${localModelEstimateRange(llm.paramsB)}, depending on your hardware.`);
+      : localTwoPhaseMessage(llm.model, llm.paramsB));
   const mm = Math.floor(elapsed / 60);
   const ss = Math.floor(elapsed % 60).toString().padStart(2, "0");
   const pct = Math.round(display);
@@ -228,7 +239,9 @@ export default function SearchProgress({
       <p className={`mt-3 text-pretty ${mutedClass}`}>
         {!localLive && estimate
           ? `Your last search took ${estimate}, so this one should be similar. Hang tight.`
-          : `${statusMessage} You can leave this tab open and check back — the search keeps running while it's open.`}
+          : isTwoPhase
+            ? statusMessage
+            : `${statusMessage} You can leave this tab open and check back — the search keeps running while it's open.`}
       </p>
     </div>
   );

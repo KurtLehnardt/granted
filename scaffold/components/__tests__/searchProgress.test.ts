@@ -5,6 +5,7 @@ import {
   formatSearchDuration,
   localModelEstimateRange,
   localModelLabel,
+  localTwoPhaseMessage,
   estimateRemainingMs,
   parseScoreDetail,
 } from "../SearchProgress";
@@ -54,24 +55,39 @@ describe("formatSearchDuration", () => {
 
 describe("localModelEstimateRange", () => {
   test("small models get the tightest range", () => {
-    assert.equal(localModelEstimateRange(3), "15–30 minutes");
-    assert.equal(localModelEstimateRange(4), "15–30 minutes");
+    assert.equal(localModelEstimateRange(3), "3–6 minutes");
+    assert.equal(localModelEstimateRange(4), "3–6 minutes");
   });
 
   test("mid-size ranges by boundary", () => {
-    assert.equal(localModelEstimateRange(7), "20–40 minutes");
-    assert.equal(localModelEstimateRange(9), "20–40 minutes");
-    assert.equal(localModelEstimateRange(13), "20–45 minutes");
-    assert.equal(localModelEstimateRange(16), "20–45 minutes");
+    assert.equal(localModelEstimateRange(7), "4–10 minutes");
+    assert.equal(localModelEstimateRange(9), "4–10 minutes");
+    assert.equal(localModelEstimateRange(13), "5–15 minutes");
+    assert.equal(localModelEstimateRange(16), "5–15 minutes");
   });
 
-  test("larger than the table -> the 'or more' range", () => {
-    assert.equal(localModelEstimateRange(27), "30–60 minutes or more");
+  test("larger than the table -> a wider hedged range", () => {
+    assert.equal(localModelEstimateRange(27), "10–30 minutes");
   });
 
   test("unknown size (undefined/NaN) -> the hedged unknown range", () => {
-    assert.equal(localModelEstimateRange(undefined), "15 minutes or more");
-    assert.equal(localModelEstimateRange(NaN), "15 minutes or more");
+    assert.equal(localModelEstimateRange(undefined), "a few minutes or more");
+    assert.equal(localModelEstimateRange(NaN), "a few minutes or more");
+  });
+});
+
+describe("localTwoPhaseMessage", () => {
+  test("names the model, its size, and both phases' timing", () => {
+    const msg = localTwoPhaseMessage("qwen2.5:3b", 3.1);
+    assert.match(msg, /^First matches appear in about a minute\./);
+    assert.match(msg, /qwen2\.5:3b \(3\.1B\)/);
+    assert.match(msg, /3–6 minutes/);
+    assert.match(msg, /explore the first results while the rest are analyzed/);
+  });
+
+  test("falls back to the hedged unknown range with no param count", () => {
+    const msg = localTwoPhaseMessage("some-model", undefined);
+    assert.match(msg, /a few minutes or more/);
   });
 });
 
