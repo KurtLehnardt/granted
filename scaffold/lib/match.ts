@@ -14,6 +14,7 @@ import { CURRENT_OPPORTUNITY_MAP_VERSION } from "./contracts/opportunityMap";
 import { isFlagEnabled, isFlagExplicitlyDisabled } from "./flags";
 import { isLocalLlm } from "./llm/client";
 import { recommendFor, mapVerdict } from "./recommend";
+import { getBM25Index, bm25Query } from "./retrieval/bm25";
 // F3 — weak-field redirects should name a few REAL Utah/SBA programs, not just
 // categories. Wrapped around both explainWeakField() call sites below (the
 // zero-candidate weakField() branch and the below-threshold branch in
@@ -63,6 +64,10 @@ export const CALIBRATION = {
    *  (top-K-by-cosine per kind, tie-broken by opp id). Does NOT change scoring;
    *  it only makes underrepresented types reachable (scoreFloor stays Wave-3). */
   perTypeQuota: 3,
+  /** BM25 only ADDS up to this many floor-clearing, keyword-strong ids the
+   *  cosine+quota selection missed — it never reorders or evicts a candidate
+   *  cosine+quota already picked. */
+  bm25SupplementCount: 4,
 };
 
 /**
@@ -257,8 +262,22 @@ function baseMatchFromAssessment(a: Assessment, opp: Opportunity, profile: Start
     whatToVerify: a.whatToVerify,
     whatToDoNext: a.whatToDoNext,
     history: historyFor(opp.id, profile.location),
+    // ANALYZING ring (§5): `final` marks whether this score can still change.
+    // Absent from most assessment producers (single-pass explainMatches, a
+    // pre-excluded determination) — those are always terminal, so default true.
+    // Two-pass Pass-A events explicitly set it false for a promoted candidate
+    // still awaiting its Pass-B narrative.
+    final: a.final ?? true,
+    unscored: a.unscored ?? false,
   };
 }
+
+/** Instant-cards: how many retrieved candidates get an early, unscored
+ *  provisional card. A little above the UI's CARD_CAP (8) so that even after
+ *  scoring reshuffles tiers, most of what was shown provisionally is still
+ *  in the final list — without spamming the client with the whole
+ *  candidateCount slice, most of which will never be shown. */
+export const PROVISIONAL_PREVIEW_COUNT = 12;
 
 export async function buildOpportunityMap(
   description: string,
@@ -272,6 +291,10 @@ export async function buildOpportunityMap(
   // and best-effort — never affects the authoritative `matches` this function
   // returns, which is always built from the complete, awaited scorer result.
   onMatch?: (m: Match) => void,
+  // INSTANT CARDS — fired for each retrieved candidate immediately after
+  // retrieval, well before any LLM scoring call. Optional and best-effort,
+  // exactly like `onMatch`: never affects the authoritative returned map.
+  onProvisional?: (o: Opportunity) => void,
 ): Promise<OpportunityMap> {
   const d: BuildDeps = { ...REAL_DEPS, ...deps, corpus: deps.corpus ?? dropExpiredOpportunities(getCorpus()) };
   // Progress is best-effort: a reporting error must never fail the search.
@@ -283,21 +306,127 @@ export async function buildOpportunityMap(
   // it is internally defensive and never throws (lib/metering/meter.ts).
   const meter = createCostMeter();
 
-  // 1 + 2. Intake and adaptive follow-ups.
-  const { profile, followUps } = await d.extractProfile(description, meter, signal);
-  step({ key: "profile", label: "Understood your company", pct: 18 });
+  // INSTANT CARDS — profile extraction (the ~44s local-LLM call that used to
+  // gate everything else) runs IN PARALLEL with an immediate, raw-description
+  // retrieval below. That first retrieval only needs an EMBEDDING of the raw
+  // description (sub-second even on a local embedding model), so a provisional
+  // candidate set streams to the client well before the profile resolves. Once
+  // the profile IS in, retrieval is re-run properly — profile-based query text
+  // (including `expandedTerms`), exactly as it was before this feature — and
+  // THAT re-run set (unioned with whatever provisional ids are already on
+  // screen) is what actually gets scored. So the raw-description pass only
+  // ever decides what's shown instantly; it never substitutes for the
+  // profile-based retrieval that determines scoring.
+  const profilePromise = d.extractProfile(description, meter, signal);
+  // Attach a no-op rejection handler immediately so Node never logs an
+  // "unhandled rejection" if extractProfile fails while retrieval (below) is
+  // still in flight — the real error still surfaces at the `await
+  // profilePromise` further down, which is a SEPARATE handler on the same
+  // promise and rejects exactly as before.
+  profilePromise.catch(() => {});
+
+  // Shared retrieval helper: cosine-floor + C1a per-type quota selection
+  // (byte-for-byte the pre-hybrid, origin/main algorithm — optionally
+  // re-ranked by the B2 enrichment boost, exactly as main did), plus a small
+  // BM25 supplement, over whatever query text/vector is passed in. Used twice
+  // — once instantly on the raw description (below), and again once the
+  // profile resolves (further down) — so both passes share one implementation.
+  const bm25Index = getBM25Index(deps.corpus ?? getCorpus());
+  const bm25Ids = new Set(d.corpus.map((o) => o.id));
+  // `sim`/`rank`/the global top-N cut/the per-type quota mirror main's
+  // cosine+quota selection exactly (`rank` folds in the B2 boost, 0 when off).
+  // `quotaOnlyIds`/`bm25OnlyIds` mark ids added ONLY by the quota or the BM25
+  // supplement — never by the global top-N cut — so a later trim (the scored-
+  // set cap below) knows which entries it must not evict.
+  function retrieve(queryVec: number[], queryText: string, enrich?: ReturnType<typeof deriveEnrichmentSignal>) {
+    const floorCleared = d.corpus
+      .map((o) => {
+        const sim = o.embedding ? cosine(queryVec, o.embedding) : 0;
+        const rank = enrich ? sim + boostForOpportunity(enrich, o) : sim;
+        return { o, sim, rank };
+      })
+      .filter((x) => x.sim >= CALIBRATION.candidateFloor)
+      .sort((a, b) => b.rank - a.rank || (a.o.id < b.o.id ? -1 : a.o.id > b.o.id ? 1 : 0));
+
+    const candidateCount = clampCandidateCount(maxCandidates);
+    const selectedIds = new Set(floorCleared.slice(0, candidateCount).map((x) => x.o.id));
+    const quotaOnlyIds = new Set<string>();
+    const perKindTaken = new Map<string, number>();
+    for (const x of floorCleared) {
+      const taken = perKindTaken.get(x.o.kind) ?? 0;
+      if (taken < CALIBRATION.perTypeQuota) {
+        perKindTaken.set(x.o.kind, taken + 1);
+        if (!selectedIds.has(x.o.id)) quotaOnlyIds.add(x.o.id);
+        selectedIds.add(x.o.id);
+      }
+    }
+
+    const floorClearedIds = new Set(floorCleared.map((x) => x.o.id));
+    const bm25RankedIds = bm25Query(bm25Index, queryText)
+      .map((h) => h.id)
+      .filter((id) => bm25Ids.has(id));
+    const bm25OnlyIds = new Set<string>();
+    let bm25Added = 0;
+    for (const id of bm25RankedIds) {
+      if (bm25Added >= CALIBRATION.bm25SupplementCount) break;
+      if (!floorClearedIds.has(id) || selectedIds.has(id)) continue;
+      selectedIds.add(id);
+      bm25OnlyIds.add(id);
+      bm25Added++;
+    }
+
+    return { scored: floorCleared.filter((x) => selectedIds.has(x.o.id)), quotaOnlyIds, bm25OnlyIds };
+  }
+
+  // 3. Instant retrieval — embed the RAW description directly (sub-second),
+  //    so a provisional candidate set can stream before the profile resolves.
+  const rawQueryVec = await d.embed(description, meter, signal);
+  // Fail loudly if the live query and the committed corpus don't share an
+  // embedding space (switched EMBEDDINGS_MODEL without re-embedding) — otherwise
+  // cosine() silently returns NaN for every opp and the run looks like a weak
+  // field for no visible reason. Sampled from the first embedded opp (uniform dim).
+  const corpusDim = d.corpus.find((o) => Array.isArray(o.embedding) && o.embedding.length > 0)?.embedding?.length;
+  assertEmbeddingDimsMatch(rawQueryVec.length, corpusDim);
+  step({ key: "embed", label: `Searching ${d.corpus.length} programs`, pct: 15 });
+
+  const provisionalScored = retrieve(rawQueryVec, description).scored;
+  step({ key: "retrieve", label: `Found ${provisionalScored.length} candidate programs`, pct: 30 });
+
+  // INSTANT CARDS — stream an unscored, provisional card for each retrieved
+  // candidate right away, well before the (still in-flight, ~44s-on-local)
+  // profile call resolves. The UI renders these with a spinner in place of a
+  // score; a later "match" event for the same id upgrades the card in place.
+  // Best-effort, in retrieval (cosine-rank) order, capped at CARD_CAP-ish so a
+  // huge candidateCount doesn't spam the client with cards that will never be
+  // shown.
+  const provisionalIds = new Set(provisionalScored.slice(0, PROVISIONAL_PREVIEW_COUNT).map((x) => x.o.id));
+  for (const x of provisionalScored) {
+    if (!provisionalIds.has(x.o.id)) continue;
+    try { onProvisional?.(x.o); } catch { /* progressive rendering is best-effort */ }
+  }
+
+  // Only now do we actually need the profile: eligibility screening, the
+  // profile-based retrieval re-run, and the LLM scorer's narrative context all
+  // require it. It has been running in parallel with everything above since
+  // the top of this function, so by the time a real (slow, local) run gets
+  // here it may already be done — the ~44s is now hidden behind retrieval +
+  // the provisional render instead of gating them.
+  const { profile, followUps } = await profilePromise;
+  step({ key: "profile", label: "Understood your company", pct: 45 });
 
   // B2 (profile-enriched ranking) — deterministic, flag-gated (default OFF).
-  // When on, distill the structured StartupProfile fields (size, funding stage,
-  // use-of-funds mechanism, industry/NAICS) into a retrieval signal that (a)
-  // folds government-vocabulary terms into the query-embedding text below and
-  // (b) drives a non-negative re-rank boost over the floor-clearing candidates.
-  // When off, `enrich` is undefined and every line below is byte-for-byte the
-  // pre-B2 behavior, so the calibration/quota guarantees hold unchanged.
+  // Distills the structured StartupProfile fields (size, funding stage,
+  // use-of-funds mechanism, industry/NAICS) into government-vocabulary query
+  // terms folded into the re-embed below, plus a non-negative re-rank boost.
   const enrich = isFlagEnabled("b2_enriched_ranking") ? deriveEnrichmentSignal(profile) : undefined;
 
-  // 3. Semantic expansion — embed the user profile plus expanded gov terms
-  //    (and, under B2, the enrichment-derived mechanism/size vocabulary).
+  // 4. Real retrieval — re-run exactly as before this feature existed: embed
+  //    the PROFILE (not the raw description), so `expandedTerms` and the other
+  //    structured fields the extractor produced actually shape retrieval, and
+  //    the same B2-boosted cosine+quota selection main always used decides
+  //    the candidate set. BM25 (the instant-cards hybrid-retrieval addition)
+  //    only supplements it — see `retrieve()`. This is the set that actually
+  //    gets scored.
   const queryText = [
     profile.description,
     profile.technology,
@@ -308,66 +437,44 @@ export async function buildOpportunityMap(
     enrich ? enrichmentQueryTerms(enrich).join(", ") : "",
   ].filter(Boolean).join("\n");
   const queryVec = await d.embed(queryText, meter, signal);
-  // Fail loudly if the live query and the committed corpus don't share an
-  // embedding space (switched EMBEDDINGS_MODEL without re-embedding) — otherwise
-  // cosine() silently returns NaN for every opp and the run looks like a weak
-  // field for no visible reason. Sampled from the first embedded opp (uniform dim).
-  const corpusDim = d.corpus.find((o) => Array.isArray(o.embedding) && o.embedding.length > 0)?.embedding?.length;
   assertEmbeddingDimsMatch(queryVec.length, corpusDim);
-  step({ key: "embed", label: `Searching ${d.corpus.length} programs`, pct: 32 });
+  const { scored: profileScored, quotaOnlyIds, bm25OnlyIds } = retrieve(queryVec, queryText, enrich);
 
-  // 4. Hybrid retrieval: similarity, then LLM scoring. No pre-screen eligibility
-  //    filter — every retrieved candidate is screened by screen() (C1).
-  //
-  // C1a (per-type retrieval quota): a single global top-`candidateCount` cosine
-  // cut let the ~476 grants crowd out the ~492 non-grant opps (rd/SBIR,
-  // procurement, assistance, loan, scholarship), so those instrument types
-  // never reached the LLM scorer. We keep the global top-N unchanged (every
-  // strong grant that already made the cut is preserved) and ADDITIONALLY
-  // reserve the top `perTypeQuota` candidates of EACH `kind` present among the
-  // floor-clearing set, unioning them in (deduped by id). This makes every
-  // present instrument type REACHABLE by the scorer without displacing any
-  // strong grant. Fully deterministic: stable sort by cosine desc, tie-broken
-  // by opp id, so the union order is stable across runs.
-  // B2: `sim` is the RAW cosine (still the ONLY thing the candidate floor gates,
-  // so enrichment can never admit a below-floor opp); `rank` is `sim` plus the
-  // deterministic non-negative enrichment boost (0 when the flag is off). Sorting
-  // by `rank` re-orders and re-selects among floor-clearers only.
-  const floorCleared = d.corpus
-    .map((o) => {
-      const sim = o.embedding ? cosine(queryVec, o.embedding) : 0;
-      const rank = enrich ? sim + boostForOpportunity(enrich, o) : sim;
-      return { o, sim, rank };
-    })
-    .filter((x) => x.sim >= CALIBRATION.candidateFloor)
-    .sort((a, b) => (b.rank - a.rank) || (a.o.id < b.o.id ? -1 : a.o.id > b.o.id ? 1 : 0));
-
-  // Base set: the UNCHANGED global top-N (preserves every strong grant that
-  // already qualified — nothing is discarded to make room for the quota).
-  const candidateCount = clampCandidateCount(maxCandidates);
-  const selectedIds = new Set(floorCleared.slice(0, candidateCount).map((x) => x.o.id));
-
-  // Reserved slots: top-`perTypeQuota`-by-cosine of EACH present kind, added if
-  // not already selected. Because `floorCleared` is pre-sorted, taking the first
-  // `perTypeQuota` occurrences per kind yields that kind's highest-cosine picks.
-  const perKindTaken = new Map<string, number>();
-  for (const x of floorCleared) {
-    const taken = perKindTaken.get(x.o.kind) ?? 0;
-    if (taken < CALIBRATION.perTypeQuota) {
-      perKindTaken.set(x.o.kind, taken + 1);
-      selectedIds.add(x.o.id);
-    }
+  // Final candidate set = the profile-based retrieval UNION every provisional
+  // id already shown to the user, capped at the profile set's own size by
+  // trimming the tail — but a provisional id, a C1a per-type-quota pick, and a
+  // BM25 supplement pick are never trimmed: only a plain global-top-N entry
+  // (not one of those three) can be cut to make room.
+  const profileScoredIds = new Set(profileScored.map((x) => x.o.id));
+  const provisionalOnlyExtras = provisionalScored.filter(
+    (x) => provisionalIds.has(x.o.id) && !profileScoredIds.has(x.o.id),
+  );
+  const protectedIds = new Set([...Array.from(quotaOnlyIds), ...Array.from(bm25OnlyIds)]);
+  const trimCount = Math.min(provisionalOnlyExtras.length, profileScored.length);
+  const excludeFromProfileScored = new Set<string>();
+  let remainingToTrim = trimCount;
+  for (let i = profileScored.length - 1; i >= 0 && remainingToTrim > 0; i--) {
+    const id = profileScored[i].o.id;
+    if (provisionalIds.has(id) || protectedIds.has(id)) continue;
+    excludeFromProfileScored.add(id);
+    remainingToTrim--;
   }
-
-  // The candidate slice sent to the scorer: the union, in the same deterministic
-  // cosine-desc / id order as `floorCleared` (filter preserves array order).
-  const scored = floorCleared.filter((x) => selectedIds.has(x.o.id));
-  step({ key: "retrieve", label: `Found ${scored.length} candidate programs`, pct: 46 });
+  const scored = [
+    ...profileScored.filter((x) => !excludeFromProfileScored.has(x.o.id)),
+    ...provisionalOnlyExtras,
+  ];
 
   if (scored.length === 0) {
     step({ key: "weak", label: "Writing your finding…", pct: 80 });
     return weakField(profile, followUps, meter, d.explainWeakField, signal);
   }
+
+  // RESOLVE EVERY PROVISIONAL ID (§1): every id that has already had a
+  // TERMINAL ("final: true") match event streamed via onMatch — checked
+  // against this, not `matches` membership, since an id can land in `matches`
+  // (e.g. via `assembleTwoPass`'s `unscored` fallback) without ever having
+  // been streamed.
+  const streamedFinalIds = new Set<string>();
 
   // Only a definitive, rule-based `excluded` skips the LLM; every other bucket is still scored.
   const companyProfile = toCompanyProfile(profile, companyFacts);
@@ -384,6 +491,20 @@ export async function buildOpportunityMap(
       // Screening failed — score it normally; re-screened below.
     }
     toScore.push(x);
+  }
+
+  // A pre-excluded candidate never reaches the scorer at all, so — unlike a
+  // scored candidate — it would otherwise get NO event until this whole
+  // function returns, minutes later on local. Stream its terminal match right
+  // now, immediately after screening decided it, instead of leaving its card
+  // spinning through the entire scoring phase for no reason.
+  for (const { o, determination } of preExcluded) {
+    const assessment = {
+      ...scoreOnlyAssessment(o.id, 0),
+      whyIneligible: determination.failed_rules.map((r) => r.description).join(" "),
+    };
+    streamedFinalIds.add(o.id);
+    try { onMatch?.(baseMatchFromAssessment(assessment, o, profile)); } catch { /* progressive rendering is best-effort */ }
   }
 
   step({ key: "score", label: "Scoring and explaining your matches", pct: 52 });
@@ -409,9 +530,14 @@ export async function buildOpportunityMap(
   const useTwoPass = isLocalLlm() ? !isFlagExplicitlyDisabled("e3_two_pass") : isFlagEnabled("e3_two_pass");
   const candidatesToScore = toScore.map((s) => s.o);
   // Two-pass emits a narrated candidate twice (score-only, then narrative); the UI updates the card in place.
+  // `final` (defaulting true — see baseMatchFromAssessment) is the terminal
+  // signal: mark it streamed as soon as it goes out, so the "resolve every
+  // provisional id" reconciliation below never re-sends (or worse, thinks
+  // still-pending) an id whose real terminal event the client already got.
   const previewAssessment = (a: Assessment) => {
     const opp = byId.get(a.id);
     if (!opp) return;
+    if (a.final ?? true) streamedFinalIds.add(a.id);
     try { onMatch?.(baseMatchFromAssessment(a, opp, profile)); } catch { /* progressive rendering is best-effort */ }
   };
   const assessments: Assessment[] =
@@ -449,9 +575,48 @@ export async function buildOpportunityMap(
   const matches: Match[] = allAssessments
     .map((a) => {
       const opp = byId.get(a.id);
-      return opp ? baseMatchFromAssessment(a, opp, profile) : null;
+      // Every assessment reaching this point is terminal (scoring has fully
+      // finished by "assemble") — force `final: true` server-side regardless
+      // of what the assessment carries, so the final map never depends on a
+      // model- or intermediate-pass-supplied `final` value.
+      return opp ? { ...baseMatchFromAssessment(a, opp, profile), final: true } : null;
     })
     .filter(Boolean) as Match[];
+
+  // RESOLVE EVERY PROVISIONAL ID (§1): a spinner card must never spin forever.
+  // Checked against `streamedFinalIds` (what the client was actually SENT),
+  // not presence in `matches` (what the final map happens to CONTAIN) — an
+  // assessment can land in `matches` without ever having been streamed (e.g.
+  // `assembleTwoPass`'s `unscored` fallback for a Pass-A-dropped id). Every id
+  // shown as a provisional card gets an explicit terminal event and a place
+  // in the final map (provisional ids are always kept in `scored`).
+  const matchByOppId = new Map(matches.map((m) => [m.opportunity.id, m]));
+  for (const id of Array.from(provisionalIds)) {
+    if (streamedFinalIds.has(id)) continue;
+    let resolved = matchByOppId.get(id);
+    if (!resolved) {
+      const opp = byId.get(id);
+      if (!opp) continue;
+      resolved = {
+        opportunity: opp,
+        tier: "none",
+        score: 0,
+        criteria: [],
+        whyCare: "",
+        whyFit: "",
+        whyIneligible: "",
+        whatToVerify: "",
+        whatToDoNext: "",
+        history: historyFor(opp.id, profile.location),
+        final: true,
+        unscored: true,
+      };
+      matches.push(resolved);
+      matchByOppId.set(id, resolved);
+    }
+    try { onMatch?.(resolved); } catch { /* progressive rendering is best-effort */ }
+    streamedFinalIds.add(id);
+  }
 
   matches.sort((a, b) => b.score - a.score);
 

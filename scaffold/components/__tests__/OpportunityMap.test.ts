@@ -61,11 +61,23 @@ describe("selectShownMatches", () => {
     assert.deepEqual(excluded.map((m) => m.opportunity.id), ["excluded-1"]);
   });
 
-  test("a non-excluded tier-'none' candidate stays hidden", () => {
+  test("a non-excluded tier-'none' candidate moves to weaker, not real/excluded", () => {
     const matches = [match("weak-1", 5, "none", false)];
-    const { real, excluded } = selectShownMatches(matches);
+    const { real, excluded, weaker } = selectShownMatches(matches);
     assert.equal(real.length, 0);
     assert.equal(excluded.length, 0);
+    assert.deepEqual(weaker.map((m) => m.opportunity.id), ["weak-1"]);
+  });
+
+  test("weaker matches are never capped and sort best-first", () => {
+    const matches = [
+      match("weak-lo", 2, "none", false),
+      match("weak-hi", 20, "none", false),
+      ...Array.from({ length: CARD_CAP + 3 }, (_, i) => match(`weak-${i}`, i, "none", false)),
+    ];
+    const { weaker } = selectShownMatches(matches);
+    assert.equal(weaker.length, CARD_CAP + 5);
+    assert.equal(weaker[0].opportunity.id, "weak-hi");
   });
 
   test("excluded candidates never displace a real fit from the capped card list", () => {
@@ -74,5 +86,24 @@ describe("selectShownMatches", () => {
     const { real, excluded } = selectShownMatches(matches);
     assert.equal(real.length, CARD_CAP);
     assert.equal(excluded.length, 1);
+  });
+
+  test("§2 — a real match ranked past CARD_CAP is never dropped: it moves to 'weaker' (More matches)", () => {
+    const reals = Array.from({ length: CARD_CAP + 2 }, (_, i) => match(`real-${i}`, 100 - i, "likely"));
+    const { real, weaker } = selectShownMatches(reals);
+    assert.equal(real.length, CARD_CAP);
+    // The 2 lowest-scoring reals that didn't make the cap are in `weaker`, not gone.
+    assert.equal(weaker.length, 2);
+    assert.deepEqual(
+      weaker.map((m) => m.opportunity.id).sort(),
+      [`real-${CARD_CAP}`, `real-${CARD_CAP + 1}`].sort(),
+    );
+  });
+
+  test("§1 — an unscored candidate is never counted as a real fit; it moves to 'weaker'", () => {
+    const unscored = { ...match("unscored-1", 0, "none", false), unscored: true };
+    const { real, weaker } = selectShownMatches([match("real-1", 70, "likely"), unscored]);
+    assert.deepEqual(real.map((m) => m.opportunity.id), ["real-1"]);
+    assert.deepEqual(weaker.map((m) => m.opportunity.id), ["unscored-1"]);
   });
 });

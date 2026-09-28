@@ -148,9 +148,12 @@ test("streams milestones: normal path emits the exact key sequence with non-decr
   const steps: StepEvent[] = [];
   await buildOpportunityMap(fixtureProfile.description, (e) => steps.push(e), deps());
 
+  // Instant cards: retrieval (embed/retrieve) now runs BEFORE the profile is
+  // awaited — parallelized with the (potentially slow) extractProfile call so
+  // provisional cards can render while it's still in flight.
   assert.deepEqual(
     steps.map((s) => s.key),
-    ["start", "profile", "embed", "retrieve", "score", "assemble", "eligibility"],
+    ["start", "embed", "retrieve", "profile", "score", "assemble", "eligibility"],
   );
   for (let i = 1; i < steps.length; i++) {
     assert.ok(steps[i].pct >= steps[i - 1].pct, `pct must not decrease at step ${steps[i].key}`);
@@ -164,7 +167,7 @@ test("streams milestones: zero-candidate path emits the weak-field sequence", as
     embed: async () => [0, 1, 0],
   }));
 
-  assert.deepEqual(steps.map((s) => s.key), ["start", "profile", "embed", "retrieve", "weak"]);
+  assert.deepEqual(steps.map((s) => s.key), ["start", "embed", "retrieve", "profile", "weak"]);
   assert.equal(map.matches.length, 0);
   assert.ok(map.weakFieldFinding, "the honest-no path must return a finding, not silence");
 });

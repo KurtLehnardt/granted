@@ -5,6 +5,7 @@ import EligibilityBuckets, { type EligibilityItem } from "./EligibilityBuckets";
 import SimilarCompanies from "./SimilarCompanies";
 import AgencyMap from "./AgencyMap";
 import OpportunityGroups from "./OpportunityGroups";
+import WeakerMatches from "./WeakerMatches";
 import OpportunityGraph from "./OpportunityGraph";
 import FundingStrategy from "./FundingStrategy";
 import OpportunityAlerts from "./OpportunityAlerts";
@@ -14,23 +15,39 @@ import { aggregateSimilarCompanies } from "@/lib/similar/aggregate";
 import { fundingCell, closingSoonCount, expiredCount } from "@/lib/ui/opportunitySummary";
 import { useCorpusAsOf } from "@/lib/corpus/useCorpusAsOf";
 
-/** Cards to render. We never wall the user with the 20+ "none" rows. Exported
- *  so the progressive preview list (app/page.tsx, while a search is still
- *  streaming in matches) caps at the SAME number the finished map settles on —
- *  one source of truth, so the card count never visibly shrinks when the
- *  preview list is replaced by the final, complete map. */
+/** Cards in the main list. NEVER-VANISH LIST (§2): the main list is the top
+ *  `CARD_CAP` matches by score — everything else (a tier-"none" candidate, a
+ *  real match that scored well but didn't make the cap, or a candidate that
+ *  couldn't be scored at all) goes into the ONE "More matches" collapsed
+ *  section below instead of being dropped. Exported so the progressive
+ *  preview list (app/page.tsx, while a search is still streaming in matches)
+ *  caps at the SAME number the finished map settles on — one source of truth,
+ *  so the card count never visibly shrinks when the preview list is replaced
+ *  by the final, complete map. */
 export const CARD_CAP = 8;
 
-/** Real fits (best first, capped) plus rule-excluded candidates, which stay visible (R8.2) but outside the cap and header stats. */
-export function selectShownMatches(matches: Match[]): { real: Match[]; excluded: Match[] } {
-  const real = matches
-    .filter((m) => m && m.tier !== "none")
-    .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
-    .slice(0, CARD_CAP);
-  const excluded = matches.filter(
-    (m) => m && m.tier === "none" && m.eligibility?.determination?.bucket === "excluded",
+/** Real fits (best first, capped at `CARD_CAP`) plus rule-excluded candidates,
+ *  which stay visible (R8.2) but outside the cap and header stats. Everything
+ *  that doesn't make the main list — a plain tier-"none" candidate, a real
+ *  match past the cap, or an unscored candidate — goes in `weaker`, shown
+ *  collapsed in the ONE "More matches" section below (never silently
+ *  dropped; §2). */
+export function selectShownMatches(matches: Match[]): { real: Match[]; excluded: Match[]; weaker: Match[] } {
+  const clean = matches.filter((m): m is Match => Boolean(m));
+  const excluded = clean.filter(
+    (m) => m.tier === "none" && m.eligibility?.determination?.bucket === "excluded",
   );
-  return { real, excluded };
+  const rest = clean.filter((m) => !excluded.includes(m));
+  const ranked = rest
+    .filter((m) => !m.unscored)
+    .sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+  const real = ranked.filter((m) => m.tier !== "none").slice(0, CARD_CAP);
+  const realIds = new Set(real.map((m) => m.opportunity.id));
+  const weaker = [
+    ...ranked.filter((m) => !realIds.has(m.opportunity.id)),
+    ...rest.filter((m) => m.unscored),
+  ];
+  return { real, excluded, weaker };
 }
 
 /** FE-01: shared "eyebrow"-style mono label, token-driven. */
@@ -79,7 +96,7 @@ export default function OpportunityMap({ map }: { map: MapT }) {
   // CompetitorResults deep-analysis flow, which this never reads or affects.
   const similarRecipients = aggregateSimilarCompanies(matches, { limit: 10 });
 
-  const { real: shownReal, excluded: excludedShown } = selectShownMatches(matches);
+  const { real: shownReal, excluded: excludedShown, weaker: weakerMatches } = selectShownMatches(matches);
   const shown = [...shownReal, ...excludedShown];
 
   // Header stats derived from real fits only — keeps them honest and consistent.
@@ -252,6 +269,12 @@ export default function OpportunityMap({ map }: { map: MapT }) {
             )}
           </section>
         )}
+
+        {/* More matches (§2, never-vanish list) — a tier-"none" candidate, a
+            real match past CARD_CAP, or an unscored candidate (never a
+            rule-excluded one, which stays in `excluded` above) collapses here
+            instead of being silently dropped. */}
+        <WeakerMatches matches={weakerMatches} startupProfile={map.profile} />
 
         {/* R8 / ELG-04: real three-bucket eligibility screening for the shown
             opportunities, gated behind r8_eligibility (default off). */}

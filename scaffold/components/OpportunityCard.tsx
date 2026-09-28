@@ -1,6 +1,10 @@
 "use client";
-import { useState } from "react";
+// Explicit React import: needed under the plain `tsx`-run node:test runner
+// (this repo's tsconfig `"jsx": "preserve"` falls back to the classic JSX
+// runtime there) — see the same note in components/ApplicationChecklist.tsx.
+import React, { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { TIER_LABEL, type Match, type StartupProfile } from "@/lib/types";
+import { isProvisional, type PreviewItem } from "@/lib/ui/previewReducer";
 import type { EligibilityBucket } from "@/lib/contracts/eligibilityDetermination";
 import HowToApplyModal from "@/components/HowToApplyModal";
 import { buildFundingRange, money } from "@/components/ApplicationChecklist";
@@ -108,19 +112,176 @@ function eyebrowClass(extra = "") {
   return `font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas ${extra}`.trim();
 }
 
+/**
+ * ANALYZING ring (§5) — wraps the match-score badge while a candidate's score
+ * may still change: not yet scored (`ProvisionalCard`), or Pass-A scored but
+ * Pass-B narrative pending for a promoted candidate (`ScoredOpportunityCard`
+ * with `m.final === false`). A slowly rotating ring of repeated "ANALYZING"
+ * text around the number/placeholder — inline SVG `textPath` on a circle, CSS
+ * rotation (`.analyzing-ring` in globals.css). Rotation is disabled under
+ * `prefers-reduced-motion` by the existing global rule (a static ring
+ * remains). Ring text is `aria-hidden`; the caller supplies the accessible
+ * label on the badge itself so a screen reader hears it once, not the raw
+ * repeated ring text.
+ *
+ * Fixed footprint (not sized off the badge it wraps): the wrapper `span` has
+ * an explicit height/width and the SVG fills it exactly (`inset-0`), so the
+ * ring is a normal, sized flex item — it takes real space in the card's
+ * layout instead of overflowing past it, and the badge column, `flex-wrap`,
+ * and the article's own padding all just work around it. `textLength` +
+ * `spacingAndGlyphs` stretches the label to the exact circumference so it
+ * wraps the full ring instead of covering a partial arc.
+ */
+function AnalyzingRing({ children, fading }: { children: ReactNode; fading?: boolean }) {
+  const pathId = useId();
+  const r = 42;
+  const circumference = 2 * Math.PI * r;
+  return (
+    <span className="relative inline-flex h-20 w-20 items-center justify-center sm:h-24 sm:w-24">
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 100 100"
+        className={`analyzing-ring pointer-events-none absolute inset-0 h-full w-full text-structure-on-canvas transition-opacity duration-300 ${
+          fading ? "opacity-0" : "opacity-100"
+        }`}
+      >
+        <defs>
+          <path id={pathId} d={`M 50,50 m -${r},0 a ${r},${r} 0 1,1 ${2 * r},0 a ${r},${r} 0 1,1 -${2 * r},0`} fill="none" />
+        </defs>
+        <text className="fill-current font-mono uppercase" style={{ fontSize: "7px", letterSpacing: "1px" }}>
+          <textPath href={`#${pathId}`} textLength={circumference} lengthAdjust="spacingAndGlyphs">
+            ANALYZING &middot; ANALYZING &middot; ANALYZING &middot;{" "}
+          </textPath>
+        </text>
+      </svg>
+      {children}
+    </span>
+  );
+}
+
+/**
+ * ANALYZING ring fade-out (§5) — pure state-transition rule, kept separate
+ * from the component so "the fade starts in the SAME render `final` flips
+ * true" is unit-testable without a DOM: `true` exactly when the previous
+ * render was still analyzing (`prevFinal === false`) and this one no longer
+ * is. Called during render (not from an effect), which runs it before React
+ * commits the render that would otherwise unmount the ring outright.
+ */
+export function nextRingFading(prevFinal: boolean | undefined, nextFinal: boolean | undefined): boolean {
+  return prevFinal === false && nextFinal !== false;
+}
+
 export default function OpportunityCard({
   m,
   index,
   startupProfile,
 }: {
-  m: Match;
+  m: PreviewItem;
   index: number;
   /** The user's extracted v1 profile (from `map.profile`), threaded into the
    *  competitor-analysis modal below. Only read when r5_deep_analysis is on. */
   startupProfile?: StartupProfile;
 }) {
+  // ANALYZING ring fade-out (§5) across the provisional→scored swap: the ring
+  // unmounts with ProvisionalCard and a fresh one mounts inside
+  // ScoredOpportunityCard, so there's no single DOM node to CSS-transition —
+  // track the swap here (the component instance that persists across it) and
+  // pass it down so the newly-mounted ring can run its own fade-in-then-out.
+  const wasProvisional = useRef(isProvisional(m));
+  const justPromoted = wasProvisional.current && !isProvisional(m);
+  wasProvisional.current = isProvisional(m);
+
+  if (isProvisional(m)) return <ProvisionalCard opportunity={m.opportunity} index={index} />;
+  return <ScoredOpportunityCard m={m} index={index} startupProfile={startupProfile} justPromoted={justPromoted} />;
+}
+
+/**
+ * Instant cards — a retrieved-but-unscored candidate. No score, no tier, no
+ * narrative yet: just the program identity plus an em dash and an
+ * "Analyzing, score may change" accessible label (role="status") in place of
+ * the match percentage. Deliberately shows no number — a fake or placeholder
+ * score would be worse than an honest "not yet".
+ */
+function ProvisionalCard({ opportunity, index }: { opportunity: Match["opportunity"]; index: number }) {
+  const articleClass =
+    "relative overflow-hidden rounded-lg bg-canvas-alt text-foreground shadow-card transition-shadow duration-200 ease-out";
+  return (
+    <article className={articleClass}>
+      <span className="spine bg-structure-on-canvas" aria-hidden />
+      <div className="flex flex-wrap items-start justify-between gap-4 px-5 py-4 sm:flex-nowrap sm:gap-6 sm:px-6 sm:py-5">
+        <div className="min-w-0">
+          <h3 className="mt-1.5 text-balance font-display text-[19px] font-medium leading-snug text-foreground">
+            {opportunity.program}
+          </h3>
+          <p className="mt-1 text-pretty font-mono text-[12px] text-foreground">{opportunity.agency}</p>
+        </div>
+        <div className="shrink-0 text-right">
+          <AnalyzingRing>
+            <div
+              role="status"
+              aria-label="Analyzing, score may change"
+              className="font-display text-[26px] font-bold leading-none tabular-nums text-structure-on-canvas"
+            >
+              &mdash;
+            </div>
+          </AnalyzingRing>
+          <div className="mt-1 font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas">
+            scoring
+          </div>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function ScoredOpportunityCard({
+  m,
+  index,
+  startupProfile,
+  justPromoted,
+}: {
+  m: Match;
+  index: number;
+  startupProfile?: StartupProfile;
+  /** True on the one render where this card replaced a ProvisionalCard for
+   *  the same id (see OpportunityCard above). */
+  justPromoted?: boolean;
+}) {
   // Expand the first three cards so criteria / ineligibility / history read at a glance.
   const [open, setOpen] = useState(index < 3);
+  const isFinal = m.final ?? true;
+  // ANALYZING ring fade-out (§5): once `final` flips true, keep the ring
+  // mounted for one short CSS transition instead of yanking it away. Adjusted
+  // during render (React's "derive state from a prop change" pattern) so the
+  // fade starts on the very same commit `final` flips, before the ring would
+  // otherwise unmount.
+  const [prevFinal, setPrevFinal] = useState(isFinal);
+  const [ringFading, setRingFading] = useState(false);
+  if (prevFinal !== isFinal) {
+    setPrevFinal(isFinal);
+    setRingFading(nextRingFading(prevFinal, isFinal));
+  }
+  useEffect(() => {
+    if (!ringFading) return;
+    const t = setTimeout(() => setRingFading(false), 300);
+    return () => clearTimeout(t);
+  }, [ringFading]);
+  // A card that just replaced a ProvisionalCard with an already-final score
+  // (single-pass, or Pass A final for a non-promoted candidate) mounts a
+  // brand-new ring with nothing to transition from. `enterFading` renders it
+  // visible on mount, then flips to fading a frame later so the browser
+  // actually animates the opacity change instead of skipping straight to 0.
+  const [enterFading, setEnterFading] = useState(false);
+  const [enterFadingActive, setEnterFadingActive] = useState(!!justPromoted && isFinal);
+  useEffect(() => {
+    if (!enterFadingActive) return;
+    const raf = requestAnimationFrame(() => setEnterFading(true));
+    const t = setTimeout(() => setEnterFadingActive(false), 300);
+    return () => { cancelAnimationFrame(raf); clearTimeout(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const showRing = isFinal === false || ringFading || enterFadingActive;
+  const fading = ringFading || (enterFadingActive && enterFading);
   // The assisted-apply flow (sign-in / requirements form / package assembly)
   // was unreliable, so it's been pulled from the UI for now (code stays in
   // place: AutoFillFlow.tsx, AutoFillModal.tsx, ApplicationPackage.tsx). This
@@ -341,10 +502,27 @@ export default function OpportunityCard({
           </div>
 
           <div className="shrink-0 text-right">
-            <div className="font-display text-[26px] font-bold leading-none tabular-nums text-foreground">
-              {m.score}
-              <span className="text-[15px] font-medium">%</span>
-            </div>
+            {/* ANALYZING ring (§5) — `final === false` means Pass A scored this
+                candidate but it's promoted for Pass B, which may still change
+                its score. Once the final score lands, the ring fades out
+                (see the state above) before it stops rendering. */}
+            {showRing ? (
+              <AnalyzingRing fading={fading}>
+                <div
+                  role="status"
+                  aria-label={`Analyzing, ${m.score}%, score may change`}
+                  className="font-display text-[26px] font-bold leading-none tabular-nums text-foreground"
+                >
+                  {m.score}
+                  <span className="text-[15px] font-medium">%</span>
+                </div>
+              </AnalyzingRing>
+            ) : (
+              <div className="font-display text-[26px] font-bold leading-none tabular-nums text-foreground">
+                {m.score}
+                <span className="text-[15px] font-medium">%</span>
+              </div>
+            )}
             <div className={eyebrowClass("mt-1")}>match</div>
           </div>
         </div>

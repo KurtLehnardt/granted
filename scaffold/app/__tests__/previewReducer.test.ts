@@ -1,18 +1,19 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 
-import { previewReducer } from "@/lib/ui/previewReducer";
+import { previewReducer, partitionPreview, isProvisional, type PreviewItem } from "@/lib/ui/previewReducer";
 import { CARD_CAP } from "@/components/OpportunityMap";
 import type { Match, Opportunity } from "@/lib/types";
 
 /**
- * previewReducer — the two-pass progressive-preview reducer (page.tsx). Two
- * regressions this proves against:
- *   (a) a re-emit of an already-shown candidate (Pass A score → Pass B
- *       narrative) updates the SAME card in place, never duplicating it;
- *   (b) once the preview is full, a HIGHER-scoring arrival evicts the
- *       LOWEST-scored card rather than being dropped — keeping the list sorted
- *       by score so it converges on the top-N the finished map will show.
+ * previewReducer — the instant-cards progressive-preview reducer (page.tsx).
+ *
+ * Cards stream in three shapes: a provisional (unscored) retrieval hit, a
+ * Pass-A score, and a Pass-B narrative — all keyed by opportunity id. The
+ * reducer's job is purely to upsert the LATEST data for an id IN PLACE,
+ * without moving its position (so cards don't jump around while streaming),
+ * and to never drop anything (a weak final score moves to the "weaker
+ * matches" section via `partitionPreview`, it isn't removed).
  */
 
 function opp(id: string): Opportunity {
@@ -25,6 +26,10 @@ function opp(id: string): Opportunity {
     description: `desc ${id}`,
     eligibility: "US small business.",
   };
+}
+
+function provisional(id: string): PreviewItem {
+  return { opportunity: opp(id), provisional: true };
 }
 
 function match(id: string, score: number, tier: Match["tier"] = "likely"): Match {
@@ -42,42 +47,111 @@ function match(id: string, score: number, tier: Match["tier"] = "likely"): Match
 }
 
 describe("previewReducer", () => {
-  test("a re-emit for the same opportunity id updates the card in place", () => {
-    const afterScore = previewReducer([], match("opp-1", 28, "adjacent"));
-    const afterNarrative = previewReducer(afterScore, match("opp-1", 65, "likely"));
-    assert.equal(afterNarrative.length, 1);
-    assert.equal(afterNarrative[0].tier, "likely");
-    assert.equal(afterNarrative[0].score, 65);
+  test("provisional hits are appended in retrieval order", () => {
+    let prev: PreviewItem[] = [];
+    for (const id of ["a", "b", "c"]) prev = previewReducer(prev, provisional(id));
+    assert.deepEqual(prev.map((p) => p.opportunity.id), ["a", "b", "c"]);
+    assert.ok(prev.every(isProvisional));
   });
 
-  test("a re-emit that drops to tier 'none' removes the card", () => {
-    const afterScore = previewReducer([], match("opp-1", 28, "adjacent"));
-    const afterDemoted = previewReducer(afterScore, match("opp-1", 5, "none"));
-    assert.equal(afterDemoted.length, 0);
+  test("a score for an already-provisional id updates it in place, without moving it", () => {
+    let prev: PreviewItem[] = [];
+    for (const id of ["a", "b", "c"]) prev = previewReducer(prev, provisional(id));
+    prev = previewReducer(prev, match("b", 65, "likely"));
+
+    assert.deepEqual(prev.map((p) => p.opportunity.id), ["a", "b", "c"]);
+    assert.equal(isProvisional(prev[1]), false);
+    assert.equal((prev[1] as Match).score, 65);
   });
 
-  test("stays sorted by score descending as candidates stream in", () => {
-    let prev: Match[] = [];
+  test("a Pass-B re-emit for the same id updates the card in place, still without reordering", () => {
+    let prev: PreviewItem[] = previewReducer([], match("opp-1", 28, "adjacent"));
+    prev = previewReducer(prev, match("opp-1", 65, "likely"));
+    assert.equal(prev.length, 1);
+    assert.equal((prev[0] as Match).tier, "likely");
+    assert.equal((prev[0] as Match).score, 65);
+  });
+
+  test("streaming never re-sorts: arrival order is preserved regardless of score", () => {
+    let prev: PreviewItem[] = [];
     for (const [id, score] of [["a", 50], ["b", 90], ["c", 70]] as const) {
       prev = previewReducer(prev, match(id, score));
     }
-    assert.deepEqual(prev.map((m) => m.opportunity.id), ["b", "c", "a"]);
+    assert.deepEqual(prev.map((p) => p.opportunity.id), ["a", "b", "c"]);
   });
 
-  test("once full, a higher-scoring arrival evicts the lowest-scored card", () => {
-    let prev: Match[] = [];
-    for (let i = 0; i < CARD_CAP; i++) prev = previewReducer(prev, match(`low-${i}`, 30 + i));
-    assert.equal(prev.length, CARD_CAP);
-    const lowestScore = Math.min(...prev.map((m) => m.score));
-
-    const withHighScorer = previewReducer(prev, match("high", 99));
-    assert.equal(withHighScorer.length, CARD_CAP);
-    assert.ok(withHighScorer.some((m) => m.opportunity.id === "high"));
-    assert.ok(!withHighScorer.some((m) => m.score === lowestScore));
+  test("a stale provisional arriving after a real score never overwrites it", () => {
+    let prev: PreviewItem[] = previewReducer([], match("opp-1", 70, "likely"));
+    prev = previewReducer(prev, provisional("opp-1"));
+    assert.equal(isProvisional(prev[0]), false);
+    assert.equal((prev[0] as Match).score, 70);
   });
 
-  test("a 'none'-tier candidate is never added", () => {
+  test("a 'none'-tier final score is kept, not dropped", () => {
     const prev = previewReducer([], match("opp-none", 5, "none"));
-    assert.equal(prev.length, 0);
+    assert.equal(prev.length, 1);
+    assert.equal((prev[0] as Match).tier, "none");
+  });
+
+  test("a re-emit that drops to tier 'none' still keeps the card (moves to weaker via partitionPreview, never vanishes)", () => {
+    let prev: PreviewItem[] = previewReducer([], match("opp-1", 28, "adjacent"));
+    prev = previewReducer(prev, match("opp-1", 5, "none"));
+    assert.equal(prev.length, 1);
+    assert.equal((prev[0] as Match).tier, "none");
+  });
+});
+
+describe("partitionPreview", () => {
+  test("provisional and non-'none' matches are shown; a final tier-'none' match is set aside as weaker", () => {
+    const items: PreviewItem[] = [provisional("prov-1"), match("real-1", 70, "likely"), match("weak-1", 5, "none")];
+    const { shown, weaker } = partitionPreview(items, CARD_CAP);
+    assert.deepEqual(shown.map((p) => p.opportunity.id), ["prov-1", "real-1"]);
+    assert.deepEqual(weaker.map((p) => p.opportunity.id), ["weak-1"]);
+  });
+
+  test("shown is capped at CARD_CAP; everything past the cap — real matches included, §2 — moves to 'more matches', never dropped", () => {
+    const reals = Array.from({ length: CARD_CAP + 2 }, (_, i) => match(`real-${i}`, 90 - i, "likely"));
+    const weaks = Array.from({ length: 5 }, (_, i) => match(`weak-${i}`, 5, "none"));
+    const { shown, weaker } = partitionPreview([...reals, ...weaks], CARD_CAP);
+    assert.equal(shown.length, CARD_CAP);
+    // The top CARD_CAP reals by score are shown; the last 2 reals (past the
+    // cap) plus the 5 tier-"none" weaks all land in "more matches" — none
+    // silently dropped.
+    assert.equal(weaker.length, 7);
+    assert.deepEqual(
+      shown.map((p) => p.opportunity.id),
+      reals.slice(0, CARD_CAP).map((m) => m.opportunity.id),
+    );
+  });
+
+  test("a scored high-score card is never outranked by a still-provisional spinner (regression: +Infinity ranking)", () => {
+    // The reported repro: PROVISIONAL_PREVIEW_COUNT (12) provisional cards
+    // arrive first, then the top 3 get scored (88, 81, 75) while 9 remain
+    // spinners. Ranking a spinner as +Infinity meant ALL 8 CARD_CAP slots
+    // filled with spinners before any real score, pushing even an 88% match
+    // into "More matches" behind unscored placeholders.
+    let prev: PreviewItem[] = [];
+    for (let i = 0; i < 12; i++) prev = previewReducer(prev, provisional(`c${i}`));
+    prev = previewReducer(prev, match("c0", 88));
+    prev = previewReducer(prev, match("c1", 81));
+    prev = previewReducer(prev, match("c2", 75));
+
+    const { shown, weaker } = partitionPreview(prev, CARD_CAP);
+    assert.deepEqual(
+      shown.map((p) => p.opportunity.id),
+      ["c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7"],
+      "the 3 scored cards keep their slots (already within the cap) and stay first by score; the rest remain spinners in arrival order",
+    );
+    assert.deepEqual(weaker.map((p) => p.opportunity.id), ["c8", "c9", "c10", "c11"]);
+  });
+
+  test("an unscored candidate is never shown as a real card — always in 'more matches'", () => {
+    const items: PreviewItem[] = [
+      match("real-1", 70, "likely"),
+      { ...match("unscored-1", 0, "none"), unscored: true },
+    ];
+    const { shown, weaker } = partitionPreview(items, CARD_CAP);
+    assert.deepEqual(shown.map((p) => p.opportunity.id), ["real-1"]);
+    assert.deepEqual(weaker.map((p) => p.opportunity.id), ["unscored-1"]);
   });
 });

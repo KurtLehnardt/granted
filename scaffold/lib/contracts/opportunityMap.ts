@@ -199,6 +199,16 @@ export const MatchSchema = z.object({
    * validating unchanged.
    */
   eligibility: EligibilityDeterminationWithFreshnessSchema.optional(),
+  /** ANALYZING ring — false while this candidate's score may still change
+   *  (not yet scored, or Pass-A scored but Pass-B pending for a promoted
+   *  candidate). Optional so cached/precomputed maps (always terminal) and
+   *  older clients keep validating; absent is treated as final. */
+  final: z.boolean().optional(),
+  /** Every provisional id gets a terminal event (§1) — when scoring genuinely
+   *  couldn't produce a score for it (a dropped batch, an unresolved id), this
+   *  is `true` and the card renders a "Couldn't score" placeholder instead of
+   *  a fabricated number. */
+  unscored: z.boolean().optional(),
 });
 export type Match = z.infer<typeof MatchSchema>;
 
