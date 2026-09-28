@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { RefreshStage } from "./refreshProgress";
 
@@ -123,9 +123,16 @@ export function readRefreshStatus(baseDir: string = process.cwd()): RefreshStatu
 export function writeRefreshStatus(status: RefreshStatus, baseDir: string = process.cwd()): void {
   mkdirSync(dir(baseDir), { recursive: true });
   const p = statusPath(baseDir);
+  const body = JSON.stringify(status, null, 2);
   const tmp = `${p}.tmp-${process.pid}`;
-  writeFileSync(tmp, JSON.stringify(status, null, 2));
-  renameSync(tmp, p);
+  writeFileSync(tmp, body);
+  try {
+    renameSync(tmp, p);
+  } catch {
+    // Windows refuses to rename over a file a reader (GET /api/corpus) has open.
+    rmSync(tmp, { force: true });
+    writeFileSync(p, body);
+  }
 }
 
 /** Merges `progress` into the status file; best-effort, swallows write errors since it's cosmetic. */

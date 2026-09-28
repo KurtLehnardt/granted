@@ -1,6 +1,6 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { closeSync, mkdtempSync, openSync, readdirSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -64,6 +64,20 @@ describe("refresh status", () => {
     assert.deepEqual(readRefreshStatus(baseDir), { lastError: "boom" });
     writeRefreshStatus({ lastCompletedAt: "2026-09-27T00:00:00.000Z" }, baseDir);
     assert.deepEqual(readRefreshStatus(baseDir), { lastCompletedAt: "2026-09-27T00:00:00.000Z" });
+    rmSync(baseDir, { recursive: true, force: true });
+  });
+
+  test("write succeeds while a reader holds the status file open (Windows rename-over EPERM)", () => {
+    const baseDir = makeBaseDir();
+    writeRefreshStatus({ lastAttemptAt: "2026-09-27T00:00:00.000Z" }, baseDir);
+    const fd = openSync(join(baseDir, "data", "local", "refresh-status.json"), "r");
+    try {
+      writeRefreshStatus({ stopped: true, savedCount: 3 }, baseDir);
+    } finally {
+      closeSync(fd);
+    }
+    assert.deepEqual(readRefreshStatus(baseDir), { stopped: true, savedCount: 3 });
+    assert.deepEqual(readdirSync(join(baseDir, "data", "local")), ["refresh-status.json"]);
     rmSync(baseDir, { recursive: true, force: true });
   });
 
