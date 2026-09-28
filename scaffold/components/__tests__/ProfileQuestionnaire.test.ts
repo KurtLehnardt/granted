@@ -1,7 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { renderToStaticMarkup } from "react-dom/server";
+import React from "react";
 
-import {
+import ProfileQuestionnaire, {
   computeGaps,
   buildDescriptionFromProfile,
   mapStartupProfileToValues,
@@ -10,6 +12,9 @@ import {
   requiredProgressText,
   fieldValidationMessage,
   MATERIAL_FIELD_GROUPS,
+  splitBooleanText,
+  draftValue,
+  resolveBooleanTextField,
 } from "../ProfileQuestionnaire";
 import { PROFILE_FIELD_META_BY_KEY, MATERIAL_PROFILE_FIELDS, PROFILE_FIELD_META } from "@/lib/contracts/companyProfile";
 import type { StartupProfile } from "@/lib/types";
@@ -251,4 +256,82 @@ test("fieldValidationMessage: a material (optional) field NEVER produces a messa
   const meta = PROFILE_FIELD_META_BY_KEY.employee_count;
   assert.equal(fieldValidationMessage(meta, false, true), null);
   assert.equal(fieldValidationMessage(meta, false, false), null);
+});
+
+// --- rendering: no "Edit" gate, ever --------------------------------------
+
+test("ProfileQuestionnaire: an empty form renders as directly editable controls, with no Edit button anywhere", () => {
+  const html = renderToStaticMarkup(React.createElement(ProfileQuestionnaire, { onSubmit: () => {} }));
+  assert.doesNotMatch(html, />\s*Edit\s*</);
+  assert.doesNotMatch(html, /aria-label="Edit /);
+  for (const meta of PROFILE_FIELD_META.filter((m) => m.requirement === "required")) {
+    assert.match(html, new RegExp(`<textarea[^>]*id="pq-${meta.field}"`));
+  }
+});
+
+// --- draftValue / splitBooleanText / resolveBooleanTextField --------------
+
+test("draftValue: with no live edit yet, falls back to the saved profile cell", () => {
+  const profile = { industry: { value: "agtech", provenance: "user_stated" as const, confidence: 1 } };
+  assert.equal(draftValue(profile, {}, "industry"), "agtech");
+});
+
+test("draftValue: a live edit in `values` always wins over the saved profile cell", () => {
+  const profile = { industry: { value: "agtech", provenance: "user_stated" as const, confidence: 1 } };
+  assert.equal(draftValue(profile, { industry: "biotech" }, "industry"), "biotech");
+});
+
+test("draftValue: an unprovided field with no live edit renders as an empty (not undefined) string", () => {
+  assert.equal(draftValue({}, {}, "industry"), "");
+});
+
+test("splitBooleanText: 'Yes — <detail>' splits into the Yes radio plus the detail text", () => {
+  assert.deepEqual(splitBooleanText("Yes — prototype testing"), { choice: "Yes", detail: "prototype testing" });
+});
+
+test("splitBooleanText: a bare 'Yes' (no detail given) is the Yes radio with an empty detail box", () => {
+  assert.deepEqual(splitBooleanText("Yes"), { choice: "Yes", detail: "" });
+});
+
+test("splitBooleanText: 'No' is the No radio with an empty detail box", () => {
+  assert.deepEqual(splitBooleanText("No"), { choice: "No", detail: "" });
+});
+
+test("splitBooleanText: an empty/unrecognized string checks neither radio", () => {
+  assert.deepEqual(splitBooleanText(""), { choice: "", detail: "" });
+});
+
+test("resolveBooleanTextField: a saved 'Yes — <detail>' profile value shows checked + pre-filled, before any live edit", () => {
+  const profile = {
+    rd_activities: { value: "Yes — prototype testing", provenance: "user_stated" as const, confidence: 1 },
+  };
+  assert.deepEqual(resolveBooleanTextField(profile, {}, "rd_activities"), {
+    choice: "Yes",
+    detail: "prototype testing",
+  });
+});
+
+test("resolveBooleanTextField: a saved bare 'No' profile value checks the No radio", () => {
+  const profile = { rd_activities: { value: "No", provenance: "user_stated" as const, confidence: 1 } };
+  assert.deepEqual(resolveBooleanTextField(profile, {}, "rd_activities"), { choice: "No", detail: "" });
+});
+
+test("resolveBooleanTextField: clearing a restored detail box keeps the Yes radio checked (per-key fallback, not all-or-nothing)", () => {
+  const profile = {
+    rd_activities: { value: "Yes — prototype testing", provenance: "user_stated" as const, confidence: 1 },
+  };
+  assert.deepEqual(resolveBooleanTextField(profile, { rd_activities__detail: "" }, "rd_activities"), {
+    choice: "Yes",
+    detail: "",
+  });
+});
+
+test("resolveBooleanTextField: typing into a restored detail box keeps the Yes radio checked", () => {
+  const profile = {
+    rd_activities: { value: "Yes — prototype testing", provenance: "user_stated" as const, confidence: 1 },
+  };
+  assert.deepEqual(resolveBooleanTextField(profile, { rd_activities__detail: "x" }, "rd_activities"), {
+    choice: "Yes",
+    detail: "x",
+  });
 });
