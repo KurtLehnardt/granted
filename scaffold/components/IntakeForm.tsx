@@ -41,12 +41,8 @@ export default function IntakeForm({
 }) {
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(false);
-  // Collapse the intake form into a summary bar once a real search has
-  // started, so results sit closer to the top of the page. Only a real
-  // submit through ProfileQuestionnaire's own "Find opportunities" button
-  // sets this — see handleQuestionnaireSubmit below. A sample search from
-  // the welcome guide (useWelcomeGuideSampleHandler) calls run() directly
-  // and never touches this, so it correctly leaves the form expanded.
+  // Collapsed once a real questionnaire submit starts a search; toggle is
+  // then owned back-and-forth by ProfileQuestionnaire's own header button.
   const [formCollapsed, setFormCollapsed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // H1: the exact description the last search actually ran on, so the error
@@ -344,10 +340,7 @@ export default function IntakeForm({
   // beginSearch() exactly as free-text always has, so the flag-gated R1
   // interview can still ask about whatever's left.
   function handleQuestionnaireSubmit(description: string, meta: { complete: boolean }) {
-    // A real search is starting (not a welcome-guide sample) — collapse the
-    // form into its summary bar so results sit near the top. Editing the
-    // collapsed form back open and searching again re-collapses it, since
-    // this fires on every real submit regardless of the current state.
+    // Collapse to the summary bar so results sit near the top.
     setFormCollapsed(true);
     if (meta.complete) {
       run(description);
@@ -391,7 +384,7 @@ export default function IntakeForm({
           onDescriptionChange={setText}
           onSubmit={handleQuestionnaireSubmit}
           collapsed={formCollapsed}
-          onExpand={() => setFormCollapsed(false)}
+          onToggleCollapsed={() => setFormCollapsed((c) => !c)}
         />
       )}
 
