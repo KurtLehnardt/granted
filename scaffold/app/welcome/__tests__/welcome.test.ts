@@ -1,5 +1,8 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { metadata, structuredData, TITLE, DESCRIPTION } from "../content";
 
 /**
@@ -9,14 +12,25 @@ import { metadata, structuredData, TITLE, DESCRIPTION } from "../content";
  * tags (title / description / OpenGraph / Twitter), and — because "the brand is
  * trust" — that the JSON-LD is grounded (real corpus size, real sources, free
  * price) and never claims to auto-file applications.
+ *
+ * The corpus-size claim is checked against the ACTUAL committed corpus length,
+ * not a hardcoded number -- content.ts's "791" went stale silently once the
+ * corpus grew to 968 (README had the same drift). Deriving it here means a
+ * future corpus-size change that forgets to update the marketing copy fails
+ * this test instead of shipping a wrong number, mirroring the same rationale
+ * already applied to embedding-dimension checks in corpus-breadth.test.ts.
  */
+const here = dirname(fileURLToPath(import.meta.url));
+const CORPUS_COUNT = JSON.parse(
+  readFileSync(join(here, "../../../data/opportunities.json"), "utf8"),
+).length;
 describe("welcome landing metadata", () => {
   test("title and description carry the Granted brand + matched-funding thesis", () => {
     assert.equal(metadata.title, TITLE);
     assert.match(String(metadata.title), /Granted/);
     assert.match(String(metadata.title), /matched/i);
     assert.equal(metadata.description, DESCRIPTION);
-    assert.match(String(metadata.description), /791/);
+    assert.match(String(metadata.description), new RegExp(String(CORPUS_COUNT)));
     assert.match(String(metadata.description), /grounded/i);
   });
 
@@ -56,10 +70,10 @@ describe("welcome structured data (JSON-LD)", () => {
     assert.equal(app?.name, "Granted");
   });
 
-  test("app claims are grounded — 791 real opportunities, free to start", () => {
+  test("app claims are grounded — the real committed opportunity count, free to start", () => {
     assert.ok(app && "description" in app);
     const desc = (app as { description: string }).description;
-    assert.match(desc, /791/);
+    assert.match(desc, new RegExp(String(CORPUS_COUNT)));
     assert.match(desc, /grants\.gov/);
     assert.match(desc, /SAM\.gov/);
     const offers = (app as { offers: { price: string } }).offers;
