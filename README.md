@@ -78,19 +78,31 @@ npm run dev
 
 ## Install on Linux
 
-**1. Prerequisites** (Debian/Ubuntu shown — swap in your distro's package manager otherwise)
+**1. Install prerequisites + clone (one command)**
 ```bash
+curl -fsSL https://raw.githubusercontent.com/KurtLehnardt/granted/main/install-linux.sh | bash
+```
+Installs git and Node 20+ if missing (supports `apt`, `dnf`, and `yum` — verified end to end on both Ubuntu and Amazon Linux 2023), clones the repo into `./granted`, and runs `npm install`. Safe to re-run.
+
+On a distro it doesn't cover, or prefer to do it by hand?
+```bash
+# Debian/Ubuntu
 curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt-get install -y nodejs git
-```
-This installs Node 20, which throws a harmless `EBADENGINE` warning during `npm install` (one dependency now wants 22+; the app runs fine on 20 regardless). Use `setup_22.x` above instead if you'd rather avoid the warning.
+# Amazon Linux 2023 / Fedora / RHEL
+curl -fsSL https://rpm.nodesource.com/setup_20.x | sudo -E bash -
+sudo dnf install -y nodejs git   # older releases: sudo yum install -y nodejs git
 
-**2. Clone and try it with zero keys**
-```bash
 git clone https://github.com/KurtLehnardt/granted.git
 cd granted/scaffold
-npm install
-npm run dev        # → http://localhost:3000
+```
+Both install Node 20, which throws a harmless `EBADENGINE` warning during `npm install` (some dependencies now want 22+; the app runs fine on 20 regardless) — use `setup_22.x` above instead to avoid it.
+
+**2. Try it with zero keys**
+```bash
+cd granted/scaffold   # skip if you already ran install-linux.sh from inside it
+npm install            # already done if you used install-linux.sh
+npm run dev            # → http://localhost:3000
 ```
 Try the 5 sample companies now — no keys needed.
 
@@ -107,7 +119,7 @@ curl -fsSL https://ollama.com/install.sh | sh
 npm run setup:local -- --yes        # picks a model sized for your RAM, pulls it, re-embeds the corpus
 npm run dev
 ```
-Verified end to end on the smallest realistic box (2 vCPU, 8GB RAM, no GPU): auto-picked `llama3.2:1b` and completed a full novel-company search (21 candidates, fully local) in **20 minutes 43 seconds**. A machine with a GPU or more cores will be dramatically faster — the macOS number above is the same engine, just more hardware.
+Verified end to end via `install-linux.sh` on a fresh Amazon Linux 2023 box (2 vCPU, 8GB RAM, no GPU — the smallest realistic case): auto-picked `llama3.2:1b` and completed a full novel-company search (21 candidates, fully local) in **18 minutes 58 seconds**. The same flow on Ubuntu, same hardware class, ran comparably (20m43s). A machine with a GPU or more cores will be dramatically faster — the macOS and Windows numbers above are the same engine, just more hardware.
 
 ## What you need (and where to get it)
 
