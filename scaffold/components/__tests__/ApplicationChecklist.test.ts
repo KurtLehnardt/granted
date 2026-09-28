@@ -241,7 +241,7 @@ describe("buildNextSteps", () => {
     assert.match(stepText(steps[steps.length - 1]), /official portal/i);
   });
 
-  test("with r6_auto_fill on, wording reflects whether registrations are satisfied, without changing the honesty boundary step", () => {
+  test("with r6_auto_fill on, wording reflects whether registrations are satisfied", () => {
     process.env[AUTO_FILL_FLAG] = "true";
     const satisfiedSteps = buildNextSteps(asMatch(RD_OPPORTUNITY), true).map(stepText);
     const unsatisfiedSteps = buildNextSteps(asMatch(RD_OPPORTUNITY), false).map(stepText);

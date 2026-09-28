@@ -214,8 +214,7 @@ describe("assemblePackage", () => {
 // ---------------------------------------------------------------------------
 
 /** Positive submission/eligibility CONFIRMATIONS the package must never state.
- *  Mirrors the D6 ApplicationChecklist test; crafted NOT to match honest
- *  negations ("nothing was submitted", "no application was filed"). */
+ *  Mirrors the D6 ApplicationChecklist test. */
 const SUBMIT_CONFIRMATION_PATTERNS: RegExp[] = [
   /application (has been |was )?submitted\b/i,
   /we (have |)submitted/i,

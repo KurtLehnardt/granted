@@ -222,8 +222,7 @@ describe("exportFileName", () => {
 // Honest export copy (mirrors package.test.ts's "honest copy invariants")
 // ---------------------------------------------------------------------------
 
-/** Positive submission/eligibility CONFIRMATIONS the export copy must never state.
- *  Crafted NOT to match honest negations ("nothing is submitted"). */
+/** Positive submission/eligibility CONFIRMATIONS the export copy must never state. */
 const SUBMIT_CONFIRMATION_PATTERNS: RegExp[] = [
   /application (has been |was )?submitted\b/i,
   /we (have |)submitted/i,
