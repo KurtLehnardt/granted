@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 /**
@@ -29,8 +30,17 @@ export interface LlmConfigFile {
 // and always gets data/local/llm-config.json. This also keeps concurrent test
 // FILES (each its own process, but sharing this disk) from racing on the same
 // path when the whole suite runs together.
+//
+// Safety net: node:test sets NODE_TEST_CONTEXT on every test run (the `npm
+// test` script and a single `tsx --test <file>` alike). If a test process
+// gets here without GRANTED_LLM_CONFIG_PATH set, treat the config file as
+// absent rather than fall through to the real data/local/llm-config.json —
+// otherwise a checkout where Settings saved a Cloud config leaks a real
+// Anthropic key into tests that only stub fetch, not the SDK.
 function configPath(): string {
-  return process.env.GRANTED_LLM_CONFIG_PATH || path.join(process.cwd(), "data", "local", "llm-config.json");
+  if (process.env.GRANTED_LLM_CONFIG_PATH) return process.env.GRANTED_LLM_CONFIG_PATH;
+  if (process.env.NODE_TEST_CONTEXT) return path.join(os.tmpdir(), `granted-llm-config-unset-${process.pid}.json`);
+  return path.join(process.cwd(), "data", "local", "llm-config.json");
 }
 
 let cache: { mtimeMs: number; config: LlmConfigFile; path: string } | null = null;
