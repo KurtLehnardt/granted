@@ -14,7 +14,7 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "test:contracts": "node --import tsx --test \"lib/contracts/__tests__/*.test.ts\"",
-    "data:fetch": "node scripts/1-fetch.mjs",
+    "data:fetch": "node --import tsx scripts/1-fetch.mjs",
     "data:normalize": "node scripts/2-normalize.mjs",
     "data:embed": "node scripts/3-embed.mjs",
     "data:precompute": "node scripts/4-precompute.mjs",
