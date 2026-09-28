@@ -27,7 +27,7 @@ const DIMENSIONS = process.env.EMBEDDINGS_DIMENSIONS
   : IS_OPENAI
     ? 512
     : undefined;
-export { MODEL as EMBEDDINGS_MODEL, DIMENSIONS as EMBEDDINGS_DIMENSIONS };
+export { MODEL as EMBEDDINGS_MODEL, DIMENSIONS as EMBEDDINGS_DIMENSIONS, IS_OPENAI as EMBEDDINGS_IS_OPENAI };
 
 /**
  * Conservative placeholder detector: real `sk-`/`sk-proj-` keys are dozens of
@@ -62,7 +62,7 @@ export function checkEmbeddingsMisconfig(
   if (!isOpenAiTarget) return; // EMBEDDINGS_BASE_URL already points off OpenAI — nothing to check
   if (isLocal) {
     throw new Error(
-      "Local LLM is set (LLM_PROVIDER) but embeddings still target OpenAI. For a fully-local setup, set " +
+      "Local LLM is set (Settings or LLM_PROVIDER) but embeddings still target OpenAI. For a fully-local setup, set " +
         "EMBEDDINGS_BASE_URL=http://localhost:11434/v1 and EMBEDDINGS_MODEL=nomic-embed-text in " +
         "scaffold/.env.local, run `ollama pull nomic-embed-text`, then re-embed with `npm run data:embed`. " +
         "See the README 'Fully offline' section.",

@@ -15,7 +15,7 @@ import {
   assembleTwoPass,
 } from "./scoring/twoPass";
 
-const MODEL = "claude-sonnet-4-6";
+export const MODEL = "claude-sonnet-4-6";
 
 /**
  * Phase 4 — model routing (lib/contracts/modelRouting.ts): `profile_extraction`

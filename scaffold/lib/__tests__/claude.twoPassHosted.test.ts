@@ -97,7 +97,7 @@ function fakeAnthropicFetch(calls: { passA: string[][]; passB: string[][] }): ty
 
 test("hosted: Pass A/B stay batched (12/8), and Pass B narrates every promoted candidate uncapped", async () => {
   delete process.env.LLM_PROVIDER; // default → hosted (anthropic)
-  process.env.ANTHROPIC_API_KEY = "test-key";
+  process.env.ANTHROPIC_API_KEY = "sk-ant-testkey00000000";
   delete process.env.E3_TWO_PASS_TOP_N; // default: local caps at 8, hosted must NOT
 
   const calls = { passA: [] as string[][], passB: [] as string[][] };

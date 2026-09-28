@@ -44,7 +44,7 @@ describe("checkEmbeddingsMisconfig — pure guard logic", () => {
   test("local LLM configured but embeddings still target OpenAI → names the concrete fix", () => {
     assert.throws(
       () => checkEmbeddingsMisconfig(true, true, undefined),
-      /Local LLM is set \(LLM_PROVIDER\) but embeddings still target OpenAI/,
+      /Local LLM is set \(Settings or LLM_PROVIDER\) but embeddings still target OpenAI/,
     );
     try {
       checkEmbeddingsMisconfig(true, true, "sk-real-key-doesnt-matter-here");
@@ -97,7 +97,7 @@ describe("embed()/embedBatch() — the guard fires before any network call", () 
 
     await assert.rejects(
       () => embed("hello"),
-      /Local LLM is set \(LLM_PROVIDER\) but embeddings still target OpenAI/,
+      /Local LLM is set \(Settings or LLM_PROVIDER\) but embeddings still target OpenAI/,
     );
     assert.equal(fetchCalled, false);
   });
@@ -113,7 +113,7 @@ describe("embed()/embedBatch() — the guard fires before any network call", () 
 
     await assert.rejects(
       () => embedBatch(["hello"]),
-      /Local LLM is set \(LLM_PROVIDER\) but embeddings still target OpenAI/,
+      /Local LLM is set \(Settings or LLM_PROVIDER\) but embeddings still target OpenAI/,
     );
     assert.equal(fetchCalled, false);
   });

@@ -1,0 +1,276 @@
+"use client";
+
+import React, { useEffect, useId, useState } from "react";
+import { getModel, setModel } from "@/lib/searchSettings";
+import type { OllamaModel } from "@/lib/llm/ollamaInfo";
+
+export type LlmProviderInfo = {
+  provider: "ollama" | "anthropic";
+  local: boolean;
+  hasAnthropicKey: boolean;
+  anthropicKeyHint?: string;
+  anthropicKeySource?: "saved" | "env";
+  openAiEmbeddings?: boolean;
+  model?: string;
+  models?: OllamaModel[];
+};
+
+// Settings' "Model" section: Local (Ollama) / Cloud (Claude) switch. `initialInfo` is a test seam; otherwise fetches GET /api/llm on mount. Changes apply immediately via POST /api/llm/config (loopback-only) — no separate Save.
+export default function ModelSection({ initialInfo }: { initialInfo?: LlmProviderInfo }) {
+  const uid = useId();
+  const modelId = `${uid}-model`;
+  const apiKeyId = `${uid}-api-key`;
+
+  const [info, setInfo] = useState<LlmProviderInfo | null>(initialInfo ?? null);
+  const [model, setModelState] = useState<string | null>(() => getModel());
+  const [keyDraft, setKeyDraft] = useState("");
+  const [replacing, setReplacing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; error?: string } | null>(null);
+
+  async function refresh() {
+    try {
+      const res = await fetch("/api/llm");
+      if (res.ok) setInfo(await res.json());
+    } catch {
+      /* offline / unreachable — keep the last known info showing */
+    }
+  }
+
+  useEffect(() => {
+    if (!initialInfo) refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function switchProvider(provider: "ollama" | "anthropic") {
+    if (provider === info?.provider) return;
+    setError(null);
+    setTestResult(null);
+    if (provider === "anthropic" && !info?.hasAnthropicKey) {
+      // No key yet — just reveal the Cloud panel; saving a key is what switches the provider.
+      setInfo((i) => (i ? { ...i, provider } : { provider, local: false, hasAnthropicKey: false }));
+      setReplacing(true);
+      return;
+    }
+    await postConfig({ provider });
+  }
+
+  async function postConfig(body: Record<string, unknown>): Promise<boolean> {
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/llm/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(json?.error ?? `HTTP ${res.status}`);
+        return false;
+      }
+      await refresh();
+      return true;
+    } catch {
+      setError("Couldn't reach the server. Try again.");
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleSaveKey() {
+    const key = keyDraft.trim();
+    if (!key) {
+      setError("Enter an API key.");
+      return;
+    }
+    const ok = await postConfig({ provider: "anthropic", anthropicApiKey: key });
+    if (ok) {
+      setKeyDraft("");
+      setReplacing(false);
+    }
+  }
+
+  async function handleRemoveKey() {
+    // The handler rejects "anthropic" with no key anywhere, so fall back to Local.
+    await postConfig({ provider: "ollama", clearAnthropicKey: true });
+  }
+
+  async function handleTestKey() {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const key = keyDraft.trim();
+      const res = await fetch("/api/llm/test-key", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(key ? { anthropicApiKey: key } : {}),
+      });
+      const json = await res.json().catch(() => ({ ok: false, error: `HTTP ${res.status}` }));
+      setTestResult(json);
+    } catch {
+      setTestResult({ ok: false, error: "Couldn't reach the server." });
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  const legendClass = "font-mono text-[11px] uppercase tracking-eyebrow text-foreground";
+  const fieldWrapClass =
+    "mt-5 border-t border-structure-on-canvas pt-4 first:mt-4 first:border-t-0 first:pt-0";
+  const inputClass =
+    "mt-1.5 w-full rounded-sm border border-structure-on-canvas bg-canvas px-2.5 py-1.5 font-body text-[13px] text-foreground outline-none transition focus:border-structure-on-canvas focus:ring-2 focus:ring-structure-on-canvas";
+  const labelTextClass = "font-body text-[13px] text-foreground";
+  const smallBtnClass =
+    "inline-flex min-h-[36px] items-center rounded-sm border border-structure-on-canvas px-3 py-1.5 font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas transition hover:bg-structure hover:text-token-white disabled:opacity-50";
+  const segBtnClass = (active: boolean) =>
+    `flex-1 min-h-[40px] rounded-sm border border-structure-on-canvas px-3 py-1.5 font-mono text-[11px] uppercase tracking-eyebrow transition ${
+      active ? "bg-structure text-token-white" : "bg-canvas text-structure-on-canvas hover:bg-canvas-alt"
+    }`;
+
+  const provider = info?.provider ?? "ollama";
+  const localModels = info?.models ?? null;
+
+  return (
+    <div className={fieldWrapClass} data-testid="model-section">
+      <span className={legendClass}>Model</span>
+      <div className="mt-2 flex gap-2" role="group" aria-label="LLM provider">
+        <button
+          type="button"
+          className={segBtnClass(provider === "ollama")}
+          aria-pressed={provider === "ollama"}
+          disabled={saving}
+          onClick={() => switchProvider("ollama")}
+        >
+          Local (Ollama)
+        </button>
+        <button
+          type="button"
+          className={segBtnClass(provider === "anthropic")}
+          aria-pressed={provider === "anthropic"}
+          disabled={saving}
+          onClick={() => switchProvider("anthropic")}
+        >
+          Cloud (Claude)
+        </button>
+      </div>
+
+      {provider === "ollama" && (
+        <div data-testid="model-panel-local" className="mt-3">
+          {localModels && localModels.length > 0 ? (
+            <>
+              <label className={legendClass} htmlFor={modelId}>
+                Local model
+              </label>
+              <select
+                id={modelId}
+                value={model ?? ""}
+                onChange={(e) => {
+                  const v = e.target.value || null;
+                  setModelState(v);
+                  setModel(v);
+                }}
+                className={inputClass}
+              >
+                <option value="">Default{info?.model ? ` (${info.model})` : ""}</option>
+                {localModels.map((m) => (
+                  <option key={m.name} value={m.name}>
+                    {m.name}
+                    {m.paramsB != null ? ` (${m.paramsB}B)` : ""}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1.5 font-body text-[12px] text-foreground opacity-80">
+                Which installed Ollama model runs your search. Larger models are more capable but
+                slower.
+              </p>
+            </>
+          ) : (
+            <p className="font-body text-[12px] text-foreground opacity-80">
+              Runs on your own machine via Ollama — nothing leaves your computer.
+            </p>
+          )}
+          {info?.openAiEmbeddings && (
+            <p className="mt-2 rounded-r-sm border-l-2 border-error bg-canvas-alt px-3 py-2 font-body text-[12px] text-foreground">
+              Search embeddings still use OpenAI, so searches won&apos;t run on Local until EMBEDDINGS_BASE_URL
+              points at a local embedder (see the README&apos;s &ldquo;Fully offline&rdquo; section).
+            </p>
+          )}
+        </div>
+      )}
+
+      {provider === "anthropic" && (
+        <div data-testid="model-panel-cloud" className="mt-3">
+          {info?.hasAnthropicKey && !replacing ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={labelTextClass}>
+                {info.anthropicKeySource === "env"
+                  ? "Using key from .env.local"
+                  : `Key saved ••••${info.anthropicKeyHint ?? ""}`}
+              </span>
+              <button type="button" className={smallBtnClass} onClick={() => setReplacing(true)}>
+                Replace
+              </button>
+              {info.anthropicKeySource !== "env" && (
+                <button type="button" className={smallBtnClass} onClick={handleRemoveKey} disabled={saving}>
+                  Remove
+                </button>
+              )}
+            </div>
+          ) : (
+            <>
+              <label className={legendClass} htmlFor={apiKeyId}>
+                Anthropic API key
+              </label>
+              <input
+                id={apiKeyId}
+                type="password"
+                value={keyDraft}
+                onChange={(e) => setKeyDraft(e.target.value)}
+                placeholder="sk-ant-..."
+                className={inputClass}
+                autoComplete="off"
+              />
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button type="button" className={smallBtnClass} onClick={handleSaveKey} disabled={saving}>
+                  Save key
+                </button>
+                {info?.hasAnthropicKey && (
+                  <button
+                    type="button"
+                    className={smallBtnClass}
+                    onClick={() => {
+                      setReplacing(false);
+                      setKeyDraft("");
+                    }}
+                  >
+                    Cancel
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+          <div className="mt-2 flex items-center gap-2">
+            <button type="button" className={smallBtnClass} onClick={handleTestKey} disabled={testing}>
+              {testing ? "Testing…" : "Test key"}
+            </button>
+            {testResult && (
+              <span className="font-body text-[12px] text-foreground">
+                {testResult.ok ? "Key works." : testResult.error ?? "Test failed."}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {error && (
+        <p className="mt-2 rounded-r-sm border-l-2 border-error bg-canvas-alt px-3 py-2 font-body text-[12px] text-foreground">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
