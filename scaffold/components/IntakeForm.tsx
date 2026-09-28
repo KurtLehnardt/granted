@@ -29,9 +29,27 @@ import type { PreviewItem } from "@/lib/ui/previewReducer";
  * Settings" action instead of leaving the user to find the icon on their own.
  * Deliberately narrow (not e.g. "network"/"timeout"/"rate limit") so it only
  * fires when Settings is actually where the fix lives.
+ *
+ * Checked against each provider's OWN real error text, not just Anthropic's:
+ * OpenRouter's actual 401/402 bodies are "No auth credentials found" and
+ * "Insufficient credits..." -- neither contains "api key" or "authentication"
+ * -- and OpenAI's common quota exhaustion is "You exceeded your current
+ * quota, please check your plan and billing details." (a 429, not phrased
+ * as a key/auth problem at all, but still only fixable from Settings).
+ *
+ * Tradeoff, not a bug: this matches on the PROVIDER's free-text message,
+ * which lib/llm/errors.ts's sanitizeProviderMessage only redacts for literal
+ * key material -- it does not (and structurally can't) rule out a provider
+ * someday echoing part of the request back in a 4xx body. If a user's own
+ * company description contains a word like "authentication" (plausible for
+ * an identity/security company) AND a provider reflects it into the error,
+ * this could false-positive. Accepted: the failure mode is an extra,
+ * harmless "Open Settings" button next to "Try again", not a dead end.
  */
 export function looksLikeKeyOrAuthError(message: string): boolean {
-  return /\bapi[ -]?key\b|credit balance|\bunauthorized\b|\bauthentication\b/i.test(message);
+  return /\bapi[ -]?key\b|\bcredentials?\b|\bcredits?\b|\bquota\b|\bbilling\b|\bunauthorized\b|\bauthenticat|\bauth\b/i.test(
+    message,
+  );
 }
 
 export default function IntakeForm({
