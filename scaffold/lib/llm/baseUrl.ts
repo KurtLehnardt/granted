@@ -24,12 +24,7 @@ export function normalizeOpenAiBaseUrl(url: string | undefined): string {
   return trimmed;
 }
 
-/**
- * Normalize a base URL for the real Anthropic SDK (used by "anthropic" and
- * any other usesAnthropicSdk preset, e.g. the FCC proxy). Unlike the
- * OpenAI-compat shim, the SDK appends "/v1/messages" etc. itself, so this
- * only trims trailing slashes — it must never append "/v1".
- */
+/** Base URL for the Anthropic SDK, which appends "/v1/messages" itself: trailing slashes and a trailing "/v1" are dropped. */
 export function normalizeAnthropicBaseUrl(url: string | undefined): string {
-  return (url ?? "").trim().replace(/\/+$/, "");
+  return (url ?? "").trim().replace(/\/+$/, "").replace(/\/v1$/i, "");
 }

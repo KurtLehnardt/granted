@@ -69,6 +69,23 @@ export type LlmProviderInfo = {
   openAiEmbeddings?: boolean;
 };
 
+/** Base URL and, when it should change, key source for a switch to `next`: the saved
+ * settings when `next` is the saved provider, else its preset defaults. A previous
+ * preset's untouched default secret file is never carried over to another provider. */
+export function draftOnProviderSwitch(
+  next: CloudProviderId,
+  saved: CloudInfo | undefined,
+  current: { providerId: CloudProviderId; keySourceType: KeySourceType; filePath: string },
+): { baseUrl: string; keySource?: PublicKeySource } {
+  if (saved?.providerId === next) return { baseUrl: saved.baseUrl ?? "", keySource: saved.keySource };
+  const nextPreset = CLOUD_PROVIDERS.find((p) => p.id === next);
+  const baseUrl = nextPreset?.editableBaseUrl ? (nextPreset.baseUrl ?? "") : "";
+  if (nextPreset?.defaultKeySource) return { baseUrl, keySource: nextPreset.defaultKeySource };
+  const prevDefault = CLOUD_PROVIDERS.find((p) => p.id === current.providerId)?.defaultKeySource;
+  const onPrevDefault = current.keySourceType === "file" && current.filePath === prevDefault?.path;
+  return onPrevDefault ? { baseUrl, keySource: { type: "inline" } } : { baseUrl };
+}
+
 // Settings' "Model" section: Local (Ollama) / Cloud switch, cloud being any
 // provider in lib/llm/providers.ts. `initialInfo` is a test seam (no
 // network); otherwise fetches GET /api/llm on mount. Selecting "Cloud" only
@@ -407,11 +424,13 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
               setCloudModel("");
               setCloudModelsList([]);
               setModelsError(null);
-              const nextPreset = CLOUD_PROVIDERS.find((p) => p.id === next);
-              setBaseUrl(nextPreset?.editableBaseUrl ? (nextPreset.baseUrl ?? "") : "");
-              if (nextPreset?.defaultKeySource) {
-                setKeySourceType("file");
-                setFilePath(nextPreset.defaultKeySource.path);
+              const draft = draftOnProviderSwitch(next, info?.cloud, { providerId, keySourceType, filePath });
+              setBaseUrl(draft.baseUrl);
+              if (draft.keySource) {
+                const ks = draft.keySource;
+                setKeySourceType(ks.type);
+                setEnvName(ks.type === "env" ? ks.name : "");
+                setFilePath(ks.type === "file" ? ks.path : "");
               }
             }}
             className={inputClass}
