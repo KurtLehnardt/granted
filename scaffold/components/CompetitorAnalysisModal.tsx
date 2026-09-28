@@ -188,7 +188,7 @@ export default function CompetitorAnalysisModal({ onClose, profile, opportunity 
               A competitor and grant market brief grounded in real public federal award data.
             </p>
             <div className="mt-3">
-              <CompetitorResults raw={resultRaw} variant="live" />
+              <CompetitorResults raw={resultRaw} />
             </div>
           </div>
         ) : view === "loading" ? (

@@ -261,15 +261,15 @@ export default function WelcomePage() {
                   Check your fit — free
                 </Link>
                 <Link href="/" className={secondaryCtaClass}>
-                  Try a sample company
+                  Run a full search
                 </Link>
               </div>
             </div>
           </section>
 
-          {/* ---------------------------------------------------------------
-              6. SAMPLE COMPANIES link (in-context callout)
-          ---------------------------------------------------------------- */}
+          {/* --------------------------------------------------------------
+              6. Full search link (in-context callout)
+          --------------------------------------------------------------- */}
           <section className={`${sectionClass} pb-4`}>
             <p className="font-body text-[15px] leading-relaxed text-foreground">
               Want to see what the output actually looks like?{" "}
@@ -277,7 +277,7 @@ export default function WelcomePage() {
                 href="/"
                 className="font-medium text-structure-on-canvas underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
               >
-                Try a sample company →
+                Run a full search →
               </Link>
             </p>
           </section>

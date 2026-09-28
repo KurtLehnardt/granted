@@ -209,8 +209,8 @@ export const FLAG_REGISTRY: Record<FlagName, FlagDefinition> = {
     description:
       "Live, personalized competitor & grant-intelligence market brief (POST /api/competitors): " +
       "real federal awardees + how they positioned, typical award sizes, cited positioning " +
-      "recommendations, and gaps to exploit — Max-tier gated, with a demo-fixture fallback. " +
-      "Default OFF; the canned demo-first surface stays the default until this ships.",
+      "recommendations, and gaps to exploit — Max-tier gated. Default OFF; the trigger to " +
+      "start a live run stays hidden until this ships.",
     envVar: "NEXT_PUBLIC_FLAG_R5_DEEP_ANALYSIS",
   },
   e3_two_pass: {
