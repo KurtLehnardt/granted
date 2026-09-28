@@ -104,10 +104,7 @@ async function main() {
     process.exitCode = 1;
     return;
   }
-  // A stale stop-request file from a previous run must never stop this one. When the API
-  // spawned us (lockHeld), IT already cleared this right after taking the lock — tsx boot plus
-  // imports takes ~1-3s on Windows, and clearing it here too would erase a Stop clicked in that
-  // window. Only clear it ourselves when we took the lock (a plain `npm run data:refresh`).
+  // Only clear when we took the lock ourselves; the API already cleared it for a spawned run.
   if (!lockHeld) clearStopRequest();
 
   let existingMeta = {};
@@ -159,9 +156,7 @@ async function main() {
     );
     if (grantsRun.stopped) return await applyStop({});
 
-    // Running "found" count: unique open grants.gov ids first (the longest stage, so the count
-    // is useful for it too — see the per-batch report inside 1-fetch.mjs), then each subsequent
-    // source's own count as it finishes.
+    // Running found count: unique grants.gov ids, then each source's count as it finishes.
     let runningFound = new Set((await readJson(join(RAW_DIR, "grants.json"), [])).map((g) => g.id)).size;
 
     reportProgress("sam.gov", { foundCount: runningFound });

@@ -150,8 +150,7 @@ async function grantsGov() {
   // them.
   const uniqueIds = [...new Set(out.map((o) => o.id).filter(Boolean))];
   console.log(`grants.gov  fetching detail for ${uniqueIds.length} unique opportunities...`);
-  // The search is already done, so the found count is known up front — surface it for the
-  // whole (longest) detail-fetch stage rather than leaving the progress bar countless.
+  // Found count is known up front from the completed search.
   writeRefreshProgress({
     stage: "grants.gov details",
     done: 0,

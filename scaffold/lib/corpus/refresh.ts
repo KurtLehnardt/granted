@@ -87,15 +87,7 @@ export function dedupeById(records: Opportunity[]): Opportunity[] {
   return Array.from(byId.values());
 }
 
-/**
- * A user stop mid-embedding still needs a coherent corpus written: reused records (unchanged,
- * already embedded) plus whatever finished embedding before the stop. A record that hadn't been
- * embedded yet is dropped from this save UNLESS it already had a cached version from before —
- * that prior version is kept as-is, so a stop never loses already-cached data.
- *
- * Only safe to call for a PARTIAL re-embed (some records were reused under the current model).
- * During a full re-embed, `priorById`'s vectors are from the OLD model — see computeStopOutcome.
- */
+/** Merges reused + embedded-so-far + not-yet-embedded records' prior cached vectors. Partial re-embed only; a full re-embed's priors are the old model (see computeStopOutcome). */
 export function mergePartialSave(
   reused: Opportunity[],
   embeddedSoFar: Opportunity[],
@@ -123,20 +115,7 @@ export interface StopOutcome {
   status: { lastCompletedAt: string; stopped: true; savedCount: number };
 }
 
-/**
- * What a user Stop should write, given where in the pipeline it landed.
- *
- * - Before embedding ever started: the corpus is left untouched.
- * - During a FULL re-embed (embedding model changed, so `reused` is empty): a not-yet-embedded
- *   record has no same-model prior vector to fall back to. Falling back to its old cached
- *   version anyway (as a plain merge would) writes a corpus that mixes two embedding models
- *   under one `embeddingModel` label — lib/match.ts reads corpusDim from the first record only,
- *   so the other-dimensioned vectors silently get NaN cosine and drop out of retrieval, and
- *   nothing repairs it until the next full refresh. So this case is treated like a stop before
- *   embedding: the corpus is left untouched.
- * - During a PARTIAL re-embed: reused + embedded-so-far + any not-yet-embedded record's still-
- *   valid (same-model) prior vector are merged and saved.
- */
+/** Full re-embed: prior vectors are another model, leave corpus untouched. Partial re-embed: merge and save. */
 export function computeStopOutcome(params: {
   attemptAt: string;
   duringEmbedding: boolean;
