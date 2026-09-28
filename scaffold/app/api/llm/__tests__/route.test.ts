@@ -161,6 +161,28 @@ describe("GET /api/llm", () => {
     assert.equal(j.cloud.model, undefined);
   });
 
+  test("saved cloud config with an anthropicWorkspaceId reports it (not secret)", async () => {
+    delete process.env.LLM_PROVIDER;
+    writeLlmConfig({
+      provider: "cloud",
+      cloud: { providerId: "anthropic", keySource: { type: "inline", key: "sk-ant-abcXYZ1234567890" }, anthropicWorkspaceId: "wrkspc_abc123" },
+    });
+    const res = await GET();
+    const j = await res.json();
+    assert.equal(j.cloud.anthropicWorkspaceId, "wrkspc_abc123");
+  });
+
+  test("saved cloud config with no anthropicWorkspaceId -> field omitted (backward compat)", async () => {
+    delete process.env.LLM_PROVIDER;
+    writeLlmConfig({
+      provider: "cloud",
+      cloud: { providerId: "anthropic", keySource: { type: "inline", key: "sk-ant-abcXYZ1234567890" } },
+    });
+    const res = await GET();
+    const j = await res.json();
+    assert.equal(j.cloud.anthropicWorkspaceId, undefined);
+  });
+
   test("local -> active model + installed chat models (embedding models excluded)", async () => {
     process.env.LLM_PROVIDER = "ollama";
     process.env.LOCAL_LLM_MODEL = "gemma3:12b";

@@ -87,7 +87,7 @@ export function makeLlmClient(opts: LlmClientOptions = {}): LlmClient {
   }
 
   if (providerId === "anthropic") {
-    const client = makeAnthropicClientForKey(resolved.key, opts);
+    const client = makeAnthropicClientForKey(resolved.key, opts, cfg?.anthropicWorkspaceId);
     return cfg?.model ? withAnthropicModelOverride(client, cfg.model) : client;
   }
 
@@ -105,13 +105,15 @@ export function makeLlmClient(opts: LlmClientOptions = {}): LlmClient {
 }
 
 /** Anthropic client for an explicit key — used by the test-key endpoint, which
- * may be validating a not-yet-saved key rather than the resolved config. */
-export function makeAnthropicClientForKey(apiKey: string, opts: LlmClientOptions = {}): Anthropic {
+ * may be validating a not-yet-saved key rather than the resolved config.
+ * `workspaceId` sends anthropic-workspace-id, for a key that isn't scoped to a workspace. */
+export function makeAnthropicClientForKey(apiKey: string, opts: LlmClientOptions = {}, workspaceId?: string): Anthropic {
   return new Anthropic({
     apiKey,
     timeout: opts.timeout,
     maxRetries: opts.maxRetries ?? 0,
     fetch: hostedFetchAls.getStore() as any,
+    ...(workspaceId ? { defaultHeaders: { "anthropic-workspace-id": workspaceId } } : {}),
   });
 }
 

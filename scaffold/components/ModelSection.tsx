@@ -12,6 +12,8 @@ export type CloudInfo = {
   providerId: CloudProviderId;
   baseUrl?: string;
   model?: string;
+  /** Anthropic only: for a key that isn't scoped to a workspace. Not secret. */
+  anthropicWorkspaceId?: string;
   hasKey: boolean;
   keyHint?: string;
   keySource: PublicKeySource;
@@ -39,6 +41,7 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
   const keySourceId = `${uid}-key-source`;
   const keyValueId = `${uid}-key-value`;
   const cloudModelId = `${uid}-cloud-model`;
+  const workspaceIdInputId = `${uid}-workspace-id`;
 
   const [info, setInfo] = useState<LlmProviderInfo | null>(initialInfo ?? null);
   const [uiProvider, setUiProvider] = useState<"ollama" | "cloud">(initialInfo?.provider ?? "ollama");
@@ -49,6 +52,7 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
   const [baseUrl, setBaseUrl] = useState(cloud?.baseUrl ?? "");
   const [cloudModel, setCloudModel] = useState(cloud?.model ?? "");
   const [keySourceType, setKeySourceType] = useState<KeySourceType>(cloud?.keySource.type ?? "inline");
+  const [anthropicWorkspaceId, setAnthropicWorkspaceId] = useState(cloud?.anthropicWorkspaceId ?? "");
   const [keyDraft, setKeyDraft] = useState(""); // never prefilled from a saved secret
   const [envName, setEnvName] = useState(cloud?.keySource.type === "env" ? cloud.keySource.name : "");
   const [filePath, setFilePath] = useState(cloud?.keySource.type === "file" ? cloud.keySource.path : "");
@@ -67,6 +71,7 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
     setBaseUrl(c?.baseUrl ?? "");
     setCloudModel(c?.model ?? "");
     setKeySourceType(c?.keySource.type ?? "inline");
+    setAnthropicWorkspaceId(c?.anthropicWorkspaceId ?? "");
     setKeyDraft("");
     setEnvName(c?.keySource.type === "env" ? c.keySource.name : "");
     setFilePath(c?.keySource.type === "file" ? c.keySource.path : "");
@@ -144,6 +149,9 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
           providerId,
           ...(providerId === "other" ? { baseUrl: baseUrl.trim() } : {}),
           ...(cloudModel.trim() ? { model: cloudModel.trim() } : {}),
+          ...(providerId === "anthropic" && anthropicWorkspaceId.trim()
+            ? { anthropicWorkspaceId: anthropicWorkspaceId.trim() }
+            : {}),
           keySource: currentKeySource(),
         },
       };
@@ -200,6 +208,9 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
           providerId,
           ...(providerId === "other" ? { baseUrl: baseUrl.trim() } : {}),
           ...(cloudModel.trim() ? { model: cloudModel.trim() } : {}),
+          ...(providerId === "anthropic" && anthropicWorkspaceId.trim()
+            ? { anthropicWorkspaceId: anthropicWorkspaceId.trim() }
+            : {}),
           keySource: currentKeySource(),
         }),
       });
@@ -222,6 +233,9 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
         body: JSON.stringify({
           providerId,
           ...(providerId === "other" ? { baseUrl: baseUrl.trim() } : {}),
+          ...(providerId === "anthropic" && anthropicWorkspaceId.trim()
+            ? { anthropicWorkspaceId: anthropicWorkspaceId.trim() }
+            : {}),
           keySource: currentKeySource(),
         }),
       });
@@ -443,6 +457,23 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
               />
             )}
           </div>
+
+          {providerId === "anthropic" && (
+            <div className="mt-3">
+              <label className={legendClass} htmlFor={workspaceIdInputId}>
+                Workspace ID (only for keys not scoped to a workspace)
+              </label>
+              <input
+                id={workspaceIdInputId}
+                type="text"
+                value={anthropicWorkspaceId}
+                onChange={(e) => setAnthropicWorkspaceId(e.target.value)}
+                placeholder="wrkspc_..."
+                className={inputClass}
+                autoComplete="off"
+              />
+            </div>
+          )}
 
           <div className="mt-3">
             <label className={legendClass} htmlFor={cloudModelId}>
