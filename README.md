@@ -10,8 +10,6 @@ Run it with your own API keys or a fully local model — see **Run it yourself**
 
 **No API keys? Still works.** Clone it, install, run it, and try the 5 built-in sample companies — their results are cached, so they need no keys at all. You only need API keys (or a local model) to search your *own* company description.
 
-**Even faster: no input at all.** Visit `/demo` for a static, pre-baked sample opportunity map (and `/demo/eligibility` for the eligibility view).
-
 Every OS below ends up running the exact same `npm` commands — the setup scripts detect your platform automatically. Only the prerequisite installs (Node, git, Ollama) differ, so pick yours:
 
 ## Install on macOS

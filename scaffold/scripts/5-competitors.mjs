@@ -1,9 +1,9 @@
 /**
- * Step 5 — Competitor & Grant Intelligence demo capture (R5).
+ * Step 5 — Competitor & Grant Intelligence example capture (R5).
  *
  * A ONE-OFF capture, NOT a request-time route. It runs the SAME engine the live
- * `/api/competitors` route uses (lib/competitors/analyze.ts), so the demo fixture
- * and the live path can never drift, then writes the result as a saved example:
+ * `/api/competitors` route uses (lib/competitors/analyze.ts), so a captured
+ * example and the live path can never drift:
  *
  *   1. RETRIEVE real awardee records from the keyless federal sources proven in
  *      docs/competitor-grant-analysis-feasibility.md §2 — USAspending, NIH
@@ -15,9 +15,9 @@
  *      CompetitorAnalysisSchema.parse() THROWS on any survivor.
  *   4. WEB PROFILES: because EXA_API_KEY is not required at capture time, the
  *      canonical private-competitor profiles below were gathered once via the exa
- *      MCP (real companies, real URLs) and are passed in verbatim so the demo can
- *      showcase the "Also in your space" section. They carry NO award amount.
- *   5. WRITE data/demo-competitor-fastercontrol.json (mode:"demo").
+ *      MCP (real companies, real URLs) and are passed in verbatim. They carry NO
+ *      award amount.
+ *   5. WRITE data/competitor-analysis-example.json (mode:"example").
  *
  * This spends a few cents of real OpenAI + Anthropic credit — authorized for the
  * capture. Run with the keys loaded:  `npm run data:competitors`.
@@ -27,9 +27,9 @@ import { createCostMeter } from "../lib/metering/meter.ts";
 import { analyzeCompetitors } from "../lib/competitors/analyze.ts";
 import { CompetitorAnalysisSchema } from "../lib/contracts/competitorAnalysis.ts";
 
-const PERSONA = "FasterControl";
+const PERSONA = "Acme QMS";
 const PERSONA_DESCRIPTION =
-  "FasterControl is a Utah company building cloud-based quality management (QMS) and " +
+  "Acme QMS is a Utah company building cloud-based quality management (QMS) and " +
   "manufacturing execution (MES) software for regulated life-sciences and manufacturing " +
   "customers. The platform handles electronic batch records, digital quality management, " +
   "deviation and CAPA workflows, and shop-floor manufacturing execution for companies that " +
@@ -45,9 +45,9 @@ const KEYWORDS = [
 ];
 
 /**
- * REAL private competitors in FasterControl's exact space, gathered once via the
- * exa MCP (category:company). Each has a real, clickable source URL and NO award
- * — they are context, never presented as federal awardees.
+ * REAL private competitors in Acme QMS's exact space, gathered once via the exa
+ * MCP (category:company). Each has a real, clickable source URL and NO award —
+ * they are context, never presented as federal awardees.
  */
 const WEB_PROFILES = [
   {
@@ -99,7 +99,7 @@ async function main() {
     keepTopK: 8,
     perKeyword: 8,
     webProfilesOverride: WEB_PROFILES,
-    mode: "demo",
+    mode: "example",
     meter,
   });
 
@@ -114,9 +114,9 @@ async function main() {
   console.log("[4] Validating fixture through the grounding contract…");
   CompetitorAnalysisSchema.parse(fixture);
 
-  await writeFile("data/demo-competitor-fastercontrol.json", JSON.stringify(fixture, null, 2));
+  await writeFile("data/competitor-analysis-example.json", JSON.stringify(fixture, null, 2));
   console.log(
-    `[5] Wrote data/demo-competitor-fastercontrol.json — ${fixture.records.length} records, ` +
+    `[5] Wrote data/competitor-analysis-example.json — ${fixture.records.length} records, ` +
       `${(fixture.webProfiles ?? []).length} web profiles, ${fixture.analysis.competitors.length} competitors, ` +
       `${fixture.analysis.recommendations.length} recommendations, ` +
       `${(fixture.analysis.opportunities ?? []).length} opportunities, ~$${fixture.cost.totalCostUsd} spent.`,

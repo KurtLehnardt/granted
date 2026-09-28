@@ -19,7 +19,6 @@
     "data:embed": "node scripts/3-embed.mjs",
     "data:precompute": "node scripts/4-precompute.mjs",
     "data:competitors": "node --import tsx scripts/5-competitors.mjs",
-    "data:demo": "node scripts/6-demo-fastercontrol.mjs",
     "data:all": "npm run data:fetch && npm run data:normalize && npm run data:embed",
     "data:fetch:sam": "node scripts/1-fetch-sam-assistance.mjs",
     "data:fetch:sbir-corpus": "node scripts/1-fetch-sbir-corpus.mjs",

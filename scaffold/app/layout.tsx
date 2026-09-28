@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Bricolage_Grotesque, Inter, IBM_Plex_Mono } from "next/font/google";
 import { AuthProvider } from "@/components/AuthProvider";
 import { SettingsPanelProvider } from "@/components/AppMenu";
+import { WelcomeGuideProvider } from "@/components/WelcomeGuide";
 import { SearchDraftProvider } from "@/components/SearchDraftProvider";
 import { AnalyticsProvider } from "@/components/AnalyticsProvider";
 import CorpusAutoUpdate from "@/components/CorpusAutoUpdate";
@@ -53,10 +54,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <AuthProvider>
           <SearchDraftProvider>
             <SettingsPanelProvider>
-              <AnalyticsProvider>
-                <CorpusAutoUpdate />
-                {children}
-              </AnalyticsProvider>
+              <WelcomeGuideProvider>
+                <AnalyticsProvider>
+                  <CorpusAutoUpdate />
+                  {children}
+                </AnalyticsProvider>
+              </WelcomeGuideProvider>
             </SettingsPanelProvider>
           </SearchDraftProvider>
         </AuthProvider>

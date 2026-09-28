@@ -3,7 +3,7 @@ import { z } from "zod";
 /**
  * R5 — Competitor & Grant Intelligence result contract.
  *
- * The grounded output of the demo capture (scripts/5-competitors.mjs): the REAL
+ * The grounded output of the capture script (scripts/5-competitors.mjs): the REAL
  * federal award records retrieved for a persona, plus a single claude-sonnet-4-6
  * synthesis of "how each awardee positioned itself to win" + tailored, cited
  * recommendations.
@@ -167,8 +167,8 @@ export const CompetitorSynthesisSchema = z.object({
   /**
    * R5-deep — gaps / whitespace opportunities the user could exploit. Same
    * cited shape as a recommendation: every entry MUST cite at least one real
-   * record or web-profile id (enforced by the top-level refine). Optional so the
-   * original demo-first fixture (which predates this section) still validates.
+   * record or web-profile id (enforced by the top-level refine). Optional so
+   * the original example fixture (which predates this section) still validates.
    */
   opportunities: z.array(RecommendationSchema).optional(),
 });
@@ -187,7 +187,7 @@ export type CaptureCost = z.infer<typeof CaptureCostSchema>;
  */
 export const CompetitorAnalysisSchema = z
   .object({
-    /** Persona label (e.g. "FasterControl"). */
+    /** Persona label (e.g. the company name being analyzed). */
     persona: z.string().min(1),
     /** The persona description the retrieval + synthesis were grounded in. */
     personaDescription: z.string().min(1),
@@ -205,8 +205,8 @@ export const CompetitorAnalysisSchema = z
     awardStats: AwardStatsSchema.optional(),
     /** The grounded, cited synthesis over those records. */
     analysis: CompetitorSynthesisSchema,
-    /** R5-deep — "live" (personalized request-time run) vs "demo" (saved example). */
-    mode: z.enum(["live", "demo"]).optional(),
+    /** R5-deep — "live" (personalized request-time run) vs "example" (saved example). */
+    mode: z.enum(["live", "example"]).optional(),
     /** R5-deep — honest-degradation metadata for a partial/live run. */
     degraded: AnalysisDegradationSchema.optional(),
     /** Optional metered capture cost (informational). */
@@ -286,7 +286,7 @@ export function parseCompetitorAnalysis(raw: unknown): CompetitorAnalysis {
  * RETRIEVAL data (real federal award records, server-computed award stats, and
  * exa web profiles with real URLs) — never a synthesized claim — so surfacing it
  * early is honest, not a fabrication risk. `stage` is pure progress; `error` is
- * an honest degradation the client renders as a fall-back-to-demo note.
+ * an honest degradation the client renders as an analysis-unavailable note.
  *
  * A type only (no schema) — it crosses into the client bundle, which must not
  * import the server-only engine. The route builds these; the client narrows on

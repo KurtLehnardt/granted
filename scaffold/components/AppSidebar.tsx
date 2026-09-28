@@ -213,6 +213,7 @@ function DockedSidebar() {
           type="button"
           onClick={() => setExpanded(true)}
           aria-label="Open sidebar"
+          data-tour="settings"
           className={`fixed left-3 top-3 z-40 hidden md:flex ${iconBtnClass}`}
         >
           <PanelLeftIcon className="h-[18px] w-[18px]" />
@@ -235,6 +236,7 @@ function MobileSidebar() {
         aria-haspopup="dialog"
         aria-expanded={mobileOpen}
         aria-label="Open menu"
+        data-tour="settings"
         className={`fixed left-3 top-3 z-40 flex md:hidden ${iconBtnClass}`}
       >
         <PanelLeftIcon className="h-[18px] w-[18px]" />
@@ -338,6 +340,7 @@ function Section({
           onClick={() => toggleSection(id)}
           aria-expanded={isOpen}
           aria-controls={contentId}
+          data-tour={id === "settings" ? "settings" : undefined}
           className="flex flex-1 items-center gap-2 px-4 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-structure-on-canvas"
         >
           <Chevron
@@ -758,7 +761,7 @@ function SidebarSections() {
               </p>
             </div>
           ) : (
-            <a href="/login" data-tour="signin" onClick={closeDrawer} className={`self-start ${btnClass}`}>
+            <a href="/login" onClick={closeDrawer} className={`self-start ${btnClass}`}>
               Sign in
             </a>
           )}

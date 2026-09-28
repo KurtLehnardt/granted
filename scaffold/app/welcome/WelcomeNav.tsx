@@ -18,7 +18,6 @@ const NAV_LINKS: { href: string; label: string }[] = [
   { href: "#how", label: "How it works" },
   { href: "#why", label: "Why Granted" },
   { href: "#pricing", label: "Free to start" },
-  { href: "/demo", label: "Sample map" },
 ];
 
 const navLinkClass =

@@ -1,3 +1,16 @@
+/**
+ * One honest, non-numeric one-liner per sample so the picker reads as
+ * "fictional example companies," not a filter on the user's own business.
+ * Keep these purely descriptive — no invented stats beyond what's already in
+ * TEST_CASES[].text.
+ */
+export const SAMPLE_BLURBS: Record<string, string> = {
+  "ai-healthcare": "Fictional health-tech startup easing nurses' admin workload with AI.",
+  manufacturing: "Fictional hardware startup scaling up lightweight aerospace component manufacturing.",
+  water: "Fictional climate-tech startup using sensors and AI to cut municipal water loss.",
+  cyber: "Fictional cybersecurity startup building AI-powered threat detection.",
+};
+
 /** The four standard test cases. Every team is judged on these. */
 export const TEST_CASES = [
   {

@@ -260,24 +260,24 @@ export default function WelcomePage() {
                 <Link href="/readiness" className={primaryCtaClass}>
                   Check your fit — free
                 </Link>
-                <Link href="/demo" className={secondaryCtaClass}>
-                  See a sample map
+                <Link href="/" className={secondaryCtaClass}>
+                  Try a sample company
                 </Link>
               </div>
             </div>
           </section>
 
           {/* ---------------------------------------------------------------
-              6. SAMPLE MAP link (in-context callout)
+              6. SAMPLE COMPANIES link (in-context callout)
           ---------------------------------------------------------------- */}
           <section className={`${sectionClass} pb-4`}>
             <p className="font-body text-[15px] leading-relaxed text-foreground">
               Want to see what the output actually looks like?{" "}
               <Link
-                href="/demo"
+                href="/"
                 className="font-medium text-structure-on-canvas underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
               >
-                See a sample opportunity map →
+                Try a sample company →
               </Link>
             </p>
           </section>
@@ -415,7 +415,6 @@ function SiteFooter() {
             {[
               { href: "#how", label: "How it works" },
               { href: "#why", label: "Why Granted" },
-              { href: "/demo", label: "Sample map" },
               { href: "/readiness", label: "Check your fit" },
               { href: "/", label: "Full search" },
             ].map((l) => (

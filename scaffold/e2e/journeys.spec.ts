@@ -1,28 +1,56 @@
 import { test, expect } from "@playwright/test";
-import { stubBackend, FIXTURE_PROGRAM } from "./fixtures";
+import { stubBackend, skipWelcomeGuide, FIXTURE_PROGRAM } from "./fixtures";
 
 /**
- * The remaining named critical journeys. Sample-pick is wired + passing on the
- * default build. The rest are SCRIPTED skeletons marked `test.fixme` because
- * they depend on build-time NEXT_PUBLIC_* flags (r1_interview, r9_0_mockauth,
+ * The remaining named critical journeys. Sample-pick (via the welcome guide)
+ * and the welcome-guide journeys below are wired + passing on the default
+ * build. The rest are SCRIPTED skeletons marked `test.fixme` because they
+ * depend on build-time NEXT_PUBLIC_* flags (r1_interview, r9_0_mockauth,
  * r6_auto_fill, left_sidebar, billing) that the default build has off — run
  * against a build with the relevant flag on, then promote them to `test(...)`.
  */
 
-// Journey 2b — Sample pick (wired). The sample picker is always available.
-test("sample-pick: choosing a sample company runs the search and shows results", async ({ page }) => {
+// Journey 2b — Sample pick, via the first-visit welcome guide (wired). Picking
+// a sample never touches the description textarea — it only runs a search.
+test("welcome guide: first visit shows the guide; picking a sample runs the search and shows results, without filling the description", async ({ page }) => {
   await stubBackend(page);
   await page.goto("/");
 
-  await page.getByRole("button", { name: /see a sample company/i }).click();
-  // Sample items render their one-line "Fictional …" blurb; click the first.
-  await page.getByRole("button").filter({ hasText: /^Fictional/i }).first().click();
+  const dialog = page.getByRole("dialog", { name: /welcome/i });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText("Describe your company")).toBeVisible();
 
+  await dialog.getByRole("button", { name: "Show sample companies" }).click();
+  // Sample items render their one-line "Fictional …" blurb; pick the first.
+  await dialog.getByRole("button").filter({ hasText: /^Fictional/i }).first().click();
+  await dialog.getByRole("button", { name: "Next" }).click();
+
+  await expect(dialog.getByText("Choose your model")).toBeVisible();
+  await dialog.getByRole("button", { name: "Done" }).click();
+
+  await expect(dialog).not.toBeVisible();
   await expect(page.getByText(FIXTURE_PROGRAM)).toBeVisible();
+  await expect(page.getByLabel("Company description")).toHaveValue("");
+});
+
+test("welcome guide: never shows again after the first visit, but Settings can replay it", async ({ page }) => {
+  await stubBackend(page);
+  await page.goto("/");
+  await expect(page.getByRole("dialog", { name: /welcome/i })).toBeVisible();
+  await page.getByRole("button", { name: "Close" }).click();
+  await expect(page.getByRole("dialog", { name: /welcome/i })).not.toBeVisible();
+
+  await page.reload();
+  await expect(page.getByRole("dialog", { name: /welcome/i })).not.toBeVisible();
+
+  await page.getByRole("button", { name: "Open settings" }).click();
+  await page.getByRole("button", { name: "Replay welcome guide" }).click();
+  await expect(page.getByRole("dialog", { name: /welcome/i })).toBeVisible();
 });
 
 test("intake: optional details stay collapsed after required fields are filled, and expand on toggle click", async ({ page }) => {
   await stubBackend(page);
+  await skipWelcomeGuide(page);
   await page.goto("/");
 
   await page.getByLabel("Company description").fill("AI diagnostics for rural clinics");
