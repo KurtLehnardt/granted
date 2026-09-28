@@ -288,8 +288,12 @@ export interface ProfileQuestionnaireProps {
    *  material field (all 13) is provided — the parent uses this to skip the
    *  R1 AI interview entirely (a fully-filled form asks zero questions). */
   onSubmit: (description: string, meta: { complete: boolean }) => void;
-  /** True once a real search has started — owned by the parent (IntakeForm),
-   *  since a welcome-guide sample bypasses `onSubmit` and must not collapse. */
+  /** `undefined` until a real search has started (owned by the parent,
+   *  IntakeForm, since a welcome-guide sample bypasses `onSubmit` and must
+   *  not collapse) — the summary/toggle bar itself only renders once this is
+   *  defined, so the first page view stays fully expanded with no second
+   *  heading above "Tell us about your company". `true`/`false` thereafter
+   *  drive the two-way collapse/expand toggle. */
   collapsed?: boolean;
   /** Fires when the header bar is clicked to flip `collapsed`. Required
    *  whenever `collapsed` can be true. */
@@ -302,7 +306,7 @@ export default function ProfileQuestionnaire({
   externalNonce,
   onDescriptionChange,
   onSubmit,
-  collapsed = false,
+  collapsed,
   onToggleCollapsed,
 }: ProfileQuestionnaireProps) {
   const [profile, setProfile] = useState<ProfileDraft>({});
@@ -636,32 +640,36 @@ export default function ProfileQuestionnaire({
   }
 
   const requiredFields = PROFILE_FIELD_META.filter((m) => m.requirement === "required");
-  const expanded = !collapsed;
+  const expanded = collapsed !== true;
+  // The summary/toggle bar only appears once the parent has defined
+  // `collapsed` — i.e. after a first real search — so the first page view
+  // stays fully expanded with no bar above "Tell us about your company".
+  const showToggleBar = collapsed !== undefined;
 
-  // Header bar always renders; the field set below toggles with it — same
-  // pattern (persistent button, rotating chevron) as OpportunityCard.
   return (
-    <div className="reveal">
-      <button
-        type="button"
-        onClick={onToggleCollapsed}
-        aria-expanded={expanded}
-        aria-controls="pq-form-fields"
-        className="flex w-full items-center justify-between gap-4 rounded-sm border border-structure-on-canvas bg-canvas-alt px-4 py-3 text-left transition hover:bg-structure hover:text-token-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2"
-      >
-        <span className="min-w-0">
-          <span className={sectionHeadingClass}>Your company</span>
-          {collapsed && (
-            <span className="mt-0.5 block truncate font-body text-[14px] text-foreground">
-              {draftValue(profile, values, "raw_text") || "No description yet"}
-            </span>
-          )}
-        </span>
-        <ChevronIcon className={`h-5 w-5 shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`} />
-      </button>
+    <div>
+      {showToggleBar && (
+        <button
+          type="button"
+          onClick={onToggleCollapsed}
+          aria-expanded={expanded}
+          aria-controls="pq-form-fields"
+          className="flex w-full items-center justify-between gap-4 rounded-sm border border-structure-on-canvas bg-canvas-alt px-4 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2"
+        >
+          <span className="min-w-0">
+            <span className={sectionHeadingClass}>Your company</span>
+            {collapsed && (
+              <span className="mt-0.5 block truncate font-body text-[14px] text-foreground">
+                {draftValue(profile, values, "raw_text") || "No description yet"}
+              </span>
+            )}
+          </span>
+          <ChevronIcon className={`h-5 w-5 shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`} />
+        </button>
+      )}
 
       {expanded && (
-        <div id="pq-form-fields" className="mt-5">
+        <div id="pq-form-fields" className="reveal mt-5">
           {/* Required fields — the search needs these to route at all. Grid:
               single column on mobile (each field always full-width), two
               columns from `sm:` up, with the description box and any other

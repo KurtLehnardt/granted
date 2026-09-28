@@ -41,9 +41,12 @@ export default function IntakeForm({
 }) {
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(false);
-  // Collapsed once a real questionnaire submit starts a search; toggle is
-  // then owned back-and-forth by ProfileQuestionnaire's own header button.
-  const [formCollapsed, setFormCollapsed] = useState(false);
+  // `undefined` until a real questionnaire submit starts a search — the
+  // summary/toggle bar itself only renders once this is defined (see
+  // ProfileQuestionnaireProps.collapsed), so the very first page view stays
+  // fully expanded with no bar. Once set, toggling is owned back-and-forth
+  // by ProfileQuestionnaire's own header button.
+  const [formCollapsed, setFormCollapsed] = useState<boolean | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   // H1: the exact description the last search actually ran on, so the error
   // state can offer a real "Try again" that re-runs it (independent of later
