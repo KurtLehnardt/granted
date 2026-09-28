@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { stubBackend, skipWelcomeGuide, DETAILED_DESCRIPTION, FIXTURE_PROGRAM } from "./fixtures";
+import { stubBackend, skipWelcomeGuide, fillRequiredIntakeFields, FIXTURE_PROGRAM } from "./fixtures";
 
 /**
  * Journey 1 — Search (critical, wired). Land on /, describe a company, submit,
@@ -10,7 +10,7 @@ test("search: describe a company, submit, and see the opportunity map", async ({
   await skipWelcomeGuide(page);
   await page.goto("/");
 
-  await page.getByLabel(/tell us about your company/i).fill(DETAILED_DESCRIPTION);
+  await fillRequiredIntakeFields(page);
 
   const cta = page.getByRole("button", { name: /find opportunities/i });
   await expect(cta).toBeEnabled();
@@ -38,9 +38,12 @@ test("search: a result-less stream shows an error and a Try again affordance", a
   );
   await skipWelcomeGuide(page);
   await page.goto("/");
-  await page.getByLabel(/tell us about your company/i).fill(DETAILED_DESCRIPTION);
+  await fillRequiredIntakeFields(page);
   await page.getByRole("button", { name: /find opportunities/i }).click();
 
-  await expect(page.getByText(/didn't complete|try again/i)).toBeVisible();
+  // Narrowed to the message text alone — a combined "didn't complete|try again"
+  // regex also matches the "Try again" button below, which is a separate,
+  // already-asserted element and trips Playwright's strict-mode ambiguity check.
+  await expect(page.getByText(/didn't complete/i)).toBeVisible();
   await expect(page.getByRole("button", { name: /try again/i })).toBeVisible();
 });

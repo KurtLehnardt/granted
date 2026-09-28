@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { stubBackend, skipWelcomeGuide, DETAILED_DESCRIPTION, FIXTURE_PROGRAM, fixtureMap } from "./fixtures";
+import { stubBackend, skipWelcomeGuide, fillRequiredIntakeFields, FIXTURE_PROGRAM, fixtureMap } from "./fixtures";
 
 /**
  * Journey 2 — Results (+ buckets) (critical, wired). After a search, the
@@ -13,7 +13,7 @@ test("results: the opportunity map renders a card with agency + next steps", asy
   await stubBackend(page);
   await skipWelcomeGuide(page);
   await page.goto("/");
-  await page.getByLabel(/tell us about your company/i).fill(DETAILED_DESCRIPTION);
+  await fillRequiredIntakeFields(page);
   await page.getByRole("button", { name: /find opportunities/i }).click();
 
   const program = fixtureMap.matches[0].opportunity.program;
@@ -25,7 +25,7 @@ test("results (buckets, when r8_eligibility is on): an excluded bucket never ren
   await stubBackend(page);
   await skipWelcomeGuide(page);
   await page.goto("/");
-  await page.getByLabel(/tell us about your company/i).fill(DETAILED_DESCRIPTION);
+  await fillRequiredIntakeFields(page);
   await page.getByRole("button", { name: /find opportunities/i }).click();
   await expect(page.getByText(FIXTURE_PROGRAM).first()).toBeVisible();
 

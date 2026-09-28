@@ -91,3 +91,29 @@ export async function skipWelcomeGuide(page: Page): Promise<void> {
 /** A detailed (3+ sentence) description that skips the pre-search interview. */
 export const DETAILED_DESCRIPTION =
   "We build AI-assisted diagnostics for rural clinics. We have 12 employees and have raised a seed round. We need federal funding to run a clinical validation study.";
+
+/**
+ * The intake form is 5 required free-text fields (Company description,
+ * Industry / market, Core technology, Primary US location, Use of funds) —
+ * there is no single catchall "tell us about your company" field to fill
+ * (that flow was removed; see PROFILE_FIELD_META in lib/contracts/
+ * companyProfile.ts for the source of truth). Labels each render as e.g.
+ * "Company descriptionRequired" while empty, so these match by a
+ * start-anchored, case-insensitive prefix rather than an exact string.
+ */
+export async function fillRequiredIntakeFields(
+  page: Page,
+  overrides: Partial<{
+    description: string;
+    industry: string;
+    technology: string;
+    location: string;
+    useOfFunds: string;
+  }> = {},
+): Promise<void> {
+  await page.getByLabel(/^company description/i).fill(overrides.description ?? DETAILED_DESCRIPTION);
+  await page.getByLabel(/^industry \/ market/i).fill(overrides.industry ?? "Health IT");
+  await page.getByLabel(/^core technology/i).fill(overrides.technology ?? "AI-assisted diagnostic software");
+  await page.getByLabel(/^primary us location/i).fill(overrides.location ?? "Colorado");
+  await page.getByLabel(/^use of funds/i).fill(overrides.useOfFunds ?? "Clinical validation study");
+}

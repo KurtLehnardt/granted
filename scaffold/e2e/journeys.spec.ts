@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 import {
   stubBackend,
   skipWelcomeGuide,
+  fillRequiredIntakeFields,
   FIXTURE_PROGRAM,
   fixtureMap,
   ndjson,
@@ -11,10 +12,17 @@ import {
 /**
  * The remaining named critical journeys. Sample-pick (via the welcome guide)
  * and the welcome-guide journeys below are wired + passing on the default
- * build. The rest are SCRIPTED skeletons marked `test.fixme` because they
- * depend on build-time NEXT_PUBLIC_* flags (r1_interview, r9_0_mockauth,
- * r6_auto_fill, left_sidebar, billing) that the default build has off — run
- * against a build with the relevant flag on, then promote them to `test(...)`.
+ * build. Interview and sign-in/demo below are SCRIPTED skeletons marked
+ * `test.fixme` because they depend on build-time NEXT_PUBLIC_* flags
+ * (r1_interview, mock auth) that the default build has off — run against a
+ * build with the relevant flag on, then promote them to `test(...)`.
+ *
+ * The auto-fill and billing journeys that used to live here are gone, not
+ * fixme'd: Auto Fill's UI entry point was removed (replaced by the "How can
+ * I apply?" modal) and the billing/entitlements padlock UI was removed
+ * entirely, so those flows have nothing left to open regardless of which
+ * flags are on — scripting them further would describe features that no
+ * longer exist rather than ones pending a flag flip.
  */
 
 test("welcome guide: first visit shows the guide; picking a sample runs the search and shows results, without filling the description", async ({ page }) => {
@@ -135,11 +143,11 @@ test("welcome guide: sample list disables while a search is in flight", async ({
   });
   await page.goto("/");
 
-  await page.getByLabel("Company description").fill(DETAILED_DESCRIPTION);
-  await page.getByLabel("Industry / market").fill("Health IT");
-  await page.getByLabel("Core technology").fill("Diagnostic imaging software");
-  await page.getByLabel("Primary US location").fill("Boise, Idaho");
-  await page.getByLabel("Use of funds").fill("Hire two engineers");
+  await fillRequiredIntakeFields(page, {
+    technology: "Diagnostic imaging software",
+    location: "Boise, Idaho",
+    useOfFunds: "Hire two engineers",
+  });
   await page.getByLabel("Use of funds").blur();
   await page.getByRole("button", { name: "Find opportunities" }).click();
 
@@ -160,11 +168,12 @@ test("intake: optional details stay collapsed after required fields are filled, 
   await skipWelcomeGuide(page);
   await page.goto("/");
 
-  await page.getByLabel("Company description").fill("AI diagnostics for rural clinics");
-  await page.getByLabel("Industry / market").fill("Health IT");
-  await page.getByLabel("Core technology").fill("Diagnostic imaging software");
-  await page.getByLabel("Primary US location").fill("Boise, Idaho");
-  await page.getByLabel("Use of funds").fill("Hire two engineers");
+  await fillRequiredIntakeFields(page, {
+    description: "AI diagnostics for rural clinics",
+    technology: "Diagnostic imaging software",
+    location: "Boise, Idaho",
+    useOfFunds: "Hire two engineers",
+  });
   await page.getByLabel("Use of funds").blur();
   await expect(page.getByRole("button", { name: "Find opportunities" })).toBeEnabled();
 
@@ -204,11 +213,12 @@ test("intake: the form collapses to a summary bar after a real search starts, an
   await page.goto("/");
 
   const description = "AI diagnostics for rural clinics, built for overworked front-desk staff.";
-  await page.getByLabel("Company description").fill(description);
-  await page.getByLabel("Industry / market").fill("Health IT");
-  await page.getByLabel("Core technology").fill("Diagnostic imaging software");
-  await page.getByLabel("Primary US location").fill("Boise, Idaho");
-  await page.getByLabel("Use of funds").fill("Hire two engineers");
+  await fillRequiredIntakeFields(page, {
+    description,
+    technology: "Diagnostic imaging software",
+    location: "Boise, Idaho",
+    useOfFunds: "Hire two engineers",
+  });
   await page.getByLabel("Use of funds").blur();
   const toggle = page.locator('button[aria-controls="pq-form-fields"]');
   await expect(toggle).toHaveCount(0);
@@ -262,38 +272,25 @@ test.fixme("interview: a short description shows the pre-search interview before
   await stubBackend(page);
   await skipWelcomeGuide(page);
   await page.goto("/");
-  await page.getByLabel(/tell us about your company/i).fill("AI for clinics");
+  // IntakeForm.beginSearch's interview gate is a word/sentence count on the
+  // FULL compiled description (raw_text + every other filled field, one
+  // "Label: value" line each — see buildDescriptionFromProfile) — every
+  // field here must stay short, or the other 4 fields' text alone can push
+  // the total past the "detailed enough, skip the interview" threshold.
+  await fillRequiredIntakeFields(page, {
+    description: "AI for clinics",
+    industry: "Health",
+    technology: "AI",
+    location: "Utah",
+    useOfFunds: "R&D",
+  });
   await page.getByRole("button", { name: /find opportunities/i }).click();
   await expect(page.getByText(/entity/i)).toBeVisible();
 });
 
-// Journey 5 — Sign-in / demo (needs r9_0_mockauth on).
+// Journey 5 — Sign-in / demo (needs mock auth on).
 test.fixme("sign-in/demo: entering demo mode shows the Hackathon Judge identity", async ({ page }) => {
   await page.goto("/login");
   await page.getByRole("button", { name: /demo|judge/i }).click();
   await expect(page.getByText(/judge/i)).toBeVisible();
-});
-
-// Journey 6 — Auto-fill flow (needs r6_auto_fill / left_sidebar).
-test.fixme("auto-fill: opening Auto Fill while signed out gates on sign-in", async ({ page }) => {
-  await stubBackend(page);
-  await skipWelcomeGuide(page);
-  await page.goto("/");
-  await page.getByLabel(/tell us about your company/i).fill(
-    "We build AI diagnostics for rural clinics. We have 12 employees. We need federal funding.",
-  );
-  await page.getByRole("button", { name: /find opportunities/i }).click();
-  await expect(page.getByText(FIXTURE_PROGRAM)).toBeVisible();
-  await page.getByRole("button", { name: /auto fill/i }).first().click();
-  await expect(page.getByText(/sign in/i)).toBeVisible();
-});
-
-// Journey 8 — Billing → padlock (needs left_sidebar + billing).
-test.fixme("billing: switching to a paid tier unlocks padlocked features live", async ({ page }) => {
-  await skipWelcomeGuide(page);
-  await page.goto("/");
-  await page.getByRole("button", { name: /open menu/i }).click();
-  await expect(page.getByRole("dialog")).toBeVisible();
-  // On Free, Auto Fill / Competitor Analysis show locked/upsell framing; after
-  // switching to Max via the billing selector they unlock without a reload.
 });
