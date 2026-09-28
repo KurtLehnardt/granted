@@ -87,7 +87,9 @@ function run(label, script, env, { tsx = false } = {}) {
   const res = spawnSync(process.execPath, args, {
     stdio: "inherit",
     windowsHide: true,
-    env: { ...process.env, ...env },
+    // Tells 1-fetch.mjs it's safe to honor a stop request / write progress — a leftover
+    // stop file must never affect a standalone `npm run data:fetch` / `data:all`.
+    env: { ...process.env, GRANTED_REFRESH_RUN: "1", ...env },
   });
   if (res.status === STOP_EXIT_CODE) return { stopped: true };
   if (res.status !== 0) throw new Error(`${script} exited ${res.status}`);
@@ -119,6 +121,7 @@ async function main() {
       embeddedSoFar: [],
       notYetEmbedded: [],
       priorById: existingById,
+      dims: EMBEDDINGS_DIMENSIONS ?? existingMeta.dims,
       ...opts,
     });
     if (outcome.save) {
@@ -136,7 +139,7 @@ async function main() {
     } else if (opts.duringEmbedding && opts.fullReembed) {
       console.log(
         "\ndata:refresh stopped by user during a full re-embed — corpus left unchanged " +
-          "to avoid mixing embedding models.",
+          "to avoid mixing embedding models or dimensionalities.",
       );
     } else {
       console.log("\ndata:refresh stopped by user — corpus unchanged.");
@@ -229,10 +232,17 @@ async function main() {
       }
     }
 
-    const plan = planEmbedding(fresh, priorById, existingMeta.embeddingModel, EMBEDDINGS_MODEL, EMBEDDINGS_DIMENSIONS ?? existingMeta.dims);
+    const plan = planEmbedding(
+      fresh,
+      priorById,
+      existingMeta.embeddingModel,
+      EMBEDDINGS_MODEL,
+      EMBEDDINGS_DIMENSIONS ?? existingMeta.dims,
+      existingMeta.dims,
+    );
     console.log(
       `Embedding plan: ${plan.reused.length} reused, ${plan.toEmbed.length} to embed with ${EMBEDDINGS_MODEL}` +
-        (plan.fullReembed ? " (embedding model changed — full re-embed)" : ""),
+        (plan.fullReembed ? " (embedding model or dimensions changed — full re-embed)" : ""),
     );
     reportProgress("embedding", { done: 0, total: plan.toEmbed.length, foundCount, keptCount });
 

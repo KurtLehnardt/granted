@@ -21,15 +21,22 @@ export interface EmbeddingPlan {
   fullReembed: boolean;
 }
 
-/** Reuses a prior vector only when the model, the embedded text and (if given) the dimensionality all match. */
+/**
+ * Reuses a prior vector only when the model, the embedded text and (if given) the dimensionality
+ * all match. `priorDims` (the corpus's recorded meta.dims) differing from `dims` (this run's
+ * target) means EMBEDDINGS_DIMENSIONS changed under the same model — treated like a model change
+ * (fullReembed) so a stop mid-run never mixes dimensionalities into the saved corpus.
+ */
 export function planEmbedding(
   incoming: Opportunity[],
   priorById: Map<string, PriorEmbeddingEntry>,
   priorModel: string | undefined,
   currentModel: string,
   dims?: number,
+  priorDims?: number,
 ): EmbeddingPlan {
-  const fullReembed = (priorModel || LEGACY_EMBEDDING_MODEL) !== currentModel;
+  const dimsChanged = dims != null && priorDims != null && priorDims !== dims;
+  const fullReembed = (priorModel || LEGACY_EMBEDDING_MODEL) !== currentModel || dimsChanged;
   const reused: Opportunity[] = [];
   const toEmbed: Opportunity[] = [];
   let added = 0;
@@ -87,19 +94,26 @@ export function dedupeById(records: Opportunity[]): Opportunity[] {
   return Array.from(byId.values());
 }
 
-/** Merges reused + embedded-so-far + not-yet-embedded records' prior cached vectors. Partial re-embed only; a full re-embed's priors are the old model (see computeStopOutcome). */
+/**
+ * Merges reused + embedded-so-far + not-yet-embedded records' prior cached vectors. Partial
+ * re-embed only; a full re-embed's priors are the old model (see computeStopOutcome). When `dims`
+ * is given, a not-yet-embedded record's cached vector is only kept if its length matches — a
+ * defense against ever writing a mixed-dimension corpus even if the fullReembed flag is wrong.
+ */
 export function mergePartialSave(
   reused: Opportunity[],
   embeddedSoFar: Opportunity[],
   notYetEmbedded: Opportunity[],
   priorById: Map<string, Opportunity>,
+  dims?: number,
 ): Opportunity[] {
   const out = [...reused, ...embeddedSoFar];
   const seen = new Set(out.map((o) => o.id));
   for (const o of notYetEmbedded) {
     if (seen.has(o.id)) continue;
     const prior = priorById.get(o.id);
-    if (prior) {
+    const dimsOk = dims == null || (Array.isArray(prior?.embedding) && prior.embedding.length === dims);
+    if (prior && dimsOk) {
       out.push(prior);
       seen.add(o.id);
     }
@@ -112,10 +126,14 @@ export interface StopOutcome {
   save: boolean;
   /** Only meaningful when `save` is true. */
   corpus: Opportunity[];
-  status: { lastCompletedAt: string; stopped: true; savedCount: number };
+  status: { lastStoppedAt: string; stopped: true; savedCount: number };
 }
 
-/** Full re-embed: prior vectors are another model, leave corpus untouched. Partial re-embed: merge and save. */
+/**
+ * Full re-embed (including a same-model dimensionality change): prior vectors are incompatible,
+ * leave corpus untouched. Partial re-embed: merge and save. Never writes lastCompletedAt for a
+ * stopped run — lastStoppedAt is a distinct field so a stop never reads back as a successful run.
+ */
 export function computeStopOutcome(params: {
   attemptAt: string;
   duringEmbedding: boolean;
@@ -124,11 +142,12 @@ export function computeStopOutcome(params: {
   embeddedSoFar: Opportunity[];
   notYetEmbedded: Opportunity[];
   priorById: Map<string, Opportunity>;
+  dims?: number;
 }): StopOutcome {
-  const { attemptAt, duringEmbedding, fullReembed, reused, embeddedSoFar, notYetEmbedded, priorById } = params;
+  const { attemptAt, duringEmbedding, fullReembed, reused, embeddedSoFar, notYetEmbedded, priorById, dims } = params;
   if (!duringEmbedding || fullReembed) {
-    return { save: false, corpus: [], status: { lastCompletedAt: attemptAt, stopped: true, savedCount: 0 } };
+    return { save: false, corpus: [], status: { lastStoppedAt: attemptAt, stopped: true, savedCount: 0 } };
   }
-  const corpus = mergePartialSave(reused, embeddedSoFar, notYetEmbedded, priorById);
-  return { save: true, corpus, status: { lastCompletedAt: attemptAt, stopped: true, savedCount: corpus.length } };
+  const corpus = mergePartialSave(reused, embeddedSoFar, notYetEmbedded, priorById, dims);
+  return { save: true, corpus, status: { lastStoppedAt: attemptAt, stopped: true, savedCount: corpus.length } };
 }

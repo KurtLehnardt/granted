@@ -73,6 +73,25 @@ describe("planEmbedding", () => {
     assert.equal(plan.toEmbed.length, 0);
   });
 
+  test("a dimensionality change under the SAME model forces a full re-embed (BLOCKER regression guard)", () => {
+    const incoming = [opp("a")];
+    const text = opportunityEmbedText(incoming[0]);
+    const prior = new Map([["a", { embedding: [1, 2, 3], text }]]); // 3-dim corpus
+    const plan = planEmbedding(incoming, prior, "text-embedding-3-small", "text-embedding-3-small", 1536, 3);
+    assert.equal(plan.fullReembed, true);
+    assert.equal(plan.reused.length, 0);
+    assert.equal(plan.toEmbed.length, 1);
+  });
+
+  test("matching priorDims and dims: no forced full re-embed", () => {
+    const incoming = [opp("a")];
+    const text = opportunityEmbedText(incoming[0]);
+    const prior = new Map([["a", { embedding: [1, 2, 3], text }]]);
+    const plan = planEmbedding(incoming, prior, "text-embedding-3-small", "text-embedding-3-small", 3, 3);
+    assert.equal(plan.fullReembed, false);
+    assert.equal(plan.reused.length, 1);
+  });
+
   test("a changed embedding model forces a full re-embed, even for unchanged records", () => {
     const incoming = [opp("a")];
     const text = opportunityEmbedText(incoming[0]);
@@ -170,6 +189,24 @@ describe("mergePartialSave", () => {
     const result = mergePartialSave([opp("a")], [], [opp("b"), opp("c")], new Map());
     assert.deepEqual(result.map((o) => o.id), ["a"]);
   });
+
+  test("dims given: a not-yet-embedded record's cached vector of a different length is dropped, not kept mixed-dimension (BLOCKER)", () => {
+    const reused = [opp("a")];
+    const embedded: ReturnType<typeof opp>[] = [];
+    const notYetEmbedded = [opp("b"), opp("c")];
+    const prior = new Map([
+      ["b", { ...opp("b"), embedding: [1, 2, 3] }], // 3 dims — matches target
+      ["c", { ...opp("c"), embedding: [1, 2] }], // 2 dims — stale, must be dropped
+    ]);
+    const result = mergePartialSave(reused, embedded, notYetEmbedded, prior, 3);
+    assert.deepEqual(result.map((o) => o.id).sort(), ["a", "b"]);
+  });
+
+  test("dims given: a not-yet-embedded record with no cached embedding at all is dropped", () => {
+    const prior = new Map([["b", opp("b")]]); // no embedding field
+    const result = mergePartialSave([], [], [opp("b")], prior, 3);
+    assert.deepEqual(result, []);
+  });
 });
 
 describe("computeStopOutcome", () => {
@@ -186,7 +223,7 @@ describe("computeStopOutcome", () => {
       priorById: new Map(),
     });
     assert.equal(outcome.save, false);
-    assert.deepEqual(outcome.status, { lastCompletedAt: attemptAt, stopped: true, savedCount: 0 });
+    assert.deepEqual(outcome.status, { lastStoppedAt: attemptAt, stopped: true, savedCount: 0 });
   });
 
   test("during a FULL re-embed: never saves, even though prior (old-model) vectors exist — " +
@@ -206,7 +243,7 @@ describe("computeStopOutcome", () => {
     });
     assert.equal(outcome.save, false);
     assert.deepEqual(outcome.corpus, []);
-    assert.deepEqual(outcome.status, { lastCompletedAt: attemptAt, stopped: true, savedCount: 0 });
+    assert.deepEqual(outcome.status, { lastStoppedAt: attemptAt, stopped: true, savedCount: 0 });
   });
 
   test("during a PARTIAL re-embed: saves reused + embedded-so-far + cached not-yet-embedded", () => {
@@ -222,6 +259,43 @@ describe("computeStopOutcome", () => {
     });
     assert.equal(outcome.save, true);
     assert.deepEqual(outcome.corpus.map((o) => o.id).sort(), ["a", "b", "c"]);
-    assert.deepEqual(outcome.status, { lastCompletedAt: attemptAt, stopped: true, savedCount: 3 });
+    assert.deepEqual(outcome.status, { lastStoppedAt: attemptAt, stopped: true, savedCount: 3 });
+  });
+
+  test("dims BLOCKER: a stop mid-embedding never keeps a prior whose embedding length differs from this run's dims, even if fullReembed is (wrongly) false", () => {
+    const priorById = new Map([
+      ["b", { ...opp("b"), embedding: [1, 2, 3] }], // 3-dim — stale relative to this run's 1536
+      ["c", { ...opp("c"), embedding: new Array(1536).fill(0) }], // matches this run's dims
+    ]);
+    const outcome = computeStopOutcome({
+      attemptAt,
+      duringEmbedding: true,
+      fullReembed: false,
+      reused: [opp("a")],
+      embeddedSoFar: [],
+      notYetEmbedded: [opp("b"), opp("c")],
+      priorById,
+      dims: 1536,
+    });
+    assert.equal(outcome.save, true);
+    assert.deepEqual(outcome.corpus.map((o) => o.id).sort(), ["a", "c"]);
+  });
+
+  test("dims BLOCKER: an EMBEDDINGS_DIMENSIONS change under the same model leaves the corpus untouched on stop, like fullReembed", () => {
+    // Mirrors what refresh-corpus.mjs does: planEmbedding sets fullReembed=true when
+    // priorDims !== dims, so this stop must behave exactly like a full re-embed's stop.
+    const priorById = new Map([["a", { ...opp("a"), embedding: [1, 2, 3] }]]);
+    const outcome = computeStopOutcome({
+      attemptAt,
+      duringEmbedding: true,
+      fullReembed: true, // as planEmbedding would report for a same-model dims change
+      reused: [],
+      embeddedSoFar: [opp("z")],
+      notYetEmbedded: [opp("a")],
+      priorById,
+      dims: 1536,
+    });
+    assert.equal(outcome.save, false);
+    assert.deepEqual(outcome.corpus, []);
   });
 });
