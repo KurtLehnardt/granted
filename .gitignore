@@ -36,3 +36,6 @@ next-env.d.ts
 # claude worktrees & local memory
 .claude/
 .codex/
+
+# browser-automation MCP scratch output (screenshots, a11y snapshots, console logs)
+.playwright-mcp/
