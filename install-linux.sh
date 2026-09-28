@@ -3,7 +3,7 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/KurtLehnardt/granted/main/install-linux.sh | bash
 #
-# Installs git + Node.js 20+ if missing (apt/dnf/yum), clones the repo, and
+# Installs git + Node.js 22+ if missing (apt/dnf/yum), clones the repo, and
 # runs `npm install`. Safe to re-run: skips anything already present/done.
 #
 # After this finishes, `cd granted/scaffold` and run `npm run setup` (hosted
@@ -13,7 +13,7 @@ set -euo pipefail
 
 REPO_URL="https://github.com/KurtLehnardt/granted.git"
 TARGET_DIR="${GRANTED_INSTALL_DIR:-granted}"
-NODE_MAJOR_MIN=20
+NODE_MAJOR_MIN=22
 
 log()  { printf '\n\033[1m%s\033[0m\n' "$1"; }
 ok()   { printf '  \033[32m\xe2\x9c\x93\033[0m %s\n' "$1"; }
@@ -61,7 +61,7 @@ else
   ok "git installed ($(git --version))"
 fi
 
-# 3) Node.js 20+.
+# 3) Node.js 22+.
 NODE_OK=0
 if command -v node >/dev/null 2>&1; then
   NODE_MAJOR=$(node -v | sed 's/^v//' | cut -d. -f1)

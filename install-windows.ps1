@@ -2,7 +2,7 @@
 #
 #   irm https://raw.githubusercontent.com/KurtLehnardt/granted/main/install-windows.ps1 | iex
 #
-# Installs Node.js 20+ and git if missing (winget if available, otherwise a
+# Installs Node.js 22+ and git if missing (winget if available, otherwise a
 # direct official-installer download -- winget isn't present on every Windows
 # box, notably Windows Server), clones the repo, and runs `npm install`.
 # Safe to re-run: skips anything already present/done.
@@ -22,7 +22,7 @@ $ErrorActionPreference = "Stop"
 
 $RepoUrl = "https://github.com/KurtLehnardt/granted.git"
 $TargetDir = if ($env:GRANTED_INSTALL_DIR) { $env:GRANTED_INSTALL_DIR } else { "granted" }
-$NodeMajorMin = 20
+$NodeMajorMin = 22
 
 function Log($msg)  { Write-Host "`n$msg" -ForegroundColor White }
 function Ok($msg)   { Write-Host "  [ok] $msg" -ForegroundColor Green }
@@ -106,7 +106,7 @@ if (Have "git") {
   Ok "git installed ($(git --version))"
 }
 
-# 2) Node.js 20+.
+# 2) Node.js 22+.
 $nodeOk = $false
 if (Have "node") {
   $nodeVersionRaw = (node -v)
@@ -127,7 +127,7 @@ if (-not $nodeOk) {
   if (HaveWinget) {
     winget install -e --id OpenJS.NodeJS.LTS --silent --accept-package-agreements --accept-source-agreements
   } else {
-    # nodejs.org's index.json is sorted newest-first; take the latest v20.x
+    # nodejs.org's index.json is sorted newest-first; take the latest v22.x
     # release rather than pinning one, for the same reason as the git lookup
     # above -- a pinned version goes stale.
     $nodeRelease = (Invoke-RestMethod -Uri "https://nodejs.org/dist/index.json") | Where-Object { $_.version -match "^v$NodeMajorMin\." } | Select-Object -First 1
