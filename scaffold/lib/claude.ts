@@ -255,13 +255,20 @@ export function coerceProfileStrings(profile: Record<string, unknown>): StartupP
  * fabricated value — a shorter, fully-valid criteria list beats a
  * boundary-invalid one or an invented "met: false".
  */
-export function coerceCriteria(criteria: unknown): CriterionCheck[] {
+export function coerceCriteria(criteria: unknown, context?: string): CriterionCheck[] {
   if (!Array.isArray(criteria)) return [];
   const out: CriterionCheck[] = [];
+  let dropped = 0;
   for (const raw of criteria) {
-    if (raw === null || typeof raw !== "object") continue;
+    if (raw === null || typeof raw !== "object") {
+      dropped++;
+      continue;
+    }
     const c = raw as Record<string, unknown>;
-    if (typeof c.label !== "string" || typeof c.met !== "boolean") continue;
+    if (typeof c.label !== "string" || typeof c.met !== "boolean") {
+      dropped++;
+      continue;
+    }
     const entry: CriterionCheck = { label: c.label, met: c.met };
     const note = c.note;
     if (note === undefined || note === null) {
@@ -278,6 +285,22 @@ export function coerceCriteria(criteria: unknown): CriterionCheck[] {
       entry.note = String(note);
     }
     out.push(entry);
+  }
+  // Same rationale as logSkippedBatches: a dropped entry (or a whole-array
+  // wipe, e.g. every entry returning `met` as a string "true"/"false" instead
+  // of a boolean) must leave a server-side trace, or this coercion silently
+  // masks the exact class of drift the boundary check exists to catch —
+  // worse, an emptied criteria array still passes CriterionCheckSchema, so
+  // `logMapDrift` never fires for it, and (once discernment_layer ships) an
+  // empty criteria list reads to recommend.ts as "0 of 0 criteria met",
+  // producing a confident do_not_recommend verdict that's really a parse
+  // failure wearing a judgment's clothes.
+  if (dropped > 0) {
+    console.warn(
+      `[criteria] dropped ${dropped}/${criteria.length} malformed entr${dropped === 1 ? "y" : "ies"}` +
+        (context ? ` for ${context}` : "") +
+        (out.length === 0 && criteria.length > 0 ? " -- criteria list is now EMPTY" : ""),
+    );
   }
   return out;
 }
@@ -463,7 +486,7 @@ export async function explainMatches(
     const text = msg.content.filter((c) => c.type === "text").map((c: any) => c.text).join("");
     return asArray(parseJson<Assessment[] | Assessment>(text)).map(({ final, unscored, ...a }) => ({
       ...a,
-      criteria: coerceCriteria(a.criteria),
+      criteria: coerceCriteria(a.criteria, a.id),
     }));
   };
 
@@ -819,7 +842,7 @@ async function narratePassB(
     const text = msg.content.filter((c) => c.type === "text").map((c: any) => c.text).join("");
     return asArray(parseJson<TwoPassAssessment[] | TwoPassAssessment>(text)).map(({ final, unscored, ...a }) => ({
       ...a,
-      criteria: coerceCriteria(a.criteria),
+      criteria: coerceCriteria(a.criteria, a.id),
     }));
   };
 

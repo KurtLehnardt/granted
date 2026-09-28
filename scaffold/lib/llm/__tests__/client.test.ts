@@ -257,6 +257,60 @@ describe("coerceCriteria — local-model CriterionCheck drift", () => {
     assert.equal(out.length, 1);
     assert.equal(out[0].label, "ok");
   });
+
+  test("`met` as a string (\"true\"/\"false\") across every entry wipes the array to [] -- documented, deliberate", () => {
+    // Same class of drift as note: null, just on the REQUIRED field: a local
+    // model returning met as a quoted string instead of a boolean. There's no
+    // honest coercion here (unlike note) -- see the module doc comment -- so
+    // this is the realistic case where the whole criteria list goes empty.
+    // The point of this test is to pin that this is INTENTIONAL and LOGGED
+    // (see the console.warn test below), not an accident nobody noticed.
+    const out = coerceCriteria([
+      { label: "US small business", met: "true" },
+      { label: "Under 500 employees", met: "false" },
+    ]);
+    assert.deepEqual(out, []);
+  });
+
+  test("logs a warning naming the dropped count when any entry is dropped", () => {
+    const realWarn = console.warn;
+    const calls: unknown[][] = [];
+    console.warn = (...args: unknown[]) => calls.push(args);
+    try {
+      coerceCriteria([{ label: "ok", met: true }, { label: "bad", met: "true" }], "opp-123");
+    } finally {
+      console.warn = realWarn;
+    }
+    assert.equal(calls.length, 1);
+    const [msg] = calls[0] as [string];
+    assert.match(msg, /dropped 1\/2/);
+    assert.match(msg, /opp-123/);
+  });
+
+  test("logs that the criteria list went fully empty, distinct from a partial drop", () => {
+    const realWarn = console.warn;
+    const calls: unknown[][] = [];
+    console.warn = (...args: unknown[]) => calls.push(args);
+    try {
+      coerceCriteria([{ label: "a", met: "true" }, { label: "b", met: "false" }], "opp-456");
+    } finally {
+      console.warn = realWarn;
+    }
+    assert.equal(calls.length, 1);
+    assert.match(calls[0][0] as string, /EMPTY/);
+  });
+
+  test("logs nothing when nothing is dropped", () => {
+    const realWarn = console.warn;
+    const calls: unknown[][] = [];
+    console.warn = (...args: unknown[]) => calls.push(args);
+    try {
+      coerceCriteria([{ label: "ok", met: true }]);
+    } finally {
+      console.warn = realWarn;
+    }
+    assert.equal(calls.length, 0);
+  });
 });
 
 describe("coerceEmployees — number-field drift", () => {
