@@ -7,7 +7,7 @@ import { loadAlertSnapshot, saveAlertSnapshot, normalizeAlertSnapshot } from "..
  * there is no `window` global, so loadAlertSnapshot/saveAlertSnapshot
  * exercise the SSR/no-storage fallback path (never throws, degrades to
  * null/no-op) — same posture as lib/sidebar/__tests__/sidebarPrefs.test.ts
- * and lib/ui/__tests__/welcomeTourPrefs.test.ts. normalizeAlertSnapshot is
+ * and lib/ui/__tests__/welcomeGuidePrefs.test.ts. normalizeAlertSnapshot is
  * exported specifically so the corrupt/malformed-value handling is directly
  * unit-testable without a DOM, mirroring sidebarPrefs.ts's
  * normalizeSidebarPrefs pattern.

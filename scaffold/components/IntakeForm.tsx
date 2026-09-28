@@ -367,15 +367,13 @@ const IntakeForm = forwardRef<IntakeFormHandle, {
           (`loading`) while still idle, e.g. right after
           handleInterviewComplete() resets the phase and calls run(). */}
       {interviewPhase === "idle" && (
-        <div data-tour="describe">
-          <ProfileQuestionnaire
-            disabled={loading}
-            externalText={pending?.text}
-            externalNonce={pending?.nonce}
-            onDescriptionChange={setText}
-            onSubmit={handleQuestionnaireSubmit}
-          />
-        </div>
+        <ProfileQuestionnaire
+          disabled={loading}
+          externalText={pending?.text}
+          externalNonce={pending?.nonce}
+          onDescriptionChange={setText}
+          onSubmit={handleQuestionnaireSubmit}
+        />
       )}
 
       {mockAuthOn && (

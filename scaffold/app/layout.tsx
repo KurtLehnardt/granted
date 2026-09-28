@@ -53,14 +53,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         */}
         <AuthProvider>
           <SearchDraftProvider>
-            <SettingsPanelProvider>
-              <WelcomeGuideProvider>
+            <WelcomeGuideProvider>
+              <SettingsPanelProvider>
                 <AnalyticsProvider>
                   <CorpusAutoUpdate />
                   {children}
                 </AnalyticsProvider>
-              </WelcomeGuideProvider>
-            </SettingsPanelProvider>
+              </SettingsPanelProvider>
+            </WelcomeGuideProvider>
           </SearchDraftProvider>
         </AuthProvider>
       </body>

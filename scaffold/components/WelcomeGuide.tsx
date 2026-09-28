@@ -1,30 +1,11 @@
 "use client";
 
 /**
- * WelcomeGuide.tsx — the two-step, first-visit welcome guide (replaces the old
- * anchored coach-mark WelcomeTour.tsx).
- *
- * A real modal dialog (not a spotlight popover): it walks a first-time visitor
- * through exactly two things —
- *
- *   1. Describe your company — explains the form below, and offers an inline
- *      "Show sample companies" list. Picking one is remembered in state only;
- *      it never writes into the description textarea.
- *   2. Choose your model — points at the header Settings button (visually
- *      pulsed while this step is open) and explains the local Ollama model
- *      picker + the cloud (Claude) option via LLM_PROVIDER/ANTHROPIC_API_KEY.
- *
- * "Done" closes the guide and, only if a sample was picked, hands that
- * sample's description to whatever registered a sample handler (the home
- * page's IntakeForm, via runSample()) — served from the precomputed cache,
- * exactly like the old inline sample picker, and WITHOUT ever touching the
- * user's own description. Escape / the X at any step closes without applying
- * a sample.
- *
- * Auto-shows once ever per browser (localStorage — lib/ui/welcomeGuidePrefs.ts)
- * via WelcomeGuideProvider (mounted once in app/layout.tsx). A "Replay welcome
- * guide" button in Settings (SettingsForm.tsx) reopens it on demand through the
- * same context, regardless of the seen flag.
+ * Two-step, first-visit welcome guide: (1) describe your company, with an
+ * optional sample-company list that never touches the description textarea,
+ * and (2) choose your model, pointing at the header Settings button. Shows
+ * once ever per browser (lib/ui/welcomeGuidePrefs.ts); replayable from
+ * Settings via useReplayWelcomeGuide(). Only auto-opens on the home page.
  */
 
 import {
@@ -39,6 +20,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
+import { usePathname } from "next/navigation";
 import { useDialogA11y } from "@/components/useDialogA11y";
 import { SAMPLE_BLURBS, TEST_CASES } from "@/lib/testCases";
 import {
@@ -46,12 +28,6 @@ import {
   markWelcomeGuideSeen,
   shouldAutoStartWelcomeGuide,
 } from "@/lib/ui/welcomeGuidePrefs";
-
-// ---------------------------------------------------------------------------
-// Context — lets Settings (anywhere in the tree) reopen the guide, and lets
-// the home page register how a picked sample should actually run a search,
-// without prop-drilling either through the other.
-// ---------------------------------------------------------------------------
 
 type SampleHandler = ((description: string) => void) | null;
 
@@ -93,21 +69,26 @@ export function WelcomeGuideProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const startedRef = useRef(false);
   const sampleHandlerRef = useRef<SampleHandler>(null);
+  const pathname = usePathname();
 
   const openWelcomeGuide = useCallback(() => setOpen(true), []);
   const registerSampleHandler = useCallback((handler: SampleHandler) => {
     sampleHandlerRef.current = handler;
   }, []);
 
-  // First visit this browser, ever. Guarded by startedRef (this mount) AND the
-  // localStorage "seen" flag (this browser, forever) — see welcomeGuidePrefs.ts.
+  // First visit this browser, ever, AND only on the home page — the only page
+  // with a form to describe (step 1) and a sample handler registered (home's
+  // IntakeForm, via useWelcomeGuideSampleHandler). Guarded by startedRef (this
+  // mount) AND the localStorage "seen" flag (this browser, forever) — see
+  // welcomeGuidePrefs.ts.
   useEffect(() => {
+    if (pathname !== "/") return;
     if (!shouldAutoStartWelcomeGuide({ started: startedRef.current, seen: hasSeenWelcomeGuide() })) return;
     startedRef.current = true;
     // Mark seen NOW, not only on close — so a reload mid-guide can't re-trigger it.
     markWelcomeGuideSeen();
     setOpen(true);
-  }, []);
+  }, [pathname]);
 
   const handleDone = useCallback((sampleText: string | null) => {
     markWelcomeGuideSeen();
@@ -123,21 +104,37 @@ export function WelcomeGuideProvider({ children }: { children: ReactNode }) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// The modal itself
-// ---------------------------------------------------------------------------
-
 type Step = 1 | 2;
 
 function WelcomeGuideModal({ onDone }: { onDone: (sampleText: string | null) => void }) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const initialFocusRef = useRef<HTMLButtonElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const firstSampleRef = useRef<HTMLButtonElement>(null);
   const [step, setStep] = useState<Step>(1);
   const [samplesShown, setSamplesShown] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const close = useCallback(() => onDone(null), [onDone]);
   useDialogA11y(dialogRef, close, initialFocusRef);
+
+  // Move focus to the step heading whenever the step changes (skip the very
+  // first render — useDialogA11y already placed initial focus on the Close
+  // button then).
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    if (!mountedRef.current) {
+      mountedRef.current = true;
+      return;
+    }
+    headingRef.current?.focus();
+  }, [step]);
+
+  // Move focus into the sample list the instant it replaces the trigger
+  // button, so the click doesn't drop focus to <body>.
+  useEffect(() => {
+    if (samplesShown) firstSampleRef.current?.focus();
+  }, [samplesShown]);
 
   const selected = TEST_CASES.find((tc) => tc.id === selectedId) ?? null;
 
@@ -181,7 +178,7 @@ function WelcomeGuideModal({ onDone }: { onDone: (sampleText: string | null) => 
 
           {step === 1 ? (
             <>
-              <h2 className={titleClass}>
+              <h2 ref={headingRef} tabIndex={-1} className={`${titleClass} focus-visible:outline-none`}>
                 Describe your company
               </h2>
               <p className={bodyClass}>
@@ -205,11 +202,12 @@ function WelcomeGuideModal({ onDone }: { onDone: (sampleText: string | null) => 
                     it works, or just close this and fill out your own.
                   </p>
                   <ul className="mt-3 flex flex-col gap-2">
-                    {TEST_CASES.map((tc) => {
+                    {TEST_CASES.map((tc, i) => {
                       const isSelected = tc.id === selectedId;
                       return (
                         <li key={tc.id}>
                           <button
+                            ref={i === 0 ? firstSampleRef : undefined}
                             type="button"
                             onClick={() => setSelectedId(isSelected ? null : tc.id)}
                             aria-pressed={isSelected}
@@ -250,7 +248,7 @@ function WelcomeGuideModal({ onDone }: { onDone: (sampleText: string | null) => 
             </>
           ) : (
             <>
-              <h2 className={titleClass}>
+              <h2 ref={headingRef} tabIndex={-1} className={`${titleClass} focus-visible:outline-none`}>
                 Choose your model
               </h2>
               <p className={bodyClass}>
@@ -291,10 +289,7 @@ function WelcomeGuideModal({ onDone }: { onDone: (sampleText: string | null) => 
   );
 }
 
-// ---------------------------------------------------------------------------
-// Step 2's pulsing highlight around the header Settings button
-// ---------------------------------------------------------------------------
-
+/** Step 2's pulsing highlight around the header Settings button. */
 function SettingsHighlight() {
   const [rect, setRect] = useState<DOMRect | null>(null);
 
@@ -306,6 +301,10 @@ function SettingsHighlight() {
     const measure = () => {
       const candidates = Array.from(document.querySelectorAll<HTMLElement>('[data-tour="settings"]'));
       for (const el of candidates) {
+        // Skip an inert ancestor (e.g. the collapsed left sidebar, which stays
+        // mounted off-screen for its slide transition) — it has a real size but
+        // isn't the visible trigger.
+        if (el.closest("[inert]")) continue;
         const r = el.getBoundingClientRect();
         if (r.width > 0 || r.height > 0) {
           setRect(r);
