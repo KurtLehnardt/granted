@@ -589,7 +589,7 @@ export async function buildOpportunityMap(
   // assessment can land in `matches` without ever having been streamed (e.g.
   // `assembleTwoPass`'s `unscored` fallback for a Pass-A-dropped id). Every id
   // shown as a provisional card gets an explicit terminal event and a place
-  // in the final map, looked up from the corpus if it fell out of `scored`.
+  // in the final map (provisional ids are always kept in `scored`).
   const matchByOppId = new Map(matches.map((m) => [m.opportunity.id, m]));
   for (const id of Array.from(provisionalIds)) {
     if (streamedFinalIds.has(id)) continue;

@@ -221,8 +221,7 @@ describe("§1 — every provisional id is resolved", () => {
     const a: Opportunity = { ...opp("A"), embedding: QUERY_VEC };
     // "B" is a real corpus id, but its embedding is orthogonal to the query
     // (cosine 0 < candidateFloor), so it never clears retrieval and is never
-    // a candidate — unlike main, which used to fall back to the FULL corpus
-    // (`corpusById`) when resolving an assessment id, this must not resolve it.
+    // a candidate — an assessment id is resolved only against `scored`.
     const b: Opportunity = { ...opp("B"), embedding: [0, 1] };
     const corpus = [a, b];
     const { map, matchEvents } = await run(corpus, {
@@ -239,6 +238,19 @@ describe("§1 — every provisional id is resolved", () => {
     assert.ok(resolvedA, "A is still resolved");
     assert.equal(resolvedA!.unscored, true, "A resolves as unscored since the model never scored it");
     assert.equal(resolvedA!.final, true);
+  });
+
+  test("the returned map forces final:true even when a scorer assessment carries final:false", async () => {
+    const { map } = await run([opp("x")], {
+      extractProfile: async () => ({ profile, followUps: [] }),
+      embed: async () => QUERY_VEC,
+      explainMatches: async () => [{ ...assess("x", 70), final: false }],
+      explainWeakField: async () => ({ headline: "h", reasoning: "r", redirects: [] }),
+    });
+
+    const x = map.matches.find((m) => m.opportunity.id === "x");
+    assert.equal(x?.score, 70);
+    assert.equal(x?.final, true);
   });
 
   test("no unresolved provisional id remains in the collapsed section's absence — every id has a final Match", async () => {

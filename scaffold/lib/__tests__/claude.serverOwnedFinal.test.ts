@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { explainMatches, explainMatchesTwoPass } from "../claude";
 import { withHostedFetch } from "../llm/client";
 import type { Opportunity, StartupProfile } from "../types";
+import type { Assessment } from "../scoring/twoPass";
 
 /**
  * `final`/`unscored` are server-owned signals — the model's raw JSON output
@@ -80,8 +81,14 @@ test("explainMatches: a model-supplied final:false/unscored:true is stripped —
 
   const candidate = opp("a");
   const text = JSON.stringify([assessmentPayload("a")]);
-  const result = await withHostedFetch(fakeFetch(text), () => explainMatches(profile, [candidate]));
+  const streamed: Assessment[] = [];
+  const result = await withHostedFetch(fakeFetch(text), () =>
+    explainMatches(profile, [candidate], undefined, (batch) => streamed.push(...batch)),
+  );
 
+  assert.equal(streamed.length, 1);
+  assert.equal(streamed[0].final, undefined, "the streamed batch preview is stripped too");
+  assert.equal(streamed[0].unscored, undefined, "the streamed batch preview is stripped too");
   assert.equal(result.length, 1);
   assert.equal(result[0].score, 77, "the real score is preserved");
   assert.equal(result[0].final, undefined, "a model-supplied final is stripped, not trusted");
@@ -111,7 +118,15 @@ test("explainMatchesTwoPass Pass B: a model-supplied final:false/unscored:true i
     return new Response(JSON.stringify(payload), { status: 200, headers: { "content-type": "application/json" } });
   }) as unknown as typeof fetch;
 
-  const result = await withHostedFetch(fetchImpl, () => explainMatchesTwoPass(profile, [candidate]));
+  const streamed: Assessment[] = [];
+  const result = await withHostedFetch(fetchImpl, () =>
+    explainMatchesTwoPass(profile, [candidate], undefined, undefined, undefined, (a) => streamed.push(a)),
+  );
+  const last = streamed.filter((a) => a.id === "b").at(-1);
+  assert.ok(last);
+  assert.equal(last!.score, 77, "the last streamed event is the Pass-B narrative");
+  assert.notEqual(last!.final, false, "the streamed Pass-B narrative must not keep the card analyzing");
+  assert.equal(last!.unscored, undefined, "the streamed Pass-B narrative is stripped too");
   const b = result.find((r) => r.id === "b");
   assert.ok(b);
   assert.equal(b!.score, 77, "the real Pass-B score is preserved");
