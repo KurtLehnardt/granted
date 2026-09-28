@@ -1,5 +1,10 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { getCloudProvider, type CloudProviderId } from "./providers";
+import { currentHostedFetch } from "./client";
+
+function anthropicClient(apiKey: string, timeout: number): Anthropic {
+  return new Anthropic({ apiKey, timeout, maxRetries: 0, fetch: currentHostedFetch() as any });
+}
 
 // Model discovery for the Settings model picker, and the shared "call the
 // provider" logic behind /api/llm/test-key. Both only ever run loopback-side.
@@ -65,8 +70,10 @@ export interface CloudProbeParams {
 export async function probeCloudKey(params: CloudProbeParams): Promise<ProbeOutcome> {
   if (params.providerId === "anthropic") {
     try {
-      const client = new Anthropic({ apiKey: params.key, timeout: 15_000, maxRetries: 0 });
-      await client.messages.create({ model: params.model, max_tokens: 1, messages: [{ role: "user", content: "hi" }] });
+      // A models list, not a completion: costs no credit and doesn't depend
+      // on `params.model` being a real model (a mistyped model would 404 a
+      // messages.create call and get misreported as "the key didn't work").
+      await anthropicClient(params.key, 15_000).models.list();
       return { ok: true };
     } catch (err) {
       return describeAnthropicError(err);
@@ -98,8 +105,7 @@ export interface ModelsListResult {
 export async function listCloudModels(params: { providerId: CloudProviderId; baseUrl?: string; key: string }): Promise<ModelsListResult> {
   if (params.providerId === "anthropic") {
     try {
-      const client = new Anthropic({ apiKey: params.key, timeout: 10_000, maxRetries: 0 });
-      const page: any = await client.models.list();
+      const page: any = await anthropicClient(params.key, 10_000).models.list();
       const models = (page?.data ?? []).map((m: any) => m.id).filter((id: unknown) => typeof id === "string");
       return { models };
     } catch (err) {

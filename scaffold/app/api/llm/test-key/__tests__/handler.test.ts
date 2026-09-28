@@ -143,4 +143,30 @@ describe("POST /api/llm/test-key", () => {
     const json = await res.json();
     assert.equal(JSON.stringify(json).includes("sk-secretvaluenotecho"), false);
   });
+
+  test("draft keySource {type:'saved'} reuses the saved key for the same provider", async () => {
+    let sentKey: string | undefined;
+    const savedCloud: CloudConfig = { providerId: "openai", keySource: { type: "inline", key: "sk-savedopenaikey0000" } };
+    const res = await handleTestKeyPost(
+      fakeReq({ providerId: "openai", keySource: { type: "saved" } }),
+      fakeDeps({
+        resolveCloudConfig: () => savedCloud,
+        probeCloudKey: (async (params: any) => { sentKey = params.key; return { ok: true }; }) as any,
+      }),
+    );
+    const json = await res.json();
+    assert.equal(json.ok, true);
+    assert.equal(sentKey, "sk-savedopenaikey0000");
+  });
+
+  test("draft keySource {type:'saved'} after a provider switch -> 400, no saved key reused", async () => {
+    const savedCloud: CloudConfig = { providerId: "openai", keySource: { type: "inline", key: "sk-savedopenaikey0000" } };
+    const res = await handleTestKeyPost(
+      fakeReq({ providerId: "groq", keySource: { type: "saved" } }),
+      fakeDeps({ resolveCloudConfig: () => savedCloud }),
+    );
+    const json = await res.json();
+    assert.equal(res.status, 400);
+    assert.equal(json.error, "Please enter a key for your cloud provider.");
+  });
 });

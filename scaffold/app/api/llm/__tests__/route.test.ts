@@ -126,6 +126,41 @@ describe("GET /api/llm", () => {
     assert.deepEqual(j.cloud.keySource, { type: "env", name: "GRANTED_ROUTE_TEST_UNSET" });
   });
 
+  test("local -> a saved cloud config still reports its cloud block (so Settings can show/remove it)", async () => {
+    writeLlmConfig({
+      provider: "ollama",
+      cloud: { providerId: "openai", model: "gpt-4o", keySource: { type: "inline", key: "sk-savedopenaikey0000" } },
+    });
+    globalThis.fetch = (async () => ({ ok: true, json: async () => ({ models: [] }) })) as unknown as typeof fetch;
+
+    const res = await GET();
+    const j = await res.json();
+    assert.equal(j.local, true);
+    assert.equal(j.cloud.providerId, "openai");
+    assert.equal(j.cloud.hasKey, true);
+  });
+
+  test("local -> no saved cloud config -> no cloud block", async () => {
+    process.env.LLM_PROVIDER = "ollama";
+    globalThis.fetch = (async () => ({ ok: true, json: async () => ({ models: [] }) })) as unknown as typeof fetch;
+
+    const res = await GET();
+    const j = await res.json();
+    assert.equal(j.cloud, undefined);
+  });
+
+  test("saved cloud config with no explicit model -> the response omits `model` (never the provider default)", async () => {
+    delete process.env.LLM_PROVIDER;
+    writeLlmConfig({
+      provider: "cloud",
+      cloud: { providerId: "openai", keySource: { type: "inline", key: "sk-savedopenaikey0000" } },
+    });
+
+    const res = await GET();
+    const j = await res.json();
+    assert.equal(j.cloud.model, undefined);
+  });
+
   test("local -> active model + installed chat models (embedding models excluded)", async () => {
     process.env.LLM_PROVIDER = "ollama";
     process.env.LOCAL_LLM_MODEL = "gemma3:12b";

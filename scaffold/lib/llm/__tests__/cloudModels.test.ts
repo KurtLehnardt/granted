@@ -85,3 +85,77 @@ describe("listCloudModels", () => {
     assert.match(result.error!, /couldn't reach/i);
   });
 });
+
+// Anthropic goes through the SDK, whose fetch is only reachable via the
+// AsyncLocalStorage seam in client.ts (see cloudClient.test.ts).
+describe("probeCloudKey — anthropic", () => {
+  test("valid key -> ok, via GET /v1/models (never spends a completion)", async () => {
+    const { withHostedFetch } = await import("../client");
+    let calledUrl = "";
+    await withHostedFetch((async (url: any) => {
+      calledUrl = url.toString();
+      return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { "content-type": "application/json" } });
+    }) as any, async () => {
+      const outcome = await probeCloudKey({ providerId: "anthropic", key: "sk-ant-abcXYZ1234567890", model: "claude-x" });
+      assert.equal(outcome.ok, true);
+    });
+    assert.match(calledUrl, /\/v1\/models/);
+  });
+
+  test("a mistyped/nonexistent model never affects the probe (no messages.create call at all)", async () => {
+    const { withHostedFetch } = await import("../client");
+    await withHostedFetch((async () => new Response(JSON.stringify({ data: [] }), { status: 200, headers: { "content-type": "application/json" } })) as any, async () => {
+      const outcome = await probeCloudKey({ providerId: "anthropic", key: "sk-ant-abcXYZ1234567890", model: "not-a-real-model" });
+      assert.equal(outcome.ok, true);
+    });
+  });
+
+  test("401 -> invalid_key", async () => {
+    const { withHostedFetch } = await import("../client");
+    await withHostedFetch(
+      (async () => new Response(JSON.stringify({ error: { type: "authentication_error", message: "invalid x-api-key" } }), { status: 401, headers: { "content-type": "application/json" } })) as any,
+      async () => {
+        const outcome = await probeCloudKey({ providerId: "anthropic", key: "sk-ant-badkey00000000", model: "claude-x" });
+        assert.equal(outcome.ok, false);
+        if (!outcome.ok) assert.equal(outcome.kind, "invalid_key");
+      },
+    );
+  });
+
+  test("429 -> rate_limited", async () => {
+    const { withHostedFetch } = await import("../client");
+    await withHostedFetch(
+      (async () => new Response(JSON.stringify({ error: { type: "rate_limit_error", message: "slow down" } }), { status: 429, headers: { "content-type": "application/json" } })) as any,
+      async () => {
+        const outcome = await probeCloudKey({ providerId: "anthropic", key: "sk-ant-abcXYZ1234567890", model: "claude-x" });
+        assert.equal(outcome.ok, false);
+        if (!outcome.ok) assert.equal(outcome.kind, "rate_limited");
+      },
+    );
+  });
+});
+
+describe("listCloudModels — anthropic", () => {
+  test("parses model ids off the SDK's models.list() page", async () => {
+    const { withHostedFetch } = await import("../client");
+    await withHostedFetch(
+      (async () => new Response(JSON.stringify({ data: [{ id: "claude-opus-4" }, { id: "claude-haiku-4-5" }] }), { status: 200, headers: { "content-type": "application/json" } })) as any,
+      async () => {
+        const result = await listCloudModels({ providerId: "anthropic", key: "sk-ant-abcXYZ1234567890" });
+        assert.deepEqual(result.models, ["claude-opus-4", "claude-haiku-4-5"]);
+      },
+    );
+  });
+
+  test("401 -> error, no models", async () => {
+    const { withHostedFetch } = await import("../client");
+    await withHostedFetch(
+      (async () => new Response(JSON.stringify({ error: { type: "authentication_error", message: "invalid x-api-key" } }), { status: 401, headers: { "content-type": "application/json" } })) as any,
+      async () => {
+        const result = await listCloudModels({ providerId: "anthropic", key: "sk-ant-badkey00000000" });
+        assert.equal(result.models, undefined);
+        assert.match(result.error!, /didn't work/i);
+      },
+    );
+  });
+});

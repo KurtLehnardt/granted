@@ -40,6 +40,7 @@ export async function handleTestKeyPost(
   let baseUrl: string | undefined;
   let keySourceInput: unknown;
   let model: string | undefined;
+  let saved: ReturnType<typeof d.resolveCloudConfig>;
 
   if (body?.providerId !== undefined || body?.keySource !== undefined) {
     providerId = body.providerId;
@@ -55,6 +56,10 @@ export async function handleTestKeyPost(
     }
     keySourceInput = body.keySource;
     model = typeof body.model === "string" && body.model.trim() ? body.model.trim() : undefined;
+    // A {type:"saved"} (or omitted) key source reuses the currently saved key
+    // for this same provider — never across a provider switch.
+    const current = d.resolveCloudConfig();
+    saved = current && current.providerId === providerId ? current : undefined;
   } else {
     const cfg = d.resolveCloudConfig();
     if (!cfg) return NextResponse.json({ ok: false, error: "No cloud key saved or provided." }, { status: 400 });
@@ -64,7 +69,7 @@ export async function handleTestKeyPost(
     model = resolveCloudModel(cfg);
   }
 
-  const draft = resolveDraftKey(providerId as any, keySourceInput);
+  const draft = resolveDraftKey(providerId as any, keySourceInput, saved?.keySource);
   if (draft.error) return NextResponse.json({ ok: false, error: draft.error }, { status: 400 });
 
   const outcome = await d.probeCloudKey({

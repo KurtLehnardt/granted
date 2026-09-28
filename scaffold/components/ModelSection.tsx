@@ -93,9 +93,14 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function currentKeySource(): PublicKeySource & { key?: string } {
+  // A blank pasted-key field reuses the already-saved key for this provider
+  // (server-side, only if the provider hasn't changed) rather than sending an
+  // empty inline key — lets Save/Test key/Load models work on a saved key the
+  // draft never re-shows.
+  function currentKeySource(): (PublicKeySource & { key?: string }) | { type: "saved" } {
     if (keySourceType === "env") return { type: "env", name: envName.trim() };
     if (keySourceType === "file") return { type: "file", path: filePath.trim() };
+    if (!keyDraft.trim()) return { type: "saved" };
     return { type: "inline", key: keyDraft.trim() } as any;
   }
 
@@ -152,6 +157,30 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
         setError(json?.error ?? "Please enter a key for your cloud provider.");
         return;
       }
+      await refresh();
+    } catch {
+      setError("Couldn't reach the server. Try again.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleRemoveCloud() {
+    setSaving(true);
+    setError(null);
+    setTestResult(null);
+    try {
+      const res = await fetch("/api/llm/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: "ollama", clearCloud: true }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(json?.error ?? `HTTP ${res.status}`);
+        return;
+      }
+      setUiProvider("ollama");
       await refresh();
     } catch {
       setError("Couldn't reach the server. Try again.");
@@ -224,6 +253,12 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
 
   const localModels = info?.models ?? null;
   const preset = CLOUD_PROVIDERS.find((p) => p.id === providerId);
+  // The persisted provider (what actually runs searches), independent of
+  // which panel is open for editing — a revealed-but-unsaved Cloud panel, or
+  // a failed Save, must not make this look switched.
+  const activeProvider = info?.provider ?? "ollama";
+  const activeCloudLabel = CLOUD_PROVIDERS.find((p) => p.id === info?.cloud?.providerId)?.label;
+  const modelRequired = uiProvider === "cloud" && providerId !== "anthropic" && !preset?.defaultModel;
 
   function keySourceStatusLine(): string | null {
     if (!info?.cloud?.hasKey) return null;
@@ -239,8 +274,8 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
       <div className="mt-2 flex gap-2" role="group" aria-label="LLM provider">
         <button
           type="button"
-          className={segBtnClass(uiProvider === "ollama")}
-          aria-pressed={uiProvider === "ollama"}
+          className={segBtnClass(activeProvider === "ollama")}
+          aria-pressed={activeProvider === "ollama"}
           disabled={saving}
           onClick={selectLocal}
         >
@@ -248,14 +283,17 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
         </button>
         <button
           type="button"
-          className={segBtnClass(uiProvider === "cloud")}
-          aria-pressed={uiProvider === "cloud"}
+          className={segBtnClass(activeProvider === "cloud")}
+          aria-pressed={activeProvider === "cloud"}
           disabled={saving}
           onClick={selectCloud}
         >
           Cloud
         </button>
       </div>
+      <p className="mt-1.5 font-body text-[12px] text-foreground opacity-70" data-testid="active-provider">
+        Active: {activeProvider === "cloud" ? `Cloud${activeCloudLabel ? ` (${activeCloudLabel})` : ""}` : "Local"}
+      </p>
 
       {uiProvider === "ollama" && (
         <div data-testid="model-panel-local" className="mt-3">
@@ -317,6 +355,9 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
             value={providerId}
             onChange={(e) => {
               setProviderId(e.target.value as CloudProviderId);
+              // A model picked for one provider is never valid for another — the
+              // "gpt-4o-mini" carried onto an Anthropic save was exactly this bug.
+              setCloudModel("");
               setCloudModelsList([]);
               setModelsError(null);
             }}
@@ -366,7 +407,13 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
                 type="password"
                 value={keyDraft}
                 onChange={(e) => setKeyDraft(e.target.value)}
-                placeholder={preset?.id === "anthropic" ? "sk-ant-..." : "API key"}
+                placeholder={
+                  info?.cloud?.providerId === providerId && info.cloud.hasKey && info.cloud.keySource.type === "inline"
+                    ? "Leave blank to keep the saved key"
+                    : preset?.id === "anthropic"
+                      ? "sk-ant-..."
+                      : "API key"
+                }
                 className={`${inputClass} mt-2`}
                 autoComplete="off"
               />
@@ -397,14 +444,15 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
 
           <div className="mt-3">
             <label className={legendClass} htmlFor={cloudModelId}>
-              Model
+              Model{modelRequired ? " (required)" : ""}
             </label>
             <input
               id={cloudModelId}
               type="text"
               value={cloudModel}
               onChange={(e) => setCloudModel(e.target.value)}
-              placeholder={preset?.defaultModel ?? "Default"}
+              placeholder={preset?.defaultModel ?? (modelRequired ? "Required — this provider has no default" : "Default")}
+              required={modelRequired}
               className={inputClass}
               list={`${cloudModelId}-list`}
             />
@@ -429,6 +477,9 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
             </button>
             <button type="button" className={smallBtnClass} onClick={handleTestKey} disabled={testing}>
               {testing ? "Testing…" : "Test key"}
+            </button>
+            <button type="button" className={smallBtnClass} onClick={handleRemoveCloud} disabled={saving || !info?.cloud}>
+              Remove
             </button>
             {testResult && (
               <span className="font-body text-[12px] text-foreground">

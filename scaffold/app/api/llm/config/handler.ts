@@ -38,16 +38,18 @@ export async function handleLlmConfigPost(
   }
 
   if (provider === "ollama") {
-    const patch: LlmConfigFile = { provider: "ollama" };
+    const patch: LlmConfigFile = { provider: "ollama", anthropicApiKey: undefined };
     if (body?.clearCloud === true) patch.cloud = undefined;
     const saved = d.writeLlmConfig(patch);
     return NextResponse.json({ provider: saved.provider ?? "ollama" });
   }
 
-  const { config, error } = validateCloudConfig(body?.cloud ?? {});
+  const currentCloud = d.readLlmConfig().cloud;
+  const { config, error } = validateCloudConfig(body?.cloud ?? {}, currentCloud);
   if (error) return NextResponse.json({ error }, { status: 400 });
 
-  const saved = d.writeLlmConfig({ provider: "cloud", cloud: config });
+  // A fresh cloud save always supersedes #210's legacy plaintext field.
+  const saved = d.writeLlmConfig({ provider: "cloud", cloud: config, anthropicApiKey: undefined });
   const savedCloud = saved.cloud!;
   return NextResponse.json({
     provider: "cloud",

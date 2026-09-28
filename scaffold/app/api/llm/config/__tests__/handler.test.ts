@@ -136,7 +136,7 @@ describe("POST /api/llm/config", () => {
     assert.equal(badUrl.status, 400);
 
     const ok = await handleLlmConfigPost(
-      fakeReq({ provider: "cloud", cloud: { providerId: "other", baseUrl: "https://my-proxy.example.com/v1", keySource: { type: "inline", key: "a-fine-key-value" } } }),
+      fakeReq({ provider: "cloud", cloud: { providerId: "other", baseUrl: "https://my-proxy.example.com/v1", model: "custom-model", keySource: { type: "inline", key: "a-fine-key-value" } } }),
       deps,
     );
     assert.equal(ok.status, 200);
@@ -213,5 +213,77 @@ describe("POST /api/llm/config", () => {
     );
     const json = await res.json();
     assert.equal(JSON.stringify(json).includes("sk-ant-abcXYZ1234567890"), false);
+  });
+
+  test("400 saving a provider with no default model and none given (openrouter/mistral/other)", async () => {
+    for (const providerId of ["openrouter", "mistral"]) {
+      const deps = fakeDeps();
+      const res = await handleLlmConfigPost(
+        fakeReq({ provider: "cloud", cloud: { providerId, keySource: { type: "inline", key: "a-fine-key-value000" } } }),
+        deps,
+      );
+      const json = await res.json();
+      assert.equal(res.status, 400, providerId);
+      assert.match(json.error, /model/i);
+    }
+  });
+
+  test("saving openrouter with a model succeeds", async () => {
+    const deps = fakeDeps();
+    const res = await handleLlmConfigPost(
+      fakeReq({ provider: "cloud", cloud: { providerId: "openrouter", model: "some/model", keySource: { type: "inline", key: "a-fine-key-value000" } } }),
+      deps,
+    );
+    assert.equal(res.status, 200);
+  });
+
+  test("anthropic needs no model even with no default", async () => {
+    const deps = fakeDeps();
+    const res = await handleLlmConfigPost(
+      fakeReq({ provider: "cloud", cloud: { providerId: "anthropic", keySource: { type: "inline", key: "sk-ant-abcXYZ1234567890" } } }),
+      deps,
+    );
+    assert.equal(res.status, 200);
+  });
+
+  test("switching to ollama purges a legacy #210 plaintext key", async () => {
+    const deps = fakeDeps({}, { provider: "anthropic", anthropicApiKey: "sk-ant-legacyplaintext0" });
+    const res = await handleLlmConfigPost(fakeReq({ provider: "ollama" }), deps);
+    assert.equal(res.status, 200);
+    assert.equal(deps._get().anthropicApiKey, undefined);
+  });
+
+  test("a cloud save purges a legacy #210 plaintext key even when switching key source type", async () => {
+    const deps = fakeDeps({}, { provider: "anthropic", anthropicApiKey: "sk-ant-legacyplaintext0" });
+    process.env.GRANTED_CONFIG_TEST_ENV_SWITCH = "sk-ant-fromenvvalue0000";
+    const res = await handleLlmConfigPost(
+      fakeReq({ provider: "cloud", cloud: { providerId: "anthropic", keySource: { type: "env", name: "GRANTED_CONFIG_TEST_ENV_SWITCH" } } }),
+      deps,
+    );
+    assert.equal(res.status, 200);
+    assert.equal(deps._get().anthropicApiKey, undefined);
+    delete process.env.GRANTED_CONFIG_TEST_ENV_SWITCH;
+  });
+
+  test("keySource {type:'saved'} reuses the previously saved key for the same provider", async () => {
+    const deps = fakeDeps({}, { provider: "cloud", cloud: { providerId: "openai", model: "gpt-4o", keySource: { type: "inline", key: "sk-savedopenaikey0000" } } });
+    const res = await handleLlmConfigPost(
+      fakeReq({ provider: "cloud", cloud: { providerId: "openai", model: "gpt-4o-mini", keySource: { type: "saved" } } }),
+      deps,
+    );
+    assert.equal(res.status, 200);
+    assert.deepEqual(deps._get().cloud?.keySource, { type: "inline", key: "sk-savedopenaikey0000" });
+    assert.equal(deps._get().cloud?.model, "gpt-4o-mini");
+  });
+
+  test("keySource {type:'saved'} after switching provider -> 400, the old key is not reused", async () => {
+    const deps = fakeDeps({}, { provider: "cloud", cloud: { providerId: "openai", model: "gpt-4o", keySource: { type: "inline", key: "sk-savedopenaikey0000" } } });
+    const res = await handleLlmConfigPost(
+      fakeReq({ provider: "cloud", cloud: { providerId: "groq", model: "llama-3.3-70b-versatile", keySource: { type: "saved" } } }),
+      deps,
+    );
+    const json = await res.json();
+    assert.equal(res.status, 400);
+    assert.equal(json.error, "Please enter a key for your cloud provider.");
   });
 });

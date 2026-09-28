@@ -21,9 +21,18 @@ export interface ValidationResult {
 
 const NO_KEY_MESSAGE = "Please enter a key for your cloud provider.";
 
-export function parseKeySourceInput(raw: unknown): KeySource | { error: string } {
-  if (!raw || typeof raw !== "object") return { error: NO_KEY_MESSAGE };
+/**
+ * Parses a key-source payload. `saved` is the currently persisted key source
+ * for the same provider (undefined if none, or the provider changed) — a
+ * payload of `{type:"saved"}`, or an omitted `keySource` entirely, falls back
+ * to it. Lets Save/Test key/Load models reuse an already-saved pasted key
+ * without the client ever resending or reprefilling the secret itself.
+ */
+export function parseKeySourceInput(raw: unknown, saved?: KeySource): KeySource | { error: string } {
+  if (raw === undefined || raw === null) return saved ?? { error: NO_KEY_MESSAGE };
+  if (typeof raw !== "object") return { error: NO_KEY_MESSAGE };
   const r = raw as Record<string, unknown>;
+  if (r.type === "saved") return saved ?? { error: NO_KEY_MESSAGE };
   if (r.type === "inline") {
     if (typeof r.key !== "string" || !r.key.trim()) return { error: NO_KEY_MESSAGE };
     return { type: "inline", key: r.key.trim() };
@@ -48,9 +57,9 @@ export function formatErrorMessage(providerId: CloudProviderId): string {
 }
 
 /** Resolves + format-checks a key source for one provider, e.g. for "Test key" on a not-yet-saved draft. */
-export function resolveDraftKey(providerId: CloudProviderId, keySourceInput: unknown): { key?: string; error?: string } {
+export function resolveDraftKey(providerId: CloudProviderId, keySourceInput: unknown, saved?: KeySource): { key?: string; error?: string } {
   const preset = getCloudProvider(providerId)!;
-  const parsed = parseKeySourceInput(keySourceInput);
+  const parsed = parseKeySourceInput(keySourceInput, saved);
   if ("error" in parsed) return { error: parsed.error };
   const resolved = resolveKeySource(parsed, preset.isKeyValid);
   if (resolved.error) return { error: resolved.error };
@@ -58,9 +67,16 @@ export function resolveDraftKey(providerId: CloudProviderId, keySourceInput: unk
   return { key: resolved.key };
 }
 
-export function validateCloudConfig(input: CloudConfigInput): ValidationResult {
+/**
+ * `currentCloud` is the presently saved cloud config, if any — its key source
+ * is offered as the "saved" fallback, but only when this save keeps the same
+ * provider (a provider switch always needs its own key, never a carried-over
+ * one from a different provider).
+ */
+export function validateCloudConfig(input: CloudConfigInput, currentCloud?: CloudConfig): ValidationResult {
   if (!isCloudProviderId(input.providerId)) return { error: "Choose a cloud provider." };
   const providerId = input.providerId;
+  const preset = getCloudProvider(providerId)!;
 
   let baseUrl: string | undefined;
   if (providerId === "other") {
@@ -70,8 +86,12 @@ export function validateCloudConfig(input: CloudConfigInput): ValidationResult {
   }
 
   const model = typeof input.model === "string" && input.model.trim() ? input.model.trim() : undefined;
+  if (!model && !preset.defaultModel && providerId !== "anthropic") {
+    return { error: "Choose a model for this provider." };
+  }
 
-  const parsed = parseKeySourceInput(input.keySource);
+  const saved = currentCloud && currentCloud.providerId === providerId ? currentCloud.keySource : undefined;
+  const parsed = parseKeySourceInput(input.keySource, saved);
   if ("error" in parsed) return { error: parsed.error };
 
   const draft = resolveDraftKey(providerId, parsed);

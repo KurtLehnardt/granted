@@ -41,9 +41,53 @@ describe("validateCloudConfig", () => {
     const r = validateCloudConfig({
       providerId: "other",
       baseUrl: "https://example.com/v1",
+      model: "custom-model",
       keySource: { type: "inline", key: "a-fine-key-value" },
     });
     assert.equal(r.config?.baseUrl, "https://example.com/v1");
+  });
+
+  test("provider with no default model and none given -> error", () => {
+    for (const providerId of ["openrouter", "mistral", "other"]) {
+      const r = validateCloudConfig({
+        providerId,
+        baseUrl: "https://example.com/v1",
+        keySource: { type: "inline", key: "a-fine-key-value" },
+      });
+      assert.match(r.error!, /model/i, providerId);
+    }
+  });
+
+  test("provider with no default model, but a model given -> succeeds", () => {
+    const r = validateCloudConfig({
+      providerId: "openrouter",
+      model: "some/model",
+      keySource: { type: "inline", key: "a-fine-key-value" },
+    });
+    assert.equal(r.config?.model, "some/model");
+  });
+
+  test("anthropic (no default model either) doesn't require one", () => {
+    const r = validateCloudConfig({ providerId: "anthropic", keySource: { type: "inline", key: "sk-ant-abcXYZ1234567890" } });
+    assert.equal(r.error, undefined);
+  });
+
+  test("keySource {type:'saved'} reuses the given saved key source for the same provider", () => {
+    const currentCloud = { providerId: "openai" as const, model: "gpt-4o", keySource: { type: "inline" as const, key: "sk-savedopenaikey0000" } };
+    const r = validateCloudConfig({ providerId: "openai", model: "gpt-4o", keySource: { type: "saved" } }, currentCloud);
+    assert.deepEqual(r.config?.keySource, { type: "inline", key: "sk-savedopenaikey0000" });
+  });
+
+  test("keySource {type:'saved'} with no matching saved provider -> the inline 'please enter a key' message", () => {
+    const currentCloud = { providerId: "openai" as const, keySource: { type: "inline" as const, key: "sk-savedopenaikey0000" } };
+    const r = validateCloudConfig({ providerId: "groq", model: "llama-3.3-70b", keySource: { type: "saved" } }, currentCloud);
+    assert.equal(r.error, "Please enter a key for your cloud provider.");
+  });
+
+  test("omitted keySource falls back to the saved one for the same provider", () => {
+    const currentCloud = { providerId: "openai" as const, model: "gpt-4o", keySource: { type: "inline" as const, key: "sk-savedopenaikey0000" } };
+    const r = validateCloudConfig({ providerId: "openai", model: "gpt-4o-mini" }, currentCloud);
+    assert.deepEqual(r.config?.keySource, { type: "inline", key: "sk-savedopenaikey0000" });
   });
 
   test("model is trimmed and persisted when given", () => {

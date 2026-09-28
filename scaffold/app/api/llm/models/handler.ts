@@ -3,6 +3,7 @@ import { isLoopbackRequest } from "@/lib/corpus/loopback";
 import { isCloudProviderId, isValidHttpsUrl } from "@/lib/llm/providers";
 import { resolveDraftKey } from "@/lib/llm/validateCloudConfig";
 import { listCloudModels } from "@/lib/llm/cloudModels";
+import { resolveCloudConfig } from "@/lib/llm/config";
 
 // POST /api/llm/models — populates the Settings model picker for a cloud
 // provider once a key resolves. Loopback-only; never echoes the key.
@@ -10,9 +11,10 @@ import { listCloudModels } from "@/lib/llm/cloudModels";
 export type ModelsDeps = {
   isLoopbackRequest: typeof isLoopbackRequest;
   listCloudModels: typeof listCloudModels;
+  resolveCloudConfig: typeof resolveCloudConfig;
 };
 
-const REAL_DEPS: ModelsDeps = { isLoopbackRequest, listCloudModels };
+const REAL_DEPS: ModelsDeps = { isLoopbackRequest, listCloudModels, resolveCloudConfig };
 
 export async function handleModelsPost(
   req: { headers: { get(name: string): string | null }; json: () => Promise<unknown> },
@@ -43,7 +45,11 @@ export async function handleModelsPost(
     if (!isValidHttpsUrl(baseUrl)) return NextResponse.json({ error: "Enter a valid https base URL." }, { status: 400 });
   }
 
-  const draft = resolveDraftKey(providerId, body?.keySource);
+  // A {type:"saved"} (or omitted) key source reuses the currently saved key
+  // for this same provider — never across a provider switch.
+  const current = d.resolveCloudConfig();
+  const saved = current && current.providerId === providerId ? current.keySource : undefined;
+  const draft = resolveDraftKey(providerId, body?.keySource, saved);
   if (draft.error) return NextResponse.json({ error: draft.error }, { status: 400 });
 
   const result = await d.listCloudModels({ providerId, baseUrl, key: draft.key! });

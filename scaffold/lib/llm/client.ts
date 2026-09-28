@@ -9,6 +9,10 @@ const hostedFetchAls = new AsyncLocalStorage<typeof fetch>();
 export function withHostedFetch<T>(fetchImpl: typeof fetch | undefined, fn: () => T): T {
   return fetchImpl ? hostedFetchAls.run(fetchImpl, fn) : fn();
 }
+/** The fetch impl tests inject via withHostedFetch, for any other Anthropic SDK client construction (e.g. cloudModels.ts's probe/models-list). */
+export function currentHostedFetch(): typeof fetch | undefined {
+  return hostedFetchAls.getStore();
+}
 
 /**
  * LLM provider seam. `makeLlmClient()` returns something that walks and talks

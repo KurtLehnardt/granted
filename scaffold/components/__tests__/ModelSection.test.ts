@@ -110,4 +110,54 @@ describe("ModelSection — renders the right panel per provider", () => {
     assert.match(html, /Save/);
     assert.match(html, /Test key/);
   });
+
+  test("Remove control is present on the cloud panel", () => {
+    assert.match(render({ provider: "cloud", local: false }), />\s*Remove\s*</);
+  });
+
+  test("active-provider indicator reports the server's provider, not just which panel is open", () => {
+    // Server is on ollama — even a render where the initial panel would be
+    // cloud (a saved cloud config exists) must still say the active provider
+    // is Local, never "Cloud", since only Save (never merely opening the
+    // panel) can change what's active.
+    const html = render({
+      provider: "ollama",
+      local: true,
+      cloud: { providerId: "openai", hasKey: true, keyHint: "0000", keySource: { type: "inline" } },
+    });
+    assert.match(html, /active-provider/);
+    assert.match(html, /Active:\s*Local/);
+    assert.doesNotMatch(html, /Active:\s*Cloud/);
+  });
+
+  test("active-provider indicator names the active cloud provider", () => {
+    const html = render({
+      provider: "cloud",
+      local: false,
+      cloud: { providerId: "groq", hasKey: true, keyHint: "0000", keySource: { type: "inline" } },
+    });
+    assert.match(html, /Active:\s*Cloud \(Groq\)/);
+  });
+
+  test("model field is marked required for a provider with no default (openrouter), not for one with a default (openai)", () => {
+    const openrouter = render({ provider: "cloud", local: false, cloud: { providerId: "openrouter", hasKey: false, keySource: { type: "inline" } } });
+    assert.match(openrouter, /Model \(required\)/);
+
+    const openai = render({ provider: "cloud", local: false, cloud: { providerId: "openai", hasKey: false, keySource: { type: "inline" } } });
+    assert.doesNotMatch(openai, /Model \(required\)/);
+  });
+
+  test("model field is not marked required for anthropic, despite having no default", () => {
+    const html = render({ provider: "cloud", local: false, cloud: { providerId: "anthropic", hasKey: false, keySource: { type: "inline" } } });
+    assert.doesNotMatch(html, /Model \(required\)/);
+  });
+
+  test("a saved inline key never reprefills the draft field, but its placeholder says the key is kept if left blank", () => {
+    const html = render({
+      provider: "cloud",
+      local: false,
+      cloud: { providerId: "openai", hasKey: true, keyHint: "0000", keySource: { type: "inline" } },
+    });
+    assert.match(html, /Leave blank to keep the saved key/);
+  });
 });

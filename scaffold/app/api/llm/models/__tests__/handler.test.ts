@@ -1,6 +1,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { handleModelsPost, type ModelsDeps } from "../handler";
+import type { CloudConfig } from "@/lib/llm/config";
 
 function fakeReq(body?: unknown): { headers: { get(name: string): string | null }; json: () => Promise<unknown> } {
   return {
@@ -16,6 +17,7 @@ function fakeDeps(overrides: Partial<ModelsDeps> = {}): ModelsDeps {
   return {
     isLoopbackRequest: () => true,
     listCloudModels: (async () => ({ models: ["a", "b"] })) as any,
+    resolveCloudConfig: () => undefined,
     ...overrides,
   };
 }
@@ -66,5 +68,30 @@ describe("POST /api/llm/models", () => {
     );
     const json = await res.json();
     assert.equal(JSON.stringify(json).includes("sk-secretkeynotecho00"), false);
+  });
+
+  test("keySource {type:'saved'} reuses the saved key for the same provider", async () => {
+    let sent: any;
+    const savedCloud: CloudConfig = { providerId: "openai", keySource: { type: "inline", key: "sk-savedopenaikey0000" } };
+    const res = await handleModelsPost(
+      fakeReq({ providerId: "openai", keySource: { type: "saved" } }),
+      fakeDeps({
+        resolveCloudConfig: () => savedCloud,
+        listCloudModels: (async (p: any) => { sent = p; return { models: ["gpt-4o"] }; }) as any,
+      }),
+    );
+    assert.equal(res.status, 200);
+    assert.equal(sent.key, "sk-savedopenaikey0000");
+  });
+
+  test("keySource {type:'saved'} does not carry over to a different provider -> 400", async () => {
+    const savedCloud: CloudConfig = { providerId: "openai", keySource: { type: "inline", key: "sk-savedopenaikey0000" } };
+    const res = await handleModelsPost(
+      fakeReq({ providerId: "groq", keySource: { type: "saved" } }),
+      fakeDeps({ resolveCloudConfig: () => savedCloud }),
+    );
+    const json = await res.json();
+    assert.equal(res.status, 400);
+    assert.equal(json.error, "Please enter a key for your cloud provider.");
   });
 });
