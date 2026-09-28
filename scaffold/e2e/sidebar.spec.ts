@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { skipWelcomeGuide } from "./fixtures";
 
 /**
  * Journey 7 — Sidebar / nav menu (critical, wired). The single nav cluster's
@@ -12,6 +13,7 @@ import { test, expect } from "@playwright/test";
  * under test.
  */
 test("sidebar: the nav trigger opens and closes its dialog", async ({ page }) => {
+  await skipWelcomeGuide(page);
   await page.goto("/");
 
   const trigger = page.getByRole("button", { name: /open settings|open menu/i });
@@ -26,6 +28,7 @@ test("sidebar: the nav trigger opens and closes its dialog", async ({ page }) =>
 });
 
 test("sidebar (left_sidebar build): section state persists across reload", async ({ page }) => {
+  await skipWelcomeGuide(page);
   await page.goto("/");
   const trigger = page.getByRole("button", { name: /open menu/i });
   if (!(await trigger.count())) {

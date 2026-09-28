@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { stubBackend, DETAILED_DESCRIPTION, FIXTURE_PROGRAM } from "./fixtures";
+import { stubBackend, skipWelcomeGuide, DETAILED_DESCRIPTION, FIXTURE_PROGRAM } from "./fixtures";
 
 /**
  * Journey 1 — Search (critical, wired). Land on /, describe a company, submit,
@@ -7,6 +7,7 @@ import { stubBackend, DETAILED_DESCRIPTION, FIXTURE_PROGRAM } from "./fixtures";
  */
 test("search: describe a company, submit, and see the opportunity map", async ({ page }) => {
   await stubBackend(page);
+  await skipWelcomeGuide(page);
   await page.goto("/");
 
   await page.getByLabel(/tell us about your company/i).fill(DETAILED_DESCRIPTION);
@@ -16,7 +17,7 @@ test("search: describe a company, submit, and see the opportunity map", async ({
   await cta.click();
 
   // The streamed result renders the opportunity card for our fixture program.
-  await expect(page.getByText(FIXTURE_PROGRAM)).toBeVisible();
+  await expect(page.getByText(FIXTURE_PROGRAM).first()).toBeVisible();
 });
 
 /**
@@ -35,6 +36,7 @@ test("search: a result-less stream shows an error and a Try again affordance", a
       body: JSON.stringify({ type: "progress", key: "start", label: "Reading…", pct: 5 }) + "\n",
     }),
   );
+  await skipWelcomeGuide(page);
   await page.goto("/");
   await page.getByLabel(/tell us about your company/i).fill(DETAILED_DESCRIPTION);
   await page.getByRole("button", { name: /find opportunities/i }).click();

@@ -21,15 +21,15 @@ test("welcome guide: first visit shows the guide; picking a sample runs the sear
   await expect(dialog.getByText("Describe your company")).toBeVisible();
 
   await dialog.getByRole("button", { name: "Show sample companies" }).click();
-  // Sample items render their one-line "Fictional …" blurb; pick the first.
-  await dialog.getByRole("button").filter({ hasText: /^Fictional/i }).first().click();
+  // Sample items render as "<Label><one-line Fictional… blurb>"; match the blurb.
+  await dialog.getByRole("button").filter({ hasText: /Fictional/i }).first().click();
   await dialog.getByRole("button", { name: "Next" }).click();
 
   await expect(dialog.getByText("Choose your model")).toBeVisible();
   await dialog.getByRole("button", { name: "Done" }).click();
 
   await expect(dialog).not.toBeVisible();
-  await expect(page.getByText(FIXTURE_PROGRAM)).toBeVisible();
+  await expect(page.getByText(FIXTURE_PROGRAM).first()).toBeVisible();
   await expect(page.getByLabel("Company description")).toHaveValue("");
 });
 
