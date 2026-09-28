@@ -11,18 +11,16 @@ import {
   getAutoUpdateCorpus,
   getMaxCandidates,
   getMaxCorpusSize,
-  getModel,
   setAutoUpdateCorpus,
   setMaxCandidates,
   setMaxCorpusSize,
-  setModel,
   MIN_CORPUS_SIZE,
   MAX_CORPUS_SIZE,
 } from "@/lib/searchSettings";
-import type { OllamaModel } from "@/lib/llm/ollamaInfo";
 import { stageLabel } from "@/lib/corpus/refreshProgress";
 import type { RefreshProgress } from "@/lib/corpus/refreshStatus";
 import { useReplayWelcomeGuide } from "@/components/WelcomeGuide";
+import ModelSection from "@/components/ModelSection";
 
 interface CorpusStatus {
   builtAt: string | null;
@@ -66,23 +64,6 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
   const [form, setForm] = useState<AutoFillRequirements>(() => getAutoFillRequirements());
   const [maxCandidates, setMaxCandidatesState] = useState<number | null>(() => getMaxCandidates());
   const [savedAt, setSavedAt] = useState<number | null>(null);
-  // Stays null when hosted, so the model picker never renders.
-  const [localModels, setLocalModels] = useState<OllamaModel[] | null>(null);
-  const [defaultModel, setDefaultModel] = useState<string | null>(null);
-  const [model, setModelState] = useState<string | null>(() => getModel());
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/llm")
-      .then((res) => res.json())
-      .then((j) => {
-        if (cancelled || !j?.local) return;
-        setLocalModels(Array.isArray(j.models) ? j.models : []);
-        setDefaultModel(typeof j.model === "string" ? j.model : null);
-      })
-      .catch(() => { /* hosted, or the lookup failed — no picker */ });
-    return () => { cancelled = true; };
-  }, []);
   const [autoUpdate, setAutoUpdate] = useState(() => getAutoUpdateCorpus());
   const [maxCorpusSize, setMaxCorpusSizeState] = useState(() => getMaxCorpusSize());
   const [corpusStatus, setCorpusStatus] = useState<CorpusStatus | null>(null);
@@ -166,7 +147,6 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
   const aorNameId = `${uid}-aor-name`;
   const samRadioName = `${uid}-samRegistered`;
   const depthId = `${uid}-search-depth`;
-  const modelId = `${uid}-model`;
   const orgNameId = `${uid}-org-name`;
   const streetId = `${uid}-street`;
   const cityId = `${uid}-city`;
@@ -179,7 +159,6 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
     e.preventDefault();
     setAutoFillRequirements(form);
     setMaxCandidates(maxCandidates);
-    setModel(model);
     setAutoUpdateCorpus(autoUpdate);
     setMaxCorpusSize(maxCorpusSize);
     setSavedAt(Date.now());
@@ -382,37 +361,7 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
         </p>
       </div>
 
-      {localModels && localModels.length > 0 && (
-        <div className={fieldWrapClass}>
-          <label className={legendClass} htmlFor={modelId}>
-            Local model
-          </label>
-          <select
-            id={modelId}
-            value={model ?? ""}
-            onChange={(e) => {
-              setSavedAt(null);
-              const v = e.target.value;
-              setModelState(v === "" ? null : v);
-            }}
-            className={inputClass}
-          >
-            <option value="">
-              Default{defaultModel ? ` (${defaultModel})` : ""}
-            </option>
-            {localModels.map((m) => (
-              <option key={m.name} value={m.name}>
-                {m.name}
-                {m.paramsB != null ? ` (${m.paramsB}B)` : ""}
-              </option>
-            ))}
-          </select>
-          <p className="mt-1.5 font-body text-[12px] text-foreground opacity-80">
-            Which installed Ollama model runs your search. Larger models are more capable but
-            slower.
-          </p>
-        </div>
-      )}
+      <ModelSection />
 
       <div className={fieldWrapClass}>
         <span className={legendClass}>Cached grant data</span>

@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import Anthropic from "@anthropic-ai/sdk";
 import { normalizeOpenAiBaseUrl } from "./baseUrl";
 import { currentLocalModel } from "./modelContext";
+import { resolveProvider, resolveAnthropicKey } from "./config";
 
 /** Test-only: the SDK binds node-fetch at import, so hosted tests inject fetch here. */
 const hostedFetchAls = new AsyncLocalStorage<typeof fetch>();
@@ -34,8 +35,13 @@ export function withHostedFetch<T>(fetchImpl: typeof fetch | undefined, fn: () =
 
 export type LlmClient = Pick<Anthropic, "messages">;
 
+/**
+ * Runtime-config-first: data/local/llm-config.json (Settings' Local/Cloud
+ * switch), written by POST /api/llm/config, takes precedence over the env var
+ * below — see ./config. Absent file = today's env-only behavior.
+ */
 function provider(): string {
-  return (process.env.LLM_PROVIDER || "anthropic").toLowerCase();
+  return resolveProvider();
 }
 
 export function defaultLocalModel(): string {
@@ -54,21 +60,27 @@ export interface LlmClientOptions {
 
 export function makeLlmClient(opts: LlmClientOptions = {}): LlmClient {
   if (!isLocalLlm()) {
-    const key = process.env.ANTHROPIC_API_KEY;
+    const key = resolveAnthropicKey();
     if (!key) {
       throw new Error(
-        "ANTHROPIC_API_KEY is not set. Add it to .env.local (or set LLM_PROVIDER=ollama to run on a local model).",
+        "ANTHROPIC_API_KEY is not set. Add it to .env.local (or switch to Local in Settings to run on a local model).",
       );
     }
-    return new Anthropic({
-      apiKey: key,
-      timeout: opts.timeout,
-      maxRetries: opts.maxRetries ?? 0,
-      fetch: hostedFetchAls.getStore() as any,
-    });
+    return makeAnthropicClientForKey(key, opts);
   }
   // OpenAI-compatible shim (Ollama et al.), cast to the Anthropic surface the app uses.
   return openAiCompatShim(opts) as unknown as LlmClient;
+}
+
+/** Anthropic client for an explicit key — used by the test-key endpoint, which
+ * may be validating a not-yet-saved key rather than the resolved config. */
+export function makeAnthropicClientForKey(apiKey: string, opts: LlmClientOptions = {}): Anthropic {
+  return new Anthropic({
+    apiKey,
+    timeout: opts.timeout,
+    maxRetries: opts.maxRetries ?? 0,
+    fetch: hostedFetchAls.getStore() as any,
+  });
 }
 
 function openAiCompatShim(opts: LlmClientOptions): LlmClient {
