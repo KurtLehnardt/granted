@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { getCloudProvider, type CloudProviderId } from "./providers";
 import { currentHostedFetch } from "./client";
 import { normalizeOpenAiBaseUrl } from "./baseUrl";
+import { sanitizeProviderMessage, anthropicRawMessage } from "./errors";
 
 function anthropicClient(apiKey: string, timeout: number, workspaceId?: string): Anthropic {
   return new Anthropic({
@@ -18,35 +19,23 @@ function anthropicClient(apiKey: string, timeout: number, workspaceId?: string):
 
 export type ProbeOutcome =
   | { ok: true }
-  | { ok: false; kind: "invalid_key" | "rate_limited" | "network" | "other"; message: string };
-
-// Redacts anything that looks like a secret before a provider's error message
-// ever reaches the UI: the literal key we sent, plus any sk-/sk-ant- style
-// token embedded in the message (e.g. a provider echoing back what it saw).
-const SECRET_TOKEN_PATTERN = /\bsk-(?:ant-)?[A-Za-z0-9_-]{6,}\b/g;
-const MAX_PROVIDER_MESSAGE_LENGTH = 300;
-
-function sanitizeProviderMessage(message: string, key?: string): string {
-  let out = message;
-  if (key && key.length >= 6) out = out.split(key).join("[redacted]");
-  out = out.replace(SECRET_TOKEN_PATTERN, "[redacted]");
-  out = out.trim();
-  if (out.length > MAX_PROVIDER_MESSAGE_LENGTH) out = `${out.slice(0, MAX_PROVIDER_MESSAGE_LENGTH)}…`;
-  return out;
-}
+  | { ok: false; kind: "invalid_key" | "rate_limited" | "network" | "other" | "invalid_model"; message: string };
 
 /** Nudges the user toward the fix when Anthropic's own message already explains it. */
 function withWorkspaceHint(message: string): string {
   return /workspace/i.test(message) ? `${message} Check the Workspace ID field and try again.` : message;
 }
 
-function anthropicRawMessage(err: InstanceType<typeof Anthropic.APIError>): string {
-  const body: any = (err as any).error;
-  const bodyMessage = body?.error?.message ?? body?.message;
-  return typeof bodyMessage === "string" ? bodyMessage : err.message;
+/** A key can be valid and reach the provider, yet name a model that provider
+ * doesn't have (mistyped, retired, wrong account tier) — that's not a key
+ * problem, so it gets its own message instead of "that key didn't work". */
+function modelNotAvailableMessage(model: string): string {
+  return `The key works, but the model "${model}" isn't available. Choose a different model.`;
 }
 
-function describeAnthropicError(err: unknown, key?: string): ProbeOutcome {
+/** `model` is only needed to word the 404 case (Anthropic's "no such model")
+ * — omitted for the key-only probe (models.list), where a 404 can't happen. */
+function describeAnthropicError(err: unknown, key?: string, model?: string): ProbeOutcome {
   const status = err instanceof Anthropic.APIError ? err.status : undefined;
   if (status === 401 || status === 403) {
     return { ok: false, kind: "invalid_key", message: "That key didn't work. Double-check it and try again." };
@@ -67,6 +56,11 @@ function describeAnthropicError(err: unknown, key?: string): ProbeOutcome {
   }
   if (err instanceof Anthropic.APIConnectionError) {
     return { ok: false, kind: "network", message: "Couldn't reach the provider's API. Check your network connection and try again." };
+  }
+  // Anthropic 404s a message call with an unrecognized model — that's the
+  // model's fault, not the key's, so it gets its own kind/message.
+  if (status === 404 && model) {
+    return { ok: false, kind: "invalid_model", message: modelNotAvailableMessage(model) };
   }
   // Any other 4xx (400, 402, 422, ...) — surface the provider's own message,
   // sanitized, instead of the generic "didn't work" (e.g. a key that's valid
@@ -96,7 +90,10 @@ async function extractHttpErrorMessage(res: Response): Promise<string | undefine
   return text;
 }
 
-async function describeHttpStatus(status: number, res: Response, key?: string): Promise<ProbeOutcome> {
+/** `model`: when set, a 404 is worded as "this model isn't available" (a
+ * chat-completions call for a bad model id) rather than "endpoint not found"
+ * (a GET /models call against a wrong base URL) — same status, different cause. */
+async function describeHttpStatus(status: number, res: Response, key?: string, model?: string): Promise<ProbeOutcome> {
   if (status === 401 || status === 403) {
     return { ok: false, kind: "invalid_key", message: "That key didn't work. Double-check it and try again." };
   }
@@ -115,10 +112,16 @@ async function describeHttpStatus(status: number, res: Response, key?: string): 
     };
   }
   if (status === 404) {
+    if (model) return { ok: false, kind: "invalid_model", message: modelNotAvailableMessage(model) };
     return { ok: false, kind: "other", message: "Endpoint not found — check the base URL." };
   }
-  // Any other 4xx — surface the parsed provider error message, sanitized.
+  // Any other 4xx — surface the parsed provider error message, sanitized. An
+  // OpenAI-shaped "model_not_found" (usually a 400/404) also gets the
+  // model-specific wording instead of "that key didn't work".
   const raw = await extractHttpErrorMessage(res);
+  if (model && raw && /model/i.test(raw) && /(not found|does not exist|no such|unknown model|invalid model)/i.test(raw)) {
+    return { ok: false, kind: "invalid_model", message: modelNotAvailableMessage(model) };
+  }
   if (raw) return { ok: false, kind: "other", message: sanitizeProviderMessage(raw, key) };
   return { ok: false, kind: "other", message: "That key didn't work. Double-check it and try again." };
 }
@@ -127,23 +130,60 @@ export interface CloudProbeParams {
   providerId: CloudProviderId;
   baseUrl?: string;
   key: string;
-  model: string;
+  /** Configured model to probe. Falls back to the provider's default (or, if
+   * it has none, the first model the list call above returned) when omitted. */
+  model?: string;
   /** Anthropic only: sent as the anthropic-workspace-id header when the key isn't scoped to a workspace. */
   anthropicWorkspaceId?: string;
 }
 
-/** One minimal request to confirm a key works, without spending more than necessary. */
+/** Real-world finding: a key can pass `models.list` (free) yet have NO credit
+ * on the account, so every actual search fails at Test key time with no
+ * warning. One minimal (max_tokens: 1) message call after the list catches
+ * that — billing, permissions, or a model the key can't use — before the user
+ * ever runs a search on it. */
+async function probeAnthropicModel(client: Anthropic, model: string, key: string): Promise<ProbeOutcome> {
+  try {
+    await client.messages.create({ model, max_tokens: 1, messages: [{ role: "user", content: "hi" }] });
+    return { ok: true };
+  } catch (err) {
+    return describeAnthropicError(err, key, model);
+  }
+}
+
+async function probeOpenAiCompatModel(baseUrl: string, key: string, model: string): Promise<ProbeOutcome> {
+  try {
+    const res = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+      body: JSON.stringify({ model, max_tokens: 1, messages: [{ role: "user", content: "hi" }] }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (res.ok) return { ok: true };
+    return await describeHttpStatus(res.status, res, key, model);
+  } catch {
+    return { ok: false, kind: "network", message: "Couldn't reach the provider's API. Check your network connection and try again." };
+  }
+}
+
+/** Confirms a key works AND can actually run a search: a models list (free),
+ * then one minimal message with the configured model — or the provider's
+ * default/first listed model, if none was configured — so a credit/billing/
+ * permission failure (which a bare models.list can't see) surfaces here
+ * instead of at search time. */
 export async function probeCloudKey(params: CloudProbeParams): Promise<ProbeOutcome> {
   if (params.providerId === "anthropic") {
+    const client = anthropicClient(params.key, 15_000, params.anthropicWorkspaceId);
+    let models: string[] = [];
     try {
-      // A models list, not a completion: costs no credit and doesn't depend
-      // on `params.model` being a real model (a mistyped model would 404 a
-      // messages.create call and get misreported as "the key didn't work").
-      await anthropicClient(params.key, 15_000, params.anthropicWorkspaceId).models.list();
-      return { ok: true };
+      const page: any = await client.models.list();
+      models = (page?.data ?? []).map((m: any) => m.id).filter((id: unknown) => typeof id === "string");
     } catch (err) {
       return describeAnthropicError(err, params.key);
     }
+    const model = params.model || models[0];
+    if (!model) return { ok: true }; // no model configured or listed — key alone is all we can confirm
+    return probeAnthropicModel(client, model, params.key);
   }
 
   const preset = getCloudProvider(params.providerId);
@@ -151,16 +191,30 @@ export async function probeCloudKey(params: CloudProbeParams): Promise<ProbeOutc
   if (!rawBaseUrl) return { ok: false, kind: "other", message: "No base URL is configured for this provider." };
   const baseUrl = normalizeOpenAiBaseUrl(rawBaseUrl);
 
+  let listedModels: string[] = [];
   try {
     const res = await fetch(`${baseUrl}${preset?.keyProbePath ?? "/models"}`, {
       headers: { Authorization: `Bearer ${params.key}` },
       signal: AbortSignal.timeout(15_000),
     });
     if (!res.ok) return await describeHttpStatus(res.status, res, params.key);
-    return { ok: true };
+    // Only a real /models listing (not e.g. openrouter's /key probe) carries model ids.
+    if (!preset?.keyProbePath) {
+      try {
+        const json: any = await res.json();
+        const list = Array.isArray(json?.data) ? json.data : Array.isArray(json?.models) ? json.models : [];
+        listedModels = list.map((m: any) => (typeof m === "string" ? m : m?.id)).filter((id: unknown) => typeof id === "string");
+      } catch {
+        /* body wasn't a models list — no model ids to fall back to */
+      }
+    }
   } catch {
     return { ok: false, kind: "network", message: "Couldn't reach the provider's API. Check your network connection and try again." };
   }
+
+  const model = params.model || preset?.defaultModel || listedModels[0];
+  if (!model) return { ok: true }; // no model configured, no default, none listed — key alone is all we can confirm
+  return probeOpenAiCompatModel(baseUrl, params.key, model);
 }
 
 export interface ModelsListResult {

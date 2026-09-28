@@ -3,6 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { normalizeOpenAiBaseUrl } from "./baseUrl";
 import { currentLocalModel } from "./modelContext";
 import { resolveProvider, resolveCloudConfig, resolveCloudApiKey, resolveCloudBaseUrl, resolveCloudModel } from "./config";
+import { ProviderHttpError } from "./errors";
 
 /** Test-only: the SDK binds node-fetch at import, so hosted tests inject fetch here. */
 const hostedFetchAls = new AsyncLocalStorage<typeof fetch>();
@@ -216,7 +217,7 @@ function makeOpenAiCompatClient(opts: {
             const hint = res.status === 404
               ? " — a 404 here usually means the base URL is missing the OpenAI-compatible path; it must end in /v1 (e.g. http://localhost:11434/v1)"
               : "";
-            throw new Error(`LLM request failed (${res.status}) at ${baseUrl}: ${body.slice(0, 200)}${hint}`);
+            throw new ProviderHttpError(res.status, body, `LLM request failed (${res.status}) at ${baseUrl}: ${body.slice(0, 200)}${hint}`);
           }
           const json: any = await res.json();
           const text: string = json?.choices?.[0]?.message?.content ?? "";

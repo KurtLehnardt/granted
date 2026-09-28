@@ -1,8 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import Anthropic from "@anthropic-ai/sdk";
 
 import { handleMatchRequest, type MatchDeps } from "../handler";
 import type { OpportunityMap } from "@/lib/types";
+import { ProviderHttpError } from "@/lib/llm/errors";
 
 /**
  * NDJSON /api/match route tests (H6). `handleMatchRequest` is the pure
@@ -137,6 +139,66 @@ test("buildOpportunityMap throwing mid-stream emits a type:'error' line and the 
   assert.equal(errs.length, 1);
   assert.ok(errs[0].error && typeof errs[0].error === "string" && errs[0].error.length > 0);
   assert.equal(lines.filter((l) => l.type === "result").length, 0);
+});
+
+// Real-world finding: a key with no credit passes Test key / Load models
+// (models.list is free) and every search then fails with a provider 400 the
+// old code buried behind "The search didn't complete." — this is the fix.
+test("a provider 400 (e.g. Anthropic credit-balance error) surfaces the sanitized provider message, not the generic text", async () => {
+  const providerErr = Anthropic.APIError.generate(
+    400,
+    { error: { message: "Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits." } },
+    undefined,
+    {},
+  );
+  const deps: MatchDeps = {
+    cached: () => undefined,
+    buildOpportunityMap: async () => { throw providerErr; },
+  };
+  const res = await handleMatchRequest(post(JSON.stringify({ description: VALID_DESCRIPTION })), deps);
+  const lines = await readLines(res);
+  const err = lines.find((l) => l.type === "error");
+  assert.ok(err);
+  assert.match(err.error, /credit balance is too low/);
+  assert.doesNotMatch(err.error, /didn't complete/);
+});
+
+test("an OpenAI-compatible provider 4xx (ProviderHttpError) also surfaces its sanitized message", async () => {
+  const deps: MatchDeps = {
+    cached: () => undefined,
+    buildOpportunityMap: async () => {
+      throw new ProviderHttpError(402, JSON.stringify({ error: { message: "Insufficient balance for this request." } }));
+    },
+  };
+  const res = await handleMatchRequest(post(JSON.stringify({ description: VALID_DESCRIPTION })), deps);
+  const lines = await readLines(res);
+  const err = lines.find((l) => l.type === "error");
+  assert.ok(err);
+  assert.match(err.error, /Insufficient balance/);
+});
+
+test("a provider 5xx keeps the generic message — no raw provider internals shown", async () => {
+  const providerErr = Anthropic.APIError.generate(500, { error: { message: "internal engine failure, host db-7, trace abc123" } }, undefined, {});
+  const deps: MatchDeps = {
+    cached: () => undefined,
+    buildOpportunityMap: async () => { throw providerErr; },
+  };
+  const res = await handleMatchRequest(post(JSON.stringify({ description: VALID_DESCRIPTION })), deps);
+  const lines = await readLines(res);
+  const err = lines.find((l) => l.type === "error");
+  assert.equal(err.error, "The search didn't complete. Please try again.");
+  assert.doesNotMatch(err.error, /db-7/);
+});
+
+test("an unknown/non-provider error keeps the generic message", async () => {
+  const deps: MatchDeps = {
+    cached: () => undefined,
+    buildOpportunityMap: async () => { throw new Error("kaboom"); },
+  };
+  const res = await handleMatchRequest(post(JSON.stringify({ description: VALID_DESCRIPTION })), deps);
+  const lines = await readLines(res);
+  const err = lines.find((l) => l.type === "error");
+  assert.equal(err.error, "The search didn't complete. Please try again.");
 });
 
 test("a COMPLETED map that fails OpportunityMap schema still streams a result — never dead-ends the search", async () => {

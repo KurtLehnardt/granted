@@ -152,6 +152,21 @@ describe("ModelSection — renders the right panel per provider", () => {
     assert.doesNotMatch(html, /Model \(required\)/);
   });
 
+  test("cloud key input has an accessible info tooltip: keyboard-focusable button, aria-describedby wired to the tooltip text", () => {
+    const html = render({ provider: "cloud", local: false, cloud: { providerId: "anthropic", hasKey: false, keySource: { type: "inline" } } });
+    // A real <button>, not a bare span — reachable by keyboard/Tab by default.
+    assert.match(html, /<button[^>]*aria-label="Key requirements"[^>]*>/);
+    // The tooltip text itself, and it's exactly what the owner's testing specified.
+    assert.match(html, /Please ensure your key is valid, has the correct permissions, and is scoped to the correct workspace\./);
+    // The key <input> is associated with that tooltip text via aria-describedby.
+    const inputMatch = html.match(/<input[^>]*id="[^"]*-key-value"[^>]*>/);
+    assert.ok(inputMatch, "key input not found");
+    const describedByMatch = inputMatch![0].match(/aria-describedby="([^"]+)"/);
+    assert.ok(describedByMatch, "key input has no aria-describedby");
+    const tooltipId = describedByMatch![1];
+    assert.match(html, new RegExp(`id="${tooltipId}"[^>]*role="tooltip"`));
+  });
+
   test("a saved inline key never reprefills the draft field, but its placeholder says the key is kept if left blank", () => {
     const html = render({
       provider: "cloud",

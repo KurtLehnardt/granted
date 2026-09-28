@@ -19,6 +19,44 @@ export type CloudInfo = {
   keySource: PublicKeySource;
 };
 
+const KEY_TOOLTIP_TEXT =
+  "Please ensure your key is valid, has the correct permissions, and is scoped to the correct workspace.";
+
+/**
+ * Accessible "ⓘ" tooltip for the cloud key input: a keyboard-focusable button
+ * (not a bare span) whose tooltip text shows on hover AND focus, and whose id
+ * the caller wires to the key input's `aria-describedby` so screen-reader
+ * users get the same hint reading the field itself, not only the icon.
+ */
+function KeyInfoTooltip({ id }: { id: string }) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <span className="relative ml-1 inline-block align-middle">
+      <button
+        type="button"
+        aria-describedby={id}
+        aria-label="Key requirements"
+        className="inline-flex h-3.5 w-3.5 cursor-help select-none items-center justify-center rounded-full border border-structure-on-canvas font-mono text-[9px] leading-none text-structure-on-canvas outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas"
+        onMouseEnter={() => setVisible(true)}
+        onMouseLeave={() => setVisible(false)}
+        onFocus={() => setVisible(true)}
+        onBlur={() => setVisible(false)}
+      >
+        ⓘ
+      </button>
+      <span
+        id={id}
+        role="tooltip"
+        className={`absolute left-1/2 top-full z-10 mt-1.5 w-56 -translate-x-1/2 rounded-sm border border-structure-on-canvas bg-canvas px-2.5 py-1.5 font-body text-[12px] leading-snug text-foreground shadow-md ${
+          visible ? "block" : "hidden"
+        }`}
+      >
+        {KEY_TOOLTIP_TEXT}
+      </span>
+    </span>
+  );
+}
+
 export type LlmProviderInfo = {
   provider: "ollama" | "cloud";
   local: boolean;
@@ -40,6 +78,7 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
   const baseUrlId = `${uid}-base-url`;
   const keySourceId = `${uid}-key-source`;
   const keyValueId = `${uid}-key-value`;
+  const keyTooltipId = `${uid}-key-tooltip`;
   const cloudModelId = `${uid}-cloud-model`;
   const workspaceIdInputId = `${uid}-workspace-id`;
 
@@ -406,6 +445,7 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
             <label className={legendClass} htmlFor={keySourceId}>
               Key source
             </label>
+            <KeyInfoTooltip id={keyTooltipId} />
             <select
               id={keySourceId}
               value={keySourceType}
@@ -432,6 +472,7 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
                 }
                 className={`${inputClass} mt-2`}
                 autoComplete="off"
+                aria-describedby={keyTooltipId}
               />
             )}
             {keySourceType === "env" && (
@@ -443,6 +484,7 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
                 placeholder="MY_PROVIDER_API_KEY"
                 className={`${inputClass} mt-2`}
                 autoComplete="off"
+                aria-describedby={keyTooltipId}
               />
             )}
             {keySourceType === "file" && (
@@ -454,6 +496,7 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
                 placeholder="/absolute/path/to/key.txt"
                 className={`${inputClass} mt-2`}
                 autoComplete="off"
+                aria-describedby={keyTooltipId}
               />
             )}
           </div>
