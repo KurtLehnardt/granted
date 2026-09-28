@@ -57,7 +57,7 @@ const MAX_CORPUS_SIZE = Number.isFinite(requestedMax) ? clampCorpusSize(requeste
 /**
  * Embeds `toEmbedList` in batches, reporting progress and honoring a stop mid-run. When
  * `allowReembedEscalation` is set (the plan wasn't already a full re-embed), the very first
- * batch's actual vector length is checked against existingMeta.dims: EMBEDDINGS_DIMENSIONS is
+ * batch's actual vector length is checked against priorDims (meta.dims, or else a prior vector's actual length): EMBEDDINGS_DIMENSIONS is
  * unset for any non-OpenAI endpoint (lib/embed.ts), so a same-model switch to a differently-sized
  * local embedder wouldn't otherwise be caught until it's too late — either mixing dims into
  * reused priors, or, with nothing to reuse, letting a Stop mid-embedding save a dims-changed
@@ -146,7 +146,7 @@ async function main() {
     // mixed-dimension corpus. Falls back to config/meta only when nothing was embedded this run.
     const realDims = opts.embeddedSoFar?.[0]?.embedding?.length;
     const outcome = computeStopOutcome({
-      attemptAt,
+      stoppedAt: new Date().toISOString(),
       duringEmbedding: false,
       fullReembed: false,
       reused: [],
@@ -263,14 +263,17 @@ async function main() {
         priorById.set(o.id, { embedding: o.embedding, text: opportunityEmbedText(o) });
       }
     }
+    // Older corpora predate meta.dims; fall back to an actual prior vector's length so a
+    // same-model dims change is still caught instead of trusting a stale/missing meta value.
+    const priorDims = existingMeta.dims ?? priorById.values().next().value?.embedding?.length;
 
     let plan = planEmbedding(
       fresh,
       priorById,
       existingMeta.embeddingModel,
       EMBEDDINGS_MODEL,
-      EMBEDDINGS_DIMENSIONS ?? existingMeta.dims,
-      existingMeta.dims,
+      EMBEDDINGS_DIMENSIONS ?? priorDims,
+      priorDims,
     );
     console.log(
       `Embedding plan: ${plan.reused.length} reused, ${plan.toEmbed.length} to embed with ${EMBEDDINGS_MODEL}` +
@@ -282,7 +285,7 @@ async function main() {
       foundCount,
       keptCount,
       allowReembedEscalation: !plan.fullReembed,
-      priorDims: existingMeta.dims,
+      priorDims,
     });
     if (result.escalate) {
       console.warn(
@@ -294,8 +297,8 @@ async function main() {
         priorById,
         existingMeta.embeddingModel,
         EMBEDDINGS_MODEL,
-        EMBEDDINGS_DIMENSIONS ?? existingMeta.dims,
-        existingMeta.dims,
+        EMBEDDINGS_DIMENSIONS ?? priorDims,
+        priorDims,
         true,
       );
       reportProgress("embedding", { done: 0, total: plan.toEmbed.length, foundCount, keptCount });

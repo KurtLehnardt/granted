@@ -139,7 +139,7 @@ export interface StopOutcome {
  * stopped run — lastStoppedAt is a distinct field so a stop never reads back as a successful run.
  */
 export function computeStopOutcome(params: {
-  attemptAt: string;
+  stoppedAt: string;
   duringEmbedding: boolean;
   fullReembed: boolean;
   reused: Opportunity[];
@@ -148,10 +148,10 @@ export function computeStopOutcome(params: {
   priorById: Map<string, Opportunity>;
   dims?: number;
 }): StopOutcome {
-  const { attemptAt, duringEmbedding, fullReembed, reused, embeddedSoFar, notYetEmbedded, priorById, dims } = params;
+  const { stoppedAt, duringEmbedding, fullReembed, reused, embeddedSoFar, notYetEmbedded, priorById, dims } = params;
   if (!duringEmbedding || fullReembed) {
-    return { save: false, corpus: [], status: { lastStoppedAt: attemptAt, stopped: true, savedCount: 0 } };
+    return { save: false, corpus: [], status: { lastStoppedAt: stoppedAt, stopped: true, savedCount: 0 } };
   }
   const corpus = mergePartialSave(reused, embeddedSoFar, notYetEmbedded, priorById, dims);
-  return { save: true, corpus, status: { lastStoppedAt: attemptAt, stopped: true, savedCount: corpus.length } };
+  return { save: true, corpus, status: { lastStoppedAt: stoppedAt, stopped: true, savedCount: corpus.length } };
 }
