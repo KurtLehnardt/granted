@@ -15,7 +15,6 @@ import ProfileQuestionnaire from "@/components/ProfileQuestionnaire";
 // type-only import is erased at compile time, so no server-only runtime
 // (or the OPENAI_API_KEY it reads) ever reaches this client bundle.
 import type { InterviewQuestion } from "@/lib/interview/generateQuestions";
-import type { Match } from "@/lib/types";
 import type { PreviewItem } from "@/lib/ui/previewReducer";
 
 export default function IntakeForm({

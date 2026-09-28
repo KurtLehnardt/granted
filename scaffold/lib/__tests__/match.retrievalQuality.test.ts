@@ -1,7 +1,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 
-import { buildOpportunityMap, CALIBRATION, type BuildDeps } from "../match";
+import { buildOpportunityMap } from "../match";
 import { screen as realScreen } from "../eligibility/screen";
 import type { Opportunity, StartupProfile } from "../types";
 
