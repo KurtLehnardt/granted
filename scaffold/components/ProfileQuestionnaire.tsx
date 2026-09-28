@@ -1,6 +1,7 @@
 "use client";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
+import { DescriptionStrength } from "./DescriptionStrength";
 import {
   PROFILE_FIELD_META,
   PROFILE_FIELD_META_BY_KEY,
@@ -622,6 +623,7 @@ export default function ProfileQuestionnaire({
           }}
           className={isBig ? textareaBigClass : textareaSmallClass}
         />
+        {isBig && <DescriptionStrength value={value} />}
         {errorMsg && (
           <p id={errorId} role="alert" className={`mt-1 ${errorTextClass}`}>
             {errorMsg}
