@@ -1,7 +1,8 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import Anthropic from "@anthropic-ai/sdk";
 import { handleTestKeyPost, type TestKeyDeps } from "../handler";
+import type { CloudConfig } from "@/lib/llm/config";
+import type { ProbeOutcome } from "@/lib/llm/cloudModels";
 
 function fakeReq(body?: unknown): { headers: { get(name: string): string | null }; json: () => Promise<unknown> } {
   return {
@@ -16,10 +17,8 @@ function fakeReq(body?: unknown): { headers: { get(name: string): string | null 
 function fakeDeps(overrides: Partial<TestKeyDeps> = {}): TestKeyDeps {
   return {
     isLoopbackRequest: () => true,
-    resolveAnthropicKey: () => undefined,
-    makeAnthropicClientForKey: (() => ({
-      messages: { create: async () => ({ content: [{ type: "text", text: "hi" }] }) },
-    })) as any,
+    resolveCloudConfig: () => undefined,
+    probeCloudKey: (async () => ({ ok: true }) as ProbeOutcome) as any,
     ...overrides,
   };
 }
@@ -37,11 +36,11 @@ describe("POST /api/llm/test-key", () => {
     assert.equal(json.ok, false);
   });
 
-  test("malformed draft key -> 400 format error, no API call", async () => {
+  test("malformed draft key -> 400 format error, no provider call", async () => {
     let called = false;
     const res = await handleTestKeyPost(
-      fakeReq({ anthropicApiKey: "sk-ant-abcdefghijklmnop…" }),
-      fakeDeps({ makeAnthropicClientForKey: (() => { called = true; }) as any }),
+      fakeReq({ providerId: "anthropic", keySource: { type: "inline", key: "sk-ant-abcdefghijklmnop…" } }),
+      fakeDeps({ probeCloudKey: (async () => { called = true; return { ok: true }; }) as any }),
     );
     const json = await res.json();
     assert.equal(res.status, 400);
@@ -49,131 +48,136 @@ describe("POST /api/llm/test-key", () => {
     assert.equal(called, false);
   });
 
-  test("uses the saved key when none is provided, stubbed SDK -> { ok: true }", async () => {
-    let usedKey: string | undefined;
+  test("unknown providerId -> 400", async () => {
+    const res = await handleTestKeyPost(fakeReq({ providerId: "not-a-provider", keySource: { type: "inline", key: "x" } }), fakeDeps());
+    assert.equal(res.status, 400);
+  });
+
+  test("'other' provider requires a valid https base URL", async () => {
+    const draft = { providerId: "other", keySource: { type: "inline", key: "a-perfectly-fine-key" } };
+    const missing = await handleTestKeyPost(fakeReq(draft), fakeDeps());
+    assert.equal(missing.status, 400);
+
+    const badUrl = await handleTestKeyPost(fakeReq({ ...draft, baseUrl: "http://insecure.example.com" }), fakeDeps());
+    assert.equal(badUrl.status, 400);
+  });
+
+  test("uses the saved config when no draft is provided, stubbed probe -> { ok: true }", async () => {
+    let sent: any;
+    const savedCloud: CloudConfig = { providerId: "openai", keySource: { type: "inline", key: "sk-savedopenaikey0000" } };
     const res = await handleTestKeyPost(
       fakeReq({}),
       fakeDeps({
-        resolveAnthropicKey: () => "sk-ant-savedkey0000000",
-        makeAnthropicClientForKey: ((key: string) => {
-          usedKey = key;
-          return { messages: { create: async () => ({}) } };
-        }) as any,
+        resolveCloudConfig: () => savedCloud,
+        probeCloudKey: (async (params: any) => { sent = params; return { ok: true }; }) as any,
       }),
     );
     const json = await res.json();
     assert.equal(json.ok, true);
-    assert.equal(usedKey, "sk-ant-savedkey0000000");
+    assert.equal(sent.key, "sk-savedopenaikey0000");
+    assert.equal(sent.providerId, "openai");
   });
 
-  test("uses a provided (not-yet-saved) key over the saved one", async () => {
-    let usedKey: string | undefined;
+  test("uses a provided (not-yet-saved) draft over the saved config", async () => {
+    let sentKey: string | undefined;
     const res = await handleTestKeyPost(
-      fakeReq({ anthropicApiKey: "sk-ant-draftkey0000000" }),
+      fakeReq({ providerId: "groq", keySource: { type: "inline", key: "gsk-draftkeyvalue0000" } }),
       fakeDeps({
-        resolveAnthropicKey: () => "sk-ant-savedkey0000000",
-        makeAnthropicClientForKey: ((key: string) => {
-          usedKey = key;
-          return { messages: { create: async () => ({}) } };
-        }) as any,
+        resolveCloudConfig: () => ({ providerId: "openai", keySource: { type: "inline", key: "sk-savedopenaikey0000" } }),
+        probeCloudKey: (async (params: any) => { sentKey = params.key; return { ok: true }; }) as any,
       }),
     );
     await res.json();
-    assert.equal(usedKey, "sk-ant-draftkey0000000");
+    assert.equal(sentKey, "gsk-draftkeyvalue0000");
   });
 
-  test("SDK failure -> { ok: false, error } without echoing the key", async () => {
+  test("env key source: unset variable -> 400 'isn't set', no provider call", async () => {
+    delete process.env.GRANTED_TEST_KEY_UNSET;
+    let called = false;
     const res = await handleTestKeyPost(
-      fakeReq({ anthropicApiKey: "sk-ant-badkey00000000" }),
-      fakeDeps({
-        makeAnthropicClientForKey: (() => ({
-          messages: {
-            create: async () => {
-              throw new Error("401 sk-ant-badkey00000000 invalid x-api-key");
-            },
-          },
-        })) as any,
-      }),
+      fakeReq({ providerId: "openai", keySource: { type: "env", name: "GRANTED_TEST_KEY_UNSET" } }),
+      fakeDeps({ probeCloudKey: (async () => { called = true; return { ok: true }; }) as any }),
+    );
+    const json = await res.json();
+    assert.equal(res.status, 400);
+    assert.match(json.error, /isn't set/);
+    assert.equal(called, false);
+  });
+
+  test("probe reports invalid key -> 200 { ok: false }, distinct from a format error", async () => {
+    const res = await handleTestKeyPost(
+      fakeReq({ providerId: "openai", keySource: { type: "inline", key: "sk-badbutwellformed00" } }),
+      fakeDeps({ probeCloudKey: (async () => ({ ok: false, kind: "invalid_key", message: "That key didn't work. Double-check it and try again." })) as any }),
     );
     const json = await res.json();
     assert.equal(res.status, 200);
     assert.equal(json.ok, false);
-    assert.equal(typeof json.error, "string");
-    assert.equal(json.error.includes("sk-ant-badkey00000000"), false);
-  });
-
-  test("401 -> invalid key message", async () => {
-    const res = await handleTestKeyPost(
-      fakeReq({ anthropicApiKey: "sk-ant-badkey00000000" }),
-      fakeDeps({
-        makeAnthropicClientForKey: (() => ({
-          messages: {
-            create: async () => {
-              throw new Anthropic.AuthenticationError(401, { message: "invalid x-api-key" }, "invalid x-api-key", {});
-            },
-          },
-        })) as any,
-      }),
-    );
-    const json = await res.json();
-    assert.equal(json.ok, false);
     assert.match(json.error, /didn't work/i);
   });
 
-  test("429 -> rate limit message, distinct from an invalid key", async () => {
+  test("probe reports rate limit -> distinct message", async () => {
     const res = await handleTestKeyPost(
-      fakeReq({ anthropicApiKey: "sk-ant-goodkey0000000" }),
-      fakeDeps({
-        makeAnthropicClientForKey: (() => ({
-          messages: {
-            create: async () => {
-              throw new Anthropic.RateLimitError(429, { message: "rate limited" }, "rate limited", {});
-            },
-          },
-        })) as any,
-      }),
+      fakeReq({ providerId: "openai", keySource: { type: "inline", key: "sk-goodwellformed0000" } }),
+      fakeDeps({ probeCloudKey: (async () => ({ ok: false, kind: "rate_limited", message: "rate-limiting requests" })) as any }),
     );
     const json = await res.json();
     assert.equal(json.ok, false);
     assert.match(json.error, /rate.?limit/i);
-    assert.doesNotMatch(json.error, /didn't work/i);
   });
 
-  test("529 overload -> temporarily unavailable message, distinct from an invalid key", async () => {
+  test("probe reports a network error -> distinct message", async () => {
     const res = await handleTestKeyPost(
-      fakeReq({ anthropicApiKey: "sk-ant-goodkey0000000" }),
-      fakeDeps({
-        makeAnthropicClientForKey: (() => ({
-          messages: {
-            create: async () => {
-              throw new Anthropic.InternalServerError(529, { message: "overloaded" }, "overloaded", {});
-            },
-          },
-        })) as any,
-      }),
-    );
-    const json = await res.json();
-    assert.equal(json.ok, false);
-    assert.match(json.error, /unavailable/i);
-    assert.doesNotMatch(json.error, /didn't work/i);
-  });
-
-  test("network error -> couldn't reach Anthropic message, distinct from an invalid key", async () => {
-    const res = await handleTestKeyPost(
-      fakeReq({ anthropicApiKey: "sk-ant-goodkey0000000" }),
-      fakeDeps({
-        makeAnthropicClientForKey: (() => ({
-          messages: {
-            create: async () => {
-              throw new Anthropic.APIConnectionError({ message: "connection error" });
-            },
-          },
-        })) as any,
-      }),
+      fakeReq({ providerId: "openai", keySource: { type: "inline", key: "sk-goodwellformed0000" } }),
+      fakeDeps({ probeCloudKey: (async () => ({ ok: false, kind: "network", message: "Couldn't reach the provider's API." })) as any }),
     );
     const json = await res.json();
     assert.equal(json.ok, false);
     assert.match(json.error, /couldn't reach/i);
-    assert.doesNotMatch(json.error, /didn't work/i);
+  });
+
+  test("never echoes the key back in the response", async () => {
+    const res = await handleTestKeyPost(
+      fakeReq({ providerId: "openai", keySource: { type: "inline", key: "sk-secretvaluenotecho" } }),
+      fakeDeps({ probeCloudKey: (async () => ({ ok: false, kind: "invalid_key", message: "nope" })) as any }),
+    );
+    const json = await res.json();
+    assert.equal(JSON.stringify(json).includes("sk-secretvaluenotecho"), false);
+  });
+
+  test("draft keySource {type:'saved'} reuses the saved key for the same provider", async () => {
+    let sentKey: string | undefined;
+    const savedCloud: CloudConfig = { providerId: "openai", keySource: { type: "inline", key: "sk-savedopenaikey0000" } };
+    const res = await handleTestKeyPost(
+      fakeReq({ providerId: "openai", keySource: { type: "saved" } }),
+      fakeDeps({
+        resolveCloudConfig: () => savedCloud,
+        probeCloudKey: (async (params: any) => { sentKey = params.key; return { ok: true }; }) as any,
+      }),
+    );
+    const json = await res.json();
+    assert.equal(json.ok, true);
+    assert.equal(sentKey, "sk-savedopenaikey0000");
+  });
+
+  test("'other': the saved key is never sent to a different base URL", async () => {
+    let probed = false;
+    const savedCloud: CloudConfig = { providerId: "other", baseUrl: "https://a.example.com/v1", keySource: { type: "inline", key: "saved-other-key-0000" } };
+    const res = await handleTestKeyPost(
+      fakeReq({ providerId: "other", baseUrl: "https://b.example.com/v1", keySource: { type: "saved" } }),
+      fakeDeps({ resolveCloudConfig: () => savedCloud, probeCloudKey: (async () => { probed = true; return { ok: true }; }) as any }),
+    );
+    assert.equal(res.status, 400);
+    assert.equal(probed, false);
+  });
+
+  test("draft keySource {type:'saved'} after a provider switch -> 400, no saved key reused", async () => {
+    const savedCloud: CloudConfig = { providerId: "openai", keySource: { type: "inline", key: "sk-savedopenaikey0000" } };
+    const res = await handleTestKeyPost(
+      fakeReq({ providerId: "groq", keySource: { type: "saved" } }),
+      fakeDeps({ resolveCloudConfig: () => savedCloud }),
+    );
+    const json = await res.json();
+    assert.equal(res.status, 400);
+    assert.equal(json.error, "Please enter a key for your cloud provider.");
   });
 });

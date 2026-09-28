@@ -1,33 +1,24 @@
 import { NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
 import { isLoopbackRequest } from "@/lib/corpus/loopback";
-import { makeAnthropicClientForKey } from "@/lib/llm/client";
-import { resolveAnthropicKey, isValidAnthropicKey } from "@/lib/llm/config";
+import { resolveCloudConfig, resolveCloudModel } from "@/lib/llm/config";
+import { isCloudProviderId, isValidHttpsUrl } from "@/lib/llm/providers";
+import { normalizeOpenAiBaseUrl } from "@/lib/llm/baseUrl";
+import { resolveDraftKey, savedKeySourceFor } from "@/lib/llm/validateCloudConfig";
+import { probeCloudKey } from "@/lib/llm/cloudModels";
 import { MODEL } from "@/lib/claude";
 
-// POST /api/llm/test-key — "Test key" button. Loopback-only (spends real credit). One minimal request, saved or draft key. Never echoes the key.
-
-// Never surface the SDK's raw error text — it can echo request details.
-function describeTestKeyError(err: unknown): string {
-  const status = err instanceof Anthropic.APIError ? err.status : undefined;
-  if (status === 401 || status === 403) return "That key didn't work. Double-check it and try again.";
-  if (status === 429) return "Anthropic is rate-limiting requests right now. The key looks fine — try again shortly.";
-  if (typeof status === "number" && status >= 500) {
-    return "Anthropic's API is temporarily unavailable. The key looks fine — try again shortly.";
-  }
-  if (err instanceof Anthropic.APIConnectionError) {
-    return "Couldn't reach Anthropic's API. Check your network connection and try again.";
-  }
-  return "That key didn't work. Double-check it and try again.";
-}
+// POST /api/llm/test-key — "Test key" button, every cloud provider. Loopback-only
+// (spends real credit / hits the provider). Accepts either a draft (not-yet-saved)
+// {providerId, baseUrl?, keySource, model?} or, with no body, tests the saved config.
+// Never echoes the key.
 
 export type TestKeyDeps = {
   isLoopbackRequest: typeof isLoopbackRequest;
-  resolveAnthropicKey: typeof resolveAnthropicKey;
-  makeAnthropicClientForKey: typeof makeAnthropicClientForKey;
+  resolveCloudConfig: typeof resolveCloudConfig;
+  probeCloudKey: typeof probeCloudKey;
 };
 
-const REAL_DEPS: TestKeyDeps = { isLoopbackRequest, resolveAnthropicKey, makeAnthropicClientForKey };
+const REAL_DEPS: TestKeyDeps = { isLoopbackRequest, resolveCloudConfig, probeCloudKey };
 
 export async function handleTestKeyPost(
   req: { headers: { get(name: string): string | null }; json: () => Promise<unknown> },
@@ -43,30 +34,49 @@ export async function handleTestKeyPost(
   try {
     body = await req.json();
   } catch {
-    /* no body -> test the saved key */
+    /* no body -> test the saved config */
   }
 
-  const provided = typeof body?.anthropicApiKey === "string" ? body.anthropicApiKey.trim() : undefined;
-  if (provided && !isValidAnthropicKey(provided)) {
-    return NextResponse.json(
-      { ok: false, error: "That doesn't look like a valid Anthropic API key (it should start with sk-ant-)." },
-      { status: 400 },
-    );
-  }
-  const key = provided || d.resolveAnthropicKey();
-  if (!key) {
-    return NextResponse.json({ ok: false, error: "No Anthropic API key saved or provided." }, { status: 400 });
+  let providerId: unknown;
+  let baseUrl: string | undefined;
+  let keySourceInput: unknown;
+  let model: string | undefined;
+  let saved: ReturnType<typeof savedKeySourceFor>;
+
+  if (body?.providerId !== undefined || body?.keySource !== undefined) {
+    providerId = body.providerId;
+    if (!isCloudProviderId(providerId)) {
+      return NextResponse.json({ ok: false, error: "Choose a cloud provider." }, { status: 400 });
+    }
+    if (providerId === "other") {
+      baseUrl = typeof body.baseUrl === "string" ? body.baseUrl.trim() : "";
+      if (!baseUrl) return NextResponse.json({ ok: false, error: "Enter a base URL for this provider." }, { status: 400 });
+      if (!isValidHttpsUrl(baseUrl)) {
+        return NextResponse.json({ ok: false, error: "Enter a valid https base URL." }, { status: 400 });
+      }
+      baseUrl = normalizeOpenAiBaseUrl(baseUrl);
+    }
+    keySourceInput = body.keySource;
+    model = typeof body.model === "string" && body.model.trim() ? body.model.trim() : undefined;
+    saved = savedKeySourceFor(d.resolveCloudConfig(), providerId, baseUrl);
+  } else {
+    const cfg = d.resolveCloudConfig();
+    if (!cfg) return NextResponse.json({ ok: false, error: "No cloud key saved or provided." }, { status: 400 });
+    providerId = cfg.providerId;
+    baseUrl = cfg.baseUrl;
+    keySourceInput = cfg.keySource;
+    model = resolveCloudModel(cfg);
   }
 
-  try {
-    const client = d.makeAnthropicClientForKey(key, { timeout: 15_000, maxRetries: 0 });
-    await client.messages.create({
-      model: MODEL,
-      max_tokens: 1,
-      messages: [{ role: "user", content: "hi" }],
-    });
-    return NextResponse.json({ ok: true });
-  } catch (err) {
-    return NextResponse.json({ ok: false, error: describeTestKeyError(err) });
-  }
+  const draft = resolveDraftKey(providerId as any, keySourceInput, saved);
+  if (draft.error) return NextResponse.json({ ok: false, error: draft.error }, { status: 400 });
+
+  const outcome = await d.probeCloudKey({
+    providerId: providerId as any,
+    baseUrl,
+    key: draft.key!,
+    model: model || MODEL,
+  });
+  if (outcome.ok) return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: false, error: outcome.message });
 }

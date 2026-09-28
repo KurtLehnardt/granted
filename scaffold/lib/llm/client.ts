@@ -2,12 +2,16 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import Anthropic from "@anthropic-ai/sdk";
 import { normalizeOpenAiBaseUrl } from "./baseUrl";
 import { currentLocalModel } from "./modelContext";
-import { resolveProvider, resolveAnthropicKey } from "./config";
+import { resolveProvider, resolveCloudConfig, resolveCloudApiKey, resolveCloudBaseUrl, resolveCloudModel } from "./config";
 
 /** Test-only: the SDK binds node-fetch at import, so hosted tests inject fetch here. */
 const hostedFetchAls = new AsyncLocalStorage<typeof fetch>();
 export function withHostedFetch<T>(fetchImpl: typeof fetch | undefined, fn: () => T): T {
   return fetchImpl ? hostedFetchAls.run(fetchImpl, fn) : fn();
+}
+/** The fetch impl tests inject via withHostedFetch, for any other Anthropic SDK client construction (e.g. cloudModels.ts's probe/models-list). */
+export function currentHostedFetch(): typeof fetch | undefined {
+  return hostedFetchAls.getStore();
 }
 
 /**
@@ -15,13 +19,18 @@ export function withHostedFetch<T>(fetchImpl: typeof fetch | undefined, fn: () =
  * like the Anthropic SDK client the app already uses — `client.messages.create(
  * { model, max_tokens, system, messages }, { signal })` returning
  * `{ content: [{ type:"text", text }], usage }` — so NO call site changes its
- * shape. Which backend it is depends on `LLM_PROVIDER`:
+ * shape. Which backend it is depends on Settings' Local/Cloud switch
+ * (data/local/llm-config.json, see ./config) or, absent that, env:
  *
  *   - unset / "anthropic" (default) → the real Anthropic SDK, byte-unchanged.
- *   - "ollama" / "openai" / "local" → any OpenAI-compatible /chat/completions
- *     endpoint (Ollama's `http://localhost:11434/v1` by default), so the whole
- *     reasoning path can run on a LOCAL model (gemma, qwen, llama…) with no API
- *     key and nothing leaving the machine.
+ *   - "ollama" / "openai" / "local" (LLM_PROVIDER) → any OpenAI-compatible
+ *     /chat/completions endpoint (Ollama's `http://localhost:11434/v1` by
+ *     default), so the whole reasoning path can run on a LOCAL model with no
+ *     API key and nothing leaving the machine.
+ *   - Settings' Cloud switch → a chosen cloud provider (see ./providers):
+ *     Anthropic via the SDK, or any OpenAI-compatible preset (OpenAI, Gemini,
+ *     OpenRouter, Groq, Mistral, or a user-entered "Other" base URL) via the
+ *     same OpenAI-compat shim, with the resolved key as a bearer token.
  *
  * The corpus still needs matching embeddings — see lib/embed.ts, which has the
  * same env-driven base-URL seam for a local embedder.
@@ -40,7 +49,7 @@ export type LlmClient = Pick<Anthropic, "messages">;
  * switch), written by POST /api/llm/config, takes precedence over the env var
  * below — see ./config. Absent file = today's env-only behavior.
  */
-function provider(): string {
+function provider(): "ollama" | "cloud" {
   return resolveProvider();
 }
 
@@ -48,9 +57,9 @@ export function defaultLocalModel(): string {
   return process.env.LOCAL_LLM_MODEL || "gemma4:latest";
 }
 
-/** True when a local / OpenAI-compatible backend is selected (not Anthropic). */
+/** True when the local / OpenAI-compatible self-hosted backend is selected (not any cloud provider). */
 export function isLocalLlm(): boolean {
-  return provider() !== "anthropic";
+  return provider() === "ollama";
 }
 
 export interface LlmClientOptions {
@@ -59,17 +68,40 @@ export interface LlmClientOptions {
 }
 
 export function makeLlmClient(opts: LlmClientOptions = {}): LlmClient {
-  if (!isLocalLlm()) {
-    const key = resolveAnthropicKey();
-    if (!key) {
-      throw new Error(
-        "ANTHROPIC_API_KEY is not set. Add it to .env.local (or switch to Local in Settings to run on a local model).",
-      );
-    }
-    return makeAnthropicClientForKey(key, opts);
+  if (isLocalLlm()) {
+    return makeOpenAiCompatClient({
+      baseUrl: normalizeOpenAiBaseUrl(process.env.LLM_BASE_URL || "http://localhost:11434/v1"),
+      apiKey: process.env.LLM_API_KEY || "local", // Ollama ignores this
+      getModel: () => currentLocalModel() || defaultLocalModel(),
+      timeoutMs: opts.timeout ?? 120_000,
+    });
   }
-  // OpenAI-compatible shim (Ollama et al.), cast to the Anthropic surface the app uses.
-  return openAiCompatShim(opts) as unknown as LlmClient;
+
+  const cfg = resolveCloudConfig();
+  const providerId = cfg?.providerId ?? "anthropic";
+  const resolved = resolveCloudApiKey(cfg);
+  if (!resolved.key) {
+    throw new Error(
+      `${resolved.error ?? "No cloud API key is configured."} Fix it in Settings → Model (or switch to Local to run on a local model).`,
+    );
+  }
+
+  if (providerId === "anthropic") {
+    const client = makeAnthropicClientForKey(resolved.key, opts);
+    return cfg?.model ? withAnthropicModelOverride(client, cfg.model) : client;
+  }
+
+  const baseUrl = cfg ? resolveCloudBaseUrl(cfg) : undefined;
+  if (!baseUrl) throw new Error("No base URL is configured for this cloud provider.");
+  const model = cfg ? resolveCloudModel(cfg) : undefined;
+  if (!model) throw new Error("No model is selected for this cloud provider.");
+
+  return makeOpenAiCompatClient({
+    baseUrl,
+    apiKey: resolved.key,
+    getModel: () => currentLocalModel() || model,
+    timeoutMs: opts.timeout ?? 120_000,
+  });
 }
 
 /** Anthropic client for an explicit key — used by the test-key endpoint, which
@@ -83,19 +115,42 @@ export function makeAnthropicClientForKey(apiKey: string, opts: LlmClientOptions
   });
 }
 
-function openAiCompatShim(opts: LlmClientOptions): LlmClient {
-  // Accept a bare host (e.g. http://localhost:11434) by auto-appending /v1 —
-  // the OpenAI-compatible path all these servers use. See ./baseUrl.
-  const base = normalizeOpenAiBaseUrl(process.env.LLM_BASE_URL || "http://localhost:11434/v1");
-  const apiKey = process.env.LLM_API_KEY || "local"; // Ollama ignores this
-  const timeoutMs = opts.timeout ?? 120_000;
+/** Overrides `model` on every request — used when the user picked a non-default model for the Anthropic path. */
+function withAnthropicModelOverride(client: Anthropic, model: string): LlmClient {
+  return {
+    messages: {
+      create: (params: any, options?: any) => client.messages.create({ ...params, model }, options),
+    },
+  } as unknown as LlmClient;
+}
 
+type ChatPayload = Record<string, unknown>;
+
+/** Newer OpenAI models (o-series, gpt-5) reject `max_tokens` and `temperature: 0`; retry in their dialect. */
+function adaptRejectedParams(payload: ChatPayload, errorBody: string): ChatPayload | undefined {
+  const { max_tokens, temperature, ...rest } = payload;
+  if (max_tokens !== undefined && errorBody.includes("max_completion_tokens")) {
+    return { ...rest, ...(temperature !== undefined ? { temperature } : {}), max_completion_tokens: max_tokens };
+  }
+  if (temperature !== undefined && errorBody.includes("temperature")) {
+    return { ...rest, ...(max_tokens !== undefined ? { max_tokens } : {}) };
+  }
+  return undefined;
+}
+
+function makeOpenAiCompatClient(opts: {
+  baseUrl: string;
+  apiKey: string;
+  getModel: () => string;
+  timeoutMs: number;
+}): LlmClient {
+  const { baseUrl, apiKey, getModel, timeoutMs } = opts;
   return {
     messages: {
       // Signature-compatible with Anthropic's messages.create for the subset the
       // app uses: params.{model,max_tokens,system,messages}, options.{signal}.
       async create(params: any, options?: { signal?: AbortSignal }): Promise<any> {
-        const model = currentLocalModel() || defaultLocalModel();
+        const model = getModel();
         const messages: Array<{ role: string; content: string }> = [];
         // `system` may be a plain string OR Anthropic content blocks
         // (`[{ type:"text", text, cache_control }]`, used for prompt caching).
@@ -125,30 +180,41 @@ function openAiCompatShim(opts: LlmClientOptions): LlmClient {
           else options.signal.addEventListener("abort", () => ac.abort(options.signal!.reason), { once: true });
         }
 
-        try {
-          const res = await fetch(`${base}/chat/completions`, {
+        let payload: ChatPayload = {
+          model,
+          messages,
+          max_tokens: params.max_tokens,
+          temperature: 0, // deterministic-ish scoring
+          stream: false,
+          // Grammar-constrained valid JSON. Every prompt here asks for JSON,
+          // and small local models otherwise drift into malformed output the
+          // repair layer can't recover. (Object mode wraps a bare array as
+          // {"key":[...]}; parseJson unwraps that — see lib/claude.ts.)
+          response_format: { type: "json_object" },
+        };
+        const post = (body: ChatPayload) =>
+          fetch(`${baseUrl}/chat/completions`, {
             method: "POST",
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-            body: JSON.stringify({
-              model,
-              messages,
-              max_tokens: params.max_tokens,
-              temperature: 0, // deterministic-ish scoring
-              stream: false,
-              // Grammar-constrained valid JSON. Every prompt here asks for JSON,
-              // and small local models otherwise drift into malformed output the
-              // repair layer can't recover. (Object mode wraps a bare array as
-              // {"key":[...]}; parseJson unwraps that — see lib/claude.ts.)
-              response_format: { type: "json_object" },
-            }),
+            body: JSON.stringify(body),
             signal: ac.signal,
           });
+
+        try {
+          let res = await post(payload);
+          let body = "";
+          for (let retries = 0; !res.ok; retries++) {
+            body = await res.text().catch(() => "");
+            const adapted = res.status === 400 && retries < 2 ? adaptRejectedParams(payload, body) : undefined;
+            if (!adapted) break;
+            payload = adapted;
+            res = await post(payload);
+          }
           if (!res.ok) {
-            const body = await res.text().catch(() => "");
             const hint = res.status === 404
-              ? " — a 404 here usually means LLM_BASE_URL is missing the OpenAI-compatible path; it must end in /v1 (e.g. http://localhost:11434/v1)"
+              ? " — a 404 here usually means the base URL is missing the OpenAI-compatible path; it must end in /v1 (e.g. http://localhost:11434/v1)"
               : "";
-            throw new Error(`Local LLM request failed (${res.status}) at ${base}: ${body.slice(0, 200)}${hint}`);
+            throw new Error(`LLM request failed (${res.status}) at ${baseUrl}: ${body.slice(0, 200)}${hint}`);
           }
           const json: any = await res.json();
           const text: string = json?.choices?.[0]?.message?.content ?? "";
