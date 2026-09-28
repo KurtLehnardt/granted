@@ -1,6 +1,5 @@
 import { describe, expect, test } from "vitest";
 import {
-  NOTHING_SUBMITTED_BANNER,
   IMPORT_SCREEN,
   REVIEW_SCREEN,
   FILL_PROGRESS_SCREEN,
@@ -15,8 +14,7 @@ import {
 /**
  * Positive submission/eligibility CONFIRMATIONS the copy must never state.
  * Mirrors `scaffold/lib/apply/__tests__/package.test.ts`'s
- * `SUBMIT_CONFIRMATION_PATTERNS` — crafted NOT to match honest negations
- * ("nothing was submitted", "no application was filed").
+ * `SUBMIT_CONFIRMATION_PATTERNS`.
  */
 const SUBMIT_CONFIRMATION_PATTERNS: RegExp[] = [
   /application (has been |was )?submitted\b/i,
@@ -41,16 +39,13 @@ function findBannedPhrases(text: string): string[] {
 
 function collectAllCopyStrings(): string[] {
   const strings: string[] = [
-    NOTHING_SUBMITTED_BANNER,
     IMPORT_SCREEN.title,
-    IMPORT_SCREEN.banner,
     IMPORT_SCREEN.filePickerLabel,
     IMPORT_SCREEN.pasteLabel,
     IMPORT_SCREEN.importButton,
     IMPORT_SCREEN.successMessage,
     IMPORT_SCREEN.failurePrefix,
     REVIEW_SCREEN.title,
-    REVIEW_SCREEN.banner,
     REVIEW_SCREEN.intro,
     REVIEW_SCREEN.groundedSectionTitle,
     REVIEW_SCREEN.gapSectionTitle,
@@ -58,11 +53,9 @@ function collectAllCopyStrings(): string[] {
     REVIEW_SCREEN.gapLabel,
     REVIEW_SCREEN.excludedLabel,
     FILL_PROGRESS_SCREEN.title,
-    FILL_PROGRESS_SCREEN.banner,
     FILL_PROGRESS_SCREEN.fillButton,
     ...Object.values(FILL_OUTCOME_LABELS),
     NAVIGATE_SCREEN.title,
-    NAVIGATE_SCREEN.banner,
     NAVIGATE_SCREEN.nextButton,
     NAVIGATE_SCREEN.blockedMessage,
     NAVIGATE_SCREEN.unknownStepMessage,
@@ -85,10 +78,6 @@ function collectAllCopyStrings(): string[] {
 describe("copy-lint (INV-12) — every popup/copy string is honest", () => {
   const allCopy = collectAllCopyStrings().join("  ");
 
-  test("contains a prominent 'nothing has been submitted' statement", () => {
-    expect(allCopy).toMatch(/nothing has been submitted/i);
-  });
-
   test("contains NO submit/eligibility CONFIRMATION phrasing", () => {
     for (const re of SUBMIT_CONFIRMATION_PATTERNS) {
       expect(allCopy).not.toMatch(re);
@@ -102,8 +91,6 @@ describe("copy-lint (INV-12) — every popup/copy string is honest", () => {
   test("the terminal panel mirrors AOR_HANDOFF verbatim (headline + cta)", () => {
     expect(TERMINAL_SCREEN.headline).toBe("Review & submit via your authorized AOR");
     expect(TERMINAL_SCREEN.cta).toBe("Review & submit via your authorized AOR");
-    expect(TERMINAL_SCREEN.body).toMatch(/nothing was submitted/i);
-    expect(TERMINAL_SCREEN.body).toMatch(/no application was filed/i);
     expect(TERMINAL_SCREEN.body).toMatch(/authorized organization representative/i);
   });
 

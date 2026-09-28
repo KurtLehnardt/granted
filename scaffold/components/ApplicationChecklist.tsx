@@ -257,8 +257,8 @@ function sourceApplyStep(opportunity: Opportunity, now?: number): Step {
   }
 }
 
-/** Ordered next actions. The LAST step always restates the honesty boundary: this
- *  tool never submits anything — a human AOR does, through the official portal. */
+/** Ordered next actions. The LAST step always points to the opportunity's
+ *  official portal, after the org's AOR has reviewed the draft. */
 export function buildNextSteps(match: Match, allRegistrationsSatisfied: boolean, now?: number): Step[] {
   const opportunity = match.opportunity;
   const steps: Step[] = [];

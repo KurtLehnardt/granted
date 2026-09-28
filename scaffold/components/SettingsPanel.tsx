@@ -55,7 +55,7 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
           <XIcon className="h-4 w-4" />
         </button>
 
-        <p className={eyebrowClass}>Settings</p>
+        {autoFillOn && <p className={eyebrowClass}>Settings</p>}
         <h2 id="settings-panel-title" className={titleClass}>
           {autoFillOn ? "Auto-fill requirements" : "Settings"}
         </h2>

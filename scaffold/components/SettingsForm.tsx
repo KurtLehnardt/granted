@@ -172,149 +172,149 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
   return (
     <form onSubmit={handleSave}>
       {autoFillOn && (
-      <>
-      <p className="mb-4 font-body text-[12px] leading-relaxed text-foreground opacity-80">
-        These details are self-reported and stored on this device. Granted never connects to
-        SAM.gov — the checkboxes are your own attestation, not a live check.
-      </p>
-      <fieldset className={fieldWrapClass}>
-        <legend className={legendClass}>Active SAM.gov registration</legend>
-        <div className="mt-2 flex items-center gap-4">
-          <label className={`flex items-center gap-1.5 ${labelTextClass}`}>
+        <>
+          <p className="mb-4 font-body text-[12px] leading-relaxed text-foreground opacity-80">
+            These details are self-reported and stored on this device. Granted never connects to
+            SAM.gov — the checkboxes are your own attestation, not a live check.
+          </p>
+          <fieldset className={fieldWrapClass}>
+            <legend className={legendClass}>Active SAM.gov registration</legend>
+            <div className="mt-2 flex items-center gap-4">
+              <label className={`flex items-center gap-1.5 ${labelTextClass}`}>
+                <input
+                  type="radio"
+                  name={samRadioName}
+                  checked={form.samRegistered === true}
+                  onChange={() => update("samRegistered", true)}
+                />
+                Yes
+              </label>
+              <label className={`flex items-center gap-1.5 ${labelTextClass}`}>
+                <input
+                  type="radio"
+                  name={samRadioName}
+                  checked={form.samRegistered === false}
+                  onChange={() => update("samRegistered", false)}
+                />
+                No
+              </label>
+            </div>
+            {form.samRegistered && (
+              <label className={`mt-2 block ${labelTextClass}`}>
+                Registration date (optional)
+                <input
+                  type="date"
+                  value={form.samRegisteredDate}
+                  onChange={(e) => update("samRegisteredDate", e.target.value)}
+                  className={inputClass}
+                />
+              </label>
+            )}
+          </fieldset>
+
+          <div className={fieldWrapClass}>
+            <label className={legendClass} htmlFor={ueiId}>
+              UEI (Unique Entity Identifier)
+            </label>
             <input
-              type="radio"
-              name={samRadioName}
-              checked={form.samRegistered === true}
-              onChange={() => update("samRegistered", true)}
-            />
-            Yes
-          </label>
-          <label className={`flex items-center gap-1.5 ${labelTextClass}`}>
-            <input
-              type="radio"
-              name={samRadioName}
-              checked={form.samRegistered === false}
-              onChange={() => update("samRegistered", false)}
-            />
-            No
-          </label>
-        </div>
-        {form.samRegistered && (
-          <label className={`mt-2 block ${labelTextClass}`}>
-            Registration date (optional)
-            <input
-              type="date"
-              value={form.samRegisteredDate}
-              onChange={(e) => update("samRegisteredDate", e.target.value)}
+              id={ueiId}
+              type="text"
+              value={form.uei}
+              onChange={(e) => update("uei", e.target.value)}
+              placeholder="e.g. ABC123DEF456"
               className={inputClass}
             />
-          </label>
-        )}
-      </fieldset>
+          </div>
 
-      <div className={fieldWrapClass}>
-        <label className={legendClass} htmlFor={ueiId}>
-          UEI (Unique Entity Identifier)
-        </label>
-        <input
-          id={ueiId}
-          type="text"
-          value={form.uei}
-          onChange={(e) => update("uei", e.target.value)}
-          placeholder="e.g. ABC123DEF456"
-          className={inputClass}
-        />
-      </div>
+          <fieldset className={fieldWrapClass}>
+            <legend className={legendClass}>Authorized AOR</legend>
+            <label className={`mt-2 block ${labelTextClass}`} htmlFor={aorNameId}>
+              Name
+              <input
+                id={aorNameId}
+                type="text"
+                value={form.aorName}
+                onChange={(e) => update("aorName", e.target.value)}
+                placeholder="Who's authorized to sign for your org"
+                className={inputClass}
+              />
+            </label>
+            <label className={`mt-2 flex items-center gap-2 ${labelTextClass}`}>
+              <input
+                type="checkbox"
+                checked={form.aorOnFile}
+                onChange={(e) => update("aorOnFile", e.target.checked)}
+              />
+              This AOR is on file in SAM.gov
+            </label>
+          </fieldset>
 
-      <fieldset className={fieldWrapClass}>
-        <legend className={legendClass}>Authorized AOR</legend>
-        <label className={`mt-2 block ${labelTextClass}`} htmlFor={aorNameId}>
-          Name
-          <input
-            id={aorNameId}
-            type="text"
-            value={form.aorName}
-            onChange={(e) => update("aorName", e.target.value)}
-            placeholder="Who's authorized to sign for your org"
-            className={inputClass}
-          />
-        </label>
-        <label className={`mt-2 flex items-center gap-2 ${labelTextClass}`}>
-          <input
-            type="checkbox"
-            checked={form.aorOnFile}
-            onChange={(e) => update("aorOnFile", e.target.checked)}
-          />
-          This AOR is on file in SAM.gov
-        </label>
-      </fieldset>
+          <fieldset className={fieldWrapClass}>
+            <legend className={legendClass}>E-Biz POC delegation</legend>
+            <label className={`mt-2 flex items-center gap-2 ${labelTextClass}`}>
+              <input
+                type="checkbox"
+                checked={form.eBizPocOnFile}
+                onChange={(e) => update("eBizPocOnFile", e.target.checked)}
+              />
+              The E-Biz POC has delegated AOR authority in SAM.gov
+            </label>
+          </fieldset>
 
-      <fieldset className={fieldWrapClass}>
-        <legend className={legendClass}>E-Biz POC delegation</legend>
-        <label className={`mt-2 flex items-center gap-2 ${labelTextClass}`}>
-          <input
-            type="checkbox"
-            checked={form.eBizPocOnFile}
-            onChange={(e) => update("eBizPocOnFile", e.target.checked)}
-          />
-          The E-Biz POC has delegated AOR authority in SAM.gov
-        </label>
-      </fieldset>
-
-      <fieldset className={fieldWrapClass}>
-        <legend className={legendClass}>Organization details (reused on every grant)</legend>
-        <p className="mt-1 font-body text-[12px] text-foreground opacity-80">
-          Your legal organization info as registered in SAM.gov. Enter it once here and it&rsquo;s
-          filled into every application — copy it from your SAM.gov entity registration.
-        </p>
-        <label className={`mt-2 block ${labelTextClass}`} htmlFor={orgNameId}>
-          Legal organization name
-          <input
-            id={orgNameId}
-            type="text"
-            value={form.organizationName}
-            onChange={(e) => update("organizationName", e.target.value)}
-            placeholder="Exactly as registered in SAM.gov"
-            className={inputClass}
-          />
-        </label>
-        <label className={`mt-2 block ${labelTextClass}`} htmlFor={streetId}>
-          Street address
-          <input
-            id={streetId}
-            type="text"
-            value={form.street}
-            onChange={(e) => update("street", e.target.value)}
-            className={inputClass}
-          />
-        </label>
-        <div className="mt-2 flex flex-wrap gap-2">
-          <label className={`flex-1 ${labelTextClass}`} htmlFor={cityId}>
-            City
-            <input id={cityId} type="text" value={form.city} onChange={(e) => update("city", e.target.value)} className={inputClass} />
-          </label>
-          <label className={labelTextClass} htmlFor={stateId}>
-            State
-            <input id={stateId} type="text" value={form.state} onChange={(e) => update("state", e.target.value)} className={`${inputClass} w-24`} />
-          </label>
-          <label className={labelTextClass} htmlFor={zipId}>
-            ZIP
-            <input id={zipId} type="text" value={form.zip} onChange={(e) => update("zip", e.target.value)} className={`${inputClass} w-28`} />
-          </label>
-        </div>
-        <label className={`mt-2 block ${labelTextClass}`} htmlFor={cdId}>
-          Congressional district
-          <input
-            id={cdId}
-            type="text"
-            value={form.congressionalDistrict}
-            onChange={(e) => update("congressionalDistrict", e.target.value)}
-            placeholder="e.g. ID-01 — look it up at house.gov (Find Your Representative)"
-            className={inputClass}
-          />
-        </label>
-      </fieldset>
-      </>
+          <fieldset className={fieldWrapClass}>
+            <legend className={legendClass}>Organization details (reused on every grant)</legend>
+            <p className="mt-1 font-body text-[12px] text-foreground opacity-80">
+              Your legal organization info as registered in SAM.gov. Enter it once here and it&rsquo;s
+              filled into every application — copy it from your SAM.gov entity registration.
+            </p>
+            <label className={`mt-2 block ${labelTextClass}`} htmlFor={orgNameId}>
+              Legal organization name
+              <input
+                id={orgNameId}
+                type="text"
+                value={form.organizationName}
+                onChange={(e) => update("organizationName", e.target.value)}
+                placeholder="Exactly as registered in SAM.gov"
+                className={inputClass}
+              />
+            </label>
+            <label className={`mt-2 block ${labelTextClass}`} htmlFor={streetId}>
+              Street address
+              <input
+                id={streetId}
+                type="text"
+                value={form.street}
+                onChange={(e) => update("street", e.target.value)}
+                className={inputClass}
+              />
+            </label>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <label className={`flex-1 ${labelTextClass}`} htmlFor={cityId}>
+                City
+                <input id={cityId} type="text" value={form.city} onChange={(e) => update("city", e.target.value)} className={inputClass} />
+              </label>
+              <label className={labelTextClass} htmlFor={stateId}>
+                State
+                <input id={stateId} type="text" value={form.state} onChange={(e) => update("state", e.target.value)} className={`${inputClass} w-24`} />
+              </label>
+              <label className={labelTextClass} htmlFor={zipId}>
+                ZIP
+                <input id={zipId} type="text" value={form.zip} onChange={(e) => update("zip", e.target.value)} className={`${inputClass} w-28`} />
+              </label>
+            </div>
+            <label className={`mt-2 block ${labelTextClass}`} htmlFor={cdId}>
+              Congressional district
+              <input
+                id={cdId}
+                type="text"
+                value={form.congressionalDistrict}
+                onChange={(e) => update("congressionalDistrict", e.target.value)}
+                placeholder="e.g. ID-01 — look it up at house.gov (Find Your Representative)"
+                className={inputClass}
+              />
+            </label>
+          </fieldset>
+        </>
       )}
 
       <div className={fieldWrapClass}>
