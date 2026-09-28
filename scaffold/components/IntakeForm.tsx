@@ -1,5 +1,5 @@
 "use client";
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { isFlagEnabled } from "@/lib/flags";
 import { useAuth } from "@/components/AuthProvider";
 import { useAnalytics } from "@/components/AnalyticsProvider";
@@ -8,6 +8,7 @@ import { clearAllLocalData, getAutoFillRequirements } from "@/lib/mockAuth";
 import { getMaxCandidates, getModel, LAST_SEARCH_MS_KEY } from "@/lib/searchSettings";
 import type { LlmInfo } from "@/lib/llm/types";
 import SearchProgress from "@/components/SearchProgress";
+import { useWelcomeGuideSampleHandler } from "@/components/WelcomeGuide";
 import PreSearchInterview from "@/components/PreSearchInterview";
 import ProfileQuestionnaire from "@/components/ProfileQuestionnaire";
 // Type-only: generateQuestions.ts imports the OpenAI SDK at runtime. A
@@ -16,20 +17,12 @@ import ProfileQuestionnaire from "@/components/ProfileQuestionnaire";
 import type { InterviewQuestion } from "@/lib/interview/generateQuestions";
 import type { Match } from "@/lib/types";
 
-/** Imperative handle exposed to a parent (WelcomeGuide's sample pick) so a
- *  sample company can run a search WITHOUT ever touching the description the
- *  user has typed — see IntakeForm's runSample(). */
-export interface IntakeFormHandle {
-  runSample: (description: string) => void;
-}
-
-/** Pure guard for runSample: a sample pick while a search is already in
- *  flight must never start a concurrent run — it's a no-op instead. */
-export function canRunSample(loading: boolean): boolean {
-  return !loading;
-}
-
-const IntakeForm = forwardRef<IntakeFormHandle, {
+export default function IntakeForm({
+  onResult,
+  onLoadingChange,
+  onMatchPreview,
+  onSearchDuration,
+}: {
   onResult: (m: any) => void;
   /** Fires alongside every `setLoading` transition, so a parent can drive a
    *  progressive-results UI (e.g. hiding a stale previous result the instant a
@@ -45,7 +38,7 @@ const IntakeForm = forwardRef<IntakeFormHandle, {
   onMatchPreview?: (m: Match) => void;
   /** Fires right before `onResult` with the search's duration, or null for a cached result. */
   onSearchDuration?: (ms: number | null) => void;
-}>(function IntakeForm({ onResult, onLoadingChange, onMatchPreview, onSearchDuration }, ref) {
+}) {
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -345,16 +338,11 @@ const IntakeForm = forwardRef<IntakeFormHandle, {
     }
   }
 
-  // Exposed to a parent (WelcomeGuide) so a sample company's cached results
-  // can be shown WITHOUT ever writing into `text` / the description textarea.
-  // Guarded against a search already in flight (e.g. replaying the guide from
-  // Settings mid-search) — a sample pick then must not start a concurrent run.
-  useImperativeHandle(ref, () => ({
-    runSample: (description: string) => {
-      if (!canRunSample(loading)) return;
-      run(description);
-    },
-  }));
+  // A sample runs without touching `text`; no-op while a search or interview is active.
+  const busy = loading || interviewPhase !== "idle";
+  useWelcomeGuideSampleHandler((description) => {
+    if (!busy) run(description);
+  }, busy);
 
   // Error state is a legitimate semantic role -> `error` token. As a 2px
   // border (non-text, 3:1 threshold) this passes AA against canvas-alt/canvas
@@ -477,6 +465,4 @@ const IntakeForm = forwardRef<IntakeFormHandle, {
       )}
     </div>
   );
-});
-
-export default IntakeForm;
+}

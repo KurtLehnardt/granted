@@ -1,13 +1,12 @@
 "use client";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import IntakeForm, { type IntakeFormHandle } from "@/components/IntakeForm";
+import IntakeForm from "@/components/IntakeForm";
 import OpportunityMap, { Boundary } from "@/components/OpportunityMap";
 import OpportunityCard from "@/components/OpportunityCard";
 import type { OpportunityMap as MapT, Match } from "@/lib/types";
 import AppMenu from "@/components/AppMenu";
 import { isFlagEnabled } from "@/lib/flags";
 import { SidebarProvider, useSidebar } from "@/components/SidebarProvider";
-import { useWelcomeGuideSampleHandler } from "@/components/WelcomeGuide";
 import { useAnalytics } from "@/components/AnalyticsProvider";
 import { latestRun, saveRun } from "@/lib/runs/runsStore";
 import { formatSearchDuration } from "@/components/SearchProgress";
@@ -48,11 +47,6 @@ function HomeShell({ sidebarOn }: { sidebarOn: boolean }) {
   const [loading, setLoading] = useState(false);
   const [previewMatches, setPreviewMatches] = useState<Match[]>([]);
   const [searchDuration, setSearchDuration] = useState<number | null>(null);
-  // WelcomeGuide's step 1 "Show sample companies" pick reaches IntakeForm's
-  // run() through this ref — run(), never setText() — so a sample NEVER
-  // touches the user's own description (see IntakeForm.runSample()).
-  const intakeRef = useRef<IntakeFormHandle>(null);
-  useWelcomeGuideSampleHandler((description) => intakeRef.current?.runSample(description), loading);
 
   function handleLoadingChange(isLoading: boolean) {
     setLoading(isLoading);
@@ -162,7 +156,6 @@ function HomeShell({ sidebarOn }: { sidebarOn: boolean }) {
       </header>
 
       <IntakeForm
-        ref={intakeRef}
         onResult={setMap}
         onLoadingChange={handleLoadingChange}
         onMatchPreview={handleMatchPreview}

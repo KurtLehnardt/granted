@@ -42,8 +42,6 @@ const WelcomeGuideContext = createContext<WelcomeGuideContextValue | null>(null)
 
 function useWelcomeGuideContext(): WelcomeGuideContextValue {
   const ctx = useContext(WelcomeGuideContext);
-  // Outside the provider this is a harmless no-op, same posture as
-  // useSettingsPanel() in AppMenu.tsx.
   return (
     ctx ?? {
       openWelcomeGuide: () => {},
@@ -59,29 +57,22 @@ export function useReplayWelcomeGuide(): () => void {
   return useWelcomeGuideContext().openWelcomeGuide;
 }
 
-/**
- * The home page calls this once with a function that actually runs a search
- * for a sample's description (IntakeForm.runSample via a ref) — without ever
- * writing into the description textarea — and the home page's own IntakeForm
- * `loading` state, so the guide can disable sample picks (BLOCKER: replaying
- * the guide mid-search must never start a concurrent run) instead of relying
- * solely on IntakeFormHandle.runSample's own no-op guard. Registration is
- * cleared on unmount.
- */
+/** IntakeForm registers how to run a sample (never via the textarea) and whether it's busy. */
 export function useWelcomeGuideSampleHandler(
   handler: (description: string) => void,
-  loading: boolean,
+  busy: boolean,
 ): void {
   const { registerSampleHandler, setSampleLoading } = useWelcomeGuideContext();
+  const handlerRef = useRef(handler);
+  handlerRef.current = handler;
   useEffect(() => {
-    registerSampleHandler(handler);
+    registerSampleHandler((description) => handlerRef.current(description));
     return () => registerSampleHandler(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [registerSampleHandler]);
   useEffect(() => {
-    setSampleLoading(loading);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, setSampleLoading]);
+    setSampleLoading(busy);
+    return () => setSampleLoading(false);
+  }, [busy, setSampleLoading]);
 }
 
 /** Mount once (app/layout.tsx) so the guide is reachable/replayable from anywhere. */
@@ -97,16 +88,11 @@ export function WelcomeGuideProvider({ children }: { children: ReactNode }) {
     sampleHandlerRef.current = handler;
   }, []);
 
-  // First visit this browser, ever, AND only on the home page — the only page
-  // with a form to describe (step 1) and a sample handler registered (home's
-  // IntakeForm, via useWelcomeGuideSampleHandler). Guarded by startedRef (this
-  // mount) AND the localStorage "seen" flag (this browser, forever) — see
-  // welcomeGuidePrefs.ts.
+  // Home page only: it has the form and the registered sample handler.
   useEffect(() => {
     if (pathname !== "/") return;
     if (!shouldAutoStartWelcomeGuide({ started: startedRef.current, seen: hasSeenWelcomeGuide() })) return;
     startedRef.current = true;
-    // Mark seen NOW, not only on close — so a reload mid-guide can't re-trigger it.
     markWelcomeGuideSeen();
     setOpen(true);
   }, [pathname]);
@@ -144,9 +130,7 @@ function WelcomeGuideModal({
   const [samplesShown, setSamplesShown] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  // At step 2, closing any way (X, Escape, backdrop) applies the selected
-  // sample — the guide already told the user their pick would show up once
-  // this guide closes, so a close here must mean the same thing Done does.
+  // At step 2 any close (X, Escape, backdrop) applies the pick, same as Done.
   const stepRef = useRef(step);
   stepRef.current = step;
   const selectedRef = useRef<string | null>(selectedId);
@@ -158,9 +142,7 @@ function WelcomeGuideModal({
   }, [onDone]);
   useDialogA11y(dialogRef, close, initialFocusRef);
 
-  // Move focus to the step heading whenever the step changes (skip the very
-  // first render — useDialogA11y already placed initial focus on the Close
-  // button then).
+  // Focus the heading on step change; useDialogA11y handles initial focus.
   const mountedRef = useRef(false);
   useEffect(() => {
     if (!mountedRef.current) {
@@ -170,8 +152,6 @@ function WelcomeGuideModal({
     headingRef.current?.focus();
   }, [step]);
 
-  // Move focus into the sample list the instant it replaces the trigger
-  // button, so the click doesn't drop focus to <body>.
   useEffect(() => {
     if (samplesShown) firstSampleRef.current?.focus();
   }, [samplesShown]);
@@ -241,9 +221,6 @@ function WelcomeGuideModal({
                     These are fictional example companies with cached results — pick one to see how
                     it works, or just close this and fill out your own.
                   </p>
-                  {/* BLOCKER fix: a search already in flight (e.g. this guide was
-                      replayed from Settings mid-search) must never be joined by a
-                      concurrent sample run — disable picks until it finishes. */}
                   {sampleLoading && (
                     <p className="mt-2 font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas">
                       Available when your current search finishes
@@ -343,21 +320,13 @@ function SettingsHighlight() {
   const [rect, setRect] = useState<DOMRect | null>(null);
 
   useLayoutEffect(() => {
-    // More than one [data-tour="settings"] can exist at once (desktop hamburger,
-    // sidebar section header, collapsed sidebar re-open, mobile menu button) —
-    // only one is ever actually visible at a given viewport/flag combination, so
-    // pick the first with a non-zero rendered size.
+    // Several [data-tour="settings"] exist; pick the first visible, on-screen one.
+    // No inert check: this dialog inerts everything else while open.
     const measure = () => {
       const candidates = Array.from(document.querySelectorAll<HTMLElement>('[data-tour="settings"]'));
       for (const el of candidates) {
         const r = el.getBoundingClientRect();
-        // Skip a zero-size or off-viewport candidate (e.g. the collapsed left
-        // sidebar, which stays mounted off-screen for its slide transition) —
-        // it has a real size but isn't the visible trigger. Deliberately does
-        // NOT check for an inert ancestor: this guide's own dialog inerts
-        // every other <body> child while open (useDialogA11y), which would
-        // otherwise disqualify every candidate, including the visible one.
-        if (r.width <= 0 && r.height <= 0) continue;
+        if (r.width <= 0 || r.height <= 0) continue;
         if (r.right <= 0 || r.bottom <= 0 || r.left >= window.innerWidth || r.top >= window.innerHeight) continue;
         setRect(r);
         return;
