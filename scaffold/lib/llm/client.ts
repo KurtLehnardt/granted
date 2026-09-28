@@ -82,8 +82,7 @@ export function makeLlmClient(opts: LlmClientOptions = {}): LlmClient {
   const resolved = resolveCloudApiKey(cfg);
   if (!resolved.key) {
     throw new Error(
-      resolved.error ??
-        "No cloud API key is configured. Add one in Settings (or switch to Local to run on a local model).",
+      `${resolved.error ?? "No cloud API key is configured."} Fix it in Settings → Model (or switch to Local to run on a local model).`,
     );
   }
 
@@ -123,6 +122,20 @@ function withAnthropicModelOverride(client: Anthropic, model: string): LlmClient
       create: (params: any, options?: any) => client.messages.create({ ...params, model }, options),
     },
   } as unknown as LlmClient;
+}
+
+type ChatPayload = Record<string, unknown>;
+
+/** Newer OpenAI models (o-series, gpt-5) reject `max_tokens` and `temperature: 0`; retry in their dialect. */
+function adaptRejectedParams(payload: ChatPayload, errorBody: string): ChatPayload | undefined {
+  const { max_tokens, temperature, ...rest } = payload;
+  if (max_tokens !== undefined && errorBody.includes("max_completion_tokens")) {
+    return { ...rest, ...(temperature !== undefined ? { temperature } : {}), max_completion_tokens: max_tokens };
+  }
+  if (temperature !== undefined && errorBody.includes("temperature")) {
+    return { ...rest, ...(max_tokens !== undefined ? { max_tokens } : {}) };
+  }
+  return undefined;
 }
 
 function makeOpenAiCompatClient(opts: {
@@ -167,26 +180,37 @@ function makeOpenAiCompatClient(opts: {
           else options.signal.addEventListener("abort", () => ac.abort(options.signal!.reason), { once: true });
         }
 
-        try {
-          const res = await fetch(`${baseUrl}/chat/completions`, {
+        let payload: ChatPayload = {
+          model,
+          messages,
+          max_tokens: params.max_tokens,
+          temperature: 0, // deterministic-ish scoring
+          stream: false,
+          // Grammar-constrained valid JSON. Every prompt here asks for JSON,
+          // and small local models otherwise drift into malformed output the
+          // repair layer can't recover. (Object mode wraps a bare array as
+          // {"key":[...]}; parseJson unwraps that — see lib/claude.ts.)
+          response_format: { type: "json_object" },
+        };
+        const post = (body: ChatPayload) =>
+          fetch(`${baseUrl}/chat/completions`, {
             method: "POST",
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-            body: JSON.stringify({
-              model,
-              messages,
-              max_tokens: params.max_tokens,
-              temperature: 0, // deterministic-ish scoring
-              stream: false,
-              // Grammar-constrained valid JSON. Every prompt here asks for JSON,
-              // and small local models otherwise drift into malformed output the
-              // repair layer can't recover. (Object mode wraps a bare array as
-              // {"key":[...]}; parseJson unwraps that — see lib/claude.ts.)
-              response_format: { type: "json_object" },
-            }),
+            body: JSON.stringify(body),
             signal: ac.signal,
           });
+
+        try {
+          let res = await post(payload);
+          let body = "";
+          for (let retries = 0; !res.ok; retries++) {
+            body = await res.text().catch(() => "");
+            const adapted = res.status === 400 && retries < 2 ? adaptRejectedParams(payload, body) : undefined;
+            if (!adapted) break;
+            payload = adapted;
+            res = await post(payload);
+          }
           if (!res.ok) {
-            const body = await res.text().catch(() => "");
             const hint = res.status === 404
               ? " — a 404 here usually means the base URL is missing the OpenAI-compatible path; it must end in /v1 (e.g. http://localhost:11434/v1)"
               : "";

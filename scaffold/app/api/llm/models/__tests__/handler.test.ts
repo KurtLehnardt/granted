@@ -84,6 +84,17 @@ describe("POST /api/llm/models", () => {
     assert.equal(sent.key, "sk-savedopenaikey0000");
   });
 
+  test("'other': the saved key is never sent to a different base URL", async () => {
+    let called = false;
+    const savedCloud: CloudConfig = { providerId: "other", baseUrl: "https://a.example.com/v1", keySource: { type: "inline", key: "saved-other-key-0000" } };
+    const res = await handleModelsPost(
+      fakeReq({ providerId: "other", baseUrl: "https://b.example.com/v1", keySource: { type: "saved" } }),
+      fakeDeps({ resolveCloudConfig: () => savedCloud, listCloudModels: (async () => { called = true; return { models: [] }; }) as any }),
+    );
+    assert.equal(res.status, 400);
+    assert.equal(called, false);
+  });
+
   test("keySource {type:'saved'} does not carry over to a different provider -> 400", async () => {
     const savedCloud: CloudConfig = { providerId: "openai", keySource: { type: "inline", key: "sk-savedopenaikey0000" } };
     const res = await handleModelsPost(

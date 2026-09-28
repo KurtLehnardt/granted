@@ -3,7 +3,7 @@
 import React, { useEffect, useId, useState } from "react";
 import { getModel, setModel } from "@/lib/searchSettings";
 import type { OllamaModel } from "@/lib/llm/ollamaInfo";
-import { CLOUD_PROVIDERS, type CloudProviderId } from "@/lib/llm/providers";
+import { CLOUD_PROVIDERS, isSameCloudTarget, type CloudProviderId } from "@/lib/llm/providers";
 
 export type KeySourceType = "inline" | "env" | "file";
 export type PublicKeySource = { type: "inline" } | { type: "env"; name: string } | { type: "file"; path: string };
@@ -94,7 +94,7 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
   }, []);
 
   // A blank pasted-key field reuses the already-saved key for this provider
-  // (server-side, only if the provider hasn't changed) rather than sending an
+  // (server-side, only for the same provider and base URL) rather than sending an
   // empty inline key — lets Save/Test key/Load models work on a saved key the
   // draft never re-shows.
   function currentKeySource(): (PublicKeySource & { key?: string }) | { type: "saved" } {
@@ -259,6 +259,8 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
   const activeProvider = info?.provider ?? "ollama";
   const activeCloudLabel = CLOUD_PROVIDERS.find((p) => p.id === info?.cloud?.providerId)?.label;
   const modelRequired = uiProvider === "cloud" && providerId !== "anthropic" && !preset?.defaultModel;
+  const canReuseSavedKey =
+    Boolean(info?.cloud?.hasKey) && info?.cloud?.keySource.type === "inline" && isSameCloudTarget(info.cloud, providerId, baseUrl);
 
   function keySourceStatusLine(): string | null {
     if (!info?.cloud?.hasKey) return null;
@@ -408,7 +410,7 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
                 value={keyDraft}
                 onChange={(e) => setKeyDraft(e.target.value)}
                 placeholder={
-                  info?.cloud?.providerId === providerId && info.cloud.hasKey && info.cloud.keySource.type === "inline"
+                  canReuseSavedKey
                     ? "Leave blank to keep the saved key"
                     : preset?.id === "anthropic"
                       ? "sk-ant-..."

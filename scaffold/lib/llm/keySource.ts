@@ -67,7 +67,7 @@ export function resolveKeySource(source: KeySource, isValid?: (key: string) => b
 
   // file
   if (!source.path || !isAbsolutePath(source.path)) {
-    return { error: `Couldn't read ${source.path || ""}` };
+    return { error: "Enter the key file's full (absolute) path." };
   }
   const { content, error } = readKeyFile(source.path);
   if (error) return { error };

@@ -1,7 +1,26 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { handleLlmConfigPost, type LlmConfigDeps } from "../handler";
-import type { LlmConfigFile } from "@/lib/llm/config";
+import { readLlmConfig, resolveCloudConfig, resetLlmConfigCache, type LlmConfigFile } from "@/lib/llm/config";
+
+async function withRealConfigFile(initial: object, fn: () => Promise<void>) {
+  const p = path.join(os.tmpdir(), `granted-llm-config-handler-${process.pid}-${Date.now()}.json`);
+  const prev = process.env.GRANTED_LLM_CONFIG_PATH;
+  process.env.GRANTED_LLM_CONFIG_PATH = p;
+  fs.writeFileSync(p, JSON.stringify(initial), "utf8");
+  resetLlmConfigCache();
+  try {
+    await fn();
+  } finally {
+    fs.rmSync(p, { force: true });
+    if (prev === undefined) delete process.env.GRANTED_LLM_CONFIG_PATH;
+    else process.env.GRANTED_LLM_CONFIG_PATH = prev;
+    resetLlmConfigCache();
+  }
+}
 
 function fakeReq(body?: unknown): { headers: { get(name: string): string | null }; json: () => Promise<unknown> } {
   return {
@@ -246,11 +265,38 @@ describe("POST /api/llm/config", () => {
     assert.equal(res.status, 200);
   });
 
-  test("switching to ollama purges a legacy #210 plaintext key", async () => {
-    const deps = fakeDeps({}, { provider: "anthropic", anthropicApiKey: "sk-ant-legacyplaintext0" });
-    const res = await handleLlmConfigPost(fakeReq({ provider: "ollama" }), deps);
-    assert.equal(res.status, 200);
-    assert.equal(deps._get().anthropicApiKey, undefined);
+  test("switching to ollama moves a legacy #210 key into cloud rather than dropping it (real file)", async () => {
+    await withRealConfigFile({ provider: "anthropic", anthropicApiKey: "sk-ant-legacyplaintext0" }, async () => {
+      const res = await handleLlmConfigPost(fakeReq({ provider: "ollama" }), { isLoopbackRequest: () => true });
+      assert.equal(res.status, 200);
+      assert.deepEqual(readLlmConfig(), {
+        provider: "ollama",
+        cloud: { providerId: "anthropic", keySource: { type: "inline", key: "sk-ant-legacyplaintext0" } },
+      });
+      assert.equal(resolveCloudConfig()?.keySource.type, "inline");
+    });
+  });
+
+  test("clearCloud on a legacy #210 file removes the key entirely (real file)", async () => {
+    await withRealConfigFile({ provider: "anthropic", anthropicApiKey: "sk-ant-legacyplaintext0" }, async () => {
+      const res = await handleLlmConfigPost(fakeReq({ provider: "ollama", clearCloud: true }), { isLoopbackRequest: () => true });
+      assert.equal(res.status, 200);
+      assert.deepEqual(readLlmConfig(), { provider: "ollama" });
+    });
+  });
+
+  test("Save with a blank draft works for the common #210 state {provider:'ollama', anthropicApiKey} (real file)", async () => {
+    await withRealConfigFile({ provider: "ollama", anthropicApiKey: "sk-ant-legacyplaintext0" }, async () => {
+      const res = await handleLlmConfigPost(
+        fakeReq({ provider: "cloud", cloud: { providerId: "anthropic", keySource: { type: "saved" } } }),
+        { isLoopbackRequest: () => true },
+      );
+      assert.equal(res.status, 200);
+      assert.deepEqual(readLlmConfig(), {
+        provider: "cloud",
+        cloud: { providerId: "anthropic", keySource: { type: "inline", key: "sk-ant-legacyplaintext0" } },
+      });
+    });
   });
 
   test("a cloud save purges a legacy #210 plaintext key even when switching key source type", async () => {
@@ -284,6 +330,41 @@ describe("POST /api/llm/config", () => {
     assert.equal(res.status, 200);
     assert.deepEqual(deps._get().cloud?.keySource, { type: "inline", key: "sk-savedopenaikey0000" });
     assert.equal(deps._get().cloud?.model, "gpt-4o-mini");
+  });
+
+  test("keySource {type:'saved'} falls back to a valid ANTHROPIC_API_KEY, saved as a reference (same as Test key)", async () => {
+    const prev = process.env.ANTHROPIC_API_KEY;
+    process.env.ANTHROPIC_API_KEY = "sk-ant-fromenvironment00";
+    try {
+      const deps = fakeDeps();
+      const res = await handleLlmConfigPost(
+        fakeReq({ provider: "cloud", cloud: { providerId: "anthropic", keySource: { type: "saved" } } }),
+        deps,
+      );
+      assert.equal(res.status, 200);
+      assert.deepEqual(deps._get().cloud?.keySource, { type: "env", name: "ANTHROPIC_API_KEY" });
+    } finally {
+      if (prev === undefined) delete process.env.ANTHROPIC_API_KEY;
+      else process.env.ANTHROPIC_API_KEY = prev;
+    }
+  });
+
+  test("'other': a saved key is never reused for a different base URL", async () => {
+    const deps = fakeDeps({}, {
+      provider: "cloud",
+      cloud: { providerId: "other", baseUrl: "https://a.example.com/v1", model: "m", keySource: { type: "inline", key: "saved-other-key-0000" } },
+    });
+    const moved = await handleLlmConfigPost(
+      fakeReq({ provider: "cloud", cloud: { providerId: "other", baseUrl: "https://b.example.com/v1", model: "m", keySource: { type: "saved" } } }),
+      deps,
+    );
+    assert.equal(moved.status, 400);
+    const same = await handleLlmConfigPost(
+      fakeReq({ provider: "cloud", cloud: { providerId: "other", baseUrl: "https://a.example.com/v1/", model: "m2", keySource: { type: "saved" } } }),
+      deps,
+    );
+    assert.equal(same.status, 200);
+    assert.equal(deps._get().cloud?.baseUrl, "https://a.example.com/v1");
   });
 
   test("keySource {type:'saved'} after switching provider -> 400, the old key is not reused", async () => {

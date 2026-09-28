@@ -90,7 +90,7 @@ export async function probeCloudKey(params: CloudProbeParams): Promise<ProbeOutc
   const baseUrl = normalizeOpenAiBaseUrl(rawBaseUrl);
 
   try {
-    const res = await fetch(`${baseUrl}/models`, {
+    const res = await fetch(`${baseUrl}${preset?.keyProbePath ?? "/models"}`, {
       headers: { Authorization: `Bearer ${params.key}` },
       signal: AbortSignal.timeout(15_000),
     });

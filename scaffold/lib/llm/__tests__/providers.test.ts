@@ -1,6 +1,6 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { CLOUD_PROVIDERS, getCloudProvider, isCloudProviderId, isValidHttpsUrl } from "../providers";
+import { CLOUD_PROVIDERS, getCloudProvider, isCloudProviderId, isSameCloudTarget, isValidHttpsUrl } from "../providers";
 
 describe("CLOUD_PROVIDERS registry", () => {
   test("has exactly the seven required presets", () => {
@@ -56,6 +56,20 @@ describe("per-provider key format checks", () => {
       assert.equal(p.isKeyValid("short"), false, id);
       assert.equal(p.isKeyValid("x".repeat(500)), false, id);
     }
+  });
+});
+
+describe("isSameCloudTarget", () => {
+  test("same preset provider -> same target; different provider -> not", () => {
+    assert.equal(isSameCloudTarget({ providerId: "openai" }, "openai"), true);
+    assert.equal(isSameCloudTarget({ providerId: "openai" }, "groq"), false);
+    assert.equal(isSameCloudTarget(undefined, "openai"), false);
+  });
+
+  test("'other' also needs the same base URL, compared after normalization", () => {
+    const saved = { providerId: "other" as const, baseUrl: "https://a.example.com/v1" };
+    assert.equal(isSameCloudTarget(saved, "other", "https://a.example.com/v1/"), true);
+    assert.equal(isSameCloudTarget(saved, "other", "https://b.example.com/v1"), false);
   });
 });
 

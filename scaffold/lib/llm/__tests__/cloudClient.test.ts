@@ -108,6 +108,45 @@ describe("makeLlmClient — cloud provider routing (non-anthropic, OpenAI-compat
     delete process.env.GRANTED_CLOUD_CLIENT_TEST_KEY;
   });
 
+  test("openai reasoning models: retries with max_completion_tokens and no temperature when rejected", async () => {
+    delete process.env.LLM_PROVIDER;
+    writeLlmConfig({ provider: "cloud", cloud: { providerId: "openai", model: "gpt-5-mini", keySource: { type: "inline", key: "sk-openaikeyvalue0000" } } });
+    const bodies: any[] = [];
+    globalThis.fetch = (async (_url: string, init: any) => {
+      const body = JSON.parse(init.body);
+      bodies.push(body);
+      if ("max_tokens" in body) {
+        return { ok: false, status: 400, text: async () => "Unsupported parameter: 'max_tokens'. Use 'max_completion_tokens' instead." };
+      }
+      if ("temperature" in body) {
+        return { ok: false, status: 400, text: async () => "Unsupported value: 'temperature' does not support 0 with this model." };
+      }
+      return { ok: true, json: async () => ({ choices: [{ message: { content: "{}" } }], usage: {} }) };
+    }) as unknown as typeof fetch;
+
+    const out: any = await makeLlmClient({ timeout: 5000 }).messages.create({ model: "ignored", max_tokens: 10, messages: [{ role: "user", content: "hi" }] });
+    assert.equal(out.content[0].text, "{}");
+    assert.equal(bodies.length, 3);
+    assert.equal(bodies[2].max_completion_tokens, 10);
+    assert.equal("temperature" in bodies[2], false);
+  });
+
+  test("an unrelated 400 is not retried and surfaces the provider's message", async () => {
+    delete process.env.LLM_PROVIDER;
+    writeLlmConfig({ provider: "cloud", cloud: { providerId: "openai", model: "gpt-4o", keySource: { type: "inline", key: "sk-openaikeyvalue0000" } } });
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      return { ok: false, status: 400, text: async () => "The model `nope` does not exist" };
+    }) as unknown as typeof fetch;
+
+    await assert.rejects(
+      makeLlmClient({ timeout: 5000 }).messages.create({ model: "ignored", max_tokens: 10, messages: [{ role: "user", content: "hi" }] }),
+      /does not exist/,
+    );
+    assert.equal(calls, 1);
+  });
+
   test("missing key -> throws the resolver's specific error, no fetch made", async () => {
     delete process.env.LLM_PROVIDER;
     delete process.env.GRANTED_CLOUD_CLIENT_TEST_UNSET;

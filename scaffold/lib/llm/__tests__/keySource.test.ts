@@ -52,9 +52,9 @@ describe("resolveKeySource — env", () => {
 
 describe("resolveKeySource — file", () => {
   test("relative path is rejected", () => {
-    const r = resolveKeySource({ type: "file", path: "relative/path.key" });
+    const r = resolveKeySource({ type: "file", path: "~/relative/path.key" });
     assert.equal(r.key, undefined);
-    assert.match(r.error!, /Couldn't read/);
+    assert.match(r.error!, /absolute/);
   });
 
   test("missing file -> \"Couldn't read <path>\"", () => {

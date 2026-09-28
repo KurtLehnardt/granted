@@ -1,4 +1,4 @@
-import { isCloudProviderId, getCloudProvider, isValidHttpsUrl, type CloudProviderId } from "./providers";
+import { isCloudProviderId, getCloudProvider, isValidHttpsUrl, isSameCloudTarget, type CloudProviderId } from "./providers";
 import { resolveKeySource, ENV_NAME_PATTERN, type KeySource } from "./keySource";
 import { normalizeOpenAiBaseUrl } from "./baseUrl";
 import type { CloudConfig } from "./config";
@@ -51,6 +51,11 @@ export function parseKeySourceInput(raw: unknown, saved?: KeySource): KeySource 
   return { error: NO_KEY_MESSAGE };
 }
 
+/** The key source a blank/`saved` draft may reuse — only the saved config's, and only for the same target. */
+export function savedKeySourceFor(saved: CloudConfig | undefined, providerId: CloudProviderId, baseUrl?: string): KeySource | undefined {
+  return saved && isSameCloudTarget(saved, providerId, baseUrl) ? saved.keySource : undefined;
+}
+
 export function formatErrorMessage(providerId: CloudProviderId): string {
   if (providerId === "anthropic") return "That doesn't look like a valid Anthropic API key (it should start with sk-ant-).";
   if (providerId === "openai") return "That doesn't look like a valid OpenAI API key (it should start with sk-).";
@@ -70,9 +75,8 @@ export function resolveDraftKey(providerId: CloudProviderId, keySourceInput: unk
 
 /**
  * `currentCloud` is the presently saved cloud config, if any — its key source
- * is offered as the "saved" fallback, but only when this save keeps the same
- * provider (a provider switch always needs its own key, never a carried-over
- * one from a different provider).
+ * is the "saved" fallback, but only for the same provider and base URL (a
+ * saved key is never sent to a different endpoint).
  */
 export function validateCloudConfig(input: CloudConfigInput, currentCloud?: CloudConfig): ValidationResult {
   if (!isCloudProviderId(input.providerId)) return { error: "Choose a cloud provider." };
@@ -92,8 +96,7 @@ export function validateCloudConfig(input: CloudConfigInput, currentCloud?: Clou
     return { error: "Choose a model for this provider." };
   }
 
-  const saved = currentCloud && currentCloud.providerId === providerId ? currentCloud.keySource : undefined;
-  const parsed = parseKeySourceInput(input.keySource, saved);
+  const parsed = parseKeySourceInput(input.keySource, savedKeySourceFor(currentCloud, providerId, baseUrl));
   if ("error" in parsed) return { error: parsed.error };
 
   const draft = resolveDraftKey(providerId, parsed);

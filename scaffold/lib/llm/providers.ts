@@ -1,3 +1,5 @@
+import { normalizeOpenAiBaseUrl } from "./baseUrl";
+
 // Cloud provider registry. Anthropic runs through the real SDK (see client.ts);
 // every other preset is an OpenAI-compatible endpoint reached through the
 // existing OpenAI-compat shim, with the preset's base URL and a bearer key.
@@ -17,6 +19,8 @@ export interface CloudProviderPreset {
   /** Fixed base URL for a preset provider. Undefined only for "other", which takes a user-entered URL. */
   baseUrl?: string;
   defaultModel?: string;
+  /** Authenticated GET used by "Test key"; defaults to /models. */
+  keyProbePath?: string;
   isKeyValid(key: string): boolean;
 }
 
@@ -81,6 +85,7 @@ export const CLOUD_PROVIDERS: readonly CloudProviderPreset[] = [
     id: "openrouter",
     label: "OpenRouter",
     baseUrl: "https://openrouter.ai/api/v1",
+    keyProbePath: "/key", // its /models is public, so it can't tell a bad key from a good one
     isKeyValid: genericKeyCheck,
   },
   {
@@ -122,4 +127,18 @@ export function isValidHttpsUrl(url: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Whether a draft targets the same endpoint as a saved config, so the saved
+ * key may be reused for it: same provider and, for "other", the same base URL.
+ */
+export function isSameCloudTarget(
+  saved: { providerId: CloudProviderId; baseUrl?: string } | undefined,
+  providerId: CloudProviderId,
+  baseUrl?: string,
+): boolean {
+  if (!saved || saved.providerId !== providerId) return false;
+  if (providerId !== "other") return true;
+  return normalizeOpenAiBaseUrl(saved.baseUrl) === normalizeOpenAiBaseUrl(baseUrl);
 }

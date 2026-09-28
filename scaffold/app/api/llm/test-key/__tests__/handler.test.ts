@@ -159,6 +159,17 @@ describe("POST /api/llm/test-key", () => {
     assert.equal(sentKey, "sk-savedopenaikey0000");
   });
 
+  test("'other': the saved key is never sent to a different base URL", async () => {
+    let probed = false;
+    const savedCloud: CloudConfig = { providerId: "other", baseUrl: "https://a.example.com/v1", keySource: { type: "inline", key: "saved-other-key-0000" } };
+    const res = await handleTestKeyPost(
+      fakeReq({ providerId: "other", baseUrl: "https://b.example.com/v1", keySource: { type: "saved" } }),
+      fakeDeps({ resolveCloudConfig: () => savedCloud, probeCloudKey: (async () => { probed = true; return { ok: true }; }) as any }),
+    );
+    assert.equal(res.status, 400);
+    assert.equal(probed, false);
+  });
+
   test("draft keySource {type:'saved'} after a provider switch -> 400, no saved key reused", async () => {
     const savedCloud: CloudConfig = { providerId: "openai", keySource: { type: "inline", key: "sk-savedopenaikey0000" } };
     const res = await handleTestKeyPost(

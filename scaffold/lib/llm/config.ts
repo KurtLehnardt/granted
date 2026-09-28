@@ -116,15 +116,6 @@ function legacyAnthropicCloud(file: LlmConfigFile): CloudConfig | undefined {
 }
 
 /**
- * File-only resolved cloud config — `cloud`, or the legacy key migrated,
- * with no env fallback. For call sites where "saved" means "on disk", e.g.
- * reusing a saved key on Save/Test key without resending the secret.
- */
-export function fileCloudConfig(file: LlmConfigFile): CloudConfig | undefined {
-  return file.cloud ?? legacyAnthropicCloud(file);
-}
-
-/**
  * Carries a legacy #210 `anthropicApiKey` forward as `cloud` before a write
  * drops it, unless the patch itself explicitly sets (or clears) `cloud` —
  * that's an intentional replacement (a fresh cloud save) or purge
@@ -133,7 +124,9 @@ export function fileCloudConfig(file: LlmConfigFile): CloudConfig | undefined {
 function migrateLegacyAnthropicKey(current: LlmConfigFile, patch: LlmConfigFile): LlmConfigFile {
   if ("cloud" in patch) return current;
   const migrated = legacyAnthropicCloud(current);
-  return migrated ? { ...current, cloud: migrated } : current;
+  if (!migrated) return current;
+  const { anthropicApiKey: _legacy, ...rest } = current;
+  return { ...rest, cloud: migrated };
 }
 
 /** Merges `patch` onto the current file and writes it atomically (temp + rename). */
@@ -171,9 +164,8 @@ export function resolveProvider(): ProviderName {
  * the new `cloud` object wins; else the #210 `anthropicApiKey`; else a valid
  * `ANTHROPIC_API_KEY` env var. Returns undefined when nothing resolves.
  */
-export function resolveCloudConfig(): CloudConfig | undefined {
-  const file = readLlmConfig();
-  const fileCloud = fileCloudConfig(file);
+export function resolveCloudConfig(file: LlmConfigFile = readLlmConfig()): CloudConfig | undefined {
+  const fileCloud = file.cloud ?? legacyAnthropicCloud(file);
   if (fileCloud) return fileCloud;
   const envKey = process.env.ANTHROPIC_API_KEY;
   if (envKey && isValidAnthropicKey(envKey)) {

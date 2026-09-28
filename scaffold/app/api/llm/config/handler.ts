@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { isLoopbackRequest } from "@/lib/corpus/loopback";
-import { readLlmConfig, writeLlmConfig, publicKeySource, fileCloudConfig, type LlmConfigFile } from "@/lib/llm/config";
+import { readLlmConfig, writeLlmConfig, publicKeySource, resolveCloudConfig, type LlmConfigFile } from "@/lib/llm/config";
 import { validateCloudConfig } from "@/lib/llm/validateCloudConfig";
 
 // POST /api/llm/config — Settings Local/Cloud switch write path. Loopback-only
@@ -44,8 +44,7 @@ export async function handleLlmConfigPost(
     return NextResponse.json({ provider: saved.provider ?? "ollama" });
   }
 
-  const currentCloud = fileCloudConfig(d.readLlmConfig());
-  const { config, error } = validateCloudConfig(body?.cloud ?? {}, currentCloud);
+  const { config, error } = validateCloudConfig(body?.cloud ?? {}, resolveCloudConfig(d.readLlmConfig()));
   if (error) return NextResponse.json({ error }, { status: 400 });
 
   // A fresh cloud save always supersedes #210's legacy plaintext field.

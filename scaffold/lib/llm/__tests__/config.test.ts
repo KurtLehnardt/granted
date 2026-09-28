@@ -190,6 +190,18 @@ describe("llm/config — #210 back-compat", () => {
     assert.deepEqual(resolveCloudConfig(), { providerId: "anthropic", keySource: { type: "inline", key: "sk-ant-legacykey00000" } });
   });
 
+  test("any write that doesn't touch cloud migrates the legacy key and drops the legacy field", () => {
+    removeConfigFile();
+    fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify({ provider: "ollama", anthropicApiKey: "sk-ant-legacykey00000" }), "utf8");
+    resetLlmConfigCache();
+    writeLlmConfig({ provider: "ollama" });
+    assert.deepEqual(JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8")), {
+      provider: "ollama",
+      cloud: { providerId: "anthropic", keySource: { type: "inline", key: "sk-ant-legacykey00000" } },
+    });
+  });
+
   test("clearCloud still purges a legacy anthropicApiKey entirely (no migration)", () => {
     removeConfigFile();
     fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });

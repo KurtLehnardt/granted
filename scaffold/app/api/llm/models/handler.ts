@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { isLoopbackRequest } from "@/lib/corpus/loopback";
 import { isCloudProviderId, isValidHttpsUrl } from "@/lib/llm/providers";
 import { normalizeOpenAiBaseUrl } from "@/lib/llm/baseUrl";
-import { resolveDraftKey } from "@/lib/llm/validateCloudConfig";
+import { resolveDraftKey, savedKeySourceFor } from "@/lib/llm/validateCloudConfig";
 import { listCloudModels } from "@/lib/llm/cloudModels";
 import { resolveCloudConfig } from "@/lib/llm/config";
 
@@ -47,10 +47,7 @@ export async function handleModelsPost(
     baseUrl = normalizeOpenAiBaseUrl(baseUrl);
   }
 
-  // A {type:"saved"} (or omitted) key source reuses the currently saved key
-  // for this same provider — never across a provider switch.
-  const current = d.resolveCloudConfig();
-  const saved = current && current.providerId === providerId ? current.keySource : undefined;
+  const saved = savedKeySourceFor(d.resolveCloudConfig(), providerId, baseUrl);
   const draft = resolveDraftKey(providerId, body?.keySource, saved);
   if (draft.error) return NextResponse.json({ error: draft.error }, { status: 400 });
 

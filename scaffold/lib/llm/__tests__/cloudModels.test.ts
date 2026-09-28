@@ -58,6 +58,17 @@ describe("probeCloudKey — OpenAI-compatible providers", () => {
     assert.equal(sentUrl, "https://my-proxy.example.com/v1/models");
   });
 
+  test("openrouter probes the authenticated /key endpoint (its /models is public)", async () => {
+    let sentUrl = "";
+    globalThis.fetch = (async (url: string) => {
+      sentUrl = url;
+      return { ok: false, status: 401 };
+    }) as unknown as typeof fetch;
+    const outcome = await probeCloudKey({ providerId: "openrouter", key: "sk-or-badkey000000", model: "" });
+    assert.equal(sentUrl, "https://openrouter.ai/api/v1/key");
+    assert.equal(outcome.ok, false);
+  });
+
   test("404 gets its own message, not 'That key didn't work'", async () => {
     globalThis.fetch = (async () => ({ ok: false, status: 404 })) as unknown as typeof fetch;
     const outcome = await probeCloudKey({ providerId: "other", baseUrl: "https://my-proxy.example.com/v1", key: "k", model: "" });
