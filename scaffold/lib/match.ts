@@ -475,10 +475,6 @@ export async function buildOpportunityMap(
   // (e.g. via `assembleTwoPass`'s `unscored` fallback) without ever having
   // been streamed.
   const streamedFinalIds = new Set<string>();
-  // Corpus fallback for a provisional id that (still) isn't in `scored` —
-  // e.g. it cleared the raw-description pass but not the profile-based one,
-  // and wasn't preserved as a provisional-only extra.
-  const corpusById = new Map(d.corpus.map((o) => [o.id, o]));
 
   // Only a definitive, rule-based `excluded` skips the LLM; every other bucket is still scored.
   const companyProfile = toCompanyProfile(profile, companyFacts);
@@ -539,7 +535,7 @@ export async function buildOpportunityMap(
   // provisional id" reconciliation below never re-sends (or worse, thinks
   // still-pending) an id whose real terminal event the client already got.
   const previewAssessment = (a: Assessment) => {
-    const opp = byId.get(a.id) ?? corpusById.get(a.id);
+    const opp = byId.get(a.id);
     if (!opp) return;
     if (a.final ?? true) streamedFinalIds.add(a.id);
     try { onMatch?.(baseMatchFromAssessment(a, opp, profile)); } catch { /* progressive rendering is best-effort */ }
@@ -578,8 +574,12 @@ export async function buildOpportunityMap(
 
   const matches: Match[] = allAssessments
     .map((a) => {
-      const opp = byId.get(a.id) ?? corpusById.get(a.id);
-      return opp ? baseMatchFromAssessment(a, opp, profile) : null;
+      const opp = byId.get(a.id);
+      // Every assessment reaching this point is terminal (scoring has fully
+      // finished by "assemble") — force `final: true` server-side regardless
+      // of what the assessment carries, so the final map never depends on a
+      // model- or intermediate-pass-supplied `final` value.
+      return opp ? { ...baseMatchFromAssessment(a, opp, profile), final: true } : null;
     })
     .filter(Boolean) as Match[];
 
@@ -595,7 +595,7 @@ export async function buildOpportunityMap(
     if (streamedFinalIds.has(id)) continue;
     let resolved = matchByOppId.get(id);
     if (!resolved) {
-      const opp = byId.get(id) ?? corpusById.get(id);
+      const opp = byId.get(id);
       if (!opp) continue;
       resolved = {
         opportunity: opp,

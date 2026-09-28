@@ -465,8 +465,9 @@ export async function explainMatches(
   }
   // §5.5 — clamp the model-returned score to its valid 0-100 range server-side
   // (a crafted description could otherwise push an out-of-range score into the
-  // tier/summary math). NaN/missing degrades to 0.
-  return ok.flat().map((a) => ({ ...a, score: clampScore(a.score) }));
+  // tier/summary math). NaN/missing degrades to 0. `final`/`unscored` are
+  // server-owned signals, not model output — strip any the model included.
+  return ok.flat().map(({ final, unscored, ...a }) => ({ ...a, score: clampScore(a.score) }));
 }
 
 /** Clamp a model-supplied score to the contract's valid 0-100 range. */
@@ -722,7 +723,9 @@ async function narratePassB(
   // candidate still has a Pass-A score, so `assembleTwoPass` degrades each
   // promoted candidate to its score-only assessment and the search still returns
   // ranked tiers. So we return whatever succeeded (possibly []).
-  return ok.flat().map((a) => ({ ...a, score: clampScore(a.score) }));
+  // `final`/`unscored` are server-owned signals, not model output — strip any
+  // the model included.
+  return ok.flat().map(({ final, unscored, ...a }) => ({ ...a, score: clampScore(a.score) }));
 }
 
 /** Pass B narrates at most this many promoted candidates, best Pass-A score first. Uncapped on hosted. */

@@ -217,6 +217,30 @@ describe("§1 — every provisional id is resolved", () => {
     assert.ok(resolvedP, "the trimmed-tail provisional id is still in the final map");
   });
 
+  test("the model returning an id that was never a candidate (a real corpus id, just not retrieved) drops it — never streamed, never in the final map", async () => {
+    const a: Opportunity = { ...opp("A"), embedding: QUERY_VEC };
+    // "B" is a real corpus id, but its embedding is orthogonal to the query
+    // (cosine 0 < candidateFloor), so it never clears retrieval and is never
+    // a candidate — unlike main, which used to fall back to the FULL corpus
+    // (`corpusById`) when resolving an assessment id, this must not resolve it.
+    const b: Opportunity = { ...opp("B"), embedding: [0, 1] };
+    const corpus = [a, b];
+    const { map, matchEvents } = await run(corpus, {
+      extractProfile: async () => ({ profile, followUps: [] }),
+      embed: async () => QUERY_VEC,
+      // Model hallucinates/returns an assessment for "B", which was never sent to it.
+      explainMatches: async () => [assess("B")],
+      explainWeakField: async () => ({ headline: "h", reasoning: "r", redirects: [] }),
+    });
+
+    assert.ok(!matchEvents.includes("B"), "B must never be streamed — it was never a candidate");
+    assert.ok(!map.matches.some((m) => m.opportunity.id === "B"), "B must never appear in the final map");
+    const resolvedA = map.matches.find((m) => m.opportunity.id === "A");
+    assert.ok(resolvedA, "A is still resolved");
+    assert.equal(resolvedA!.unscored, true, "A resolves as unscored since the model never scored it");
+    assert.equal(resolvedA!.final, true);
+  });
+
   test("no unresolved provisional id remains in the collapsed section's absence — every id has a final Match", async () => {
     const corpus = Array.from({ length: 5 }, (_, i) => opp(`c${i}`));
     const { map } = await run(corpus, {
