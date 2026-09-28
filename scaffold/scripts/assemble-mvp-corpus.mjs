@@ -114,4 +114,4 @@ for (const o of combined) {
 console.log(`\n→ corpus assembled: ${combined.length} opportunities (${existing.length} existing + ${cleanNew.length} new)`);
 console.log("  by kind:  ", JSON.stringify(kinds));
 console.log("  by source:", JSON.stringify(sources));
-console.log("Next: PORT=<dev-port> npm run data:precompute  (re-freeze the 5 demo cases)");
+console.log("Next: PORT=<dev-port> npm run data:precompute  (re-freeze the 4 demo cases)");

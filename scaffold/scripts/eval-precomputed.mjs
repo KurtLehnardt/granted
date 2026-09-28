@@ -1,7 +1,7 @@
 // ============================================================================
-// Offline (FREE) quality analysis of the 5 judged/standard test cases.
+// Offline (FREE) quality analysis of the 4 judged/standard test cases.
 // ----------------------------------------------------------------------------
-// Reads data/precomputed.json (the frozen demo-day maps for the 5 cases — no
+// Reads data/precomputed.json (the frozen demo-day maps for the 4 cases — no
 // API calls, no cost) and reports the honest-no / calibration picture for each:
 //   - discernment-OFF (shipped default): weak-field fires when 0 matches clear
 //     scoreFloor(33).

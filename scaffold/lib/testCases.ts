@@ -1,4 +1,4 @@
-/** The five standard test cases. Every team is judged on these. */
+/** The four standard test cases. Every team is judged on these. */
 export const TEST_CASES = [
   {
     id: "ai-healthcare",
@@ -23,11 +23,5 @@ export const TEST_CASES = [
     label: "Cybersecurity",
     text: "We're a 22-person Utah cybersecurity startup building AI-powered threat detection for small and mid-sized organizations. $2M ARR, raised $5M, seeking $1M–$3M for R&D and federal/commercial expansion.",
     expect: "Cybersecurity, DoD/DHS, SBIR/STTR, federal procurement, historical cyber recipients",
-  },
-  {
-    id: "marketplace",
-    label: "Youth Marketplace",
-    text: "We're an 8-person Utah technology startup running a marketplace connecting parents with local youth activities and enrichment programs. $750K revenue, raised $1M, looking for $250K–$1M for expansion and technology development.",
-    expect: "INTENTIONALLY HARD — should return few or no strong federal grant matches, with an honest explanation and redirects",
   },
 ] as const;
