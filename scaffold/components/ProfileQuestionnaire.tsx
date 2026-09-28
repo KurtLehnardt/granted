@@ -199,35 +199,26 @@ export function splitBooleanText(draft: string): { choice: string; detail: strin
   return { choice: "", detail: "" };
 }
 
-/**
- * `profile` with every live, uncommitted edit in `values` folded in as if it
- * had already been blurred — same write rules as `commitField` (provenance
- * guard, coercion/validation via `computeFieldCell`), just pure and
- * synchronous. This is what gap-detection / `canSubmit` / the progress text
- * must read so the "Find opportunities" button enables the instant every
- * required field has non-empty trimmed text, not only after the user tabs
- * or clicks out of the last one.
- */
-export function computeLiveProfile(profile: ProfileDraft, values: Record<string, string>): ProfileDraft {
-  let next = profile;
-  for (const meta of PROFILE_FIELD_META) {
-    if (!(meta.field in values)) continue;
-    const rawValue = values[meta.field];
-    if (rawValue === undefined) continue;
-    const bag = next as Record<string, Provenanced<unknown> | undefined>;
-    const existing = bag[meta.field];
-    if (rawValue.trim().length === 0) {
-      if (existing === undefined) continue;
-      const cleared = { ...bag };
-      delete cleared[meta.field];
-      next = cleared as ProfileDraft;
-      continue;
-    }
-    const cell = computeFieldCell(meta, rawValue, "user_stated", existing);
-    if (!cell) continue;
-    next = { ...next, [meta.field]: cell } as ProfileDraft;
+function applyFieldEdit(prev: ProfileDraft, meta: ProfileFieldMeta, rawValue: string, provenance: Provenance): ProfileDraft {
+  const bag = prev as Record<string, Provenanced<unknown> | undefined>;
+  const existing = bag[meta.field];
+  if (rawValue.trim().length === 0) {
+    if (existing === undefined) return prev;
+    const next = { ...bag };
+    delete next[meta.field];
+    return next as ProfileDraft;
   }
-  return next;
+  const cell = computeFieldCell(meta, rawValue, provenance, existing);
+  if (!cell) return prev;
+  return { ...prev, [meta.field]: cell } as ProfileDraft;
+}
+
+/** `profile` with the uncommitted (not yet blurred) edits in `values` applied. */
+export function computeLiveProfile(profile: ProfileDraft, values: Record<string, string>): ProfileDraft {
+  return PROFILE_FIELD_META.reduce(
+    (p, meta) => (meta.field in values ? applyFieldEdit(p, meta, values[meta.field] ?? "", "user_stated") : p),
+    profile,
+  );
 }
 
 /** Current display value for a plain field: live edit if any, else the saved profile value. */
@@ -340,20 +331,7 @@ export default function ProfileQuestionnaire({
     setValues((v) => ({ ...v, [field]: rawValue }));
     const meta = PROFILE_FIELD_META_BY_KEY[field];
     if (!meta) return;
-    setProfile((prev) => {
-      const bag = prev as Record<string, Provenanced<unknown> | undefined>;
-      const existing = bag[field];
-      const trimmed = rawValue.trim();
-      if (trimmed.length === 0) {
-        if (existing === undefined) return prev;
-        const next = { ...bag };
-        delete next[field];
-        return next as ProfileDraft;
-      }
-      const cell = computeFieldCell(meta, rawValue, provenance, existing);
-      if (!cell) return prev;
-      return { ...prev, [field]: cell } as ProfileDraft;
-    });
+    setProfile((prev) => applyFieldEdit(prev, meta, rawValue, provenance));
   }
 
   // Bubble the compiled description up on every profile change so the parent
@@ -372,8 +350,6 @@ export default function ProfileQuestionnaire({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [externalNonce]);
 
-  // Live-draft-aware: reflects what's currently typed, even before blur
-  // commits it to `profile` — see `computeLiveProfile`'s doc comment.
   const liveProfile = useMemo(() => computeLiveProfile(profile, values), [profile, values]);
   const gaps = useMemo(() => computeGaps(liveProfile), [liveProfile]);
   const requiredGaps = useMemo(() => gaps.filter((g) => g.requirement === "required"), [gaps]);
@@ -395,9 +371,6 @@ export default function ProfileQuestionnaire({
 
   function handleSubmit() {
     if (!canSubmit) return;
-    // Commit any live edit that never got blurred (e.g. Enter/click straight
-    // out of the field the user was still typing in) so the saved draft and
-    // the submitted description both reflect it.
     setProfile(liveProfile);
     onSubmit(buildDescriptionFromProfile(liveProfile), { complete: isComplete });
   }
