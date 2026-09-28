@@ -39,6 +39,8 @@ export interface CloudProviderPreset {
   defaultKeySource?: DefaultKeySource;
   /** Caps simultaneous in-flight calls for this preset (gentler free-tier concurrency). Undefined = unlimited. */
   concurrency?: number;
+  /** Caps candidates per scoring batch for this preset (gentler free-tier tokens-per-minute). Undefined = the caller's hosted default. */
+  batchSize?: number;
   /** One-line privacy note shown in Settings when this preset is selected. */
   privacyNote?: string;
   isKeyValid(key: string): boolean;
@@ -108,6 +110,7 @@ export const CLOUD_PROVIDERS: readonly CloudProviderPreset[] = [
     baseUrl: "https://openrouter.ai/api/v1",
     keyProbePath: "/key", // its /models is public, so it can't tell a bad key from a good one
     concurrency: 2, // gentle on free-tier (:free) rate limits
+    batchSize: 2, // gentle on free-tier (:free) tokens-per-minute
     isKeyValid: genericKeyCheck,
   },
   {
@@ -116,6 +119,7 @@ export const CLOUD_PROVIDERS: readonly CloudProviderPreset[] = [
     baseUrl: "https://api.groq.com/openai/v1",
     defaultModel: "llama-3.3-70b-versatile",
     concurrency: 2, // gentle on free-tier rate limits
+    batchSize: 2, // gentle on free-tier tokens-per-minute
     isKeyValid: genericKeyCheck,
   },
   {
@@ -135,6 +139,7 @@ export const CLOUD_PROVIDERS: readonly CloudProviderPreset[] = [
     defaultModel: "claude-sonnet-4-20250514", // an id FCC's catalog maps to a configured free-provider model
     defaultKeySource: { type: "file", path: "~/.fcc/proxy_auth_token" },
     concurrency: 2, // gentle on free-tier upstream rate limits
+    batchSize: 2, // gentle on free-tier upstream tokens-per-minute
     privacyNote: "Prompts are forwarded to third-party free providers, which may log them.",
     isKeyValid: genericKeyCheck,
   },

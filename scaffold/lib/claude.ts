@@ -1,12 +1,12 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { makeLlmClient, isLocalLlm, defaultLocalModel, type LlmClient } from "./llm/client";
+import { makeLlmClient, isLocalLlm, cloudBatchSize, defaultLocalModel, type LlmClient } from "./llm/client";
 import { currentLocalModel } from "./llm/modelContext";
 import type { StartupProfile, Opportunity, Match, CriterionCheck, Tier } from "./types";
 import type { EligibilityBucket } from "./contracts/eligibilityDetermination";
 import { loadPrompt } from "./prompts";
 import { isFlagEnabled } from "./flags";
 import type { CostMeter } from "./metering/meter";
-import { describeErrorForLog } from "./llm/errors";
+import { describeErrorForLog, ProviderHttpError } from "./llm/errors";
 import {
   type Assessment as TwoPassAssessment,
   type PassAScore,
@@ -364,7 +364,7 @@ export async function explainMatches(
   // candidate scoring. max_tokens per batch stays well clear of truncation.
   // Hosted: 8/batch, concurrent. Local: 1/batch, serial: JSON-object mode tends to
   // return one bare object per call, so bigger local batches drop candidates.
-  const BATCH = Number(process.env.LLM_BATCH_SIZE) || (isLocalLlm() ? 1 : 8);
+  const BATCH = Number(process.env.LLM_BATCH_SIZE) || (isLocalLlm() ? 1 : cloudBatchSize(8));
   const groups: Opportunity[][] = [];
   for (let i = 0; i < candidates.length; i += BATCH) groups.push(candidates.slice(i, i + BATCH));
 
@@ -434,7 +434,7 @@ export async function explainMatches(
   // that's what lets a caller (buildOpportunityMap) render each match the
   // moment ITS batch is scored, instead of waiting for the whole candidate set.
   const runGroup = (group: Opportunity[]) =>
-    scoreGroup(group).then(
+    scoreGroupWithSplit(group, scoreGroup, "candidate_analysis").then(
       (result) => {
         doneCandidates += group.length;
         try { onBatch?.(result, doneCandidates, candidates.length); } catch { /* progress is best-effort */ }
@@ -499,6 +499,57 @@ function logSkippedBatches(stage: string, settled: PromiseSettledResult<unknown>
         ` — ${message}`,
     );
   });
+}
+
+/** A provider's "request too large" rejection — Anthropic SDK (`APIError.status
+ * === 413`) or the OpenAI-compat shim (`ProviderHttpError.status === 413`) —
+ * distinct from a 429 (already retried, see rateLimit.ts) or any other error,
+ * which `scoreGroupWithSplit` deliberately does NOT split on. */
+function isRequestTooLarge(err: unknown): boolean {
+  if (err instanceof Anthropic.APIError) return err.status === 413;
+  if (err instanceof ProviderHttpError) return err.status === 413;
+  return false;
+}
+
+/**
+ * Wraps one batch's scoring call so a 413 ("request too large" — e.g. a
+ * free-tier tokens-per-minute cap that a fixed BATCH size can still exceed)
+ * splits the batch in half and scores each half instead of dropping every
+ * candidate in it. Recurses down to single-candidate groups; a single
+ * candidate that still 413s is NOT split further — it throws, and the caller
+ * logs it skipped exactly like any other rejected batch. A non-413 error
+ * (or a 413 the split couldn't work around) also throws unchanged, so the
+ * caller's existing fault-tolerant fan-out (Promise.allSettled + `logSkippedBatches`)
+ * handles it as it does today. Only ever narrows the failure (a split half
+ * that DOES succeed is logged and its candidates recovered), never widens it.
+ */
+async function scoreGroupWithSplit<T>(
+  group: Opportunity[],
+  scoreFn: (group: Opportunity[]) => Promise<T[]>,
+  stage: string,
+): Promise<T[]> {
+  try {
+    return await scoreFn(group);
+  } catch (err) {
+    if (group.length <= 1 || !isRequestTooLarge(err)) throw err;
+    const mid = Math.ceil(group.length / 2);
+    const left = group.slice(0, mid);
+    const right = group.slice(mid);
+    const [l, r] = await Promise.allSettled([
+      scoreGroupWithSplit(left, scoreFn, stage),
+      scoreGroupWithSplit(right, scoreFn, stage),
+    ]);
+    // Both halves failed: propagate (the first half's reason) so this group is
+    // rejected exactly like an unsplit failure — the caller's own fan-out logs it
+    // once, against the FULL original group, instead of us double-logging here.
+    if (l.status === "rejected" && r.status === "rejected") throw l.reason;
+    const results: T[] = [];
+    if (l.status === "fulfilled") results.push(...l.value);
+    else logSkippedBatches(stage, [l], [left]);
+    if (r.status === "fulfilled") results.push(...r.value);
+    else logSkippedBatches(stage, [r], [right]);
+    return results;
+  }
 }
 
 /** Clamp a model-supplied score to the contract's valid 0-100 range. */
@@ -601,7 +652,7 @@ async function scorePassA(
 ): Promise<PassAScore[]> {
   const SYSTEM = scorerPrompt("scoreMatches");
   // Local: 1/batch, serial — JSON-object mode drops candidates from bigger batches (see explainMatches).
-  const BATCH_A = Number(process.env.LLM_PASS_A_BATCH_SIZE) || (isLocalLlm() ? 1 : 12);
+  const BATCH_A = Number(process.env.LLM_PASS_A_BATCH_SIZE) || (isLocalLlm() ? 1 : cloudBatchSize(12));
   const groups: Opportunity[][] = [];
   for (let i = 0; i < candidates.length; i += BATCH_A) groups.push(candidates.slice(i, i + BATCH_A));
 
@@ -646,13 +697,13 @@ async function scorePassA(
     settled = [];
     for (const group of groups) {
       try {
-        settled.push({ status: "fulfilled", value: await scoreGroup(group) });
+        settled.push({ status: "fulfilled", value: await scoreGroupWithSplit(group, scoreGroup, "candidate_prescore") });
       } catch (reason) {
         settled.push({ status: "rejected", reason } as PromiseRejectedResult);
       }
     }
   } else {
-    settled = await Promise.allSettled(groups.map((group) => scoreGroup(group)));
+    settled = await Promise.allSettled(groups.map((group) => scoreGroupWithSplit(group, scoreGroup, "candidate_prescore")));
   }
   meter?.recordStageLatency("candidate_prescore", performance.now() - fanOutStart);
   logSkippedBatches("candidate_prescore", settled, groups);
@@ -683,7 +734,7 @@ async function narratePassB(
 ): Promise<TwoPassAssessment[]> {
   if (promoted.length === 0) return [];
   const SYSTEM = scorerPrompt("explainMatches");
-  const BATCH = Number(process.env.LLM_PASS_B_BATCH_SIZE) || (isLocalLlm() ? 1 : 8);
+  const BATCH = Number(process.env.LLM_PASS_B_BATCH_SIZE) || (isLocalLlm() ? 1 : cloudBatchSize(8));
   const groups: Opportunity[][] = [];
   for (let i = 0; i < promoted.length; i += BATCH) groups.push(promoted.slice(i, i + BATCH));
 
@@ -723,7 +774,7 @@ async function narratePassB(
   const fanOutStart = performance.now();
   let doneInPassB = 0;
   const runGroup = (group: Opportunity[]) =>
-    narrateGroup(group).then(
+    scoreGroupWithSplit(group, narrateGroup, "candidate_analysis").then(
       (result) => {
         doneInPassB += group.length;
         try { onBatchSettled?.(doneInPassB, result); } catch { /* progress/preview is best-effort */ }

@@ -140,6 +140,14 @@ describe("fcc preset — Anthropic-compatible proxy shape", () => {
     assert.equal(getCloudProvider("anthropic")?.concurrency, undefined);
     assert.equal(getCloudProvider("openai")?.concurrency, undefined);
   });
+
+  test("groq, openrouter and fcc also get a gentler free-tier batch size (2); hosted anthropic/openai keep none set", () => {
+    assert.equal(getCloudProvider("groq")?.batchSize, 2);
+    assert.equal(getCloudProvider("openrouter")?.batchSize, 2);
+    assert.equal(fcc.batchSize, 2);
+    assert.equal(getCloudProvider("anthropic")?.batchSize, undefined);
+    assert.equal(getCloudProvider("openai")?.batchSize, undefined);
+  });
 });
 
 describe("isSameCloudTarget — fcc (editable base URL, Anthropic SDK) compares base URLs like 'other'", () => {
