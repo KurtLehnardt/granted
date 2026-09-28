@@ -145,21 +145,30 @@ function HomeShell({ sidebarOn }: { sidebarOn: boolean }) {
         split across an inline block here. FE-07 ON: AppMenu instead renders
         the persistent sidebar (which carries its own toggles + identity).
       */}
+      {/*
+        The wordmark rides in AppMenu's centre slot so it sits on the SAME row as
+        the hamburger rather than stacking below it: nav control left, brand
+        centred, both at one vertical level. The banner is sized with max-height
+        (not a fixed height) and max-w-full so it scales down inside the centre
+        cell on a narrow screen instead of colliding with the controls beside it.
+        Navy-on-transparent → white in dark mode via the filter.
+      */}
       <div className="mb-6">
-        <AppMenu />
+        <AppMenu
+          center={
+            <img
+              src="/brand/logo-banner.png"
+              alt="Granted"
+              className="h-auto max-h-20 w-auto max-w-full select-none dark:brightness-0 dark:invert sm:max-h-24"
+            />
+          }
+        />
       </div>
 
-      {/* Split-and-stagger hero entrance (polish): banner → headline
-          rise in sequence on first load. Reduced-motion disables it globally. */}
+      {/* Split-and-stagger hero entrance (polish): the headline rises on first
+          load. Reduced-motion disables it globally. */}
       <header className="stagger mb-12">
-        {/* Hero banner (replaces the eyebrow): larger, centered above the headline.
-            Navy-on-transparent → white in dark mode via the filter. */}
-        <img
-          src="/brand/logo-banner.png"
-          alt="Granted"
-          className="mx-auto h-20 w-auto select-none dark:brightness-0 dark:invert sm:h-24"
-        />
-        <h1 className="mt-4 max-w-2xl text-balance font-display text-[40px] font-bold leading-[1.08] text-structure-on-canvas sm:text-[52px]">
+        <h1 className="mx-auto max-w-2xl text-balance text-center font-display text-[40px] font-bold leading-[1.08] text-structure-on-canvas sm:text-[52px]">
           Grant funds are waiting<br />Let's find your match
         </h1>
       </header>
