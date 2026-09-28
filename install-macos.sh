@@ -53,9 +53,47 @@ fi
 if command -v brew >/dev/null 2>&1; then
   HAVE_BREW=1
   ok "Homebrew found ($(brew --prefix))"
-else
+elif [ -t 0 ]; then
+  # No Homebrew, but we're attached to a real terminal (pasted directly, not
+  # `curl | bash`): the git/Node fallbacks below can prompt for a sudo
+  # password and actually get an answer, so it's fine to skip Homebrew here
+  # if the user would rather not install it.
   HAVE_BREW=0
   warn "Homebrew not found — will use Apple's tools and nodejs.org instead"
+else
+  # No Homebrew AND no TTY -- this is the documented `curl | bash` one-liner.
+  # The fallbacks below need sudo to prompt on a real terminal, which a piped
+  # script never has, so without Homebrew this path cannot finish unattended
+  # at all. Homebrew's own NONINTERACTIVE installer needs neither a TTY nor
+  # sudo for a per-user /opt/homebrew (or /usr/local on Intel) install, so
+  # bootstrap it here rather than dying with a "re-run this by hand" message.
+  log "No Homebrew and no terminal to prompt through — installing Homebrew (needed for an unattended install)..."
+  NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+  for candidate in /opt/homebrew/bin/brew /usr/local/bin/brew; do
+    [ -x "$candidate" ] && eval "$("$candidate" shellenv)" && break
+  done
+  command -v brew >/dev/null 2>&1 || die "Homebrew install finished but brew isn't on PATH -- open a new terminal and re-run."
+  HAVE_BREW=1
+  ok "Homebrew installed ($(brew --prefix))"
+
+  # Persist it for the user's NEXT shell too -- otherwise the moment this
+  # script exits, a brand new terminal (what the final "next steps" message
+  # below assumes) has no brew/git/node on PATH at all, since Homebrew's own
+  # installer only offers to do this when it detects an interactive TTY.
+  SHELL_PROFILE=""
+  case "${SHELL:-}" in
+    */zsh) SHELL_PROFILE="$HOME/.zprofile" ;;
+    */bash) SHELL_PROFILE="$HOME/.bash_profile" ;;
+  esac
+  if [ -n "$SHELL_PROFILE" ]; then
+    SHELLENV_LINE="eval \"\$($(command -v brew) shellenv)\""
+    if [ ! -f "$SHELL_PROFILE" ] || ! grep -qF "$SHELLENV_LINE" "$SHELL_PROFILE"; then
+      printf '\n# Added by the Granted installer\n%s\n' "$SHELLENV_LINE" >> "$SHELL_PROFILE"
+      ok "added Homebrew to PATH in $SHELL_PROFILE (open a new terminal, or run: source $SHELL_PROFILE)"
+    fi
+  else
+    warn "unrecognized \$SHELL (${SHELL:-<unset>}) -- add 'eval \"\$(brew shellenv)\"' to your shell's profile manually"
+  fi
 fi
 
 # 1) git. Ships with the Xcode Command Line Tools; `xcode-select --install`
