@@ -2,7 +2,7 @@ import { test, describe, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { makeLlmClient, isLocalLlm, defaultLocalModel } from "../client";
 import { withLocalModel } from "../modelContext";
-import { unwrapArrayEnvelope, coerceProfileStrings, coerceEmployees } from "../../claude";
+import { unwrapArrayEnvelope, coerceProfileStrings, coerceEmployees, coerceCriteria } from "../../claude";
 
 /**
  * The local-model seam. The default (Anthropic) path is exercised by the rest of
@@ -201,6 +201,61 @@ describe("coerceProfileStrings — local-model StartupProfile string-field drift
   test("drops an unrecoverable `employees` value so the number-typed zod field still validates", () => {
     const out = coerceProfileStrings({ description: "d", employees: "a few" });
     assert.equal("employees" in out, false);
+  });
+});
+
+describe("coerceCriteria — local-model CriterionCheck drift", () => {
+  test("leaves an already-correct criteria array untouched", () => {
+    const criteria = [
+      { label: "US small business", met: true, note: "confirmed in profile" },
+      { label: "Under 500 employees", met: false },
+    ];
+    assert.deepEqual(coerceCriteria(criteria), criteria);
+  });
+
+  test("drops a `null` note (optional(), not nullable() — same drift as profile strings)", () => {
+    const out = coerceCriteria([{ label: "US small business", met: true, note: null }]);
+    assert.equal(out.length, 1);
+    assert.equal("note" in out[0], false);
+  });
+
+  test("an absent note passes through untouched", () => {
+    const out = coerceCriteria([{ label: "US small business", met: true }]);
+    assert.equal(out.length, 1);
+    assert.equal("note" in out[0], false);
+  });
+
+  test("coerces a non-string note (object/array) to a readable string instead of dropping it", () => {
+    const out = coerceCriteria([
+      { label: "a", met: true, note: { reason: "no NAICS match" } },
+      { label: "b", met: false, note: ["missing UEI", "no SAM.gov record"] },
+    ]);
+    assert.equal(out[0].note, '{"reason":"no NAICS match"}');
+    assert.equal(out[1].note, "missing UEI, no SAM.gov record");
+  });
+
+  test("drops an entry missing a required `label` or `met` rather than fabricating one", () => {
+    const out = coerceCriteria([
+      { label: "US small business", met: true },
+      { label: null, met: true },
+      { label: "Under 500 employees", met: null },
+      { met: true },
+      { label: "no met at all" },
+    ]);
+    assert.equal(out.length, 1);
+    assert.equal(out[0].label, "US small business");
+  });
+
+  test("a non-array input returns an empty array rather than throwing", () => {
+    assert.deepEqual(coerceCriteria(null), []);
+    assert.deepEqual(coerceCriteria(undefined), []);
+    assert.deepEqual(coerceCriteria("not an array"), []);
+  });
+
+  test("non-object array entries (a bare string/number) are dropped, not thrown on", () => {
+    const out = coerceCriteria(["not an object", 42, null, { label: "ok", met: true }]);
+    assert.equal(out.length, 1);
+    assert.equal(out[0].label, "ok");
   });
 });
 
