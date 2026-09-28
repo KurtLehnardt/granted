@@ -50,7 +50,7 @@ export default function SimilarCompanies({ recipients }: { recipients: VerifiedR
   const yearCellClass = "py-1.5 text-right text-foreground";
 
   return (
-    <ScrollFadeContainer fadeBg="canvas">
+    <ScrollFadeContainer fadeBg="canvas" ariaLabel="Scroll to see amount and year">
       <table className="w-full min-w-[520px] font-mono text-[11px] tabular-nums">
         <thead>
           <tr className={tableHeadRowClass}>

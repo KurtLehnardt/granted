@@ -700,7 +700,7 @@ function ScoredOpportunityCard({
                 </div>
               )}
 
-              <ScrollFadeContainer fadeBg="canvas-alt">
+              <ScrollFadeContainer fadeBg="canvas-alt" ariaLabel="Scroll to see amount and year">
                 <table className="w-full min-w-[440px] font-mono text-[11px] tabular-nums">
                   <thead>
                     <tr className={tableHeadRowClass}>

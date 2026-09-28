@@ -2,7 +2,7 @@
 // Explicit React import: needed under the plain `tsx`-run node:test runner
 // (this repo's tsconfig `"jsx": "preserve"` falls back to the classic JSX
 // runtime there) — see the same note in components/ApplicationChecklist.tsx.
-import React, { useEffect, useRef, useState } from "react";
+import React, { useLayoutEffect, useRef, useState } from "react";
 
 /**
  * Wraps horizontally-scrollable wide content (a table, a graph) with a
@@ -27,15 +27,26 @@ import React, { useEffect, useRef, useState } from "react";
 export default function ScrollFadeContainer({
   children,
   fadeBg = "canvas",
+  ariaLabel = "Scroll to see more columns",
 }: {
   children: React.ReactNode;
   fadeBg?: "canvas" | "canvas-alt";
+  /** The new tab stop this adds (see the tabIndex note above) needs a name of
+   *  its own, or a screen-reader user hits an unlabeled stop before reaching
+   *  the table's own links. Override with something specific to what's
+   *  actually cut off (e.g. "Scroll to see amount and year"). */
+  ariaLabel?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
 
-  useEffect(() => {
+  // useLayoutEffect (not useEffect): on a table that already overflows at
+  // mount (narrow viewport, long list), a passive effect runs AFTER the
+  // browser paints, so the right-edge fade would be visibly absent for one
+  // frame even though the content is scrollable. Measuring synchronously
+  // before paint avoids that flash.
+  useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
     // 1px tolerance for sub-pixel rounding at the scroll extremes (some
@@ -63,6 +74,8 @@ export default function ScrollFadeContainer({
       <div
         ref={ref}
         tabIndex={0}
+        role="group"
+        aria-label={ariaLabel}
         className="overflow-x-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2"
       >
         {children}
