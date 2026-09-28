@@ -29,9 +29,17 @@ import type { CompetitorStreamEvent } from "@/lib/contracts/competitorAnalysis";
  * the model instead: local inference is far slower than a cloud API, and the
  * cloud-sized budget would abort a legitimately-slow local synthesis mid-flight.
  * Override either with COMPETITOR_BUDGET_MS.
+ *
+ * Resolved PER REQUEST, not once at module load: the Settings Local/Cloud switch
+ * rewrites the on-disk LLM config while the server is running, and
+ * `resolveProvider()` picks that up on the next call. A module-scope constant
+ * would freeze whichever provider happened to be selected at import time, so
+ * switching to a local model mid-session would still abort its synthesis at the
+ * cloud budget — the exact failure this sizing exists to prevent.
  */
-const BUDGET_MS =
-  Number(process.env.COMPETITOR_BUDGET_MS) || (isLocalLlm() ? 1_800_000 : 110_000);
+function budgetMs(): number {
+  return Number(process.env.COMPETITOR_BUDGET_MS) || (isLocalLlm() ? 1_800_000 : 110_000);
+}
 
 const STOPWORDS = new Set([
   "the", "and", "for", "with", "that", "this", "from", "into", "your", "our", "their", "who", "must",
@@ -90,7 +98,7 @@ export async function POST(req: NextRequest) {
 
   const meter = createCostMeter();
   const controller = new AbortController();
-  const budget = setTimeout(() => controller.abort(new Error("budget")), BUDGET_MS);
+  const budget = setTimeout(() => controller.abort(new Error("budget")), budgetMs());
   // Stop billing tokens if the client disconnects mid-stream.
   const reqSignal = (req as NextRequest & { signal?: AbortSignal }).signal;
   if (reqSignal) {

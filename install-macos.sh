@@ -102,7 +102,13 @@ if [ "$NODE_OK" -ne 1 ]; then
     log "Installing Node.js ${NODE_MAJOR_MIN}+ from nodejs.org..."
     [ -t 0 ] || die "Node.js ${NODE_MAJOR_MIN}+ is required and installing it needs sudo, which can't prompt through a pipe. Install Node from https://nodejs.org (or install Homebrew), then re-run this script."
     PKG_URL="https://nodejs.org/dist/latest-v${NODE_MAJOR_MIN}.x/"
-    PKG_NAME="$(curl -fsSL "$PKG_URL" | sed -n 's/.*href="\(node-v[0-9.]*\.pkg\)".*/\1/p' | head -1)"
+    # Fetched into a variable first, and the first match taken with `sed -n 1p`
+    # rather than `head -1`: under `set -o pipefail`, head closing the pipe
+    # early can SIGPIPE the upstream process and abort the whole script.
+    PKG_INDEX="$(curl -fsSL "$PKG_URL")" || die "Couldn't reach $PKG_URL — install Node from https://nodejs.org and re-run."
+    # nodejs.org lists hrefs as ABSOLUTE paths ("/dist/latest-v20.x/node-v20.20.2.pkg"),
+    # so match any leading directory and keep only the basename.
+    PKG_NAME="$(printf '%s\n' "$PKG_INDEX" | sed -n 's|.*href="[^"]*/\(node-v[0-9.]*\.pkg\)".*|\1|p' | sed -n '1p')"
     [ -n "$PKG_NAME" ] || die "Couldn't find a Node .pkg at $PKG_URL — install Node from https://nodejs.org and re-run."
     TMP_PKG="$(mktemp -d)/$PKG_NAME"
     curl -fsSL -o "$TMP_PKG" "${PKG_URL}${PKG_NAME}"
@@ -135,7 +141,7 @@ ok "dependencies installed"
 # 5) Ollama (only needed for the fully-local path, so never fatal).
 #
 # This is the one step that genuinely differs on macOS. Ollama's .app/.dmg and
-# its Homebrew cask are built for macOS ${OLLAMA_MIN_MACOS}+; on an older Mac the
+# its Homebrew cask are built for macOS 14+ (OLLAMA_MIN_MACOS); on an older Mac the
 # download page hands you an app that won't launch, and Homebrew has dropped
 # those releases entirely (no bottles), so `brew install ollama` fails too. The
 # release's CLI tarball is a universal binary that DOES run there — it just has
