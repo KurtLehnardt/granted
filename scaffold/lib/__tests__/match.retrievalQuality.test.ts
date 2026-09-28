@@ -183,4 +183,47 @@ describe("retrieval quality — scored-candidate cap", () => {
     assert.ok(captured.includes("prov-only"), "the provisional-only extra is still scored");
     assert.ok(!captured.includes("profile-4"), "the lowest-ranked profile-set member was trimmed to make room");
   });
+
+  test("the scored-set trim never evicts a C1a per-type-quota pick", async () => {
+    // Raw query [1,0,0], profile query [0,1,0]: "prov-only" clears only the
+    // raw pass, everything else clears only the profile pass, so trimming and
+    // quota selection both act purely on the profile-based set. maxCandidates
+    // =4, perTypeQuota=3: the global top-4 cut takes the 4 "noise" grants, and
+    // the quota adds the lower-cosine "loan-pick" (a different kind) as a 5th,
+    // quota-only entry. The provisional-only extra then forces a 1-slot trim
+    // — it must come out of the global-top-4 tail, never the quota pick.
+    const noise = [0.9, 0.8, 0.7, 0.6].map((sim, i) => ({
+      ...opp({ id: `noise-${i}` }, sim),
+      embedding: [0, sim, Math.sqrt(1 - sim * sim)],
+    }));
+    const loanPick: Opportunity = { ...opp({ id: "loan-pick", kind: "loan" }, 0.3), embedding: [0, 0.3, Math.sqrt(1 - 0.09)] };
+    const provOnly: Opportunity = { ...opp({ id: "prov-only" }, 0), embedding: [1, 0, 0] };
+    const corpus = [...noise, loanPick, provOnly];
+    const profile: StartupProfile = { description: "We build advanced sensing hardware." };
+
+    let embedCalls = 0;
+    const captured: string[] = [];
+    await buildOpportunityMap(
+      profile.description,
+      undefined,
+      {
+        corpus,
+        extractProfile: async () => ({ profile, followUps: [] }),
+        embed: async () => (++embedCalls === 1 ? [1, 0, 0] : [0, 1, 0]),
+        explainMatches: async (_p, candidates) => {
+          captured.push(...candidates.map((c) => c.id));
+          return candidates.map((c) => assess(c.id));
+        },
+        explainWeakField: async () => ({ headline: "h", reasoning: "r", redirects: [] }),
+        screen: realScreen,
+      },
+      undefined,
+      undefined,
+      4,
+    );
+
+    assert.ok(captured.includes("loan-pick"), "the C1a quota pick survives the trim");
+    assert.ok(captured.includes("prov-only"), "the provisional-only extra is still scored");
+    assert.ok(!captured.includes("noise-3"), "the lowest-cosine global-top-N entry was trimmed instead");
+  });
 });

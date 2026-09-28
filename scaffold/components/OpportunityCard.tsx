@@ -2,7 +2,7 @@
 // Explicit React import: needed under the plain `tsx`-run node:test runner
 // (this repo's tsconfig `"jsx": "preserve"` falls back to the classic JSX
 // runtime there) — see the same note in components/ApplicationChecklist.tsx.
-import React, { useEffect, useId, useState, type ReactNode } from "react";
+import React, { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { TIER_LABEL, type Match, type StartupProfile } from "@/lib/types";
 import { isProvisional, type PreviewItem } from "@/lib/ui/previewReducer";
 import type { EligibilityBucket } from "@/lib/contracts/eligibilityDetermination";
@@ -124,12 +124,11 @@ function eyebrowClass(extra = "") {
  * label on the badge itself so a screen reader hears it once, not the raw
  * repeated ring text.
  *
- * Sized with a large FIXED additive inset (not the old `-inset-4`/`+2rem`,
- * ~16px each side), so the ring's real physical size stays roughly constant
- * — and legible — regardless of the tiny badge it wraps (a bare "—" for a
- * provisional card, "100%" for a scored one). Under the old sizing the ring's
- * real CSS px box tracked the badge 1:1 (badge ~50-80px → ring ~80-110px),
- * so the same 6.5-viewBox-unit font rendered under 6 real px. `textLength` +
+ * Fixed footprint (not sized off the badge it wraps): the wrapper `span` has
+ * an explicit height/width and the SVG fills it exactly (`inset-0`), so the
+ * ring is a normal, sized flex item — it takes real space in the card's
+ * layout instead of overflowing past it, and the badge column, `flex-wrap`,
+ * and the article's own padding all just work around it. `textLength` +
  * `spacingAndGlyphs` stretches the label to the exact circumference so it
  * wraps the full ring instead of covering a partial arc.
  */
@@ -138,11 +137,11 @@ function AnalyzingRing({ children, fading }: { children: ReactNode; fading?: boo
   const r = 42;
   const circumference = 2 * Math.PI * r;
   return (
-    <span className="relative inline-flex items-center justify-center">
+    <span className="relative inline-flex h-20 w-20 items-center justify-center sm:h-24 sm:w-24">
       <svg
         aria-hidden="true"
         viewBox="0 0 100 100"
-        className={`analyzing-ring pointer-events-none absolute -inset-[3.5rem] h-[calc(100%+7rem)] w-[calc(100%+7rem)] text-structure-on-canvas transition-opacity duration-300 ${
+        className={`analyzing-ring pointer-events-none absolute inset-0 h-full w-full text-structure-on-canvas transition-opacity duration-300 ${
           fading ? "opacity-0" : "opacity-100"
         }`}
       >
@@ -183,8 +182,17 @@ export default function OpportunityCard({
    *  competitor-analysis modal below. Only read when r5_deep_analysis is on. */
   startupProfile?: StartupProfile;
 }) {
+  // ANALYZING ring fade-out (§5) across the provisional→scored swap: the ring
+  // unmounts with ProvisionalCard and a fresh one mounts inside
+  // ScoredOpportunityCard, so there's no single DOM node to CSS-transition —
+  // track the swap here (the component instance that persists across it) and
+  // pass it down so the newly-mounted ring can run its own fade-in-then-out.
+  const wasProvisional = useRef(isProvisional(m));
+  const justPromoted = wasProvisional.current && !isProvisional(m);
+  wasProvisional.current = isProvisional(m);
+
   if (isProvisional(m)) return <ProvisionalCard opportunity={m.opportunity} index={index} />;
-  return <ScoredOpportunityCard m={m} index={index} startupProfile={startupProfile} />;
+  return <ScoredOpportunityCard m={m} index={index} startupProfile={startupProfile} justPromoted={justPromoted} />;
 }
 
 /**
@@ -230,37 +238,50 @@ function ScoredOpportunityCard({
   m,
   index,
   startupProfile,
+  justPromoted,
 }: {
   m: Match;
   index: number;
   startupProfile?: StartupProfile;
+  /** True on the one render where this card replaced a ProvisionalCard for
+   *  the same id (see OpportunityCard above). */
+  justPromoted?: boolean;
 }) {
   // Expand the first three cards so criteria / ineligibility / history read at a glance.
   const [open, setOpen] = useState(index < 3);
+  const isFinal = m.final ?? true;
   // ANALYZING ring fade-out (§5): once `final` flips true, keep the ring
-  // mounted for one short CSS transition instead of yanking it away —
-  // "the ring fades out leaving the plain badge," not an instant swap.
-  //
-  // `ringFading` must flip to true in the SAME render where `final` flips to
-  // true, not in a later effect — an effect runs after that render commits,
-  // so the ring (still showing at opacity-100) would already have unmounted
-  // by the time the effect asked for a fade, and the element a moment later
-  // would just mount fresh at opacity-0 with nothing to transition from. This
-  // is React's documented "adjust state during render" pattern: comparing
-  // `m.final` against the last render's value lets the fade start on the
-  // very same commit the ring would otherwise disappear on.
-  const [prevFinal, setPrevFinal] = useState(m.final);
+  // mounted for one short CSS transition instead of yanking it away. Adjusted
+  // during render (React's "derive state from a prop change" pattern) so the
+  // fade starts on the very same commit `final` flips, before the ring would
+  // otherwise unmount.
+  const [prevFinal, setPrevFinal] = useState(isFinal);
   const [ringFading, setRingFading] = useState(false);
-  if (prevFinal !== m.final) {
-    setPrevFinal(m.final);
-    setRingFading(nextRingFading(prevFinal, m.final));
+  if (prevFinal !== isFinal) {
+    setPrevFinal(isFinal);
+    setRingFading(nextRingFading(prevFinal, isFinal));
   }
   useEffect(() => {
     if (!ringFading) return;
     const t = setTimeout(() => setRingFading(false), 300);
     return () => clearTimeout(t);
   }, [ringFading]);
-  const showRing = m.final === false || ringFading;
+  // A card that just replaced a ProvisionalCard with an already-final score
+  // (single-pass, or Pass A final for a non-promoted candidate) mounts a
+  // brand-new ring with nothing to transition from. `enterFading` renders it
+  // visible on mount, then flips to fading a frame later so the browser
+  // actually animates the opacity change instead of skipping straight to 0.
+  const [enterFading, setEnterFading] = useState(false);
+  const [enterFadingActive, setEnterFadingActive] = useState(!!justPromoted && isFinal);
+  useEffect(() => {
+    if (!enterFadingActive) return;
+    const raf = requestAnimationFrame(() => setEnterFading(true));
+    const t = setTimeout(() => setEnterFadingActive(false), 300);
+    return () => { cancelAnimationFrame(raf); clearTimeout(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const showRing = isFinal === false || ringFading || enterFadingActive;
+  const fading = ringFading || (enterFadingActive && enterFading);
   // The assisted-apply flow (sign-in / requirements form / package assembly)
   // was unreliable, so it's been pulled from the UI for now (code stays in
   // place: AutoFillFlow.tsx, AutoFillModal.tsx, ApplicationPackage.tsx). This
@@ -483,11 +504,10 @@ function ScoredOpportunityCard({
           <div className="shrink-0 text-right">
             {/* ANALYZING ring (§5) — `final === false` means Pass A scored this
                 candidate but it's promoted for Pass B, which may still change
-                its score. Once the final score lands (`final` true/absent),
-                `ringFading` keeps the ring mounted for one fade-out transition
-                before it stops rendering (see the state above). */}
+                its score. Once the final score lands, the ring fades out
+                (see the state above) before it stops rendering. */}
             {showRing ? (
-              <AnalyzingRing fading={ringFading}>
+              <AnalyzingRing fading={fading}>
                 <div
                   role="status"
                   aria-label={`Analyzing, ${m.score}%, score may change`}

@@ -1,22 +1,24 @@
 /**
- * §3 — retrieval-quality report: candidate-set overlap between this branch's
- * profile-based retrieval (cosine + quota, BM25 as a pure ADDITIVE supplement)
- * and origin/main's retrieval (cosine + per-type quota only, no BM25) for the
- * 5 standard test cases.
+ * §3 — retrieval-quality report: candidate-set overlap between the real
+ * `scored` set `buildOpportunityMap` sends to the LLM (via a capturing scorer
+ * stub, so no LLM is actually called) and origin/main's retrieval (cosine +
+ * per-type quota only, no BM25, no scored-set trim) for the 5 standard test
+ * cases.
  *
- * Computes retrieval ONLY — embeds via the local Ollama embedder configured
- * in .env.local, calls extractProfile once per case (needed for the real
- * profile fields / expandedTerms both retrievals read), and never calls the
- * LLM scorer. Run with: npx tsx scripts/measure-retrieval-overlap.ts
+ * Uses the real `extractProfile` and the local embedder configured in
+ * .env.local; never calls the LLM scorer. Run with:
+ *   npx tsx scripts/measure-retrieval-overlap.ts
  */
 import "./_loadEnvLocal.mjs"; // honor scaffold/.env.local when run as plain `tsx`
 
 import { embed, cosine } from "../lib/embed";
 import { extractProfile } from "../lib/claude";
 import { getCorpus } from "../lib/corpus/store";
-import { getBM25Index, bm25Query } from "../lib/retrieval/bm25";
-import { CALIBRATION, clampCandidateCount } from "../lib/match";
-import type { Opportunity, StartupProfile } from "../lib/types";
+import { dropExpiredOpportunities } from "../lib/corpus/expiry";
+import { screen } from "../lib/eligibility/screen";
+import { buildOpportunityMap, CALIBRATION, clampCandidateCount, type BuildDeps } from "../lib/match";
+import type { Opportunity, StartupProfile, Tier } from "../lib/types";
+import type { Assessment } from "../lib/claude";
 
 const CASES: [string, string][] = [
   ["1 ai-healthcare", "We're a 15-person Utah company developing AI-powered software that helps hospitals reduce administrative work for nurses. We've raised $2.5M, have $1M in ARR, and are looking for $500K–$2M of non-dilutive capital to fund product development and hospital pilots."],
@@ -26,11 +28,8 @@ const CASES: [string, string][] = [
   ["5 marketplace", "We're an 8-person Utah technology startup running a marketplace connecting parents with local youth activities and enrichment programs. $750K revenue, raised $1M, looking for $250K–$1M for expansion and technology development."],
 ];
 
-/** Mirrors `lib/match.ts`'s `retrieve()`: cosine+quota decides the base
- *  selection (byte-for-byte main's algorithm); BM25 (when `supplementIds` is
- *  passed) only ADDS floor-clearing ids the base selection missed, up to
- *  `CALIBRATION.bm25SupplementCount` — it never reorders or evicts. */
-function topNByQuota(corpus: Opportunity[], queryVec: number[], candidateCount: number, supplementIds?: string[]) {
+/** origin/main's own retrieval: cosine + per-type quota, no BM25, no trim. */
+function mainRetrieval(corpus: Opportunity[], queryVec: number[], candidateCount: number): string[] {
   const floorCleared = corpus
     .map((o) => ({ o, sim: o.embedding ? cosine(queryVec, o.embedding) : 0 }))
     .filter((x) => x.sim >= CALIBRATION.candidateFloor)
@@ -45,18 +44,6 @@ function topNByQuota(corpus: Opportunity[], queryVec: number[], candidateCount: 
       selectedIds.add(x.o.id);
     }
   }
-
-  if (supplementIds) {
-    const floorClearedIds = new Set(floorCleared.map((x) => x.o.id));
-    let added = 0;
-    for (const id of supplementIds) {
-      if (added >= CALIBRATION.bm25SupplementCount) break;
-      if (!floorClearedIds.has(id) || selectedIds.has(id)) continue;
-      selectedIds.add(id);
-      added++;
-    }
-  }
-
   return floorCleared.filter((x) => selectedIds.has(x.o.id)).map((x) => x.o.id);
 }
 
@@ -71,46 +58,60 @@ function queryTextFor(profile: StartupProfile): string {
   ].filter(Boolean).join("\n");
 }
 
+function stubAssess(id: string): Assessment {
+  return {
+    id, score: 0, tier: "none" as Tier, criteria: [],
+    whyCare: "", whyFit: "", whyIneligible: "", whatToVerify: "", whatToDoNext: "",
+  };
+}
+
+/** Runs the real pipeline up to (and including) the scored-set trim, via a
+ *  capturing scorer stub in place of both scorer entry points — whichever one
+ *  `buildOpportunityMap` picks (two-pass on local, single-pass otherwise). */
+async function capturedScoredSet(corpus: Opportunity[], description: string): Promise<string[]> {
+  let captured: string[] = [];
+  const deps: Partial<BuildDeps> = {
+    corpus,
+    screen,
+    explainMatches: async (_p, candidates) => {
+      captured = candidates.map((c) => c.id);
+      return candidates.map((c) => stubAssess(c.id));
+    },
+    explainMatchesTwoPass: async (_p, candidates) => {
+      captured = candidates.map((c) => c.id);
+      return candidates.map((c) => stubAssess(c.id));
+    },
+    explainWeakField: async () => ({ headline: "h", reasoning: "r", redirects: [] }),
+  };
+  await buildOpportunityMap(description, undefined, deps);
+  return captured;
+}
+
 async function main() {
-  const corpus = getCorpus();
+  const corpus = dropExpiredOpportunities(getCorpus());
   const candidateCount = clampCandidateCount(undefined);
-  const bm25Index = getBM25Index(corpus);
 
   console.log(`Corpus: ${corpus.length} opportunities. candidateCount=${candidateCount}\n`);
 
   for (const [id, description] of CASES) {
     const t0 = Date.now();
     const { profile } = await extractProfile(description, undefined, undefined);
-    const queryText = queryTextFor(profile);
-    const queryVec = await embed(queryText, undefined, undefined);
-
-    // origin/main: cosine + quota, no BM25.
-    const mainIds = topNByQuota(corpus, queryVec, candidateCount);
-
-    // this branch: cosine + BM25 fusion (over the same profile-based query text) + quota.
-    const bm25RankedIds = bm25Query(bm25Index, queryText).map((h) => h.id);
-    const branchIds = topNByQuota(corpus, queryVec, candidateCount, bm25RankedIds);
+    const queryVec = await embed(queryTextFor(profile), undefined, undefined);
+    const mainIds = mainRetrieval(corpus, queryVec, candidateCount);
+    const scoredIds = await capturedScoredSet(corpus, description);
 
     const mainSet = new Set(mainIds);
-    const branchSet = new Set(branchIds);
-    const intersection = branchIds.filter((x) => mainSet.has(x));
-    const union = new Set([...mainIds, ...branchIds]);
+    const scoredSet = new Set(scoredIds);
+    const intersection = scoredIds.filter((x) => mainSet.has(x));
+    const union = new Set([...mainIds, ...scoredIds]);
     const jaccard = union.size > 0 ? intersection.length / union.size : 1;
-
-    // The quality-critical metric: of main's own top-8-by-cosine, how many
-    // does this branch's selection still include? BM25-as-supplement should
-    // keep this at (or very near) 8/8 every time, since it can only add.
-    const top8ByCosine = corpus
-      .map((o) => ({ id: o.id, sim: o.embedding ? cosine(queryVec, o.embedding) : 0 }))
-      .sort((a, b) => b.sim - a.sim)
-      .slice(0, 8)
-      .map((x) => x.id);
-    const top8Survive = top8ByCosine.filter((x) => branchSet.has(x)).length;
+    const mainOnly = mainIds.filter((x) => !scoredSet.has(x));
 
     const secs = ((Date.now() - t0) / 1000).toFixed(1);
     console.log(
-      `${id.padEnd(16)} main=${mainIds.length} branch=${branchIds.length} overlap=${intersection.length} jaccard=${jaccard.toFixed(2)} top8-survive=${top8Survive}/8 (${secs}s)`,
+      `${id.padEnd(16)} main=${mainIds.length} scored=${scoredIds.length} overlap=${intersection.length} jaccard=${jaccard.toFixed(2)} main-only=${mainOnly.length} (${secs}s)`,
     );
+    if (mainOnly.length > 0) console.log(`  evicted from main's own selection: ${mainOnly.join(", ")}`);
   }
 }
 

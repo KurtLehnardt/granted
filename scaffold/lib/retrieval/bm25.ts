@@ -1,13 +1,13 @@
 import type { Opportunity } from "../types";
 
 /**
- * Hybrid retrieval (instant-cards perf work) — a small BM25 keyword index over
- * the cached corpus, fused with the existing embedding cosine rank (see
- * `hybrid.ts`). Pure, dependency-light, no LLM/embedding/network. Built lazily
- * and cached by corpus array IDENTITY (a `WeakMap`), so it's rebuilt only when
- * the corpus store actually reloads (`CorpusStore.load()` hands back a new
- * array reference on a real reload, the same cached reference otherwise) or a
- * caller passes a fresh fixture array (hermetic tests).
+ * A small BM25 keyword index over the cached corpus, used in `lib/match.ts`
+ * as a supplement to the embedding cosine rank. Pure, dependency-light, no
+ * LLM/embedding/network. Built lazily and cached by corpus array IDENTITY (a
+ * `WeakMap`), so it's rebuilt only when the corpus store actually reloads
+ * (`CorpusStore.load()` hands back a new array reference on a real reload,
+ * the same cached reference otherwise) or a caller passes a fresh fixture
+ * array (hermetic tests).
  */
 
 const STOPWORDS = new Set([

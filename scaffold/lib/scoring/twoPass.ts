@@ -35,8 +35,8 @@ export type Assessment = {
   /** ANALYZING ring (§5) — false while this score may still change (a
    *  promoted candidate whose Pass-B narrative hasn't landed yet). */
   final?: boolean;
-  /** §1 — true only for the "resolve every provisional id" fallback: no pass
-   *  ever produced a real score for this candidate. */
+  /** §1 — true when no pass produced a real score for this candidate (e.g.
+   *  Pass A dropped it, or it's the "resolve every provisional id" fallback). */
   unscored?: boolean;
 };
 

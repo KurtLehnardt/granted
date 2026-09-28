@@ -68,7 +68,8 @@ function HomeShell({ sidebarOn }: { sidebarOn: boolean }) {
   // (previewReducer never reorders its own accumulated list). A spinner
   // keeps its slot until it's scored; partitionPreview then ranks only the
   // scored cards among themselves for the main-list cap cut, so a spinner
-  // never gets to outrank a real score.
+  // already in the main list can hold that slot ahead of a newly-scored card
+  // that lands in "More matches" instead.
   function handleMatchPreview(m: PreviewItem) {
     setPreviewMatches((prev) => previewReducer(prev, m));
   }

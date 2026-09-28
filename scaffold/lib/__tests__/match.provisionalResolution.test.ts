@@ -191,6 +191,32 @@ describe("§1 — every provisional id is resolved", () => {
     assert.ok(matchEvents.includes("excluded-1"), "a terminal onMatch event fired for the pre-excluded id");
   });
 
+  test("a provisional id trimmed from the tail of the profile-scored set is still resolved", async () => {
+    // Hermetic repro: "e" and "q0..q2" clear only one of the two retrieval
+    // passes; "p" clears both, landing at the tail of the profile-based
+    // selection. The old trim cut "p" (neither provisional-only-extra nor
+    // preserved) out of `scored` entirely.
+    const e: Opportunity = { ...opp("e"), embedding: [1, 0] };
+    const p: Opportunity = { ...opp("p"), embedding: [0.97, 0.243] };
+    const q = ["q0", "q1", "q2"].map((id) => ({ ...opp(id), embedding: [0, 1] }));
+    const corpus = [e, p, ...q];
+
+    let embedCalls = 0;
+    const { map, matchEvents } = await run(
+      corpus,
+      {
+        extractProfile: async () => ({ profile, followUps: [] }),
+        embed: async () => (++embedCalls === 1 ? [1, 0] : [0, 1]),
+        explainMatches: async (_p, candidates) => candidates.map((c) => assess(c.id)),
+        explainWeakField: async () => ({ headline: "h", reasoning: "r", redirects: [] }),
+      },
+    );
+
+    assert.ok(matchEvents.includes("p"), "a terminal onMatch event fired for the trimmed-tail provisional id");
+    const resolvedP = map.matches.find((m) => m.opportunity.id === "p");
+    assert.ok(resolvedP, "the trimmed-tail provisional id is still in the final map");
+  });
+
   test("no unresolved provisional id remains in the collapsed section's absence — every id has a final Match", async () => {
     const corpus = Array.from({ length: 5 }, (_, i) => opp(`c${i}`));
     const { map } = await run(corpus, {

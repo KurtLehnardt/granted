@@ -64,11 +64,9 @@ export const CALIBRATION = {
    *  (top-K-by-cosine per kind, tie-broken by opp id). Does NOT change scoring;
    *  it only makes underrepresented types reachable (scoreFloor stays Wave-3). */
   perTypeQuota: 3,
-  /** Retrieval quality fix — BM25 no longer re-orders the cosine+quota
-   *  selection (that let a whole-corpus keyword ranking, over ~20 expandedTerms,
-   *  bump ~55% of the cosine set out, including top-cosine candidates). BM25
-   *  now only ADDS a handful of floor-clearing, keyword-strong ids the cosine
-   *  cut missed — it can never displace a candidate cosine+quota already picked. */
+  /** BM25 only ADDS up to this many floor-clearing, keyword-strong ids the
+   *  cosine+quota selection missed — it never reorders or evicts a candidate
+   *  cosine+quota already picked. */
   bm25SupplementCount: 4,
 };
 
@@ -335,12 +333,12 @@ export async function buildOpportunityMap(
   // profile resolves (further down) — so both passes share one implementation.
   const bm25Index = getBM25Index(deps.corpus ?? getCorpus());
   const bm25Ids = new Set(d.corpus.map((o) => o.id));
+  // `sim`/`rank`/the global top-N cut/the per-type quota mirror main's
+  // cosine+quota selection exactly (`rank` folds in the B2 boost, 0 when off).
+  // `quotaOnlyIds`/`bm25OnlyIds` mark ids added ONLY by the quota or the BM25
+  // supplement — never by the global top-N cut — so a later trim (the scored-
+  // set cap below) knows which entries it must not evict.
   function retrieve(queryVec: number[], queryText: string, enrich?: ReturnType<typeof deriveEnrichmentSignal>) {
-    // `sim` is the RAW cosine — the ONLY thing the candidate floor gates.
-    // `rank` additionally folds in the B2 boost (0 when the flag is off /
-    // no profile yet), and is what the top-N cut and per-type quota below
-    // sort by — main's exact selection algorithm, so a strong cosine (or
-    // B2-boosted) candidate can never be displaced by BM25.
     const floorCleared = d.corpus
       .map((o) => {
         const sim = o.embedding ? cosine(queryVec, o.embedding) : 0;
@@ -350,41 +348,34 @@ export async function buildOpportunityMap(
       .filter((x) => x.sim >= CALIBRATION.candidateFloor)
       .sort((a, b) => b.rank - a.rank || (a.o.id < b.o.id ? -1 : a.o.id > b.o.id ? 1 : 0));
 
-    // C1a (per-type retrieval quota): a single global top-`candidateCount`
-    // cosine cut let the ~476 grants crowd out the ~492 non-grant opps
-    // (rd/SBIR, procurement, assistance, loan, scholarship), so those
-    // instrument types never reached the LLM scorer. We keep the global
-    // top-N unchanged (every strong grant that already qualified is
-    // preserved) and ADDITIONALLY reserve the top `perTypeQuota` candidates
-    // of EACH `kind` present among the floor-clearing set, unioning them in.
     const candidateCount = clampCandidateCount(maxCandidates);
     const selectedIds = new Set(floorCleared.slice(0, candidateCount).map((x) => x.o.id));
+    const quotaOnlyIds = new Set<string>();
     const perKindTaken = new Map<string, number>();
     for (const x of floorCleared) {
       const taken = perKindTaken.get(x.o.kind) ?? 0;
       if (taken < CALIBRATION.perTypeQuota) {
         perKindTaken.set(x.o.kind, taken + 1);
+        if (!selectedIds.has(x.o.id)) quotaOnlyIds.add(x.o.id);
         selectedIds.add(x.o.id);
       }
     }
 
-    // BM25 supplement: union in up to `bm25SupplementCount` floor-clearing,
-    // keyword-strong ids the cosine+quota selection above missed. Purely
-    // additive — it can only grow the selected set, never re-order or evict
-    // anything already selected by cosine/B2 above.
     const floorClearedIds = new Set(floorCleared.map((x) => x.o.id));
     const bm25RankedIds = bm25Query(bm25Index, queryText)
       .map((h) => h.id)
       .filter((id) => bm25Ids.has(id));
+    const bm25OnlyIds = new Set<string>();
     let bm25Added = 0;
     for (const id of bm25RankedIds) {
       if (bm25Added >= CALIBRATION.bm25SupplementCount) break;
       if (!floorClearedIds.has(id) || selectedIds.has(id)) continue;
       selectedIds.add(id);
+      bm25OnlyIds.add(id);
       bm25Added++;
     }
 
-    return floorCleared.filter((x) => selectedIds.has(x.o.id));
+    return { scored: floorCleared.filter((x) => selectedIds.has(x.o.id)), quotaOnlyIds, bm25OnlyIds };
   }
 
   // 3. Instant retrieval — embed the RAW description directly (sub-second),
@@ -398,7 +389,7 @@ export async function buildOpportunityMap(
   assertEmbeddingDimsMatch(rawQueryVec.length, corpusDim);
   step({ key: "embed", label: `Searching ${d.corpus.length} programs`, pct: 15 });
 
-  const provisionalScored = retrieve(rawQueryVec, description);
+  const provisionalScored = retrieve(rawQueryVec, description).scored;
   step({ key: "retrieve", label: `Found ${provisionalScored.length} candidate programs`, pct: 30 });
 
   // INSTANT CARDS — stream an unscored, provisional card for each retrieved
@@ -407,9 +398,7 @@ export async function buildOpportunityMap(
   // score; a later "match" event for the same id upgrades the card in place.
   // Best-effort, in retrieval (cosine-rank) order, capped at CARD_CAP-ish so a
   // huge candidateCount doesn't spam the client with cards that will never be
-  // shown. Every id shown here is guaranteed a terminal event later (see the
-  // "resolve every provisional id" step below), regardless of what the
-  // profile-based retrieval re-run below decides.
+  // shown.
   const provisionalIds = new Set(provisionalScored.slice(0, PROVISIONAL_PREVIEW_COUNT).map((x) => x.o.id));
   for (const x of provisionalScored) {
     if (!provisionalIds.has(x.o.id)) continue;
@@ -449,23 +438,29 @@ export async function buildOpportunityMap(
   ].filter(Boolean).join("\n");
   const queryVec = await d.embed(queryText, meter, signal);
   assertEmbeddingDimsMatch(queryVec.length, corpusDim);
-  const profileScored = retrieve(queryVec, queryText, enrich);
+  const { scored: profileScored, quotaOnlyIds, bm25OnlyIds } = retrieve(queryVec, queryText, enrich);
 
   // Final candidate set = the profile-based retrieval UNION every provisional
-  // id already shown to the user, so none of them can go unscored just because
-  // the profile-based re-run ranked them out — but capped at the profile set's
-  // own size (matching what main would have sent to the scorer), by trimming
-  // the lowest-ranked profile-set members to make room. Without this, a run
-  // where the raw-description pass and the profile-based pass disagree a lot
-  // scores noticeably more candidates than main did, overshooting the
-  // Settings maxCandidates value and its local-LLM time estimate.
+  // id already shown to the user, capped at the profile set's own size by
+  // trimming the tail — but a provisional id, a C1a per-type-quota pick, and a
+  // BM25 supplement pick are never trimmed: only a plain global-top-N entry
+  // (not one of those three) can be cut to make room.
   const profileScoredIds = new Set(profileScored.map((x) => x.o.id));
   const provisionalOnlyExtras = provisionalScored.filter(
     (x) => provisionalIds.has(x.o.id) && !profileScoredIds.has(x.o.id),
   );
+  const protectedIds = new Set([...Array.from(quotaOnlyIds), ...Array.from(bm25OnlyIds)]);
   const trimCount = Math.min(provisionalOnlyExtras.length, profileScored.length);
+  const excludeFromProfileScored = new Set<string>();
+  let remainingToTrim = trimCount;
+  for (let i = profileScored.length - 1; i >= 0 && remainingToTrim > 0; i--) {
+    const id = profileScored[i].o.id;
+    if (provisionalIds.has(id) || protectedIds.has(id)) continue;
+    excludeFromProfileScored.add(id);
+    remainingToTrim--;
+  }
   const scored = [
-    ...(trimCount > 0 ? profileScored.slice(0, profileScored.length - trimCount) : profileScored),
+    ...profileScored.filter((x) => !excludeFromProfileScored.has(x.o.id)),
     ...provisionalOnlyExtras,
   ];
 
@@ -474,18 +469,16 @@ export async function buildOpportunityMap(
     return weakField(profile, followUps, meter, d.explainWeakField, signal);
   }
 
-  // RESOLVE EVERY PROVISIONAL ID (§1): tracks every id that has already had a
-  // TERMINAL ("final: true") match event streamed via onMatch, regardless of
-  // whether that id also ends up in the authoritative `matches` array below —
-  // `matches` presence and "was actually streamed" are different questions
-  // (e.g. Pass A can drop an id from its own callbacks entirely while
-  // `assembleTwoPass` still gives it an `unscored` assessment that lands in
-  // `matches` without ever having been streamed). Checked against `matches`
-  // membership, the reconciliation loop further down mistook "will appear in
-  // the final map" for "the client was told," so a provisional card spun
-  // forever even though its id was technically resolved by the time this
-  // function returned.
+  // RESOLVE EVERY PROVISIONAL ID (§1): every id that has already had a
+  // TERMINAL ("final: true") match event streamed via onMatch — checked
+  // against this, not `matches` membership, since an id can land in `matches`
+  // (e.g. via `assembleTwoPass`'s `unscored` fallback) without ever having
+  // been streamed.
   const streamedFinalIds = new Set<string>();
+  // Corpus fallback for a provisional id that (still) isn't in `scored` —
+  // e.g. it cleared the raw-description pass but not the profile-based one,
+  // and wasn't preserved as a provisional-only extra.
+  const corpusById = new Map(d.corpus.map((o) => [o.id, o]));
 
   // Only a definitive, rule-based `excluded` skips the LLM; every other bucket is still scored.
   const companyProfile = toCompanyProfile(profile, companyFacts);
@@ -546,7 +539,7 @@ export async function buildOpportunityMap(
   // provisional id" reconciliation below never re-sends (or worse, thinks
   // still-pending) an id whose real terminal event the client already got.
   const previewAssessment = (a: Assessment) => {
-    const opp = byId.get(a.id);
+    const opp = byId.get(a.id) ?? corpusById.get(a.id);
     if (!opp) return;
     if (a.final ?? true) streamedFinalIds.add(a.id);
     try { onMatch?.(baseMatchFromAssessment(a, opp, profile)); } catch { /* progressive rendering is best-effort */ }
@@ -585,28 +578,24 @@ export async function buildOpportunityMap(
 
   const matches: Match[] = allAssessments
     .map((a) => {
-      const opp = byId.get(a.id);
+      const opp = byId.get(a.id) ?? corpusById.get(a.id);
       return opp ? baseMatchFromAssessment(a, opp, profile) : null;
     })
     .filter(Boolean) as Match[];
 
   // RESOLVE EVERY PROVISIONAL ID (§1): a spinner card must never spin forever.
-  // Checked against `streamedFinalIds` (what the client was actually SENT), not
-  // presence in `matches` (what the final map happens to CONTAIN) — those two
-  // differ whenever an assessment lands in `matches` without ever having been
-  // streamed, e.g. `assembleTwoPass` giving a Pass-A-dropped id an `unscored`
-  // assessment that no `onAssessment` call ever fired for. Whatever the cause
-  // (a dropped/misnamed id, a hosted batch failing outright, a pre-excluded
-  // candidate, the model returning an unknown id), every id shown as a
-  // provisional card gets an explicit terminal event and a place in the final
-  // map: an honest "couldn't score" placeholder or its existing match,
-  // re-sent, never a silent drop.
+  // Checked against `streamedFinalIds` (what the client was actually SENT),
+  // not presence in `matches` (what the final map happens to CONTAIN) — an
+  // assessment can land in `matches` without ever having been streamed (e.g.
+  // `assembleTwoPass`'s `unscored` fallback for a Pass-A-dropped id). Every id
+  // shown as a provisional card gets an explicit terminal event and a place
+  // in the final map, looked up from the corpus if it fell out of `scored`.
   const matchByOppId = new Map(matches.map((m) => [m.opportunity.id, m]));
   for (const id of Array.from(provisionalIds)) {
     if (streamedFinalIds.has(id)) continue;
     let resolved = matchByOppId.get(id);
     if (!resolved) {
-      const opp = byId.get(id);
+      const opp = byId.get(id) ?? corpusById.get(id);
       if (!opp) continue;
       resolved = {
         opportunity: opp,

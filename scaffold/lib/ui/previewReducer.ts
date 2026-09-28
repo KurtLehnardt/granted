@@ -50,15 +50,10 @@ export function previewReducer(prev: PreviewItem[], m: PreviewItem): PreviewItem
  * has — it is NOT ranked against scored cards. Only the scored items among
  * `candidates` are ranked (by score, descending) and slotted back into the
  * positions scored items occupy, highest score first; every provisional
- * item's own position is left untouched. Treating an unscored spinner as
- * rank-Infinity (the previous approach) meant every spinner outranked every
- * real score, so as soon as `PROVISIONAL_PREVIEW_COUNT` (12) exceeded `cap`
- * (8), a freshly scored 88% match got pushed into "More matches" behind 8
- * still-unscored spinners — the opposite of what §2 requires. Everything
- * else — a final tier-"none" score, or an unscored candidate — goes into
- * `weaker` outright, same as before. `cap` bounds the main list the same way
- * the finished map does (CARD_CAP); pass it explicitly to avoid this module
- * depending on the component tree.
+ * item's own position is left untouched. A final tier-"none" score, or an
+ * unscored candidate, goes into `weaker` outright. `cap` bounds the main list
+ * the same way the finished map does (CARD_CAP); pass it explicitly to avoid
+ * this module depending on the component tree.
  */
 export function partitionPreview(
   items: PreviewItem[],
