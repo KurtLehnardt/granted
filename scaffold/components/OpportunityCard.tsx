@@ -841,8 +841,10 @@ function DeterminationAuthority({
 
 /** Expand/collapse affordance for the collapsible card header. Points down when
  * collapsed, rotates 180deg (via the caller's `rotate-180` class) when expanded.
- * Decorative only — the header button already carries `aria-expanded`. */
-function ChevronIcon({ className }: { className?: string }) {
+ * Decorative only — the header button already carries `aria-expanded`. Exported
+ * so other collapsible surfaces (e.g. ProfileQuestionnaire's collapsed-form
+ * summary bar) share the exact same chevron instead of a drifting copy. */
+export function ChevronIcon({ className }: { className?: string }) {
   return (
     <svg
       viewBox="0 0 16 16"

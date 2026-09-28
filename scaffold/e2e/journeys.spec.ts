@@ -198,6 +198,45 @@ test("intake: Find opportunities enables while still typing the last required fi
   await expect(page.getByText(FIXTURE_PROGRAM).first()).toBeVisible();
 });
 
+test("intake: the form collapses to a summary bar after a real search starts, and expands back with values intact on click", async ({ page }) => {
+  await stubBackend(page);
+  await skipWelcomeGuide(page);
+  await page.goto("/");
+
+  const description = "AI diagnostics for rural clinics, built for overworked front-desk staff.";
+  await page.getByLabel("Company description").fill(description);
+  await page.getByLabel("Industry / market").fill("Health IT");
+  await page.getByLabel("Core technology").fill("Diagnostic imaging software");
+  await page.getByLabel("Primary US location").fill("Boise, Idaho");
+  await page.getByLabel("Use of funds").fill("Hire two engineers");
+  await page.getByLabel("Use of funds").blur();
+  await expect(page.getByRole("button", { name: "Find opportunities" })).toBeEnabled();
+
+  await page.getByRole("button", { name: "Find opportunities" }).click();
+
+  const summaryBar = page.getByRole("button", { name: new RegExp(description) });
+  await expect(summaryBar).toBeVisible();
+  await expect(summaryBar).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByLabel("Company description")).toHaveCount(0);
+
+  await expect(page.getByText(FIXTURE_PROGRAM).first()).toBeVisible();
+
+  await summaryBar.click();
+  const descriptionField = page.getByLabel("Company description");
+  await expect(descriptionField).toBeVisible();
+  await expect(descriptionField).toHaveValue(description);
+  await expect(descriptionField).toBeFocused();
+  await expect(page.getByLabel("Industry / market")).toHaveValue("Health IT");
+  await expect(page.getByRole("button", { name: "Find opportunities" })).toBeVisible();
+
+  // Results stay visible while the form is expanded again.
+  await expect(page.getByText(FIXTURE_PROGRAM).first()).toBeVisible();
+
+  // Editing and searching again re-collapses the form.
+  await page.getByRole("button", { name: "Find opportunities" }).click();
+  await expect(summaryBar).toBeVisible();
+});
+
 // Journey 3 — Interview (needs r1_interview on + a short description).
 test.fixme("interview: a short description shows the pre-search interview before results", async ({ page }) => {
   await page.route("**/api/interview", (route) =>

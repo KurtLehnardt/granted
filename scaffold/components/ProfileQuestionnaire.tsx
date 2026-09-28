@@ -13,6 +13,8 @@ import {
 import type { Provenance, Provenanced } from "@/lib/contracts/primitives";
 import type { StartupProfile } from "@/lib/types";
 import { readJSON, writeJSON } from "@/lib/localStore";
+import { summarizeDescription } from "@/lib/ui/formSummary";
+import { ChevronIcon } from "@/components/OpportunityCard";
 
 /**
  * B1b — ProfileQuestionnaire: the structured, gap-first intake form.
@@ -287,6 +289,16 @@ export interface ProfileQuestionnaireProps {
    *  material field (all 13) is provided — the parent uses this to skip the
    *  R1 AI interview entirely (a fully-filled form asks zero questions). */
   onSubmit: (description: string, meta: { complete: boolean }) => void;
+  /** True once a real search has started for the current form contents — the
+   *  form renders as a single summary bar instead of the full field set.
+   *  Owned by the parent (IntakeForm), not this component: a sample search
+   *  from the welcome guide bypasses `onSubmit` entirely and must NOT
+   *  collapse the form, which this component alone has no way to tell apart
+   *  from a real submit. Defaults to false (today's fully-expanded form). */
+  collapsed?: boolean;
+  /** Fires when the user clicks the collapsed summary bar to expand back to
+   *  the full form. Required whenever `collapsed` can be true. */
+  onExpand?: () => void;
 }
 
 export default function ProfileQuestionnaire({
@@ -295,6 +307,8 @@ export default function ProfileQuestionnaire({
   externalNonce,
   onDescriptionChange,
   onSubmit,
+  collapsed = false,
+  onExpand,
 }: ProfileQuestionnaireProps) {
   const [profile, setProfile] = useState<ProfileDraft>({});
   const [values, setValues] = useState<Record<string, string>>({});
@@ -311,6 +325,21 @@ export default function ProfileQuestionnaire({
   // only a real click sets `manualOpenRef`.
   const materialHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const manualOpenRef = useRef(false);
+
+  // Collapsed-summary focus management: expanding the form (clicking the
+  // summary bar/chevron, or its Enter/Space keyboard equivalent) moves focus
+  // into the description field, same as the material-fields reveal above
+  // moves focus to its heading. Tracked via the previous `collapsed` value
+  // (not a click-time flag) so it fires on ANY collapsed->expanded
+  // transition, regardless of what triggered it.
+  const rawTextRef = useRef<HTMLTextAreaElement | null>(null);
+  const prevCollapsedRef = useRef(collapsed);
+  useEffect(() => {
+    if (prevCollapsedRef.current && !collapsed) {
+      rawTextRef.current?.focus();
+    }
+    prevCollapsedRef.current = collapsed;
+  }, [collapsed]);
 
   // Hydrate the draft from localStorage once, client-only (readJSON no-ops
   // during SSR and returns the fallback).
@@ -586,6 +615,7 @@ export default function ProfileQuestionnaire({
         </label>
         <textarea
           id={`pq-${meta.field}`}
+          ref={meta.field === "raw_text" ? rawTextRef : undefined}
           rows={isBig ? 5 : 2}
           value={value}
           disabled={disabled}
@@ -611,8 +641,38 @@ export default function ProfileQuestionnaire({
 
   const requiredFields = PROFILE_FIELD_META.filter((m) => m.requirement === "required");
 
+  // Collapsed summary bar — shown after a real search starts (parent-owned
+  // `collapsed`), so results sit closer to the top instead of below the full
+  // form. Same expand/collapse visual pattern (full-width button, chevron)
+  // as OpportunityCard's card header, and the same `.reveal` entrance used
+  // throughout the app — reduced-motion-safe via the global rule in
+  // globals.css. The description shown is the exact text as typed (live
+  // edit if any, else the saved value), trimmed to one line.
+  if (collapsed) {
+    const description = draftValue(profile, values, "raw_text");
+    return (
+      <div className="reveal mt-5">
+        <button
+          type="button"
+          onClick={onExpand}
+          aria-expanded={false}
+          aria-controls="pq-form-fields"
+          className="flex w-full items-center justify-between gap-4 rounded-sm border border-structure-on-canvas bg-canvas-alt px-4 py-3 text-left transition hover:bg-structure/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2"
+        >
+          <span className="min-w-0">
+            <span className={sectionHeadingClass}>Your company</span>
+            <span className="mt-0.5 block truncate text-pretty font-body text-[14px] text-foreground">
+              {description ? summarizeDescription(description) : "No description yet"}
+            </span>
+          </span>
+          <ChevronIcon className="h-5 w-5 shrink-0 text-structure-on-canvas" />
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div>
+    <div id="pq-form-fields" className="reveal">
       {/* Required fields — the search needs these to route at all. Grid:
           single column on mobile (each field always full-width), two
           columns from `sm:` up, with the description box and any other
