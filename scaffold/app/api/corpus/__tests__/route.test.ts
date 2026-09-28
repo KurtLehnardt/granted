@@ -5,7 +5,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildCorpusStatus } from "../handler";
 import { CorpusStore } from "@/lib/corpus/store";
-import { acquireRefreshLock, isRefreshing, readRefreshStatus, releaseRefreshLock, writeRefreshStatus } from "@/lib/corpus/refreshStatus";
+import {
+  acquireRefreshLock,
+  isRefreshing,
+  isStopRequested,
+  readRefreshStatus,
+  releaseRefreshLock,
+  requestStop,
+  writeRefreshStatus,
+} from "@/lib/corpus/refreshStatus";
 
 // Injected temp baseDir throughout — never the real cwd's data/local/ (that's
 // shared with a real `npm run data:refresh` and other suites' locks/status).
@@ -23,6 +31,7 @@ function depsFor(baseDir: string) {
     getCorpusInfo: () => store.load(),
     isRefreshing: () => isRefreshing(baseDir),
     readRefreshStatus: () => readRefreshStatus(baseDir),
+    isStopRequested: () => isStopRequested(baseDir),
   };
 }
 
@@ -71,6 +80,29 @@ describe("GET /api/corpus", () => {
     assert.equal(body.stopped, true);
     assert.equal(body.savedCount, 421);
     assert.equal(body.lastError, undefined);
+    rmSync(baseDir, { recursive: true, force: true });
+  });
+
+  test("surfaces stopRequested while a running refresh hasn't yet handled a stop", () => {
+    const baseDir = makeBaseDir();
+    requestStop(baseDir);
+    const body = buildCorpusStatus(depsFor(baseDir));
+    assert.equal(body.stopRequested, true);
+    rmSync(baseDir, { recursive: true, force: true });
+  });
+
+  test("omits stopRequested when no stop was requested", () => {
+    const baseDir = makeBaseDir();
+    const body = buildCorpusStatus(depsFor(baseDir));
+    assert.equal(body.stopRequested, undefined);
+    rmSync(baseDir, { recursive: true, force: true });
+  });
+
+  test("surfaces lastStoppedAt after a user stop, for the auto-update 12h backoff", () => {
+    const baseDir = makeBaseDir();
+    writeRefreshStatus({ stopped: true, savedCount: 10, lastStoppedAt: "2026-09-27T00:00:00.000Z" }, baseDir);
+    const body = buildCorpusStatus(depsFor(baseDir));
+    assert.equal(body.lastStoppedAt, "2026-09-27T00:00:00.000Z");
     rmSync(baseDir, { recursive: true, force: true });
   });
 });

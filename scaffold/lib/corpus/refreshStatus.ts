@@ -108,6 +108,8 @@ export interface RefreshStatus {
   stopped?: boolean;
   /** Present when `stopped` is true: how many records the partial save wrote (0 if none). */
   savedCount?: number;
+  /** Written instead of lastCompletedAt when the user stopped the run; suppresses auto-refresh for a window (see shouldAutoRefresh). */
+  lastStoppedAt?: string;
 }
 
 export function readRefreshStatus(baseDir: string = process.cwd()): RefreshStatus {

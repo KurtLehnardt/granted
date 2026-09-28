@@ -20,16 +20,8 @@ import {
   MAX_CORPUS_SIZE,
 } from "@/lib/searchSettings";
 import type { OllamaModel } from "@/lib/llm/ollamaInfo";
-import { stageLabel, type RefreshStage } from "@/lib/corpus/refreshProgress";
-
-interface CorpusProgress {
-  stage: RefreshStage;
-  done?: number;
-  total?: number;
-  pct: number;
-  foundCount?: number;
-  keptCount?: number;
-}
+import { stageLabel } from "@/lib/corpus/refreshProgress";
+import type { RefreshProgress } from "@/lib/corpus/refreshStatus";
 
 interface CorpusStatus {
   builtAt: string | null;
@@ -37,9 +29,11 @@ interface CorpusStatus {
   stale: boolean;
   refreshing: boolean;
   lastError?: string;
-  progress?: CorpusProgress;
+  progress?: RefreshProgress;
   stopped?: boolean;
   savedCount?: number;
+  /** Set while a stop is requested but the running child hasn't finished handling it yet. */
+  stopRequested?: boolean;
 }
 
 /**
@@ -84,6 +78,7 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
   const [autoUpdate, setAutoUpdate] = useState(() => getAutoUpdateCorpus());
   const [maxCorpusSize, setMaxCorpusSizeState] = useState(() => getMaxCorpusSize());
   const [corpusStatus, setCorpusStatus] = useState<CorpusStatus | null>(null);
+  const [stopPending, setStopPending] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   async function fetchCorpusStatus() {
@@ -118,6 +113,13 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
     };
   }, [corpusStatus?.refreshing]);
 
+  // stopRequested survives a modal close/reopen (it's read from the server); local pending state
+  // resets once the run actually finishes (refreshing goes false), whichever fetch notices first.
+  useEffect(() => {
+    if (corpusStatus?.stopRequested) setStopPending(true);
+    else if (!corpusStatus?.refreshing) setStopPending(false);
+  }, [corpusStatus?.stopRequested, corpusStatus?.refreshing]);
+
   async function handleRefreshCorpus() {
     try {
       const res = await fetch("/api/corpus/refresh", {
@@ -125,7 +127,10 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ max: maxCorpusSize }),
       });
-      if (res.status === 202) setCorpusStatus((s) => (s ? { ...s, refreshing: true, stopped: false } : s));
+      if (res.status === 202) {
+        setStopPending(false);
+        setCorpusStatus((s) => (s ? { ...s, refreshing: true, stopped: false } : s));
+      }
       if (res.status === 202 || res.status === 409) await fetchCorpusStatus();
       else {
         const { error } = await res.json().catch(() => ({}));
@@ -138,7 +143,8 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
 
   async function handleStopRefresh() {
     try {
-      await fetch("/api/corpus/refresh/stop", { method: "POST" });
+      const res = await fetch("/api/corpus/refresh/stop", { method: "POST" });
+      if (res.status === 200) setStopPending(true);
       await fetchCorpusStatus();
     } catch {
       /* offline / unreachable — nothing to do, status just won't update */
@@ -419,7 +425,15 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
               </span>
               <span className="font-mono text-[11px] tabular-nums text-foreground">{Math.round(corpusStatus.progress.pct)}%</span>
             </div>
-            <div className="h-2.5 w-full overflow-hidden rounded-full bg-canvas">
+            <div
+              role="progressbar"
+              aria-valuenow={Math.round(corpusStatus.progress.pct)}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-label="Corpus refresh progress"
+              aria-valuetext={stageLabel(corpusStatus.progress.stage, corpusStatus.progress.done, corpusStatus.progress.total)}
+              className="h-2.5 w-full overflow-hidden rounded-full bg-canvas"
+            >
               <div
                 className="h-full rounded-full bg-action transition-[width] duration-700 ease-out"
                 style={{ width: `${Math.round(corpusStatus.progress.pct)}%` }}
@@ -431,6 +445,11 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
                 {corpusStatus.progress.keptCount != null
                   ? ` · keeping ${corpusStatus.progress.keptCount.toLocaleString("en-US")}`
                   : ""}
+              </p>
+            )}
+            {stopPending && (
+              <p className="mt-1.5 font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas">
+                Stopping after the current step…
               </p>
             )}
           </div>
@@ -445,7 +464,7 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
           >
             {corpusStatus?.refreshing ? "Refreshing…" : "Refresh cached grants"}
           </button>
-          {corpusStatus?.refreshing && (
+          {corpusStatus?.refreshing && !stopPending && (
             <button type="button" onClick={handleStopRefresh} className={closeTextBtnClass}>
               Stop
             </button>
