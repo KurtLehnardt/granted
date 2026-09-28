@@ -80,8 +80,8 @@ export function localModelLabel(model?: string, paramsB?: number): string {
   return paramsB != null && Number.isFinite(paramsB) ? `${model} (${paramsB}B)` : model;
 }
 
-// Revisit once #212 (instant provisional cards) merges: first cards then land in seconds.
-const FIRST_MATCHES_ETA = "in about a minute";
+// Provisional cards land instantly now that #212 (instant provisional cards) is in.
+const FIRST_MATCHES_ETA = "in a few seconds";
 
 export function localTwoPhaseMessage(model?: string, paramsB?: number): string {
   return `First matches appear ${FIRST_MATCHES_ETA}. Full analysis with ${localModelLabel(model, paramsB)} usually takes ${localModelEstimateRange(paramsB)}, depending on your hardware. You can explore the first results while the rest are analyzed.`;
