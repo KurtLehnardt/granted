@@ -329,13 +329,23 @@ test("resolveBooleanTextField: a saved bare 'No' profile value checks the No rad
   assert.deepEqual(resolveBooleanTextField(profile, {}, "rd_activities"), { choice: "No", detail: "" });
 });
 
-test("resolveBooleanTextField: once either radio/detail key is live in `values`, it wins even if empty — a user clearing the detail box must stick", () => {
+test("resolveBooleanTextField: clearing a restored detail box keeps the Yes radio checked (per-key fallback, not all-or-nothing)", () => {
   const profile = {
     rd_activities: { value: "Yes — prototype testing", provenance: "user_stated" as const, confidence: 1 },
   };
   assert.deepEqual(resolveBooleanTextField(profile, { rd_activities__detail: "" }, "rd_activities"), {
-    choice: "",
+    choice: "Yes",
     detail: "",
+  });
+});
+
+test("resolveBooleanTextField: typing into a restored detail box keeps the Yes radio checked", () => {
+  const profile = {
+    rd_activities: { value: "Yes — prototype testing", provenance: "user_stated" as const, confidence: 1 },
+  };
+  assert.deepEqual(resolveBooleanTextField(profile, { rd_activities__detail: "x" }, "rd_activities"), {
+    choice: "Yes",
+    detail: "x",
   });
 });
 

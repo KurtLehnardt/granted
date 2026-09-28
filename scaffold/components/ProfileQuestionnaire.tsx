@@ -238,10 +238,10 @@ export function resolveBooleanTextField(
 ): { choice: string; detail: string } {
   const choiceKey = `${field}__choice`;
   const detailKey = `${field}__detail`;
-  if (choiceKey in values || detailKey in values) {
-    return { choice: values[choiceKey] ?? "", detail: values[detailKey] ?? "" };
-  }
-  return splitBooleanText(draftValue(profile, values, field));
+  const saved = splitBooleanText(draftValue(profile, values, field));
+  const choice = choiceKey in values ? values[choiceKey] ?? "" : saved.choice;
+  const detail = detailKey in values ? values[detailKey] ?? "" : saved.detail;
+  return { choice, detail };
 }
 
 /** User-facing progress copy for the required-fields section. */
