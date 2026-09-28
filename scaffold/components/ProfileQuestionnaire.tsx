@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 import {
   PROFILE_FIELD_META,
@@ -22,13 +22,13 @@ import { readJSON, writeJSON } from "@/lib/localStore";
  * — 5 required + 8 optional-but-material, required first, material fields
  * behind an opt-in toggle.
  *
- * THE CORE GUARANTEE ("never re-ask a provided field"): a field the profile
- * already provides (`isFieldProvided`) NEVER renders as an input — it renders
- * as a read-only summary row with an explicit "Edit" affordance. This is true
- * whether the value came from the user typing it, from a restored
- * localStorage draft. A fully-filled profile therefore has ZERO gaps left to
- * ask about; the caller uses the `complete` flag on `onSubmit` to skip the R1 AI
- * interview entirely for that case (see components/IntakeForm.tsx).
+ * THE CORE GUARANTEE ("never re-ask a provided field"): every field always
+ * renders as a normal, directly-editable control pre-filled with its current
+ * value — whether that value came from the user typing it or from a restored
+ * localStorage draft — so there is no separate "Edit" step. A fully-filled
+ * profile therefore has ZERO gaps left to ask about; the caller uses the
+ * `complete` flag on `onSubmit` to skip the R1 AI interview entirely for that
+ * case (see components/IntakeForm.tsx).
  *
  * PERSISTENCE (§5.3 — localStorage-only, no server retention): the whole
  * draft profile lives in `localStorage` via `lib/localStore.ts` and is never
@@ -248,7 +248,6 @@ export default function ProfileQuestionnaire({
 }: ProfileQuestionnaireProps) {
   const [profile, setProfile] = useState<ProfileDraft>({});
   const [values, setValues] = useState<Record<string, string>>({});
-  const [editingFields, setEditingFields] = useState<Set<string>>(new Set());
   const [showOptional, setShowOptional] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   // UX polish: which fields the user has actually blurred at least once —
@@ -257,15 +256,7 @@ export default function ProfileQuestionnaire({
   // empty (see `fieldValidationMessage` above).
   const [touchedFields, setTouchedFields] = useState<Set<string>>(new Set());
 
-  // UX polish: keyboard focus management. Clicking "Edit" on a provided-field
-  // summary row swaps it for the real input; a mouse user sees exactly where
-  // to click next, but a keyboard/screen-reader user is stranded unless focus
-  // follows. `pendingFocusFieldRef` records which field's input should
-  // receive focus on the next render where that input actually exists.
-  const fieldRefs = useRef<Record<string, HTMLElement | null>>({});
-  const pendingFocusFieldRef = useRef<string | null>(null);
-
-  // Same idea for the optional-details section: a manual click on "+ Add
+  // Focus management for the optional-details section: a manual click on "+ Add
   // optional details" should move focus into the newly-revealed heading, so
   // only a real click sets `manualOpenRef`.
   const materialHeadingRef = useRef<HTMLHeadingElement | null>(null);
@@ -327,17 +318,6 @@ export default function ProfileQuestionnaire({
   const isComplete = gaps.length === 0;
   const canSubmit = requiredGaps.length === 0;
 
-  // Focus the newly-revealed input after an "Edit" click (see
-  // `pendingFocusFieldRef` above) — fires once per edit, right after the
-  // field's editable markup actually lands in the DOM.
-  useEffect(() => {
-    const field = pendingFocusFieldRef.current;
-    if (field && editingFields.has(field)) {
-      fieldRefs.current[field]?.focus();
-      pendingFocusFieldRef.current = null;
-    }
-  }, [editingFields]);
-
   // Focus the "A few more details" heading after a MANUAL reveal only — see
   // `manualOpenRef`'s comment.
   useEffect(() => {
@@ -359,23 +339,6 @@ export default function ProfileQuestionnaire({
     return Array.isArray(value) ? value.join(", ") : String(value);
   }
 
-  function startEdit(field: string) {
-    pendingFocusFieldRef.current = field;
-    setEditingFields((prev) => {
-      const next = new Set(prev);
-      next.add(field);
-      return next;
-    });
-  }
-  function stopEdit(field: string) {
-    setEditingFields((prev) => {
-      if (!prev.has(field)) return prev;
-      const next = new Set(prev);
-      next.delete(field);
-      return next;
-    });
-  }
-
   function handleSubmit() {
     if (!canSubmit) return;
     onSubmit(buildDescriptionFromProfile(profile), { complete: isComplete });
@@ -384,7 +347,6 @@ export default function ProfileQuestionnaire({
   function clearSaved() {
     setProfile({});
     setValues({});
-    setEditingFields(new Set());
     setShowOptional(false);
     writeJSON(STORAGE_KEY, {});
   }
@@ -414,15 +376,6 @@ export default function ProfileQuestionnaire({
   const radioLabelClass = "flex cursor-pointer items-center gap-2 font-body text-[14px] text-foreground";
 
   const radioInputClass = "h-4 w-4 shrink-0 accent-structure";
-
-  const providedRowClass = "flex items-start justify-between gap-3 rounded-sm bg-canvas-alt px-3 py-2";
-
-  const providedLabelClass = "block font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas";
-
-  const providedValueClass = "mt-0.5 text-pretty font-body text-[14px] leading-relaxed text-foreground";
-
-  const editButtonClass =
-    "shrink-0 font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas underline decoration-dotted underline-offset-2 transition hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2";
 
   const primaryButtonClass =
     "min-h-[44px] rounded-sm bg-action px-5 py-2.5 font-mono text-[12px] uppercase tracking-eyebrow text-token-white shadow-sm transition hover:opacity-90 hover:shadow active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2";
@@ -464,41 +417,9 @@ export default function ProfileQuestionnaire({
   // ---- field rendering ----
 
   function renderField(meta: ProfileFieldMeta, spanClass = "") {
-    const provided = isFieldProvided(profile, meta.field) && !editingFields.has(meta.field);
     const required = meta.requirement === "required";
     const wrapClass = spanClass ? `${fieldWrapClass} ${spanClass}` : fieldWrapClass;
     const requiredMarker = required ? <span className={requiredMarkerClass}>Required</span> : null;
-
-    if (provided) {
-      const bag = profile as Record<string, { value: unknown }>;
-      const raw = bag[meta.field].value;
-      // For option-backed fields (single_select / range_select) the stored value
-      // is the enum value (e.g. "in_market"), so the read-only summary must map
-      // it back to the SAME human label the dropdown shows ("In market") — never
-      // print the underscored raw value. Free-text/number fields have no options
-      // and pass through unchanged.
-      const optionLabelFor = (v: string) => meta.options?.find((o) => o.value === v)?.label ?? v;
-      const display = Array.isArray(raw)
-        ? raw.map((v) => optionLabelFor(String(v))).join(", ")
-        : optionLabelFor(String(raw));
-      return (
-        <div key={meta.field} className={`${providedRowClass} ${spanClass}`.trim()}>
-          <div className="min-w-0">
-            <span className={providedLabelClass}>{meta.label}</span>
-            <p className={providedValueClass}>{display}</p>
-          </div>
-          <button
-            type="button"
-            onClick={() => startEdit(meta.field)}
-            className={editButtonClass}
-            disabled={disabled}
-            aria-label={`Edit ${meta.label}`}
-          >
-            Edit
-          </button>
-        </div>
-      );
-    }
 
     const value = draftFor(meta.field);
 
@@ -511,16 +432,12 @@ export default function ProfileQuestionnaire({
           </label>
           <select
             id={`pq-${meta.field}`}
-            ref={(el) => {
-              fieldRefs.current[meta.field] = el;
-            }}
             value={value}
             disabled={disabled}
             aria-required={required}
             onChange={(e) => {
               commitField(meta.field, e.target.value, "user_stated");
               markTouched(meta.field);
-              stopEdit(meta.field);
             }}
             className={selectClass}
           >
@@ -544,9 +461,6 @@ export default function ProfileQuestionnaire({
           </label>
           <input
             id={`pq-${meta.field}`}
-            ref={(el) => {
-              fieldRefs.current[meta.field] = el;
-            }}
             type="number"
             min={0}
             step={1}
@@ -558,7 +472,6 @@ export default function ProfileQuestionnaire({
             onBlur={(e) => {
               commitField(meta.field, e.target.value, "user_stated");
               markTouched(meta.field);
-              stopEdit(meta.field);
             }}
             className={textInputClass}
           />
@@ -576,7 +489,6 @@ export default function ProfileQuestionnaire({
           nextChoice === "Yes" ? (nextDetail.trim() ? `Yes — ${nextDetail.trim()}` : "Yes") : nextChoice === "No" ? "No" : "";
         commitField(meta.field, combined, "user_stated");
         markTouched(meta.field);
-        if (combined.length > 0) stopEdit(meta.field);
       };
       return (
         <fieldset key={meta.field} className={`${wrapClass} ${fieldsetResetClass}`}>
@@ -585,18 +497,11 @@ export default function ProfileQuestionnaire({
             {requiredMarker}
           </legend>
           <div className="mt-1 flex gap-4">
-            {["Yes", "No"].map((opt, i) => (
+            {["Yes", "No"].map((opt) => (
               <label key={opt} className={radioLabelClass}>
                 <input
                   type="radio"
                   name={`pq-${meta.field}`}
-                  ref={
-                    i === 0
-                      ? (el) => {
-                          fieldRefs.current[meta.field] = el;
-                        }
-                      : undefined
-                  }
                   checked={choice === opt}
                   disabled={disabled}
                   onChange={() => {
@@ -628,7 +533,8 @@ export default function ProfileQuestionnaire({
     // free_text: raw_text, industry, technology, location, use_of_funds, target_customers
     const isBig = meta.field === "raw_text";
     const touched = touchedFields.has(meta.field);
-    const errorMsg = fieldValidationMessage(meta, false, touched);
+    const provided = isFieldProvided(profile, meta.field);
+    const errorMsg = fieldValidationMessage(meta, provided, touched);
     const errorId = `pq-${meta.field}-error`;
     return (
       <div key={meta.field} className={wrapClass}>
@@ -638,9 +544,6 @@ export default function ProfileQuestionnaire({
         </label>
         <textarea
           id={`pq-${meta.field}`}
-          ref={(el) => {
-            fieldRefs.current[meta.field] = el;
-          }}
           rows={isBig ? 5 : 2}
           value={value}
           disabled={disabled}
@@ -652,7 +555,6 @@ export default function ProfileQuestionnaire({
           onBlur={(e) => {
             commitField(meta.field, e.target.value, "user_stated");
             markTouched(meta.field);
-            if (e.target.value.trim().length > 0) stopEdit(meta.field);
           }}
           className={isBig ? textareaBigClass : textareaSmallClass}
         />

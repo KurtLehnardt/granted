@@ -1,7 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { renderToStaticMarkup } from "react-dom/server";
+import React from "react";
 
-import {
+import ProfileQuestionnaire, {
   computeGaps,
   buildDescriptionFromProfile,
   mapStartupProfileToValues,
@@ -13,6 +18,8 @@ import {
 } from "../ProfileQuestionnaire";
 import { PROFILE_FIELD_META_BY_KEY, MATERIAL_PROFILE_FIELDS, PROFILE_FIELD_META } from "@/lib/contracts/companyProfile";
 import type { StartupProfile } from "@/lib/types";
+
+const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
 /**
  * B1b — ProfileQuestionnaire's pure logic (no React, no network, no DOM):
@@ -251,4 +258,32 @@ test("fieldValidationMessage: a material (optional) field NEVER produces a messa
   const meta = PROFILE_FIELD_META_BY_KEY.employee_count;
   assert.equal(fieldValidationMessage(meta, false, true), null);
   assert.equal(fieldValidationMessage(meta, false, false), null);
+});
+
+// --- rendering: no "Edit" gate, ever --------------------------------------
+//
+// Every field is a directly-editable control from the first paint — there is
+// no read-only summary row that a saved value swaps into, so there is no
+// "Edit" button to click before typing/deleting works. `renderToStaticMarkup`
+// only exercises the component's first render (no effects, so localStorage
+// hydration never runs here) — but since the render function no longer
+// branches on "is this field provided" at all, the first render already
+// proves every field, saved-value or not, takes the same directly-editable
+// path. The source-text checks below additionally lock that the old
+// Edit-mode state/handlers can't quietly come back.
+
+test("ProfileQuestionnaire: required fields render as directly editable controls, with no Edit button anywhere", () => {
+  const html = renderToStaticMarkup(React.createElement(ProfileQuestionnaire, { onSubmit: () => {} }));
+  assert.doesNotMatch(html, />\s*Edit\s*</);
+  assert.doesNotMatch(html, /aria-label="Edit /);
+  for (const meta of PROFILE_FIELD_META.filter((m) => m.requirement === "required")) {
+    assert.match(html, new RegExp(`<textarea[^>]*id="pq-${meta.field}"`));
+  }
+});
+
+test("ProfileQuestionnaire: the old Edit-mode state, handlers, and summary row are gone from the source", () => {
+  const source = readFileSync(join(__dirname, "..", "ProfileQuestionnaire.tsx"), "utf8");
+  for (const banned of ["editingFields", "startEdit", "stopEdit", "pendingFocusFieldRef", "providedRowClass", "editButtonClass"]) {
+    assert.doesNotMatch(source, new RegExp(banned));
+  }
 });
