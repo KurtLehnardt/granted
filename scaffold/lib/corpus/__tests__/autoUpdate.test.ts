@@ -31,8 +31,21 @@ describe("shouldAutoRefresh", () => {
     assert.equal(shouldAutoRefresh({ stale: true, refreshing: false, lastAttemptAt: "garbage" }), true);
   });
 
-  test("a user-stopped run clears lastAttemptAt, so it never triggers the failure backoff", () => {
-    // The script's final status write after a stop mirrors a success: no lastAttemptAt, no lastError.
+  test("a user stop suppresses auto-refresh for 12h, without needing lastError", () => {
+    const now = Date.parse("2026-09-27T12:00:00.000Z");
+    const lastStoppedAt = "2026-09-27T06:00:00.000Z"; // 6h ago
+    const status = { stale: true, refreshing: false, stopped: true, savedCount: 200, lastStoppedAt };
+    assert.equal(shouldAutoRefresh(status, now), false);
+  });
+
+  test("resumes auto-refresh once 12h have passed since the stop", () => {
+    const now = Date.parse("2026-09-27T12:00:00.000Z");
+    const lastStoppedAt = new Date(now - RETRY_BACKOFF_MS - 1000).toISOString();
+    const status = { stale: true, refreshing: false, stopped: true, savedCount: 200, lastStoppedAt };
+    assert.equal(shouldAutoRefresh(status, now), true);
+  });
+
+  test("a stopped run with no lastStoppedAt (legacy status) is not suppressed", () => {
     const status = { stale: true, refreshing: false, stopped: true, savedCount: 200 };
     assert.equal(shouldAutoRefresh(status), true);
   });

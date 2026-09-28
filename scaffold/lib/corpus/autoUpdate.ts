@@ -4,6 +4,8 @@ export interface CorpusStatusForAutoUpdate {
   stale: boolean;
   refreshing: boolean;
   lastAttemptAt?: string;
+  /** Set when the user stopped the last run; suppresses auto-refresh for RETRY_BACKOFF_MS (manual Refresh is unaffected). */
+  lastStoppedAt?: string;
 }
 
 /** A successful run clears `lastAttemptAt`, so any recent attempt means one failed or is unfinished. */
@@ -11,5 +13,7 @@ export function shouldAutoRefresh(status: CorpusStatusForAutoUpdate, now: number
   if (!status.stale || status.refreshing) return false;
   const lastAttemptMs = status.lastAttemptAt ? Date.parse(status.lastAttemptAt) : NaN;
   if (!Number.isNaN(lastAttemptMs) && now - lastAttemptMs < RETRY_BACKOFF_MS) return false;
+  const lastStoppedMs = status.lastStoppedAt ? Date.parse(status.lastStoppedAt) : NaN;
+  if (!Number.isNaN(lastStoppedMs) && now - lastStoppedMs < RETRY_BACKOFF_MS) return false;
   return true;
 }
