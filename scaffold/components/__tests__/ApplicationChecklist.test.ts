@@ -300,7 +300,7 @@ describe("buildNextSteps", () => {
     );
     const assistanceStep = stepText(buildNextSteps(asMatch(BARE_OPPORTUNITY), true)[0]);
 
-    assert.match(sbirStep, /SBIR\/STTR program site for the current solicitation/i);
+    assert.match(sbirStep, /Register in SAM\.gov and on sbir\.gov/i);
     assert.doesNotMatch(sbirStep, /not grants\.gov/i);
     assert.match(grantsGovStep, /grants\.gov \(an Active SAM\.gov registration/i);
     assert.match(samContractsStep, /SAM\.gov Contract Opportunities/i);
@@ -313,64 +313,49 @@ describe("buildNextSteps", () => {
     assert.notEqual(grantsGovStep, samContractsStep);
   });
 
-  test("a SBIR/STTR step never claims SBIR/STTR is not submitted via grants.gov, and truthfully labels its link as the awardee's site, not a record of the award", () => {
+  test("a SBIR/STTR step is a real apply step (agency solicitation page + deadline), never an awardee/background label", () => {
     const step = buildNextSteps(
-      asMatch({ ...RD_OPPORTUNITY, url: "https://www.some-awardee.example/" }),
+      asMatch({ ...RD_OPPORTUNITY, url: "https://www.example-agency.gov/solicitation/123", deadline: "2026-11-01" }),
       true,
     )[0];
     const text = stepText(step);
     assert.doesNotMatch(text, /this opportunity's page/i);
     assert.doesNotMatch(text, /not grants\.gov/i);
-    assert.match(text, new RegExp(`${RD_OPPORTUNITY.agency}'s SBIR/STTR program site for the current solicitation`, "i"));
-    assert.doesNotMatch(text, /Record: /i);
-    assert.match(text, /Awardee: /i);
+    assert.doesNotMatch(text, /Awardee/i);
+    assert.doesNotMatch(text, /background, not an application portal/i);
+    assert.match(text, /Register in SAM\.gov and on sbir\.gov/i);
+    assert.match(text, /before its deadline of \w+ \d{1,2}, 2026/i);
     const linkPart = step.find((p) => typeof p !== "string") as { text: string; href: string } | undefined;
-    assert.equal(linkPart?.href, "https://www.some-awardee.example/");
+    assert.equal(linkPart?.href, "https://www.example-agency.gov/solicitation/123");
+    assert.equal(linkPart?.text, "the agency's solicitation page");
   });
 
-  test("a SBIR/STTR step with the generic sbir.gov fallback URL labels it as the awards search, not the awardee", () => {
+  test("a bare-domain SBIR url (no http/https scheme) falls back to the generic listing pointer, never a broken relative link", () => {
     const step = buildNextSteps(
-      asMatch({ ...RD_OPPORTUNITY, url: "https://www.sbir.gov/awards" }),
-      true,
-    )[0];
-    const text = stepText(step);
-    assert.doesNotMatch(text, /Awardee: /i);
-    assert.match(text, /See /i);
-    const linkPart = step.find((p) => typeof p !== "string") as { text: string; href: string } | undefined;
-    assert.equal(linkPart?.text, "SBIR.gov awards search");
-  });
-
-  test("a bare-domain SBIR website (no http/https scheme) is rendered as plain text, never a broken relative link or a mislabeled listing", () => {
-    const step = buildNextSteps(
-      asMatch({ ...RD_OPPORTUNITY, url: "www.aspectaerospace.com" }),
+      asMatch({ ...RD_OPPORTUNITY, url: "www.example-agency.gov/solicitation/123" }),
       true,
     )[0];
     const linkPart = step.find((p) => typeof p !== "string");
     assert.equal(linkPart, undefined);
     const text = stepText(step);
-    assert.match(text, /www\.aspectaerospace\.com/);
-    assert.doesNotMatch(text, /Awardee: the full listing/i);
+    assert.match(text, /the full listing \(source: sbir\)/i);
   });
 
-  test("a SBIR/STTR record with no URL ends at the program-site guidance, with no dangling listing pointer", () => {
-    const step = buildNextSteps(asMatch({ ...RD_OPPORTUNITY, url: undefined }), true)[0];
+  test("a SBIR/STTR record with no URL and no deadline still gives a real apply step, with the generic listing pointer", () => {
+    const step = buildNextSteps(asMatch({ ...RD_OPPORTUNITY, url: undefined, deadline: undefined }), true)[0];
     assert.equal(
       stepText(step),
-      `Search ${RD_OPPORTUNITY.agency}'s SBIR/STTR program site for the current solicitation and where to submit. This record is background, not an application portal.`,
+      "Register in SAM.gov and on sbir.gov (most agencies require both before you can submit), then read and apply through the full listing (source: sbir). No deadline is listed — confirm the submission window on the agency page.",
     );
   });
 
-  test("a USAspending record is described as a past award pointing to SAM.gov, never as open for applications", () => {
+  test("a USAspending record (never matchable, but defensively) falls to the generic apply step, not a past-award label", () => {
     const url = "https://www.usaspending.gov/award/CONT_AWD_W911QX25C0002_9700_-NONE-_-NONE-";
     const step = buildNextSteps(
       asMatch({ ...BARE_OPPORTUNITY, source: "usaspending", kind: "procurement", status: "closed", url }),
       true,
     )[0];
-    assert.equal(
-      stepText(step),
-      `This is a record of a past award from USAspending, not an open opportunity — check SAM.gov for any current solicitation from ${BARE_OPPORTUNITY.agency}. Details: this past award record.`,
-    );
-    assert.deepEqual(step.find((p) => typeof p !== "string"), { text: "this past award record", href: url });
+    assert.match(stepText(step), /Read the full opportunity listing at/i);
   });
 
   test("a forecasted grants.gov opportunity is described as not yet open, using its own flag — not a fixed deadline claim", () => {

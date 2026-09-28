@@ -16,7 +16,7 @@ describe("welcome landing metadata", () => {
     assert.match(String(metadata.title), /Granted/);
     assert.match(String(metadata.title), /matched/i);
     assert.equal(metadata.description, DESCRIPTION);
-    assert.match(String(metadata.description), /968/);
+    assert.match(String(metadata.description), /791/);
     assert.match(String(metadata.description), /grounded/i);
   });
 
@@ -56,12 +56,12 @@ describe("welcome structured data (JSON-LD)", () => {
     assert.equal(app?.name, "Granted");
   });
 
-  test("app claims are grounded — 968 real opportunities, free to start", () => {
+  test("app claims are grounded — 791 real opportunities, free to start", () => {
     assert.ok(app && "description" in app);
     const desc = (app as { description: string }).description;
-    assert.match(desc, /968/);
+    assert.match(desc, /791/);
     assert.match(desc, /grants\.gov/);
-    assert.match(desc, /USAspending/);
+    assert.match(desc, /SAM\.gov/);
     const offers = (app as { offers: { price: string } }).offers;
     assert.equal(offers.price, "0");
   });

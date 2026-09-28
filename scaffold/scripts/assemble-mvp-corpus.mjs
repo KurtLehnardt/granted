@@ -1,9 +1,8 @@
 /**
  * MVP data-breadth — the single ATOMIC assembly step.
  *
- * The three new fetchers (1-fetch-sam-assistance / 1-fetch-sbir-corpus /
- * 1-fetch-procurement) each write ONLY their own raw file. THIS is the one place
- * that combines every source into data/opportunities.json — so parallel fetchers
+ * 1-fetch-sam-assistance writes ONLY its own raw file. THIS is the one place
+ * that combines it into data/opportunities.json — so parallel fetchers
  * never collide on the corpus (plan: "fetchers write their own raw files; one
  * assembly step regenerates opportunities.json").
  *
@@ -15,18 +14,16 @@
  *
  * New records normalize into the A0 taxonomy:
  *   SAM assistance   → source:"assistance-listings", kind: assistance|loan|scholarship (evergreen: no deadline, no funding)
- *   SBIR             → source:"sbir",               kind:"rd"          (ongoing SBIR/STTR; honest "recent award" framing)
- *   USAspending      → source:"usaspending",        kind:"procurement" (gov-as-customer; a past contract, no deadline)
  *
  * Embedding matches 3-embed.mjs exactly (text-embedding-3-small, dimensions:512,
  * rounded to 5 decimals) so new vectors are comparable to the user query
  * embedded at request time by lib/embed.ts.
  *
- * Run AFTER the three fetchers: `node scripts/assemble-mvp-corpus.mjs`
+ * Run AFTER the fetcher: `node scripts/assemble-mvp-corpus.mjs`
  */
 import "./_loadEnvLocal.mjs"; // honor scaffold/.env.local when run as plain `node`
 import { readFile, writeFile } from "node:fs/promises";
-import { normalizeSamRow, normalizeSbirAward, normalizeProcurementRecord } from "./lib/normalizeNewSources.mjs";
+import { normalizeSamRow } from "./lib/normalizeNewSources.mjs";
 
 const KEY = process.env.OPENAI_API_KEY;
 if (!KEY) {
@@ -42,14 +39,8 @@ const read = async (p, fallback = []) => {
 const existing = await read("data/opportunities.json");
 const existingIds = new Set(existing.map((o) => o.id));
 const sam = await read("data/raw/sam-assistance.json");
-const sbir = await read("data/raw/sbir-corpus.json");
-const procurement = await read("data/raw/usaspending-contracts.json");
 
-const newRecords = [
-  ...sam.map(normalizeSamRow),
-  ...sbir.map(normalizeSbirAward),
-  ...procurement.map(normalizeProcurementRecord),
-].filter(Boolean);
+const newRecords = sam.map(normalizeSamRow).filter(Boolean);
 
 // ---- Dedup (never collide with an existing id; drop thin/dup new records) ----
 const seen = new Set(existingIds);

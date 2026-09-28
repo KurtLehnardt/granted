@@ -138,6 +138,34 @@ describe("CorpusStore", () => {
     rmSync(baseDir, { recursive: true, force: true });
   });
 
+  test("drops past-award records (sbir-award-* / closed usaspending) from the committed corpus, and meta.count reflects the drop", () => {
+    const baseDir = makeBaseDir();
+    writeCommitted(baseDir, [
+      { id: "grants-1", source: "grants.gov" },
+      { id: "sbir-award-abc", source: "sbir" },
+      { id: "sbir-open-1", source: "sbir" },
+      { id: "usasp-1", source: "usaspending", status: "closed" },
+    ]);
+    const store = new CorpusStore(baseDir);
+    const info = store.load();
+    assert.deepEqual(info.opportunities.map((o) => o.id), ["grants-1", "sbir-open-1"]);
+    assert.equal(info.meta.count, 2);
+    rmSync(baseDir, { recursive: true, force: true });
+  });
+
+  test("drops past-award records from the local refresh too", () => {
+    const baseDir = makeBaseDir();
+    writeLocal(baseDir, [
+      { id: "grants-1", source: "grants.gov" },
+      { id: "sbir-award-abc", source: "sbir" },
+      { id: "usasp-1", source: "usaspending", status: "closed" },
+    ]);
+    const store = new CorpusStore(baseDir);
+    const info = store.load();
+    assert.deepEqual(info.opportunities.map((o) => o.id), ["grants-1"]);
+    rmSync(baseDir, { recursive: true, force: true });
+  });
+
   test("missing/corrupt files degrade to an empty corpus, never throw", () => {
     const baseDir = makeBaseDir();
     const store = new CorpusStore(baseDir);

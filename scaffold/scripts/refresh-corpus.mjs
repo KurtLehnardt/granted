@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { embedBatch, EMBEDDINGS_DIMENSIONS, EMBEDDINGS_MODEL } from "../lib/embed.ts";
 import { clampCorpusSize, DEFAULT_CORPUS_SIZE } from "../lib/searchSettings.ts";
 import { dropExpiredOpportunities } from "../lib/corpus/expiry.ts";
+import { dropPastAwards } from "../lib/corpus/pastAwards.ts";
 import { selectCorpusWithinCap } from "../lib/corpus/selection.ts";
 import {
   computeStopOutcome,
@@ -29,7 +30,7 @@ import {
 } from "../lib/corpus/refreshStatus.ts";
 import { overallPct } from "../lib/corpus/refreshProgress.ts";
 import { normalizeGrantsRecord, normalizeSbirSolicitation } from "./lib/normalizeGrants.mjs";
-import { normalizeSamRow, normalizeSbirAward, normalizeProcurementRecord } from "./lib/normalizeNewSources.mjs";
+import { normalizeSamRow } from "./lib/normalizeNewSources.mjs";
 
 const LOCAL_DIR = "data/local";
 const RAW_DIR = join(LOCAL_DIR, "raw");
@@ -175,32 +176,18 @@ async function main() {
     );
     if (grantsRun.stopped) return await applyStop({});
 
-    // Running found count: unique grants.gov ids, then each source's count as it finishes.
-    let runningFound = new Set((await readJson(join(RAW_DIR, "grants.json"), [])).map((g) => g.id)).size;
+    const grantsFound = new Set((await readJson(join(RAW_DIR, "grants.json"), [])).map((g) => g.id)).size;
 
-    reportProgress("sam.gov", { foundCount: runningFound });
+    reportProgress("sam.gov", { foundCount: grantsFound });
     if (isStopRequested()) return await applyStop({});
     run("SAM.gov assistance (everything open)", "scripts/1-fetch-sam-assistance.mjs", { ...rawEnv, SAM_FETCH_MODE: "all" });
-    runningFound += (await readJson(join(RAW_DIR, "sam-assistance.json"), [])).length;
-
-    reportProgress("sbir", { foundCount: runningFound });
-    if (isStopRequested()) return await applyStop({});
-    run("SBIR/STTR", "scripts/1-fetch-sbir-corpus.mjs", { ...rawEnv, SBIR_CAP_TOTAL: "260", SBIR_CAP_PER_AGENCY: "60" });
-    runningFound += (await readJson(join(RAW_DIR, "sbir-corpus.json"), [])).length;
-
-    reportProgress("procurement", { foundCount: runningFound });
-    if (isStopRequested()) return await applyStop({});
-    run("Procurement", "scripts/1-fetch-procurement.mjs", { ...rawEnv, PROCUREMENT_PER_QUERY: "24", PROCUREMENT_UTAH_LIMIT: "40" });
-    runningFound += (await readJson(join(RAW_DIR, "usaspending-contracts.json"), [])).length;
 
     if (isStopRequested()) return await applyStop({});
 
-    const [grants, sbirSolicitations, samAssistance, sbirAwards, procurement] = await Promise.all([
+    const [grants, sbirSolicitations, samAssistance] = await Promise.all([
       readJson(join(RAW_DIR, "grants.json"), []),
       readJson(join(RAW_DIR, "sbir-solicitations.json"), []),
       readJson(join(RAW_DIR, "sam-assistance.json"), []),
-      readJson(join(RAW_DIR, "sbir-corpus.json"), []),
-      readJson(join(RAW_DIR, "usaspending-contracts.json"), []),
     ]);
 
     const existing = await readJson(LOCAL_OPPS, await readJson("data/opportunities.json", []));
@@ -218,8 +205,6 @@ async function main() {
       ...normalizedGrants,
       ...sbirSolicitations.map(normalizeSbirSolicitation),
       ...samAssistance.map(normalizeSamRow),
-      ...sbirAwards.map(normalizeSbirAward),
-      ...procurement.map(normalizeProcurementRecord),
     ].filter((o) => o && o.description && o.description.length >= 60);
     fresh = dedupeById(fresh);
     fresh = dropExpiredOpportunities(fresh);
@@ -227,7 +212,8 @@ async function main() {
     console.log(`\nAssembled ${foundCount} open records (expired deadlines dropped).`);
     reportProgress("selecting", { foundCount });
 
-    const unhealthy = findUnhealthySources(countBySource(existing), countBySource(fresh));
+    // Legacy past awards in `existing` aren't a source outage.
+    const unhealthy = findUnhealthySources(countBySource(dropPastAwards(existing)), countBySource(fresh));
     if (unhealthy.length) {
       throw new Error(`refresh aborted — source count dropped sharply: ${unhealthy.join("; ")}`);
     }

@@ -24,6 +24,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { OpportunitySchema } from "../../lib/contracts/opportunity";
+import { isPastAward } from "../../lib/corpus/pastAwards";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const corpus = JSON.parse(
@@ -54,40 +55,33 @@ test("each new resource type is represented with a healthy count", () => {
   const counts: Record<string, number> = {};
   for (const o of opps) counts[(o as any).kind] = (counts[(o as any).kind] || 0) + 1;
   // ≥N per new type (the ingest acceptance). Thresholds are deliberately well
-  // below what we ship (assistance 240 / loan 45 / scholarship 30 / rd 130 /
-  // procurement 47) so trimming tweaks don't spuriously fail the gate.
+  // below what we ship (assistance 240 / loan 45 / scholarship 30) so
+  // trimming tweaks don't spuriously fail the gate.
   assert.ok(counts.assistance >= 25, `assistance=${counts.assistance}`);
   assert.ok(counts.loan >= 10, `loan=${counts.loan}`);
   assert.ok(counts.scholarship >= 10, `scholarship=${counts.scholarship}`);
-  assert.ok(counts.rd >= 20, `rd=${counts.rd}`);
-  assert.ok(counts.procurement >= 15, `procurement=${counts.procurement}`);
 });
 
 test("new sources are present under the A0 source vocabulary", () => {
   const sources = new Set(opps.map((o: any) => o.source));
-  for (const s of ["grants.gov", "assistance-listings", "sbir", "usaspending"]) {
+  for (const s of ["grants.gov", "assistance-listings"]) {
     assert.ok(sources.has(s), `expected source ${s} in the corpus`);
   }
 });
 
-test("evergreen records (assistance + SBIR) carry no deadline and no funding", () => {
-  const evergreen = by((o) => o.source === "assistance-listings" || o.source === "sbir");
+test("no past-award record (SBIR/STTR award or closed USAspending contract) is in the committed corpus", () => {
+  const pastAwards = (opps as any[]).filter(isPastAward);
+  assert.deepEqual(pastAwards.map((o) => o.id), []);
+});
+
+test("evergreen records (assistance listings) carry no deadline and no funding", () => {
+  const evergreen = by((o) => o.source === "assistance-listings");
   assert.ok(evergreen.length > 0);
   for (const o of evergreen as any[]) {
     assert.equal(o.deadline, undefined, `${o.id} must have no deadline (evergreen)`);
     assert.equal(o.fundingLow, undefined, `${o.id} must have no fundingLow`);
     assert.equal(o.fundingHigh, undefined, `${o.id} must have no fundingHigh`);
     assert.notEqual(o.forecasted, true, `${o.id} must not be marked forecasted`);
-  }
-});
-
-test("procurement records honestly frame gov-as-customer and link to a real award", () => {
-  const proc = by((o) => o.kind === "procurement") as any[];
-  assert.ok(proc.length > 0);
-  for (const o of proc) {
-    assert.match(String(o.description), /government|customer|procurement|contract/i);
-    // Every procurement URL that exists points at the real USAspending award page.
-    if (o.url) assert.match(String(o.url), /^https:\/\/www\.usaspending\.gov\/award\//);
   }
 });
 

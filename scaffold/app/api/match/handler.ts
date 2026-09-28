@@ -9,6 +9,7 @@ import { withLocalModel } from "@/lib/llm/modelContext";
 import { listOllamaChatModels } from "@/lib/llm/ollamaInfo";
 import type { LlmInfo } from "@/lib/llm/types";
 import { dropExpiredMatches } from "@/lib/corpus/expiry";
+import { dropPastAwardMatches } from "@/lib/corpus/pastAwards";
 import { sanitizedProviderErrorFor4xx } from "@/lib/llm/errors";
 
 /**
@@ -55,10 +56,10 @@ const MATCH_RATE_WINDOW_MS = Number(process.env.MATCH_RATE_WINDOW_MS) || 60_000;
  */
 
 /** Demo-day insurance: pre-baked results for the four judged test cases. */
-export function cached(description: string) {
+export function cached(description: string, source: any[] = precomputed as any[]) {
   const key = description.trim().slice(0, 120);
-  const hit = (precomputed as any[]).find((p) => p.key === key);
-  return hit ? dropExpiredMatches(hit.map) : undefined;
+  const hit = source.find((p) => p.key === key);
+  return hit ? dropExpiredMatches(dropPastAwardMatches(hit.map)) : undefined;
 }
 
 export type MatchDeps = {

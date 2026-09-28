@@ -29,7 +29,7 @@ describe("overallPct", () => {
     assert.equal(overallPct("sam.gov"), STAGE_WEIGHTS["grants.gov search"] + STAGE_WEIGHTS["grants.gov details"]);
   });
   test("halfway through embedding lands between embedding's start and end", () => {
-    const before = 5 + 25 + 10 + 10 + 10 + 5; // everything before embedding
+    const before = 5 + 35 + 10 + 5; // everything before embedding
     const pct = overallPct("embedding", 50, 100);
     assert.equal(pct, before + STAGE_WEIGHTS.embedding / 2);
   });

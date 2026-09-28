@@ -217,15 +217,12 @@ function sourceApplyStep(opportunity: Opportunity, now?: number): Step {
     }
     case "sbir":
     case "sbir.gov": {
-      // Past-award listing, not an open solicitation — background only, never labeled as this award's own page.
-      const intro = `Search ${opportunity.agency}'s SBIR/STTR program site for the current solicitation and where to submit. This record is background, not an application portal.`;
-      if (!opportunity.url) return [intro];
-      if (opportunity.url === "https://www.sbir.gov/awards") {
-        return [`${intro} See `, sourcePointer(opportunity, "SBIR.gov awards search"), "."];
-      }
-      return isHttpUrl(opportunity.url)
-        ? [`${intro} Awardee: `, sourcePointer(opportunity, "the awardee's website"), "."]
-        : [`${intro} Awardee website: ${opportunity.url}.`];
+      const pointer = sourcePointer(opportunity, "the agency's solicitation page");
+      const register = "Register in SAM.gov and on sbir.gov (most agencies require both before you can submit)";
+      const deadline = formatDate(opportunity.deadline);
+      return deadline
+        ? [`${register}, then read and apply through `, pointer, ` before its deadline of ${deadline}.`]
+        : [`${register}, then read and apply through `, pointer, `. No deadline is listed — confirm the submission window on the agency page.`];
     }
     case "assistance-listings":
     case "sam.gov": {
@@ -240,14 +237,6 @@ function sourceApplyStep(opportunity: Opportunity, now?: number): Step {
     case "sam-contracts": {
       const pointer = sourcePointer(opportunity, "this opportunity's page");
       return [`Respond through SAM.gov Contract Opportunities, following ${opportunity.agency}'s solicitation instructions. Details: `, pointer, `.`];
-    }
-    case "usaspending": {
-      const pointer = sourcePointer(opportunity, "this past award record");
-      return [
-        `This is a record of a past award from USAspending, not an open opportunity — check SAM.gov for any current solicitation from ${opportunity.agency}. Details: `,
-        pointer,
-        `.`,
-      ];
     }
     case "agency-feed":
     default: {

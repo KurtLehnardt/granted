@@ -1,10 +1,10 @@
 import type { Opportunity } from "../types";
 import { dropExpiredOpportunities } from "./expiry";
+import { dropPastAwards } from "./pastAwards";
 
 export const DEFAULT_SOURCE_WEIGHTS: Record<string, number> = {
   "grants.gov": 2,
   sbir: 2,
-  usaspending: 1,
   "assistance-listings": 1,
 };
 
@@ -60,21 +60,18 @@ export function allocateCap(
   return alloc;
 }
 
-const FY_RE = /FY\s?(\d{4})/i;
 const BUSINESS_KEYWORDS = [
   "business", "research", "technology", "technological", "innovation", "innovative",
   "startup", "entrepreneur", "science", "scientific", "engineering", "r&d",
   "commercialization", "manufacturing",
 ];
 
-/** Solicitation deadline, else the award's FY from its description. */
+/** Deadline; records without a parseable one sort last. */
 function recencyKey(o: Opportunity): number {
   if (typeof o.deadline === "string") {
     const t = Date.parse(o.deadline);
     if (!Number.isNaN(t)) return t;
   }
-  const m = FY_RE.exec(o.description ?? "");
-  if (m) return Date.UTC(Number(m[1]), 0, 1);
   return 0;
 }
 
@@ -107,7 +104,7 @@ export function selectCorpusWithinCap(
   weights: Record<string, number> = DEFAULT_SOURCE_WEIGHTS,
   now: number = Date.now(),
 ): Opportunity[] {
-  const open = dropExpiredOpportunities(records, now);
+  const open = dropPastAwards(dropExpiredOpportunities(records, now));
   if (cap <= 0 || open.length <= cap) return open;
 
   const bySource = new Map<string, Opportunity[]>();
