@@ -46,7 +46,7 @@ afterEach(() => {
 
 test("a rejected batch logs one warning with the dropped candidate count and status, never the key", async () => {
   process.env.LLM_PROVIDER = "ollama";
-  process.env.LLM_API_KEY = FAKE_KEY;
+  delete process.env.LLM_API_KEY; // the client redacts its own key; the echoed token must be caught by the log sanitizer
   delete process.env.LLM_BATCH_SIZE; // local defaults to 1/batch, serial
 
   const candidates = [opp("a"), opp("b")];
