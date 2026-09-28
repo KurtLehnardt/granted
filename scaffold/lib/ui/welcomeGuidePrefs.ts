@@ -3,11 +3,19 @@
  *  sessionStorage — fires at most once ever, not once per tab. */
 
 import { readJSON, writeJSON } from '@/lib/localStore';
+import { latestRun } from '@/lib/runs/runsStore';
 
 const WELCOME_GUIDE_SEEN_KEY = 'ff.ui.welcomeGuide.seen.v1';
+// Pre-rename key from the original WelcomeTour (#53) — a browser that already
+// saw that guide must not have this one sprung on it too.
+const LEGACY_WELCOME_TOUR_SEEN_KEY = 'ff.ui.welcomeTour.seen.v1';
 
+/** True if this browser has seen the guide, saw its predecessor (WelcomeTour),
+ *  or already has a prior run — a returning user shouldn't get it unexpectedly. */
 export function hasSeenWelcomeGuide(): boolean {
-  return readJSON<boolean>(WELCOME_GUIDE_SEEN_KEY, false);
+  if (readJSON<boolean>(WELCOME_GUIDE_SEEN_KEY, false)) return true;
+  if (readJSON<boolean>(LEGACY_WELCOME_TOUR_SEEN_KEY, false)) return true;
+  return latestRun() !== null;
 }
 
 export function markWelcomeGuideSeen(): void {
