@@ -8,29 +8,18 @@ import {
 } from "@/lib/contracts/competitorAnalysis";
 
 /**
- * R5 — Competitor & Grant Intelligence results renderer.
- *
- * Renders the grounded market brief — for BOTH the saved demo fixture
- * (scripts/5-competitors.mjs) and a live `/api/competitors` run (same shape):
- * awardee cards (org · $amount · agency · a snippet of the REAL abstract · a
- * real, clickable source link), typical award-size stats, optional private
- * competitor web profiles (clearly labeled, never awardees), tailored
- * positioning recommendations, and gaps to exploit — every insight with VISIBLE
- * citations back to a real award record or web URL.
+ * R5 — Competitor & Grant Intelligence results renderer for a live
+ * `/api/competitors` run: awardee cards (org · $amount · agency · a snippet of
+ * the REAL abstract · a real, clickable source link), typical award-size
+ * stats, optional private competitor web profiles (clearly labeled, never
+ * awardees), tailored positioning recommendations, and gaps to exploit —
+ * every insight with VISIBLE citations back to a real award record or web URL.
  *
  * ANTI-FABRICATION BOUNDARY: the payload is parsed through
- * `CompetitorAnalysisSchema` here at the component boundary (mirroring how
- * `screen.ts` validates before returning). A competitor or a cited claim that
- * references an id not in the retrieved set THROWS at parse time — so an
- * ungrounded claim is impossible to render, not merely discouraged.
- *
- * HONESTY (R7.7): the `demo` variant marks the output as a saved EXAMPLE built
- * from real public data captured once; the `live` variant marks it as a real,
- * just-generated personalized run. Neither presents an unverifiable claim, and
- * every card keeps its real source link so the data is independently checkable.
- *
- * Fully tokenized + dark-aware (CON-02 tokens; no raw hex). `bg-action` (green)
- * is reserved for the primary CTA elsewhere and is deliberately not used here.
+ * `CompetitorAnalysisSchema` here at the component boundary. A competitor or a
+ * cited claim that references an id not in the retrieved set THROWS at parse
+ * time — so an ungrounded claim is impossible to render, not merely
+ * discouraged.
  */
 
 const SOURCE_LABEL: Record<AwardSource, string> = {
@@ -54,18 +43,11 @@ function snippet(text: string, max = 260): string {
 /** A resolved citation target — either a real award record or a real web profile. */
 type CitationTarget = { label: string; url: string; title: string };
 
-export default function CompetitorResults({
-  raw,
-  variant = "demo",
-}: {
-  raw: unknown;
-  variant?: "demo" | "live";
-}) {
+export default function CompetitorResults({ raw }: { raw: unknown }) {
   // Boundary parse — an ungrounded/fabricated payload throws here and cannot render.
   const data = parseCompetitorAnalysis(raw);
   const byId = new Map<string, GroundedAwardRecord>(data.records.map((r) => [r.id, r]));
   const webById = new Map<string, WebCompetitorProfile>((data.webProfiles ?? []).map((p) => [p.id, p]));
-  const live = variant === "live";
 
   const capturedDate = new Date(data.capturedAt).toLocaleDateString("en-US", {
     year: "numeric",
@@ -93,31 +75,20 @@ export default function CompetitorResults({
 
   return (
     <div className="text-foreground">
-      {/* Honest label (R7.7) — the framing differs for a live run vs a saved example. */}
       <div className="rounded-sm border border-structure-on-canvas bg-canvas-alt px-3 py-2">
         <p className="font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas">
-          {live ? "Live analysis" : "Example analysis"}
+          Live analysis
         </p>
         <p className="mt-1 text-pretty font-body text-[12px] leading-relaxed text-foreground">
-          {live ? (
-            <>
-              Generated {capturedDate} from <strong>real public federal award data</strong> for your company.
-              This is analysis — not a guarantee of funding — and every company below links to its official
-              public award record so you can verify it.
-            </>
-          ) : (
-            <>
-              Built from <strong>real public federal award data</strong> retrieved {capturedDate} and
-              generated once — this is a saved example, not a live, personalized run. Every company below
-              links to its official public award record so you can verify it.
-            </>
-          )}
+          Generated {capturedDate} from <strong>real public federal award data</strong> for your company.
+          This is analysis — not a guarantee of funding — and every company below links to its official
+          public award record so you can verify it.
         </p>
       </div>
 
       <p className="mt-4 font-body text-[13px] leading-relaxed text-foreground">
         <span className="font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas">
-          {live ? "Company" : "Persona"}
+          Company
         </span>{" "}
         {data.persona} — {data.personaDescription}
       </p>
@@ -283,8 +254,8 @@ export default function CompetitorResults({
         </section>
       )}
 
-      {/* ── Honest-degradation note (live runs only) ──────────────────── */}
-      {live && data.degraded && (data.degraded.notes.length > 0 || data.degraded.sources.length > 0) && (
+      {/* ── Honest-degradation note ────────────────────────────────────── */}
+      {data.degraded && (data.degraded.notes.length > 0 || data.degraded.sources.length > 0) && (
         <div className="mt-6 rounded-sm border border-structure-on-canvas bg-canvas-alt px-3 py-2">
           <p className="font-mono text-[10px] uppercase tracking-eyebrow text-structure-on-canvas">Sources</p>
           <p className="mt-1 font-body text-[11px] leading-relaxed text-foreground">
@@ -295,7 +266,7 @@ export default function CompetitorResults({
       )}
 
       <p className="mt-6 border-t border-structure-on-canvas pt-4 text-pretty font-body text-[11px] leading-relaxed text-foreground">
-        This {live ? "analysis" : "example"} never invents a company, an amount, or an award — every figure and
+        This analysis never invents a company, an amount, or an award — every figure and
         quote above is copied from the linked public record. It is analysis to help you position, not a
         guarantee of funding.
       </p>

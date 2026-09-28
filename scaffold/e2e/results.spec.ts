@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { stubBackend, DETAILED_DESCRIPTION, FIXTURE_PROGRAM, fixtureMap } from "./fixtures";
+import { stubBackend, skipWelcomeGuide, DETAILED_DESCRIPTION, FIXTURE_PROGRAM, fixtureMap } from "./fixtures";
 
 /**
  * Journey 2 — Results (+ buckets) (critical, wired). After a search, the
@@ -11,21 +11,23 @@ import { stubBackend, DETAILED_DESCRIPTION, FIXTURE_PROGRAM, fixtureMap } from "
  */
 test("results: the opportunity map renders a card with agency + next steps", async ({ page }) => {
   await stubBackend(page);
+  await skipWelcomeGuide(page);
   await page.goto("/");
   await page.getByLabel(/tell us about your company/i).fill(DETAILED_DESCRIPTION);
   await page.getByRole("button", { name: /find opportunities/i }).click();
 
   const program = fixtureMap.matches[0].opportunity.program;
-  await expect(page.getByText(program)).toBeVisible();
+  await expect(page.getByText(program).first()).toBeVisible();
   await expect(page.getByText(fixtureMap.matches[0].opportunity.agency).first()).toBeVisible();
 });
 
 test("results (buckets, when r8_eligibility is on): an excluded bucket never renders without a reason", async ({ page }) => {
   await stubBackend(page);
+  await skipWelcomeGuide(page);
   await page.goto("/");
   await page.getByLabel(/tell us about your company/i).fill(DETAILED_DESCRIPTION);
   await page.getByRole("button", { name: /find opportunities/i }).click();
-  await expect(page.getByText(FIXTURE_PROGRAM)).toBeVisible();
+  await expect(page.getByText(FIXTURE_PROGRAM).first()).toBeVisible();
 
   // Only assert when the flag-gated bucket UI is actually present in this build.
   const excluded = page.getByText(/not eligible|excluded/i);

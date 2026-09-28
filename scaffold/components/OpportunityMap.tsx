@@ -282,7 +282,7 @@ export default function OpportunityMap({ map }: { map: MapT }) {
             <p className={eyebrowClass("mb-1")}>Companies like yours that received federal funding</p>
             <p className={similarCompaniesCaptionClass}>
               Verified public federal award records, deduped across your strongest matches — each row links to
-              its official source record. Not a personalized competitor analysis.
+              its official source record.
             </p>
             <div className="mt-4">
               <SimilarCompanies recipients={similarRecipients} />

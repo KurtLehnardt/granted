@@ -116,8 +116,7 @@ export default function OpportunityCard({
   m: Match;
   index: number;
   /** The user's extracted v1 profile (from `map.profile`), threaded into the
-   *  competitor-analysis modal below. Optional/additive — absent, the modal
-   *  just stays demo-only. */
+   *  competitor-analysis modal below. Only read when r5_deep_analysis is on. */
   startupProfile?: StartupProfile;
 }) {
   // Expand the first three cards so criteria / ineligibility / history read at a glance.
@@ -437,8 +436,8 @@ export default function OpportunityCard({
           onClose={() => setCompetitorOpen(false)}
           // R5-deep: thread the user's profile + this opportunity so a Max-tier
           // user (with the r5_deep_analysis flag on) can run a live, personalized
-          // brief. Absent profile → the modal stays demo-only. Keywords prefer the
-          // gov-vocabulary expandedTerms the retrieval is tuned for.
+          // brief. Keywords prefer the gov-vocabulary expandedTerms the
+          // retrieval is tuned for.
           profile={
             startupProfile
               ? {
@@ -508,25 +507,19 @@ export default function OpportunityCard({
                 <Stat n={m.history.inVertical} label="in your vertical" />
               </div>
 
-              {/*
-                PRO-01: locked stub only — clicking it never fetches or
-                analyzes anything, it just opens the Pro-upsell modal.
-              */}
-              <div className="mb-4 flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setCompetitorOpen(true)}
-                  aria-haspopup="dialog"
-                  className={competitorBtnClass}
-                >
-                  Analyze competing companies
-                </button>
-                <span className={competitorHintClass}>
-                  {/* With r5_deep_analysis ON this runs a live brief; with it OFF
-                      the surface is the saved example only. */}
-                  {isFlagEnabled("r5_deep_analysis") ? <>Live</> : <>Example</>}
-                </span>
-              </div>
+              {isFlagEnabled("r5_deep_analysis") && (
+                <div className="mb-4 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCompetitorOpen(true)}
+                    aria-haspopup="dialog"
+                    className={competitorBtnClass}
+                  >
+                    Analyze competing companies
+                  </button>
+                  <span className={competitorHintClass}>Live</span>
+                </div>
+              )}
 
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[440px] font-mono text-[11px] tabular-nums">

@@ -8,9 +8,7 @@ Run it with your own API keys or a fully local model — see **Run it yourself**
 
 # Run it yourself
 
-**No API keys? Still works.** Clone it, install, run it, and try the 5 built-in sample companies — their results are cached, so they need no keys at all. You only need API keys (or a local model) to search your *own* company description.
-
-**Even faster: no input at all.** Visit `/demo` for a static, pre-baked sample opportunity map (and `/demo/eligibility` for the eligibility view).
+**No API keys? Still works.** Clone it, install, run it, and try the 4 built-in sample companies (in the welcome guide, replayable from Settings) — their results are cached, so they need no keys at all. You only need API keys (or a local model) to search your *own* company description.
 
 Every OS below ends up running the exact same `npm` commands — the setup scripts detect your platform automatically. Only the prerequisite installs (Node, git, Ollama) differ, so pick yours:
 
@@ -27,7 +25,7 @@ cd granted/scaffold
 npm install
 npm run dev        # → http://localhost:3000
 ```
-Try the 5 sample companies now — no keys needed.
+Try the 4 sample companies now — no keys needed.
 
 **3. Search your own company — hosted (OpenAI + Anthropic)**
 ```bash
@@ -60,7 +58,7 @@ cd granted/scaffold
 npm install
 npm run dev        # → http://localhost:3000
 ```
-Try the 5 sample companies now — no keys needed.
+Try the 4 sample companies now — no keys needed.
 
 **3. Search your own company — hosted (OpenAI + Anthropic)**
 ```powershell
@@ -92,7 +90,7 @@ cd granted/scaffold
 npm install
 npm run dev        # → http://localhost:3000
 ```
-Try the 5 sample companies now — no keys needed.
+Try the 4 sample companies now — no keys needed.
 
 **3. Search your own company — hosted (OpenAI + Anthropic)**
 ```bash

@@ -15,8 +15,7 @@ import type { Citation, Provenance } from "@/lib/contracts/primitives";
  * grouped into buckets. It does not screen anything itself.
  *
  * WIRING screen() into the live pipeline (lib/match.ts / OpportunityMap) so
- * real determinations reach this component is a later integration task — see
- * app/demo/eligibility/page.tsx, which renders this against fixture data only.
+ * real determinations reach this component is a later integration task.
  */
 
 export type EligibilityItem = {

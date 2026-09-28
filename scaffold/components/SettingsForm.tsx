@@ -22,6 +22,7 @@ import {
 import type { OllamaModel } from "@/lib/llm/ollamaInfo";
 import { stageLabel } from "@/lib/corpus/refreshProgress";
 import type { RefreshProgress } from "@/lib/corpus/refreshStatus";
+import { useReplayWelcomeGuide } from "@/components/WelcomeGuide";
 
 interface CorpusStatus {
   builtAt: string | null;
@@ -55,6 +56,13 @@ interface CorpusStatus {
  * section omits it (there is nothing to close — it's an inline section).
  */
 export default function SettingsForm({ onClose }: { onClose?: () => void }) {
+  const replayWelcomeGuide = useReplayWelcomeGuide();
+  function handleReplayWelcomeGuide() {
+    // Close Settings first so the two dialogs never stack.
+    onClose?.();
+    replayWelcomeGuide();
+  }
+
   const [form, setForm] = useState<AutoFillRequirements>(() => getAutoFillRequirements());
   const [maxCandidates, setMaxCandidatesState] = useState<number | null>(() => getMaxCandidates());
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -198,9 +206,15 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
 
   return (
     <form onSubmit={handleSave}>
+      <div className={`${fieldWrapClass} first:mt-0 first:border-t-0 first:pt-0`}>
+        <button type="button" onClick={handleReplayWelcomeGuide} className={saveBtnClass}>
+          Replay welcome guide
+        </button>
+      </div>
+
       {autoFillOn && (
         <>
-          <p className="mb-4 font-body text-[12px] leading-relaxed text-foreground opacity-80">
+          <p className="mt-5 font-body text-[12px] leading-relaxed text-foreground opacity-80">
             These details are self-reported and stored on this device. Granted never connects to
             SAM.gov — the checkboxes are your own attestation, not a live check.
           </p>

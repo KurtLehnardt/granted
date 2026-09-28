@@ -16,7 +16,7 @@ import {
 /** A minimal, fully-grounded fixture (two real-shaped records). */
 function groundedFixture() {
   return {
-    persona: "FasterControl",
+    persona: "Acme QMS",
     personaDescription: "A Utah company building cloud QMS/MES software for regulated life sciences.",
     capturedAt: "2026-08-15T18:35:24.229Z",
     records: [

@@ -52,14 +52,14 @@ export interface AnalyzeInput {
   meter?: CostMeter;
   signal?: AbortSignal;
   /**
-   * Capture-supplied web profiles (e.g. gathered via the exa MCP by the demo
-   * capture). When provided, the live exa HTTP fetch is skipped and these are
+   * Capture-supplied web profiles (e.g. gathered via the exa MCP by the capture
+   * script). When provided, the live exa HTTP fetch is skipped and these are
    * used verbatim — so a fixture can showcase real private competitors even
    * without EXA_API_KEY at capture time.
    */
   webProfilesOverride?: RawWebProfile[];
-  /** "live" (request-time run, default) or "demo" (a saved fixture capture). */
-  mode?: "live" | "demo";
+  /** "live" (request-time run, default) or "example" (a saved fixture capture). */
+  mode?: "live" | "example";
   /**
    * Optional progress sink for the streaming route. When present, the pipeline
    * emits `stage` events at each boundary and one `evidence` event (grounded

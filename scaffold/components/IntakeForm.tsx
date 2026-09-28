@@ -1,6 +1,5 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { TEST_CASES } from "@/lib/testCases";
 import { isFlagEnabled } from "@/lib/flags";
 import { useAuth } from "@/components/AuthProvider";
 import { useAnalytics } from "@/components/AnalyticsProvider";
@@ -8,9 +7,8 @@ import { useSearchDraft } from "@/components/SearchDraftProvider";
 import { clearAllLocalData, getAutoFillRequirements } from "@/lib/mockAuth";
 import { getMaxCandidates, getModel, LAST_SEARCH_MS_KEY } from "@/lib/searchSettings";
 import type { LlmInfo } from "@/lib/llm/types";
-import { BRAND } from "@/lib/brand";
-import Swal from "sweetalert2";
 import SearchProgress from "@/components/SearchProgress";
+import { useWelcomeGuideSampleHandler } from "@/components/WelcomeGuide";
 import PreSearchInterview from "@/components/PreSearchInterview";
 import ProfileQuestionnaire from "@/components/ProfileQuestionnaire";
 // Type-only: generateQuestions.ts imports the OpenAI SDK at runtime. A
@@ -18,17 +16,6 @@ import ProfileQuestionnaire from "@/components/ProfileQuestionnaire";
 // (or the OPENAI_API_KEY it reads) ever reaches this client bundle.
 import type { InterviewQuestion } from "@/lib/interview/generateQuestions";
 import type { Match } from "@/lib/types";
-
-// FE-02 (R7.1): one honest, non-numeric one-liner per sample so the picker
-// reads as "fictional example companies," not a filter on the user's own
-// business. Keep these purely descriptive — no invented stats beyond what's
-// already in TEST_CASES[].text.
-const SAMPLE_BLURBS: Record<string, string> = {
-  "ai-healthcare": "Fictional health-tech startup easing nurses' admin workload with AI.",
-  manufacturing: "Fictional hardware startup scaling up lightweight aerospace component manufacturing.",
-  water: "Fictional climate-tech startup using sensors and AI to cut municipal water loss.",
-  cyber: "Fictional cybersecurity startup building AI-powered threat detection.",
-};
 
 export default function IntakeForm({
   onResult,
@@ -62,9 +49,6 @@ export default function IntakeForm({
   // Real pipeline milestone streamed from /api/match (drives SearchProgress).
   const [progress, setProgress] = useState<{ pct: number; label: string; key?: string; detail?: string } | null>(null);
   const [llmInfo, setLlmInfo] = useState<LlmInfo | null>(null);
-  // FE-02 (R7.1): sample-company picker is collapsed by default; it's a
-  // secondary affordance behind a real visual break, not an inline filter row.
-  const [samplesOpen, setSamplesOpen] = useState(false);
   // FE-07: when the left sidebar is on, "Delete my data" moves into the drawer's
   // Account section, so it's dropped from here. Off (default) -> unchanged.
   const sidebar = isFlagEnabled("left_sidebar");
@@ -354,64 +338,11 @@ export default function IntakeForm({
     }
   }
 
-  // FE-02 (R7.1): picking a sample goes straight to run() (streaming,
-  // SearchProgress, caching — all untouched/wired identically), bypassing
-  // the R1 pre-search interview even when that flag is on: samples are
-  // pre-written and the user has no refining answers to give, so there's
-  // nothing for the interview to ask. Only confirm-before-overwrite is new,
-  // and only when there's meaningful user text already in the box.
-  async function selectSample(tc: (typeof TEST_CASES)[number]) {
-    if (text.trim().length > 0) {
-      const result = await Swal.fire({
-        title: "Replace your description?",
-        text: "This sample company will replace what you've written in the box.",
-        icon: "question",
-        showCancelButton: true,
-        confirmButtonText: "Replace",
-        cancelButtonText: "Keep mine",
-        reverseButtons: true,
-        // Token CSS vars → the modal adapts to light/dark like the rest of the app.
-        background: "var(--color-canvas-alt)",
-        color: "var(--color-foreground)",
-        confirmButtonColor: "var(--color-action)",
-        cancelButtonColor: "var(--color-structure-fill)",
-      });
-      if (!result.isConfirmed) return;
-    }
-    setText(tc.text);
-    setSamplesOpen(false);
-    run(tc.text);
-  }
-
-  // FE-02 (R7.1): the sample-company picker lives below a real visual break
-  // (border-t + vertical space), not inline with the CTA. It's a secondary
-  // affordance -> navy "structure" role, never green (`bg-action` is
-  // reserved for the primary CTA only).
-  const sampleSectionClass = "mt-6 border-t border-structure-on-canvas pt-5";
-
-  const sampleTriggerClass =
-    "min-h-[44px] rounded-sm border border-structure-on-canvas bg-canvas-alt px-4 py-2.5 font-mono text-[12px] uppercase tracking-eyebrow text-structure-on-canvas transition hover:bg-structure hover:text-token-white active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2";
-
-  // Expanded picker panel reads as a distinct, optional area. Polish: depth
-  // now comes from an elevation shadow (concentric rounded-lg outer / rounded-sm
-  // items) rather than a hard navy border.
-  const samplePanelClass = "mt-3 rounded-lg bg-canvas-alt p-4 shadow-card";
-
-  const samplePanelIntroClass = "text-pretty font-body text-[13px] leading-relaxed text-foreground";
-
-  // List items, not chips: each is a full-width card with a label + one-line
-  // description so it reads as "pick an example company," not a filter.
-  // `group` + `group-hover:*` on the children lets the hover-fill state
-  // (navy on r7_design, federal-blue text on v1) recolor both label and
-  // blurb together, matching the required white-on-structure-fill pairing.
-  const sampleItemClass =
-    "group flex min-h-[44px] w-full flex-col justify-center gap-0.5 rounded-sm border border-structure-on-canvas bg-canvas px-3.5 py-2.5 text-left transition hover:bg-structure hover:shadow-card active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2";
-
-  const sampleItemLabelClass =
-    "font-mono text-[12px] uppercase tracking-eyebrow text-structure-on-canvas group-hover:text-token-white";
-
-  const sampleItemBlurbClass =
-    "text-pretty font-body text-[13px] leading-relaxed text-foreground group-hover:text-token-white";
+  // A sample runs without touching `text`; no-op while a search or interview is active.
+  const busy = loading || interviewPhase !== "idle";
+  useWelcomeGuideSampleHandler((description) => {
+    if (!busy) run(description);
+  }, busy);
 
   // Error state is a legitimate semantic role -> `error` token. As a 2px
   // border (non-text, 3:1 threshold) this passes AA against canvas-alt/canvas
@@ -435,15 +366,13 @@ export default function IntakeForm({
           (`loading`) while still idle, e.g. right after
           handleInterviewComplete() resets the phase and calls run(). */}
       {interviewPhase === "idle" && (
-        <div data-tour="describe">
-          <ProfileQuestionnaire
-            disabled={loading}
-            externalText={pending?.text}
-            externalNonce={pending?.nonce}
-            onDescriptionChange={setText}
-            onSubmit={handleQuestionnaireSubmit}
-          />
-        </div>
+        <ProfileQuestionnaire
+          disabled={loading}
+          externalText={pending?.text}
+          externalNonce={pending?.nonce}
+          onDescriptionChange={setText}
+          onSubmit={handleQuestionnaireSubmit}
+        />
       )}
 
       {mockAuthOn && (
@@ -517,47 +446,6 @@ export default function IntakeForm({
           realDetail={progress?.detail}
           llm={llmInfo ?? undefined}
         />
-      )}
-
-      {/* FE-02 (R7.1): sample-company picker — a real visual break (border-t
-          + vertical space) separates this from the user's own description,
-          so it reads as "try an example," not a filter on their business. */}
-      {interviewPhase === "idle" && (
-        <div className={sampleSectionClass}>
-          <button
-            type="button"
-            data-tour="samples"
-            onClick={() => setSamplesOpen((open) => !open)}
-            aria-expanded={samplesOpen}
-            disabled={loading}
-            className={sampleTriggerClass}
-          >
-            {samplesOpen ? "Hide sample companies" : "See a sample company"}
-          </button>
-
-          {samplesOpen && (
-            <div className={samplePanelClass}>
-              <p className={samplePanelIntroClass}>
-                These are fictional example companies — pick one to see how {BRAND} works.
-              </p>
-              <ul className="mt-3 flex flex-col gap-2">
-                {TEST_CASES.map((tc) => (
-                  <li key={tc.id}>
-                    <button
-                      type="button"
-                      onClick={() => selectSample(tc)}
-                      disabled={loading}
-                      className={sampleItemClass}
-                    >
-                      <span className={sampleItemLabelClass}>{tc.label}</span>
-                      <span className={sampleItemBlurbClass}>{SAMPLE_BLURBS[tc.id]}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
       )}
 
       {error && (

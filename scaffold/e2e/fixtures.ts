@@ -79,6 +79,15 @@ export async function stubBackend(page: Page, map: unknown = fixtureMap): Promis
   );
 }
 
+/** Mark the first-visit welcome guide as seen so it doesn't block the page. */
+export async function skipWelcomeGuide(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    try {
+      window.localStorage.setItem("ff.ui.welcomeGuide.seen.v1", "true");
+    } catch {}
+  });
+}
+
 /** A detailed (3+ sentence) description that skips the pre-search interview. */
 export const DETAILED_DESCRIPTION =
   "We build AI-assisted diagnostics for rural clinics. We have 12 employees and have raised a seed round. We need federal funding to run a clinical validation study.";

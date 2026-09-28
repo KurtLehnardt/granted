@@ -5,7 +5,6 @@ import { createPortal } from "react-dom";
 import { useDialogA11y } from "@/components/useDialogA11y";
 import { isFlagEnabled } from "@/lib/flags";
 import CompetitorResults from "@/components/CompetitorResults";
-import demoCompetitorFixture from "@/data/demo-competitor-fastercontrol.json";
 import { drainNdjson } from "@/lib/competitors/ndjson";
 import type {
   CompetitorStreamEvent,
@@ -26,28 +25,33 @@ function fmtUsd(n: number): string {
 }
 
 /**
- * R5 — Competitor & Grant Intelligence, demo-first, with a LIVE personalized run
- * behind the default-OFF `r5_deep_analysis` flag. Free to use.
+ * R5 — Competitor & Grant Intelligence: a LIVE personalized run behind the
+ * default-OFF `r5_deep_analysis` flag. Free to use.
  *
- *   - flag OFF (default): "View example analysis" (the saved real example).
- *   - flag ON + a company profile: a primary "Run live analysis" that POSTs
- *     to /api/competitors for a real, personalized, grounded market brief — and
- *     falls back to the saved example WITH AN HONEST NOTE if the live run can't
- *     assemble enough grounded data (feasibility §6 honest-degradation posture).
+ *   - flag OFF, or no usable company profile: an honest "unavailable" state —
+ *     no canned example is shown in its place.
+ *   - flag ON + a company profile: "Run live analysis" POSTs to
+ *     /api/competitors for a real, personalized, grounded market brief — and
+ *     shows an honest "analysis unavailable" state (with a reason) if the live
+ *     run can't assemble enough grounded data.
  *
- * Every rendered brief (live or demo) is validated through the grounding
- * contract at the CompetitorResults boundary and never fabricates an award (R7.7).
+ * Every rendered brief is validated through the grounding contract at the
+ * CompetitorResults boundary and never fabricates an award (R7.7).
  */
 
-type View = "intro" | "loading" | "results";
+type View = "intro" | "loading" | "results" | "unavailable";
 
 export interface CompetitorAnalysisModalProps {
   onClose: () => void;
-  /** The user's company, for a live personalized run. Absent → demo-only. */
+  /** The user's company, for a live personalized run. Absent → unavailable. */
   profile?: { description: string; keywords?: string[]; persona?: string };
   /** The target opportunity being viewed, for framing the live analysis. */
   opportunity?: { program?: string; agency?: string };
 }
+
+const UNAVAILABLE_MESSAGE = "Live analysis is temporarily unavailable — please try again in a moment.";
+const INSUFFICIENT_EVIDENCE_MESSAGE =
+  "We couldn't find enough grounded public award data for a reliable analysis right now.";
 
 export default function CompetitorAnalysisModal({ onClose, profile, opportunity }: CompetitorAnalysisModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -61,31 +65,20 @@ export default function CompetitorAnalysisModal({ onClose, profile, opportunity 
 
   const [view, setView] = useState<View>("intro");
   const [resultRaw, setResultRaw] = useState<unknown>(null);
-  const [resultVariant, setResultVariant] = useState<"live" | "demo">("demo");
-  const [note, setNote] = useState<string | null>(null);
+  const [unavailableReason, setUnavailableReason] = useState<string>(UNAVAILABLE_MESSAGE);
   // Live streaming state (progressive loading view): the current stage + the
   // grounded evidence (real awards / stats / web competitors) as it's found.
   const [progress, setProgress] = useState<{ label: string; pct: number } | null>(null);
   const [evidence, setEvidence] = useState<LiveEvidence | null>(null);
 
-  const showDemo = () => {
-    setResultRaw(demoCompetitorFixture);
-    setResultVariant("demo");
-    setNote(null);
-    setView("results");
-  };
-
-  const fallBackToDemo = (message: string) => {
-    setResultRaw(demoCompetitorFixture);
-    setResultVariant("demo");
-    setNote(message);
-    setView("results");
+  const showUnavailable = (message: string) => {
+    setUnavailableReason(message);
+    setView("unavailable");
   };
 
   const runLive = async () => {
     if (!profile?.description) return;
     setView("loading");
-    setNote(null);
     setProgress({ label: "Starting your analysis…", pct: 2 });
     setEvidence(null);
     try {
@@ -101,14 +94,13 @@ export default function CompetitorAnalysisModal({ onClose, profile, opportunity 
       });
       // Validation errors return plain JSON (never a stream) — check res.ok first.
       if (!res.ok || !res.body) {
-        fallBackToDemo(
-          "Live analysis is temporarily unavailable — here's a saved example built from real public data instead.",
-        );
+        showUnavailable(UNAVAILABLE_MESSAGE);
         return;
       }
 
       // Read the NDJSON stream: stage/evidence events update the live loading
-      // view; `result` renders the validated brief; `error` falls back to demo.
+      // view; `result` renders the validated brief; `error` shows the honest
+      // unavailable state.
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
@@ -127,16 +119,10 @@ export default function CompetitorAnalysisModal({ onClose, profile, opportunity 
           } else if (evt.type === "result") {
             settled = true;
             setResultRaw(evt.analysis);
-            setResultVariant("live");
-            setNote(null);
             setView("results");
           } else if (evt.type === "error") {
             settled = true;
-            fallBackToDemo(
-              evt.reason === "insufficient_evidence"
-                ? "We couldn't find enough grounded public award data for a reliable live brief right now — here's a saved example built from real public data instead."
-                : "Live analysis is temporarily unavailable — here's a saved example built from real public data instead.",
-            );
+            showUnavailable(evt.reason === "insufficient_evidence" ? INSUFFICIENT_EVIDENCE_MESSAGE : UNAVAILABLE_MESSAGE);
           }
         }
         if (settled) return;
@@ -144,14 +130,10 @@ export default function CompetitorAnalysisModal({ onClose, profile, opportunity 
       }
       // Stream ended without a terminal event — degrade honestly.
       if (!settled) {
-        fallBackToDemo(
-          "Live analysis is temporarily unavailable — here's a saved example built from real public data instead.",
-        );
+        showUnavailable(UNAVAILABLE_MESSAGE);
       }
     } catch {
-      fallBackToDemo(
-        "Live analysis is temporarily unavailable — here's a saved example built from real public data instead.",
-      );
+      showUnavailable(UNAVAILABLE_MESSAGE);
     }
   };
 
@@ -170,14 +152,8 @@ export default function CompetitorAnalysisModal({ onClose, profile, opportunity 
 
   const primaryBtnClass =
     "inline-flex min-h-[44px] items-center rounded-sm bg-action px-4 py-2 font-mono text-[11px] uppercase tracking-eyebrow text-token-white transition hover:opacity-90 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2";
-  const secondaryBtnClass =
-    "inline-flex min-h-[44px] items-center rounded-sm border border-structure-on-canvas px-4 py-2 font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas transition hover:bg-structure hover:text-token-white active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2";
   const textBtnClass =
     "inline-flex min-h-[44px] items-center font-mono text-[11px] uppercase tracking-eyebrow text-foreground underline underline-offset-4 transition hover:text-structure-on-canvas focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2";
-
-  const recordCount = Array.isArray((demoCompetitorFixture as { records?: unknown[] }).records)
-    ? (demoCompetitorFixture as { records: unknown[] }).records.length
-    : 0;
 
   if (typeof document === "undefined") return null;
   return createPortal(
@@ -206,18 +182,13 @@ export default function CompetitorAnalysisModal({ onClose, profile, opportunity 
               </button>
             </div>
             <h2 id="competitor-analysis-modal-title" className="sr-only">
-              Competitor &amp; grant intelligence — {resultVariant === "live" ? "live analysis" : "example analysis"}
+              Competitor &amp; grant intelligence — live analysis
             </h2>
             <p id="competitor-analysis-modal-desc" className="sr-only">
               A competitor and grant market brief grounded in real public federal award data.
             </p>
-            {note && (
-              <div className="mt-3 rounded-sm border border-structure-on-canvas bg-canvas-alt px-3 py-2">
-                <p className="text-pretty font-body text-[12px] leading-relaxed text-foreground">{note}</p>
-              </div>
-            )}
             <div className="mt-3">
-              <CompetitorResults raw={resultRaw} variant={resultVariant} />
+              <CompetitorResults raw={resultRaw} />
             </div>
           </div>
         ) : view === "loading" ? (
@@ -282,6 +253,26 @@ export default function CompetitorAnalysisModal({ onClose, profile, opportunity 
               </div>
             )}
           </div>
+        ) : view === "unavailable" ? (
+          <div className="py-6">
+            <p className={eyebrowClass}>Competitor &amp; grant intelligence</p>
+            <h2 id="competitor-analysis-modal-title" className={titleClass}>
+              Analysis unavailable
+            </h2>
+            <p id="competitor-analysis-modal-desc" className={bodyClass}>
+              {unavailableReason}
+            </p>
+            <div className="mt-6 flex flex-wrap items-center gap-3">
+              {liveAvailable && (
+                <button type="button" onClick={runLive} className={primaryBtnClass}>
+                  Try again
+                </button>
+              )}
+              <button type="button" onClick={onClose} className={textBtnClass}>
+                Close
+              </button>
+            </div>
+          </div>
         ) : (
           <>
             <h2 id="competitor-analysis-modal-title" className={titleClass}>
@@ -297,30 +288,21 @@ export default function CompetitorAnalysisModal({ onClose, profile, opportunity 
 
             {liveAvailable ? (
               <p className={bodyClass}>
-                Run a <strong>live, personalized</strong> market brief for your company now — or preview a
-                saved example first. The live run is real analysis, grounded in public award data; it is not
-                a guarantee of funding.
+                Run a <strong>live, personalized</strong> market brief for your company now. It's real
+                analysis, grounded in public award data; it is not a guarantee of funding.
               </p>
             ) : (
               <p className={bodyClass}>
-                Here is a saved example built from {recordCount} real public award records — clearly labeled
-                as an example, not a live run.
+                {isFlagEnabled("r5_deep_analysis")
+                  ? "Fill out your company description above to run a personalized analysis."
+                  : "Personalized analysis isn't available yet."}
               </p>
             )}
 
             <div className="mt-6 flex flex-wrap items-center gap-3">
-              {liveAvailable ? (
-                <>
-                  <button type="button" onClick={runLive} className={primaryBtnClass}>
-                    Run live analysis
-                  </button>
-                  <button type="button" onClick={showDemo} className={secondaryBtnClass}>
-                    Preview example
-                  </button>
-                </>
-              ) : (
-                <button type="button" onClick={showDemo} className={primaryBtnClass}>
-                  View example analysis
+              {liveAvailable && (
+                <button type="button" onClick={runLive} className={primaryBtnClass}>
+                  Run live analysis
                 </button>
               )}
               <button type="button" onClick={onClose} className={textBtnClass}>
@@ -329,8 +311,8 @@ export default function CompetitorAnalysisModal({ onClose, profile, opportunity 
             </div>
 
             <p className={footnoteClass}>
-              The saved example uses real, public award data captured once. A live run retrieves fresh
-              public records and analyzes them — analysis, not a guarantee of funding.
+              A live run retrieves fresh public federal award records and analyzes them — analysis,
+              not a guarantee of funding.
             </p>
           </>
         )}

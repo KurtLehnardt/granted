@@ -128,7 +128,7 @@ export async function POST(req: NextRequest) {
         });
       } catch (err) {
         // Insufficient grounded evidence, or Anthropic/OpenAI unavailable → an HONEST
-        // degradation the client renders as a fall-back-to-demo note (never fabricate).
+        // "unavailable" state the client renders (never fabricate).
         const insufficient = err instanceof InsufficientEvidenceError;
         send({
           type: "error",

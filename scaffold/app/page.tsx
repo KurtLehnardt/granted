@@ -7,7 +7,6 @@ import type { OpportunityMap as MapT, Match } from "@/lib/types";
 import AppMenu from "@/components/AppMenu";
 import { isFlagEnabled } from "@/lib/flags";
 import { SidebarProvider, useSidebar } from "@/components/SidebarProvider";
-import WelcomeTour from "@/components/WelcomeTour";
 import { useAnalytics } from "@/components/AnalyticsProvider";
 import { latestRun, saveRun } from "@/lib/runs/runsStore";
 import { formatSearchDuration } from "@/components/SearchProgress";
@@ -130,10 +129,6 @@ function HomeShell({ sidebarOn }: { sidebarOn: boolean }) {
 
   return (
     <main className={mainClass} style={shiftStyle}>
-      {/* Anchored, non-blocking welcome guide on first load (flag-ON only):
-          spotlights Sign in → sample companies → the description box. */}
-      {sidebarOn && <WelcomeTour />}
-
       {/*
         FE-06: single nav cluster — hamburger (Settings, always present) +
         the PLT-01 mock-auth surface (UserMenu / "Sign in", flag-gated,

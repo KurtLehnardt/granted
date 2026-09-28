@@ -17,11 +17,11 @@ import { embedBatch } from "../../embed";
 describe("buildWebQuery — weaves the distinctive keywords into the exa query", () => {
   test("leads with persona + keywords and drops the generic boilerplate", () => {
     const q = buildWebQuery({
-      persona: "FasterControl",
+      persona: "Acme QMS",
       personaDescription: "Cloud MES and QMS for federal biomanufacturers.",
       keywords: ["biomanufacturing", "BARDA", "21 CFR Part 11", "biologics"],
     });
-    assert.match(q, /FasterControl/);
+    assert.match(q, /Acme QMS/);
     assert.match(q, /biomanufacturing/);
     assert.match(q, /BARDA/);
     assert.match(q, /21 CFR Part 11/);

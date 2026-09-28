@@ -1,20 +1,13 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { groundSynthesis } from "../analyze";
-import { parseCompetitorAnalysis } from "../../contracts/competitorAnalysis";
 
 /**
  * R5-deep — the LIVE pipeline's anti-fabrication guarantee.
  *
- * Two layers are tested here:
- *   1. `groundSynthesis` — the pure, defense-in-depth filter that drops any
- *      model-invented id BEFORE the schema parse (so a stray hallucination
- *      degrades to fewer honest claims, never a fabricated one on screen).
- *   2. The shipped demo fixture — proof the captured example is itself fully
- *      grounded (every competitor + citation traces to real evidence), and that
- *      tampering an id into it THROWS at the parse boundary.
+ * `groundSynthesis` — the pure, defense-in-depth filter that drops any
+ * model-invented id BEFORE the schema parse (so a stray hallucination degrades
+ * to fewer honest claims, never a fabricated one on screen).
  */
 
 describe("groundSynthesis — drops everything the model invented", () => {
@@ -59,41 +52,5 @@ describe("groundSynthesis — drops everything the model invented", () => {
     assert.ok(!grounded.recommendations.some((r) => r.advice === "b"));
     assert.equal(grounded.opportunities.length, 1);
     assert.deepEqual(grounded.opportunities[0].citations, ["web_1"]);
-  });
-});
-
-describe("shipped demo fixture — provably grounded, tamper-proof", () => {
-  const fixturePath = fileURLToPath(new URL("../../../data/demo-competitor-fastercontrol.json", import.meta.url));
-  const rawFixture = JSON.parse(readFileSync(fixturePath, "utf8"));
-
-  test("the committed fixture parses through the grounding contract", () => {
-    assert.doesNotThrow(() => parseCompetitorAnalysis(rawFixture));
-  });
-
-  test("every competitor + every citation traces to real evidence", () => {
-    const data = parseCompetitorAnalysis(rawFixture);
-    const recordIds = new Set(data.records.map((r) => r.id));
-    const citableIds = new Set<string>(recordIds);
-    (data.webProfiles ?? []).forEach((p) => citableIds.add(p.id));
-
-    for (const c of data.analysis.competitors) assert.ok(recordIds.has(c.recordId));
-    const cited = [
-      ...data.analysis.recommendations.flatMap((r) => r.citations),
-      ...(data.analysis.opportunities ?? []).flatMap((o) => o.citations),
-    ];
-    for (const id of cited) assert.ok(citableIds.has(id), `citation ${id} must reference real evidence`);
-  });
-
-  test("no web profile carries a dollar amount (a fabricated award is unrepresentable)", () => {
-    const data = parseCompetitorAnalysis(rawFixture);
-    for (const p of data.webProfiles ?? []) {
-      assert.equal((p as Record<string, unknown>).amount, undefined);
-    }
-  });
-
-  test("tampering a fabricated competitor id into the fixture THROWS at parse", () => {
-    const tampered = JSON.parse(JSON.stringify(rawFixture));
-    tampered.analysis.competitors[0].recordId = "fabricated_award_999";
-    assert.throws(() => parseCompetitorAnalysis(tampered));
   });
 });

@@ -86,6 +86,7 @@ export default function AppMenu() {
         type="button"
         onClick={openSettings}
         aria-label="Open settings"
+        data-tour="settings"
         className={hamburgerBtnClass}
       >
         <HamburgerIcon className="h-4 w-4" />

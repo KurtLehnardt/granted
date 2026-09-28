@@ -1,3 +1,11 @@
+/** Purely descriptive one-liners for the welcome guide's sample list — no invented stats. */
+export const SAMPLE_BLURBS: Record<string, string> = {
+  "ai-healthcare": "Fictional health-tech startup easing nurses' admin workload with AI.",
+  manufacturing: "Fictional hardware startup scaling up lightweight aerospace component manufacturing.",
+  water: "Fictional climate-tech startup using sensors and AI to cut municipal water loss.",
+  cyber: "Fictional cybersecurity startup building AI-powered threat detection.",
+};
+
 /** The four standard test cases. Every team is judged on these. */
 export const TEST_CASES = [
   {
