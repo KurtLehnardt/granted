@@ -65,6 +65,19 @@ export function isLocalLlm(): boolean {
   return provider() === "ollama";
 }
 
+/**
+ * Candidates-per-scoring-batch for the CURRENT cloud provider: the preset's
+ * `batchSize` (e.g. Groq/OpenRouter/FCC free-tier presets, gentler on
+ * tokens-per-minute) when set, else `hostedDefault`. Callers apply this only
+ * on the hosted (non-local) path — local already has its own much smaller
+ * batch size for JSON-object-mode reasons unrelated to rate limits.
+ */
+export function cloudBatchSize(hostedDefault: number): number {
+  const cfg = resolveCloudConfig();
+  const providerId = cfg?.providerId ?? "anthropic";
+  return getCloudProvider(providerId)?.batchSize ?? hostedDefault;
+}
+
 export interface LlmClientOptions {
   timeout?: number;
   maxRetries?: number;
