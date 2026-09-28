@@ -209,15 +209,7 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
 
   return (
     <form onSubmit={handleSave}>
-<<<<<<< HEAD
       <div className={`${fieldWrapClass} first:mt-0 first:border-t-0 first:pt-0`}>
-=======
-      <p className="mb-4 font-body text-[12px] leading-relaxed text-foreground opacity-80">
-        These details are self-reported and stored on this device. Granted never connects to
-        SAM.gov — the checkboxes are your own attestation, not a live check.
-      </p>
-      <div className={fieldWrapClass}>
->>>>>>> 0b2a599 (fix: scope the welcome guide to the home page and fix Settings replay)
         <button type="button" onClick={handleReplayWelcomeGuide} className={saveBtnClass}>
           Replay welcome guide
         </button>
