@@ -79,20 +79,12 @@ export async function stubBackend(page: Page, map: unknown = fixtureMap): Promis
   );
 }
 
-/**
- * The welcome guide auto-opens on first visit (fresh localStorage, which every
- * Playwright test context starts with) and — like any modal — inerts the rest
- * of the page while open. Journeys that aren't specifically testing the guide
- * call this first so they land on an already-interactive page, exactly as a
- * returning visitor would see it.
- */
+/** Mark the first-visit welcome guide as seen so it doesn't block the page. */
 export async function skipWelcomeGuide(page: Page): Promise<void> {
   await page.addInitScript(() => {
     try {
       window.localStorage.setItem("ff.ui.welcomeGuide.seen.v1", "true");
-    } catch {
-      /* private mode / storage disabled — the guide just shows once more, harmless */
-    }
+    } catch {}
   });
 }
 

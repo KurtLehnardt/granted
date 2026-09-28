@@ -17,8 +17,6 @@ import {
  * against a build with the relevant flag on, then promote them to `test(...)`.
  */
 
-// Journey 2b — Sample pick, via the first-visit welcome guide (wired). Picking
-// a sample never touches the description textarea — it only runs a search.
 test("welcome guide: first visit shows the guide; picking a sample runs the search and shows results, without filling the description", async ({ page }) => {
   await stubBackend(page);
   await page.goto("/");
@@ -28,17 +26,11 @@ test("welcome guide: first visit shows the guide; picking a sample runs the sear
   await expect(dialog.getByText("Describe your company")).toBeVisible();
 
   await dialog.getByRole("button", { name: "Show sample companies" }).click();
-  // Sample items render as "<Label><one-line Fictional… blurb>"; match the blurb.
   await dialog.getByRole("button").filter({ hasText: /Fictional/i }).first().click();
   await dialog.getByRole("button", { name: "Next" }).click();
 
   await expect(dialog.getByText("Choose your model")).toBeVisible();
-  // Step 2 points at the header Settings button — the pulsing highlight box
-  // must actually render around it (regression: useDialogA11y inerts every
-  // other <body> child while the guide is open, which used to make the
-  // highlight's own inert check disqualify the Settings button too). The
-  // guide's own inert-ing makes the button aria-hidden, so locate it by its
-  // tour attribute rather than by role/name.
+  // The guide inerts the page, so find the Settings button by its tour attribute.
   const settingsButton = page.locator('[data-tour="settings"]:visible').first();
   const settingsBox = await settingsButton.boundingBox();
   expect(settingsBox).not.toBeNull();
@@ -56,9 +48,6 @@ test("welcome guide: first visit shows the guide; picking a sample runs the sear
   await expect(page.getByLabel("Company description")).toHaveValue("");
 });
 
-// Closing step 2 any way (X, Escape, backdrop) must apply the selected
-// sample — the step 2 copy says the pick shows up once the guide closes, not
-// only via Done.
 test("welcome guide: closing step 2 with X still applies the selected sample", async ({ page }) => {
   await stubBackend(page);
   await page.goto("/");
@@ -90,10 +79,16 @@ test("welcome guide: never shows again after the first visit, but Settings can r
   await expect(page.getByRole("dialog", { name: /welcome/i })).toBeVisible();
 });
 
-// Strengthened description-safety check: unlike the first-visit journeys above
-// (where the textarea starts empty), this pre-fills a real description, then
-// replays the guide and picks a sample — the pick must run its own search
-// without ever touching what the user already typed.
+test("welcome guide: not shown to a returning user with a saved run", async ({ page }) => {
+  await stubBackend(page);
+  await page.addInitScript((map) => {
+    window.localStorage.setItem("ff.runs.v1", JSON.stringify([{ id: "run_1", savedAt: new Date().toISOString(), map }]));
+  }, fixtureMap);
+  await page.goto("/");
+  await expect(page.getByText(FIXTURE_PROGRAM).first()).toBeVisible();
+  await expect(page.getByRole("dialog", { name: /welcome/i })).toHaveCount(0);
+});
+
 test("welcome guide: replaying it after typing a description leaves the description untouched when a sample is picked", async ({ page }) => {
   await stubBackend(page);
   await skipWelcomeGuide(page);
@@ -114,16 +109,10 @@ test("welcome guide: replaying it after typing a description leaves the descript
 
   await expect(dialog).not.toBeVisible();
   await expect(page.getByText(FIXTURE_PROGRAM).first()).toBeVisible();
-  // Leaving the textarea to open Settings commits it into the questionnaire's
-  // read-only "provided" summary view (its own Edit-to-change affordance) — so
-  // assert on that rendered text rather than an <textarea> value, and confirm
-  // it's still the user's own description, not the picked sample's.
+  // Blurring commits the textarea into the questionnaire's read-only summary.
   await expect(page.getByText(myDescription)).toBeVisible();
 });
 
-// BLOCKER fix: replaying the guide from Settings while a search is already in
-// flight must not let a sample pick start a concurrent run — the sample list
-// disables instead, with a note explaining why.
 test("welcome guide: sample list disables while a search is in flight", async ({ page }) => {
   await skipWelcomeGuide(page);
   await page.route("**/api/interview", (route) =>
@@ -134,7 +123,6 @@ test("welcome guide: sample list disables while a search is in flight", async ({
     }),
   );
   await page.route("**/api/match", async (route) => {
-    // Slow enough to reliably interact with the guide while `loading` is true.
     await new Promise((resolve) => setTimeout(resolve, 1500));
     await route.fulfill({
       status: 200,
@@ -213,6 +201,7 @@ test.fixme("interview: a short description shows the pre-search interview before
     }),
   );
   await stubBackend(page);
+  await skipWelcomeGuide(page);
   await page.goto("/");
   await page.getByLabel(/tell us about your company/i).fill("AI for clinics");
   await page.getByRole("button", { name: /find opportunities/i }).click();
@@ -229,6 +218,7 @@ test.fixme("sign-in/demo: entering demo mode shows the Hackathon Judge identity"
 // Journey 6 — Auto-fill flow (needs r6_auto_fill / left_sidebar).
 test.fixme("auto-fill: opening Auto Fill while signed out gates on sign-in", async ({ page }) => {
   await stubBackend(page);
+  await skipWelcomeGuide(page);
   await page.goto("/");
   await page.getByLabel(/tell us about your company/i).fill(
     "We build AI diagnostics for rural clinics. We have 12 employees. We need federal funding.",
@@ -241,6 +231,7 @@ test.fixme("auto-fill: opening Auto Fill while signed out gates on sign-in", asy
 
 // Journey 8 — Billing → padlock (needs left_sidebar + billing).
 test.fixme("billing: switching to a paid tier unlocks padlocked features live", async ({ page }) => {
+  await skipWelcomeGuide(page);
   await page.goto("/");
   await page.getByRole("button", { name: /open menu/i }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
