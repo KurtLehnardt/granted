@@ -26,8 +26,43 @@ test("welcome guide: first visit shows the guide; picking a sample runs the sear
   await dialog.getByRole("button", { name: "Next" }).click();
 
   await expect(dialog.getByText("Choose your model")).toBeVisible();
+  // Step 2 points at the header Settings button — the pulsing highlight box
+  // must actually render around it (regression: useDialogA11y inerts every
+  // other <body> child while the guide is open, which used to make the
+  // highlight's own inert check disqualify the Settings button too). The
+  // guide's own inert-ing makes the button aria-hidden, so locate it by its
+  // tour attribute rather than by role/name.
+  const settingsButton = page.locator('[data-tour="settings"]:visible').first();
+  const settingsBox = await settingsButton.boundingBox();
+  expect(settingsBox).not.toBeNull();
+  const highlight = page.locator('[aria-hidden][style*="box-shadow"]');
+  await expect(highlight).toBeVisible();
+  const highlightBox = await highlight.boundingBox();
+  expect(highlightBox).not.toBeNull();
+  expect(Math.abs(highlightBox!.x - settingsBox!.x)).toBeLessThan(20);
+  expect(Math.abs(highlightBox!.y - settingsBox!.y)).toBeLessThan(20);
+
   await dialog.getByRole("button", { name: "Done" }).click();
 
+  await expect(dialog).not.toBeVisible();
+  await expect(page.getByText(FIXTURE_PROGRAM).first()).toBeVisible();
+  await expect(page.getByLabel("Company description")).toHaveValue("");
+});
+
+// Closing step 2 any way (X, Escape, backdrop) must apply the selected
+// sample — the step 2 copy says the pick shows up once the guide closes, not
+// only via Done.
+test("welcome guide: closing step 2 with X still applies the selected sample", async ({ page }) => {
+  await stubBackend(page);
+  await page.goto("/");
+
+  const dialog = page.getByRole("dialog", { name: /welcome/i });
+  await dialog.getByRole("button", { name: "Show sample companies" }).click();
+  await dialog.getByRole("button").filter({ hasText: /Fictional/i }).first().click();
+  await dialog.getByRole("button", { name: "Next" }).click();
+  await expect(dialog.getByText("Choose your model")).toBeVisible();
+
+  await dialog.getByRole("button", { name: "Close" }).click();
   await expect(dialog).not.toBeVisible();
   await expect(page.getByText(FIXTURE_PROGRAM).first()).toBeVisible();
   await expect(page.getByLabel("Company description")).toHaveValue("");

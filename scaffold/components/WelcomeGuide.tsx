@@ -115,7 +115,18 @@ function WelcomeGuideModal({ onDone }: { onDone: (sampleText: string | null) => 
   const [samplesShown, setSamplesShown] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  const close = useCallback(() => onDone(null), [onDone]);
+  // At step 2, closing any way (X, Escape, backdrop) applies the selected
+  // sample — the guide already told the user their pick would show up once
+  // this guide closes, so a close here must mean the same thing Done does.
+  const stepRef = useRef(step);
+  stepRef.current = step;
+  const selectedRef = useRef<string | null>(selectedId);
+  selectedRef.current = selectedId;
+  const close = useCallback(() => {
+    const sample =
+      stepRef.current === 2 ? TEST_CASES.find((tc) => tc.id === selectedRef.current)?.text ?? null : null;
+    onDone(sample);
+  }, [onDone]);
   useDialogA11y(dialogRef, close, initialFocusRef);
 
   // Move focus to the step heading whenever the step changes (skip the very
@@ -263,8 +274,8 @@ function WelcomeGuideModal({ onDone }: { onDone: (sampleText: string | null) => 
 
               {selected && (
                 <p className="mt-3 rounded-sm border border-structure-on-canvas bg-canvas-alt px-3 py-2 text-pretty font-body text-[12px] leading-relaxed text-foreground">
-                  {selected.label} is selected — its results will show up on the page once you close
-                  this guide.
+                  {selected.label} is selected — its results will show up on the page once this
+                  guide closes.
                 </p>
               )}
 
@@ -301,15 +312,17 @@ function SettingsHighlight() {
     const measure = () => {
       const candidates = Array.from(document.querySelectorAll<HTMLElement>('[data-tour="settings"]'));
       for (const el of candidates) {
-        // Skip an inert ancestor (e.g. the collapsed left sidebar, which stays
-        // mounted off-screen for its slide transition) — it has a real size but
-        // isn't the visible trigger.
-        if (el.closest("[inert]")) continue;
         const r = el.getBoundingClientRect();
-        if (r.width > 0 || r.height > 0) {
-          setRect(r);
-          return;
-        }
+        // Skip a zero-size or off-viewport candidate (e.g. the collapsed left
+        // sidebar, which stays mounted off-screen for its slide transition) —
+        // it has a real size but isn't the visible trigger. Deliberately does
+        // NOT check for an inert ancestor: this guide's own dialog inerts
+        // every other <body> child while open (useDialogA11y), which would
+        // otherwise disqualify every candidate, including the visible one.
+        if (r.width <= 0 && r.height <= 0) continue;
+        if (r.right <= 0 || r.bottom <= 0 || r.left >= window.innerWidth || r.top >= window.innerHeight) continue;
+        setRect(r);
+        return;
       }
       setRect(null);
     };
