@@ -30,7 +30,7 @@ const STAGE_LABELS: Record<RefreshStage, string> = {
   "sam.gov": "Fetching SAM.gov",
   sbir: "Fetching SBIR/STTR",
   procurement: "Fetching procurement records",
-  selecting: "Selecting within cap",
+  selecting: "Selecting…",
   embedding: "Embedding",
   saving: "Saving",
 };
@@ -61,6 +61,8 @@ export function overallPct(stage: RefreshStage, done?: number, total?: number): 
 export function stageLabel(stage: RefreshStage, done?: number, total?: number): string {
   const base = STAGE_LABELS[stage];
   if (stage === "embedding" && total) return `Embedding ${done ?? 0} of ${total} new`;
+  // "selecting" done/total is always 1 of 1 (a single pass, not a count worth showing).
+  if (stage === "selecting") return base;
   if (done != null && total != null && total > 0) return `${base} (${done} of ${total})`;
   return base;
 }
