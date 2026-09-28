@@ -1,14 +1,11 @@
 import { NextResponse } from "next/server";
 import { isLoopbackRequest } from "@/lib/corpus/loopback";
-import {
-  readLlmConfig,
-  writeLlmConfig,
-  isValidAnthropicKey,
-  type LlmConfigFile,
-  type ProviderName,
-} from "@/lib/llm/config";
+import { readLlmConfig, writeLlmConfig, publicKeySource, type LlmConfigFile } from "@/lib/llm/config";
+import { validateCloudConfig } from "@/lib/llm/validateCloudConfig";
 
-// POST /api/llm/config — Settings Local/Cloud switch write path. Loopback-only (writes a plaintext key to disk). Never logs the key.
+// POST /api/llm/config — Settings Local/Cloud switch write path. Loopback-only
+// (writes a plaintext key, or a key reference, to disk). Never logs the key.
+// Cloud is only committed with a resolvable, format-valid key (see validateCloudConfig).
 
 export type LlmConfigDeps = {
   isLoopbackRequest: typeof isLoopbackRequest;
@@ -17,12 +14,6 @@ export type LlmConfigDeps = {
 };
 
 const REAL_DEPS: LlmConfigDeps = { isLoopbackRequest, readLlmConfig, writeLlmConfig };
-
-// A placeholder/malformed env value (e.g. .env.example's "sk-ant-...") never counts as a usable env key.
-function hasValidEnvKey(): boolean {
-  const envKey = process.env.ANTHROPIC_API_KEY;
-  return Boolean(envKey && isValidAnthropicKey(envKey));
-}
 
 export async function handleLlmConfigPost(
   req: { headers: { get(name: string): string | null }; json: () => Promise<unknown> },
@@ -42,46 +33,29 @@ export async function handleLlmConfigPost(
   }
 
   const provider: unknown = body?.provider;
-  if (provider !== "ollama" && provider !== "anthropic") {
-    return NextResponse.json({ error: 'provider must be "ollama" or "anthropic".' }, { status: 400 });
+  if (provider !== "ollama" && provider !== "cloud") {
+    return NextResponse.json({ error: 'provider must be "ollama" or "cloud".' }, { status: 400 });
   }
 
-  const current = d.readLlmConfig();
-  const patch: LlmConfigFile = { provider: provider as ProviderName };
-  let anthropicApiKey = current.anthropicApiKey;
-
-  if (body?.clearAnthropicKey === true) {
-    anthropicApiKey = undefined;
+  if (provider === "ollama") {
+    const patch: LlmConfigFile = { provider: "ollama" };
+    if (body?.clearCloud === true) patch.cloud = undefined;
+    const saved = d.writeLlmConfig(patch);
+    return NextResponse.json({ provider: saved.provider ?? "ollama" });
   }
 
-  if (body?.anthropicApiKey !== undefined) {
-    if (typeof body.anthropicApiKey !== "string") {
-      return NextResponse.json({ error: "anthropicApiKey must be a string." }, { status: 400 });
-    }
-    const trimmed = body.anthropicApiKey.trim();
-    if (trimmed.length > 0) {
-      if (!isValidAnthropicKey(trimmed)) {
-        return NextResponse.json(
-          { error: "That doesn't look like a valid Anthropic API key (it should start with sk-ant-)." },
-          { status: 400 },
-        );
-      }
-      anthropicApiKey = trimmed;
-    }
-  }
+  const { config, error } = validateCloudConfig(body?.cloud ?? {});
+  if (error) return NextResponse.json({ error }, { status: 400 });
 
-  if (provider === "anthropic" && !anthropicApiKey && !hasValidEnvKey()) {
-    return NextResponse.json(
-      { error: "Add an Anthropic API key before switching to Cloud (Claude)." },
-      { status: 400 },
-    );
-  }
-
-  patch.anthropicApiKey = anthropicApiKey;
-  const saved = d.writeLlmConfig(patch);
-
+  const saved = d.writeLlmConfig({ provider: "cloud", cloud: config });
+  const savedCloud = saved.cloud!;
   return NextResponse.json({
-    provider: saved.provider,
-    hasAnthropicKey: Boolean(saved.anthropicApiKey || hasValidEnvKey()),
+    provider: "cloud",
+    cloud: {
+      providerId: savedCloud.providerId,
+      ...(savedCloud.baseUrl ? { baseUrl: savedCloud.baseUrl } : {}),
+      ...(savedCloud.model ? { model: savedCloud.model } : {}),
+      keySource: publicKeySource(savedCloud.keySource),
+    },
   });
 }

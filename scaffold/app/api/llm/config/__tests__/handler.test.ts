@@ -22,6 +22,7 @@ function fakeDeps(overrides: Partial<LlmConfigDeps> = {}, initial: LlmConfigFile
     writeLlmConfig: (patch: LlmConfigFile) => {
       stored = { ...stored, ...patch };
       if (!stored.anthropicApiKey) delete stored.anthropicApiKey;
+      if (!stored.cloud) delete stored.cloud;
       writes.push({ ...stored });
       return stored;
     },
@@ -40,7 +41,7 @@ describe("POST /api/llm/config", () => {
 
   test("400 on invalid provider", async () => {
     const deps = fakeDeps();
-    const res = await handleLlmConfigPost(fakeReq({ provider: "openai" }), deps);
+    const res = await handleLlmConfigPost(fakeReq({ provider: "anthropic" }), deps);
     assert.equal(res.status, 400);
   });
 
@@ -57,89 +58,157 @@ describe("POST /api/llm/config", () => {
     assert.deepEqual(deps._get(), { provider: "ollama" });
   });
 
-  test("400 switching to anthropic with no saved key and no env key", async () => {
-    delete process.env.ANTHROPIC_API_KEY;
+  test("400 saving cloud with no key at all -> the inline message", async () => {
     const deps = fakeDeps();
-    const res = await handleLlmConfigPost(fakeReq({ provider: "anthropic" }), deps);
+    const res = await handleLlmConfigPost(fakeReq({ provider: "cloud", cloud: { providerId: "anthropic" } }), deps);
     const json = await res.json();
     assert.equal(res.status, 400);
-    assert.match(json.error, /key/i);
+    assert.equal(json.error, "Please enter a key for your cloud provider.");
   });
 
-  test("400 switching to anthropic when the env key is only the .env.example placeholder", async () => {
-    process.env.ANTHROPIC_API_KEY = "sk-ant-...";
-    const deps = fakeDeps();
-    const res = await handleLlmConfigPost(fakeReq({ provider: "anthropic" }), deps);
-    const json = await res.json();
-    assert.equal(res.status, 400);
-    assert.match(json.error, /key/i);
-    delete process.env.ANTHROPIC_API_KEY;
-  });
-
-  test("switching to anthropic succeeds when an env key exists, without persisting the env key", async () => {
-    process.env.ANTHROPIC_API_KEY = "sk-ant-envkey0000000000";
-    const deps = fakeDeps();
-    const res = await handleLlmConfigPost(fakeReq({ provider: "anthropic" }), deps);
-    assert.equal(res.status, 200);
-    assert.equal(deps._get().anthropicApiKey, undefined);
-    delete process.env.ANTHROPIC_API_KEY;
-  });
-
-  test("400 on a malformed key (bad prefix)", async () => {
+  test("400 on an unknown providerId", async () => {
     const deps = fakeDeps();
     const res = await handleLlmConfigPost(
-      fakeReq({ provider: "anthropic", anthropicApiKey: "not-a-real-key-at-all" }),
+      fakeReq({ provider: "cloud", cloud: { providerId: "not-a-real-provider", keySource: { type: "inline", key: "x" } } }),
       deps,
     );
     assert.equal(res.status, 400);
   });
 
-  test("400 on a too-short key", async () => {
+  test("400 on a malformed anthropic key (bad prefix)", async () => {
     const deps = fakeDeps();
-    const res = await handleLlmConfigPost(fakeReq({ provider: "anthropic", anthropicApiKey: "sk-ant-x" }), deps);
+    const res = await handleLlmConfigPost(
+      fakeReq({ provider: "cloud", cloud: { providerId: "anthropic", keySource: { type: "inline", key: "not-a-real-key-at-all" } } }),
+      deps,
+    );
+    const json = await res.json();
+    assert.equal(res.status, 400);
+    assert.match(json.error, /doesn't look like a valid/);
+  });
+
+  test("400 on a too-short anthropic key", async () => {
+    const deps = fakeDeps();
+    const res = await handleLlmConfigPost(
+      fakeReq({ provider: "cloud", cloud: { providerId: "anthropic", keySource: { type: "inline", key: "sk-ant-x" } } }),
+      deps,
+    );
     assert.equal(res.status, 400);
   });
 
-  test("saves a valid key, trimmed, and switches to anthropic", async () => {
+  test("saves a valid anthropic key, trimmed, and switches to cloud", async () => {
     const deps = fakeDeps();
     const res = await handleLlmConfigPost(
-      fakeReq({ provider: "anthropic", anthropicApiKey: "  sk-ant-abcXYZ1234567890  " }),
+      fakeReq({ provider: "cloud", cloud: { providerId: "anthropic", keySource: { type: "inline", key: "  sk-ant-abcXYZ1234567890  " } } }),
       deps,
     );
     const json = await res.json();
     assert.equal(res.status, 200);
-    assert.equal(deps._get().anthropicApiKey, "sk-ant-abcXYZ1234567890");
-    assert.equal(json.hasAnthropicKey, true);
+    assert.equal(deps._get().cloud?.providerId, "anthropic");
+    assert.deepEqual(deps._get().cloud?.keySource, { type: "inline", key: "sk-ant-abcXYZ1234567890" });
+    assert.equal(json.cloud.providerId, "anthropic");
+    assert.deepEqual(json.cloud.keySource, { type: "inline" });
   });
 
-  test("clearAnthropicKey removes a saved key", async () => {
-    const deps = fakeDeps({}, { provider: "anthropic", anthropicApiKey: "sk-ant-existingkey0000" });
-    process.env.ANTHROPIC_API_KEY = "sk-ant-envkey0000000000";
-    const res = await handleLlmConfigPost(fakeReq({ provider: "anthropic", clearAnthropicKey: true }), deps);
-    assert.equal(res.status, 200);
-    assert.equal(deps._get().anthropicApiKey, undefined);
-    delete process.env.ANTHROPIC_API_KEY;
-  });
-
-  // The common case: key was saved from Settings, no ANTHROPIC_API_KEY in
-  // env. Removing it can't leave provider "anthropic" with no key anywhere
-  // (that combination is rejected below), so the Remove button falls back to
-  // "ollama" — this is the request ModelSection.handleRemoveKey now sends.
-  test("clearAnthropicKey with no env key: falling back to ollama removes the key", async () => {
-    delete process.env.ANTHROPIC_API_KEY;
-    const deps = fakeDeps({}, { provider: "anthropic", anthropicApiKey: "sk-ant-existingkey0000" });
-    const res = await handleLlmConfigPost(fakeReq({ provider: "ollama", clearAnthropicKey: true }), deps);
+  test("saves a non-anthropic provider with its model", async () => {
+    const deps = fakeDeps();
+    const res = await handleLlmConfigPost(
+      fakeReq({ provider: "cloud", cloud: { providerId: "openai", model: "gpt-4o", keySource: { type: "inline", key: "sk-openaikeyvalue0000" } } }),
+      deps,
+    );
     const json = await res.json();
     assert.equal(res.status, 200);
-    assert.equal(deps._get().anthropicApiKey, undefined);
-    assert.equal(json.provider, "ollama");
-    assert.equal(json.hasAnthropicKey, false);
+    assert.equal(json.cloud.providerId, "openai");
+    assert.equal(json.cloud.model, "gpt-4o");
+  });
+
+  test("'other' provider requires a valid https base URL", async () => {
+    const deps = fakeDeps();
+    const missingUrl = await handleLlmConfigPost(
+      fakeReq({ provider: "cloud", cloud: { providerId: "other", keySource: { type: "inline", key: "a-fine-key-value" } } }),
+      deps,
+    );
+    assert.equal(missingUrl.status, 400);
+
+    const badUrl = await handleLlmConfigPost(
+      fakeReq({ provider: "cloud", cloud: { providerId: "other", baseUrl: "http://not-https.example.com", keySource: { type: "inline", key: "a-fine-key-value" } } }),
+      deps,
+    );
+    assert.equal(badUrl.status, 400);
+
+    const ok = await handleLlmConfigPost(
+      fakeReq({ provider: "cloud", cloud: { providerId: "other", baseUrl: "https://my-proxy.example.com/v1", keySource: { type: "inline", key: "a-fine-key-value" } } }),
+      deps,
+    );
+    assert.equal(ok.status, 200);
+    const json = await ok.json();
+    assert.equal(json.cloud.baseUrl, "https://my-proxy.example.com/v1");
+  });
+
+  test("env key source: unset variable -> 400 'isn't set'", async () => {
+    delete process.env.GRANTED_CONFIG_TEST_UNSET;
+    const deps = fakeDeps();
+    const res = await handleLlmConfigPost(
+      fakeReq({ provider: "cloud", cloud: { providerId: "openai", keySource: { type: "env", name: "GRANTED_CONFIG_TEST_UNSET" } } }),
+      deps,
+    );
+    const json = await res.json();
+    assert.equal(res.status, 400);
+    assert.match(json.error, /GRANTED_CONFIG_TEST_UNSET.*isn't set/);
+  });
+
+  test("env key source: invalid variable name -> 400", async () => {
+    const deps = fakeDeps();
+    const res = await handleLlmConfigPost(
+      fakeReq({ provider: "cloud", cloud: { providerId: "openai", keySource: { type: "env", name: "not valid!" } } }),
+      deps,
+    );
+    assert.equal(res.status, 400);
+  });
+
+  test("env key source: set, valid -> saves the reference only, never the value", async () => {
+    process.env.GRANTED_CONFIG_TEST_KEY = "sk-envprovidedkey0000";
+    const deps = fakeDeps();
+    const res = await handleLlmConfigPost(
+      fakeReq({ provider: "cloud", cloud: { providerId: "openai", keySource: { type: "env", name: "GRANTED_CONFIG_TEST_KEY" } } }),
+      deps,
+    );
+    const json = await res.json();
+    assert.equal(res.status, 200);
+    assert.deepEqual(deps._get().cloud?.keySource, { type: "env", name: "GRANTED_CONFIG_TEST_KEY" });
+    assert.equal(JSON.stringify(json).includes("sk-envprovidedkey0000"), false);
+    delete process.env.GRANTED_CONFIG_TEST_KEY;
+  });
+
+  test("file key source: missing file -> 400 \"Couldn't read\"", async () => {
+    const deps = fakeDeps();
+    const res = await handleLlmConfigPost(
+      fakeReq({ provider: "cloud", cloud: { providerId: "openai", keySource: { type: "file", path: "/definitely/not/a/real/path.key" } } }),
+      deps,
+    );
+    const json = await res.json();
+    assert.equal(res.status, 400);
+    assert.match(json.error, /Couldn't read/);
+  });
+
+  test("switching to ollama keeps the previously saved cloud config", async () => {
+    const deps = fakeDeps({}, { provider: "cloud", cloud: { providerId: "anthropic", keySource: { type: "inline", key: "sk-ant-existingkey0000" } } });
+    const res = await handleLlmConfigPost(fakeReq({ provider: "ollama" }), deps);
+    assert.equal(res.status, 200);
+    assert.equal(deps._get().cloud?.providerId, "anthropic");
+    assert.equal(deps._get().provider, "ollama");
+  });
+
+  test("clearCloud removes the saved cloud config when switching to ollama", async () => {
+    const deps = fakeDeps({}, { provider: "cloud", cloud: { providerId: "anthropic", keySource: { type: "inline", key: "sk-ant-existingkey0000" } } });
+    const res = await handleLlmConfigPost(fakeReq({ provider: "ollama", clearCloud: true }), deps);
+    assert.equal(res.status, 200);
+    assert.equal(deps._get().cloud, undefined);
   });
 
   test("never echoes the key back in the response", async () => {
     const deps = fakeDeps();
     const res = await handleLlmConfigPost(
-      fakeReq({ provider: "anthropic", anthropicApiKey: "sk-ant-abcXYZ1234567890" }),
+      fakeReq({ provider: "cloud", cloud: { providerId: "anthropic", keySource: { type: "inline", key: "sk-ant-abcXYZ1234567890" } } }),
       deps,
     );
     const json = await res.json();
