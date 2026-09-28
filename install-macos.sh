@@ -45,11 +45,20 @@ fi
 # Homebrew lives at a different prefix per architecture and is NOT on PATH in a
 # non-login shell (which is what `curl ... | bash` gets). Look in both places so
 # we don't wrongly conclude brew is missing and send the user down a slower path.
-if ! command -v brew >/dev/null 2>&1; then
+# (Used both here and after a fresh bootstrap below -- kept as one function so
+# the two call sites can't drift apart.)
+find_and_activate_brew() {
+  command -v brew >/dev/null 2>&1 && return 0
   for candidate in /opt/homebrew/bin/brew /usr/local/bin/brew; do
-    [ -x "$candidate" ] && eval "$("$candidate" shellenv)" && break
+    if [ -x "$candidate" ]; then
+      eval "$("$candidate" shellenv)"
+      return 0
+    fi
   done
-fi
+  return 1
+}
+
+find_and_activate_brew || true
 if command -v brew >/dev/null 2>&1; then
   HAVE_BREW=1
   ok "Homebrew found ($(brew --prefix))"
@@ -64,14 +73,24 @@ else
   # No Homebrew AND no TTY -- this is the documented `curl | bash` one-liner.
   # The fallbacks below need sudo to prompt on a real terminal, which a piped
   # script never has, so without Homebrew this path cannot finish unattended
-  # at all. Homebrew's own NONINTERACTIVE installer needs neither a TTY nor
-  # sudo for a per-user /opt/homebrew (or /usr/local on Intel) install, so
-  # bootstrap it here rather than dying with a "re-run this by hand" message.
+  # at all. Bootstrap Homebrew instead of dying with a "re-run this by hand"
+  # message -- but its own NONINTERACTIVE installer still needs *some* sudo
+  # access to create /opt/homebrew (Apple Silicon) or use /usr/local (Intel)
+  # on a brand new Mac; it just refuses to prompt for it (`sudo -n`) rather
+  # than skipping the requirement entirely. Check that up front so a Mac with
+  # no cached/passwordless sudo gets a clear, actionable message instead of
+  # Homebrew's own context-free "Insufficient permissions" abort.
+  if ! sudo -n true 2>/dev/null; then
+    die "Installing Homebrew (needed to finish this without a terminal to prompt on) needs sudo, and this session has no cached sudo credential. Either run 'sudo -v' once in this terminal first and re-run this one-liner within a few minutes, or don't pipe it -- download and run it directly so it has a terminal to prompt through: curl -fsSL https://raw.githubusercontent.com/KurtLehnardt/granted/main/install-macos.sh -o install-macos.sh && bash install-macos.sh"
+  fi
   log "No Homebrew and no terminal to prompt through — installing Homebrew (needed for an unattended install)..."
-  NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-  for candidate in /opt/homebrew/bin/brew /usr/local/bin/brew; do
-    [ -x "$candidate" ] && eval "$("$candidate" shellenv)" && break
-  done
+  # Fetched into a variable first and checked explicitly: a failure INSIDE a
+  # $(...) substitution doesn't trip `set -e` on its own -- it would just
+  # silently hand bash an empty string to run as a no-op.
+  INSTALL_SCRIPT="$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" \
+    || die "Couldn't download the Homebrew installer -- check your network connection and re-run."
+  NONINTERACTIVE=1 /bin/bash -c "$INSTALL_SCRIPT"
+  find_and_activate_brew || true
   command -v brew >/dev/null 2>&1 || die "Homebrew install finished but brew isn't on PATH -- open a new terminal and re-run."
   HAVE_BREW=1
   ok "Homebrew installed ($(brew --prefix))"
