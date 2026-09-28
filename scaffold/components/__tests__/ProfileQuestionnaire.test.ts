@@ -303,6 +303,31 @@ test("ProfileQuestionnaire: an empty form renders as directly editable controls,
   }
 });
 
+// --- collapse toggle bar -----------------------------------------------
+
+function renderPQ(props: Partial<React.ComponentProps<typeof ProfileQuestionnaire>>) {
+  return renderToStaticMarkup(React.createElement(ProfileQuestionnaire, { onSubmit: () => {}, ...props }));
+}
+
+test("ProfileQuestionnaire: before any search there is no summary bar and the form is fully expanded", () => {
+  const html = renderPQ({});
+  assert.doesNotMatch(html, /aria-controls="pq-form-fields"/);
+  assert.match(html, /id="pq-form-fields"/);
+});
+
+test("ProfileQuestionnaire: collapsed shows only the summary bar, marked not expanded", () => {
+  const html = renderPQ({ collapsed: true });
+  assert.match(html, /aria-expanded="false" aria-controls="pq-form-fields"/);
+  assert.match(html, /No description yet/);
+  assert.doesNotMatch(html, /id="pq-form-fields"/);
+});
+
+test("ProfileQuestionnaire: re-expanded keeps the bar and reveals the form with the card animation", () => {
+  const html = renderPQ({ collapsed: false });
+  assert.match(html, /aria-expanded="true" aria-controls="pq-form-fields"/);
+  assert.match(html, /id="pq-form-fields" class="reveal/);
+});
+
 // --- draftValue / splitBooleanText / resolveBooleanTextField --------------
 
 test("draftValue: with no live edit yet, falls back to the saved profile cell", () => {

@@ -210,31 +210,29 @@ test("intake: the form collapses to a summary bar after a real search starts, an
   await page.getByLabel("Primary US location").fill("Boise, Idaho");
   await page.getByLabel("Use of funds").fill("Hire two engineers");
   await page.getByLabel("Use of funds").blur();
-  await expect(page.getByRole("button", { name: "Find opportunities" })).toBeEnabled();
+  const toggle = page.locator('button[aria-controls="pq-form-fields"]');
+  await expect(toggle).toHaveCount(0);
 
   await page.getByRole("button", { name: "Find opportunities" }).click();
 
-  const summaryBar = page.getByRole("button", { name: new RegExp(description) });
-  await expect(summaryBar).toBeVisible();
-  await expect(summaryBar).toHaveAttribute("aria-expanded", "false");
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(toggle).toContainText(description);
+  await expect(toggle).toBeFocused();
   await expect(page.getByLabel("Company description")).toHaveCount(0);
-
   await expect(page.getByText(FIXTURE_PROGRAM).first()).toBeVisible();
 
-  await summaryBar.click();
+  await toggle.click();
   const descriptionField = page.getByLabel("Company description");
-  await expect(descriptionField).toBeVisible();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
   await expect(descriptionField).toHaveValue(description);
   await expect(descriptionField).toBeFocused();
   await expect(page.getByLabel("Industry / market")).toHaveValue("Health IT");
-  await expect(page.getByRole("button", { name: "Find opportunities" })).toBeVisible();
-
-  // Results stay visible while the form is expanded again.
   await expect(page.getByText(FIXTURE_PROGRAM).first()).toBeVisible();
 
-  // Editing and searching again re-collapses the form.
+  await descriptionField.fill(`${description} Now piloting in three states.`);
   await page.getByRole("button", { name: "Find opportunities" }).click();
-  await expect(summaryBar).toBeVisible();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(toggle).toContainText("Now piloting in three states.");
 });
 
 // Journey 3 — Interview (needs r1_interview on + a short description).
