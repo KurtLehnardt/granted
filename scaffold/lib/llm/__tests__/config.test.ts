@@ -14,6 +14,8 @@ let readLlmConfig: typeof import("../config").readLlmConfig;
 let writeLlmConfig: typeof import("../config").writeLlmConfig;
 let resolveProvider: typeof import("../config").resolveProvider;
 let resolveAnthropicKey: typeof import("../config").resolveAnthropicKey;
+let resolveAnthropicKeySource: typeof import("../config").resolveAnthropicKeySource;
+let isValidAnthropicKey: typeof import("../config").isValidAnthropicKey;
 let resetLlmConfigCache: typeof import("../config").resetLlmConfigCache;
 let isLocalLlm: typeof import("../client").isLocalLlm;
 
@@ -21,7 +23,15 @@ before(async () => {
   process.env.GRANTED_LLM_CONFIG_PATH = CONFIG_PATH;
   const config = await import("../config");
   const client = await import("../client");
-  ({ readLlmConfig, writeLlmConfig, resolveProvider, resolveAnthropicKey, resetLlmConfigCache } = config);
+  ({
+    readLlmConfig,
+    writeLlmConfig,
+    resolveProvider,
+    resolveAnthropicKey,
+    resolveAnthropicKeySource,
+    isValidAnthropicKey,
+    resetLlmConfigCache,
+  } = config);
   ({ isLocalLlm } = client);
 });
 
@@ -106,5 +116,32 @@ describe("llm/config — precedence", () => {
     const first = readLlmConfig();
     const second = readLlmConfig();
     assert.deepEqual(first, second);
+  });
+
+  test("a placeholder/malformed env key is ignored", () => {
+    removeConfigFile();
+    process.env.ANTHROPIC_API_KEY = "sk-ant-...";
+    assert.equal(resolveAnthropicKey(), undefined);
+    assert.equal(resolveAnthropicKeySource(), undefined);
+  });
+
+  test("resolveAnthropicKeySource: saved wins, then valid env, else undefined", () => {
+    removeConfigFile();
+    delete process.env.ANTHROPIC_API_KEY;
+    assert.equal(resolveAnthropicKeySource(), undefined);
+
+    process.env.ANTHROPIC_API_KEY = "sk-ant-envkeyvalue0000";
+    assert.equal(resolveAnthropicKeySource(), "env");
+
+    writeLlmConfig({ provider: "anthropic", anthropicApiKey: "sk-ant-savedkeyvalue0000" });
+    assert.equal(resolveAnthropicKeySource(), "saved");
+  });
+
+  test("isValidAnthropicKey: prefix, length bounds", () => {
+    assert.equal(isValidAnthropicKey("sk-ant-..."), false);
+    assert.equal(isValidAnthropicKey("not-a-key"), false);
+    assert.equal(isValidAnthropicKey("sk-ant-x"), false);
+    assert.equal(isValidAnthropicKey("sk-ant-" + "a".repeat(200)), false);
+    assert.equal(isValidAnthropicKey("sk-ant-abcXYZ1234567890"), true);
   });
 });

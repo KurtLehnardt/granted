@@ -35,6 +35,7 @@ describe("GET /api/llm", () => {
       provider: "anthropic",
       hasAnthropicKey: true,
       anthropicKeyHint: "5678",
+      anthropicKeySource: "env",
     });
     assert.equal(fetched, false, "hosted must never call Ollama");
   });
@@ -47,6 +48,18 @@ describe("GET /api/llm", () => {
     const j = await res.json();
     assert.equal(j.hasAnthropicKey, false);
     assert.equal(j.anthropicKeyHint, undefined);
+    assert.equal(j.anthropicKeySource, undefined);
+  });
+
+  test("hosted with .env.example placeholder key -> hasAnthropicKey: false, no hint", async () => {
+    delete process.env.LLM_PROVIDER;
+    process.env.ANTHROPIC_API_KEY = "sk-ant-...";
+
+    const res = await GET();
+    const j = await res.json();
+    assert.equal(j.hasAnthropicKey, false);
+    assert.equal(j.anthropicKeyHint, undefined);
+    assert.equal(j.anthropicKeySource, undefined);
   });
 
   test("local -> active model + installed chat models (embedding models excluded)", async () => {

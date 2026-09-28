@@ -28,7 +28,7 @@
     "data:refresh": "node --import tsx scripts/refresh-corpus.mjs",
     "check:hex": "node scripts/design/check-hex.mjs",
     "check:contrast": "node scripts/design/contrast-check.mjs",
-    "test": "node --import tsx --test \"lib/**/__tests__/**/*.test.ts\" \"app/**/__tests__/**/*.test.ts\" \"scripts/**/__tests__/**/*.test.ts\" \"components/**/__tests__/**/*.test.ts\"",
+    "test": "tsx --test \"lib/**/__tests__/**/*.test.ts\" \"app/**/__tests__/**/*.test.ts\" \"scripts/**/__tests__/**/*.test.ts\" \"components/**/__tests__/**/*.test.ts\"",
     "e2e": "playwright test",
     "check:prompts": "node scripts/check-prompt-registry.mjs",
     "canon:seed": "node --import tsx scripts/canon/seed-from-v1.mjs",

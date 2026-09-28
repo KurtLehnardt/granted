@@ -51,6 +51,18 @@ describe("ModelSection — renders the right panel per provider", () => {
     assert.doesNotMatch(html, /type="password"/);
   });
 
+  test("provider: anthropic, key from env -> shows .env.local notice, Replace but no Remove", () => {
+    const html = render({
+      provider: "anthropic",
+      local: false,
+      hasAnthropicKey: true,
+      anthropicKeySource: "env",
+    });
+    assert.match(html, /Using key from \.env\.local/);
+    assert.match(html, /Replace/);
+    assert.doesNotMatch(html, /Remove/);
+  });
+
   test("Test key button is always present on the cloud panel", () => {
     const html = render({ provider: "anthropic", local: false, hasAnthropicKey: true, anthropicKeyHint: "abcd" });
     assert.match(html, /Test key/);

@@ -1,5 +1,6 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
+import Anthropic from "@anthropic-ai/sdk";
 import { handleTestKeyPost, type TestKeyDeps } from "../handler";
 
 function fakeReq(body?: unknown): { headers: { get(name: string): string | null }; json: () => Promise<unknown> } {
@@ -87,5 +88,80 @@ describe("POST /api/llm/test-key", () => {
     assert.equal(json.ok, false);
     assert.equal(typeof json.error, "string");
     assert.equal(json.error.includes("sk-ant-badkey00000000"), false);
+  });
+
+  test("401 -> invalid key message", async () => {
+    const res = await handleTestKeyPost(
+      fakeReq({ anthropicApiKey: "sk-ant-badkey00000000" }),
+      fakeDeps({
+        makeAnthropicClientForKey: (() => ({
+          messages: {
+            create: async () => {
+              throw new Anthropic.AuthenticationError(401, { message: "invalid x-api-key" }, "invalid x-api-key", {});
+            },
+          },
+        })) as any,
+      }),
+    );
+    const json = await res.json();
+    assert.equal(json.ok, false);
+    assert.match(json.error, /didn't work/i);
+  });
+
+  test("429 -> rate limit message, distinct from an invalid key", async () => {
+    const res = await handleTestKeyPost(
+      fakeReq({ anthropicApiKey: "sk-ant-goodkey0000000" }),
+      fakeDeps({
+        makeAnthropicClientForKey: (() => ({
+          messages: {
+            create: async () => {
+              throw new Anthropic.RateLimitError(429, { message: "rate limited" }, "rate limited", {});
+            },
+          },
+        })) as any,
+      }),
+    );
+    const json = await res.json();
+    assert.equal(json.ok, false);
+    assert.match(json.error, /rate.?limit/i);
+    assert.doesNotMatch(json.error, /didn't work/i);
+  });
+
+  test("529 overload -> temporarily unavailable message, distinct from an invalid key", async () => {
+    const res = await handleTestKeyPost(
+      fakeReq({ anthropicApiKey: "sk-ant-goodkey0000000" }),
+      fakeDeps({
+        makeAnthropicClientForKey: (() => ({
+          messages: {
+            create: async () => {
+              throw new Anthropic.InternalServerError(529, { message: "overloaded" }, "overloaded", {});
+            },
+          },
+        })) as any,
+      }),
+    );
+    const json = await res.json();
+    assert.equal(json.ok, false);
+    assert.match(json.error, /unavailable/i);
+    assert.doesNotMatch(json.error, /didn't work/i);
+  });
+
+  test("network error -> couldn't reach Anthropic message, distinct from an invalid key", async () => {
+    const res = await handleTestKeyPost(
+      fakeReq({ anthropicApiKey: "sk-ant-goodkey0000000" }),
+      fakeDeps({
+        makeAnthropicClientForKey: (() => ({
+          messages: {
+            create: async () => {
+              throw new Anthropic.APIConnectionError({ message: "connection error" });
+            },
+          },
+        })) as any,
+      }),
+    );
+    const json = await res.json();
+    assert.equal(json.ok, false);
+    assert.match(json.error, /couldn't reach/i);
+    assert.doesNotMatch(json.error, /didn't work/i);
   });
 });

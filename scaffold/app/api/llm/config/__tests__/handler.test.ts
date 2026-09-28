@@ -66,6 +66,16 @@ describe("POST /api/llm/config", () => {
     assert.match(json.error, /key/i);
   });
 
+  test("400 switching to anthropic when the env key is only the .env.example placeholder", async () => {
+    process.env.ANTHROPIC_API_KEY = "sk-ant-...";
+    const deps = fakeDeps();
+    const res = await handleLlmConfigPost(fakeReq({ provider: "anthropic" }), deps);
+    const json = await res.json();
+    assert.equal(res.status, 400);
+    assert.match(json.error, /key/i);
+    delete process.env.ANTHROPIC_API_KEY;
+  });
+
   test("switching to anthropic succeeds when an env key exists, without persisting the env key", async () => {
     process.env.ANTHROPIC_API_KEY = "sk-ant-envkey0000000000";
     const deps = fakeDeps();

@@ -2,41 +2,27 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-/**
- * Runtime override for the LLM provider, written by the Settings UI (POST
- * /api/llm/config) and read by lib/llm/client.ts. Lets a user flip Local <->
- * Cloud from the running app, with no restart and no env var edit.
- *
- * Precedence: this file, when present and parseable, wins over LLM_PROVIDER /
- * ANTHROPIC_API_KEY entirely for the field(s) it sets. No file (or an
- * unreadable/corrupt one) means today's env-only behavior, unchanged.
- *
- * mtime-cached: re-read only when the file's mtime changes, so the hot path
- * (every LLM call) is a single stat(), not a read+parse.
- *
- * Gitignored (data/local) — this is a per-machine runtime setting, and it can
- * hold a plaintext Anthropic key.
- */
+// Runtime provider override written by Settings (POST /api/llm/config), read by lib/llm/client.ts.
+// Wins over LLM_PROVIDER/ANTHROPIC_API_KEY when set. mtime-cached. Gitignored (data/local) — can hold a plaintext key.
 
 export type ProviderName = "ollama" | "anthropic";
+export type AnthropicKeySource = "saved" | "env";
+
+// Real keys are "sk-ant-" + a long token; catches paste mistakes and the .env.example placeholder ("sk-ant-...").
+const KEY_PATTERN = /^sk-ant-[A-Za-z0-9_-]+$/;
+const MIN_KEY_LENGTH = 20;
+const MAX_KEY_LENGTH = 200;
+
+export function isValidAnthropicKey(key: string): boolean {
+  return key.length >= MIN_KEY_LENGTH && key.length <= MAX_KEY_LENGTH && KEY_PATTERN.test(key);
+}
 
 export interface LlmConfigFile {
   provider?: ProviderName;
   anthropicApiKey?: string;
 }
 
-// Lazy (not a module-load-time constant) so tests can point this at an
-// isolated temp file via GRANTED_LLM_CONFIG_PATH — the real app never sets it
-// and always gets data/local/llm-config.json. This also keeps concurrent test
-// FILES (each its own process, but sharing this disk) from racing on the same
-// path when the whole suite runs together.
-//
-// Safety net: node:test sets NODE_TEST_CONTEXT on every test run (the `npm
-// test` script and a single `tsx --test <file>` alike). If a test process
-// gets here without GRANTED_LLM_CONFIG_PATH set, treat the config file as
-// absent rather than fall through to the real data/local/llm-config.json —
-// otherwise a checkout where Settings saved a Cloud config leaks a real
-// Anthropic key into tests that only stub fetch, not the SDK.
+// Lazy so tests can isolate via GRANTED_LLM_CONFIG_PATH; under node:test with no override, treat the file as absent (never leak a real saved key into tests).
 function configPath(): string {
   if (process.env.GRANTED_LLM_CONFIG_PATH) return process.env.GRANTED_LLM_CONFIG_PATH;
   if (process.env.NODE_TEST_CONTEXT) return path.join(os.tmpdir(), `granted-llm-config-unset-${process.pid}.json`);
@@ -100,10 +86,19 @@ export function resolveProvider(): string {
   return (process.env.LLM_PROVIDER || "anthropic").toLowerCase();
 }
 
-/** Resolved Anthropic key: the saved key wins when set, else ANTHROPIC_API_KEY. */
+/** Resolved Anthropic key: the saved key wins when set, else a valid ANTHROPIC_API_KEY (placeholders ignored). */
 export function resolveAnthropicKey(): string | undefined {
   const saved = readLlmConfig().anthropicApiKey;
-  return saved || process.env.ANTHROPIC_API_KEY;
+  if (saved) return saved;
+  const envKey = process.env.ANTHROPIC_API_KEY;
+  return envKey && isValidAnthropicKey(envKey) ? envKey : undefined;
+}
+
+/** Where the resolved key (if any) came from — lets the UI say "from .env.local". */
+export function resolveAnthropicKeySource(): AnthropicKeySource | undefined {
+  if (readLlmConfig().anthropicApiKey) return "saved";
+  const envKey = process.env.ANTHROPIC_API_KEY;
+  return envKey && isValidAnthropicKey(envKey) ? "env" : undefined;
 }
 
 /** Test-only: drop the in-memory cache so the next read re-stats the file. */

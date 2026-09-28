@@ -9,6 +9,7 @@ export type LlmProviderInfo = {
   local: boolean;
   hasAnthropicKey: boolean;
   anthropicKeyHint?: string;
+  anthropicKeySource?: "saved" | "env";
   model?: string;
   models?: OllamaModel[];
 };
@@ -214,14 +215,18 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
           {info?.hasAnthropicKey && !replacing ? (
             <div className="flex flex-wrap items-center gap-2">
               <span className={labelTextClass}>
-                Key saved &bull;&bull;&bull;&bull;{info.anthropicKeyHint ?? ""}
+                {info.anthropicKeySource === "env"
+                  ? "Using key from .env.local"
+                  : `Key saved ••••${info.anthropicKeyHint ?? ""}`}
               </span>
               <button type="button" className={smallBtnClass} onClick={() => setReplacing(true)}>
                 Replace
               </button>
-              <button type="button" className={smallBtnClass} onClick={handleRemoveKey} disabled={saving}>
-                Remove
-              </button>
+              {info.anthropicKeySource !== "env" && (
+                <button type="button" className={smallBtnClass} onClick={handleRemoveKey} disabled={saving}>
+                  Remove
+                </button>
+              )}
             </div>
           ) : (
             <>
