@@ -4,7 +4,7 @@ import { isCloudProviderId, isValidHttpsUrl } from "@/lib/llm/providers";
 import { normalizeOpenAiBaseUrl } from "@/lib/llm/baseUrl";
 import { resolveDraftKey, savedKeySourceFor } from "@/lib/llm/validateCloudConfig";
 import { listCloudModels } from "@/lib/llm/cloudModels";
-import { resolveCloudConfig } from "@/lib/llm/config";
+import { resolveCloudConfig, isValidAnthropicWorkspaceId } from "@/lib/llm/config";
 
 // POST /api/llm/models — populates the Settings model picker for a cloud
 // provider once a key resolves. Loopback-only; never echoes the key.
@@ -47,11 +47,20 @@ export async function handleModelsPost(
     baseUrl = normalizeOpenAiBaseUrl(baseUrl);
   }
 
+  let anthropicWorkspaceId: string | undefined;
+  if (providerId === "anthropic" && typeof body?.anthropicWorkspaceId === "string" && body.anthropicWorkspaceId.trim()) {
+    const trimmed = body.anthropicWorkspaceId.trim();
+    if (!isValidAnthropicWorkspaceId(trimmed)) {
+      return NextResponse.json({ error: 'That doesn\'t look like a valid Workspace ID (it should look like "wrkspc_...").' }, { status: 400 });
+    }
+    anthropicWorkspaceId = trimmed;
+  }
+
   const saved = savedKeySourceFor(d.resolveCloudConfig(), providerId, baseUrl);
   const draft = resolveDraftKey(providerId, body?.keySource, saved);
   if (draft.error) return NextResponse.json({ error: draft.error }, { status: 400 });
 
-  const result = await d.listCloudModels({ providerId, baseUrl, key: draft.key! });
+  const result = await d.listCloudModels({ providerId, baseUrl, key: draft.key!, anthropicWorkspaceId });
   if (result.error) return NextResponse.json({ error: result.error }, { status: 200 });
   return NextResponse.json({ models: result.models ?? [] });
 }

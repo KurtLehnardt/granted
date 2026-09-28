@@ -105,4 +105,36 @@ describe("POST /api/llm/models", () => {
     assert.equal(res.status, 400);
     assert.equal(json.error, "Please enter a key for your cloud provider.");
   });
+
+  test("draft anthropicWorkspaceId is passed through to listCloudModels", async () => {
+    let sent: any;
+    const res = await handleModelsPost(
+      fakeReq({ providerId: "anthropic", keySource: { type: "inline", key: "sk-ant-abcXYZ1234567890" }, anthropicWorkspaceId: "wrkspc_abc123" }),
+      fakeDeps({ listCloudModels: (async (p: any) => { sent = p; return { models: [] }; }) as any }),
+    );
+    assert.equal(res.status, 200);
+    assert.equal(sent.anthropicWorkspaceId, "wrkspc_abc123");
+  });
+
+  test("no draft anthropicWorkspaceId -> undefined passed through", async () => {
+    let sent: any;
+    const res = await handleModelsPost(
+      fakeReq({ providerId: "anthropic", keySource: { type: "inline", key: "sk-ant-abcXYZ1234567890" } }),
+      fakeDeps({ listCloudModels: (async (p: any) => { sent = p; return { models: [] }; }) as any }),
+    );
+    assert.equal(res.status, 200);
+    assert.equal(sent.anthropicWorkspaceId, undefined);
+  });
+
+  test("invalid draft anthropicWorkspaceId shape -> 400, no listCloudModels call", async () => {
+    let called = false;
+    const res = await handleModelsPost(
+      fakeReq({ providerId: "anthropic", keySource: { type: "inline", key: "sk-ant-abcXYZ1234567890" }, anthropicWorkspaceId: "not-valid" }),
+      fakeDeps({ listCloudModels: (async () => { called = true; return {}; }) as any }),
+    );
+    const json = await res.json();
+    assert.equal(res.status, 400);
+    assert.match(json.error, /Workspace ID/);
+    assert.equal(called, false);
+  });
 });

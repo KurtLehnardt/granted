@@ -56,6 +56,7 @@ export async function handleLlmConfigPost(
       providerId: savedCloud.providerId,
       ...(savedCloud.baseUrl ? { baseUrl: savedCloud.baseUrl } : {}),
       ...(savedCloud.model ? { model: savedCloud.model } : {}),
+      ...(savedCloud.anthropicWorkspaceId ? { anthropicWorkspaceId: savedCloud.anthropicWorkspaceId } : {}),
       keySource: publicKeySource(savedCloud.keySource),
     },
   });

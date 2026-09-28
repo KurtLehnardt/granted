@@ -12,10 +12,55 @@ export type CloudInfo = {
   providerId: CloudProviderId;
   baseUrl?: string;
   model?: string;
+  /** Anthropic only: for a key that isn't scoped to a workspace. Not secret. */
+  anthropicWorkspaceId?: string;
   hasKey: boolean;
   keyHint?: string;
   keySource: PublicKeySource;
 };
+
+const KEY_TOOLTIP_TEXT =
+  "Please ensure your key is valid, has the correct permissions, and is scoped to the correct workspace.";
+
+/**
+ * Accessible "ⓘ" tooltip for the cloud key input: a keyboard-focusable button
+ * (not a bare span) whose tooltip text shows on hover AND focus, and whose id
+ * the caller wires to the key input's `aria-describedby` so screen-reader
+ * users get the same hint reading the field itself, not only the icon.
+ */
+function KeyInfoTooltip({ id }: { id: string }) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <span
+      className="relative ml-1 inline-block align-middle"
+      onMouseEnter={() => setVisible(true)}
+      onMouseLeave={() => setVisible(false)}
+    >
+      <button
+        type="button"
+        aria-describedby={id}
+        aria-label="Key requirements"
+        className="inline-flex h-3.5 w-3.5 cursor-help select-none items-center justify-center rounded-full border border-structure-on-canvas font-mono text-[9px] leading-none text-structure-on-canvas outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas"
+        onFocus={() => setVisible(true)}
+        onBlur={() => setVisible(false)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") setVisible(false);
+        }}
+      >
+        ⓘ
+      </button>
+      <span
+        id={id}
+        role="tooltip"
+        className={`absolute left-1/2 top-full z-10 w-56 -translate-x-1/2 pt-1.5 ${visible ? "block" : "hidden"}`}
+      >
+        <span className="block rounded-sm border border-structure-on-canvas bg-canvas px-2.5 py-1.5 font-body text-[12px] leading-snug text-foreground shadow-md">
+          {KEY_TOOLTIP_TEXT}
+        </span>
+      </span>
+    </span>
+  );
+}
 
 export type LlmProviderInfo = {
   provider: "ollama" | "cloud";
@@ -38,7 +83,9 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
   const baseUrlId = `${uid}-base-url`;
   const keySourceId = `${uid}-key-source`;
   const keyValueId = `${uid}-key-value`;
+  const keyTooltipId = `${uid}-key-tooltip`;
   const cloudModelId = `${uid}-cloud-model`;
+  const workspaceIdInputId = `${uid}-workspace-id`;
 
   const [info, setInfo] = useState<LlmProviderInfo | null>(initialInfo ?? null);
   const [uiProvider, setUiProvider] = useState<"ollama" | "cloud">(initialInfo?.provider ?? "ollama");
@@ -49,6 +96,7 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
   const [baseUrl, setBaseUrl] = useState(cloud?.baseUrl ?? "");
   const [cloudModel, setCloudModel] = useState(cloud?.model ?? "");
   const [keySourceType, setKeySourceType] = useState<KeySourceType>(cloud?.keySource.type ?? "inline");
+  const [anthropicWorkspaceId, setAnthropicWorkspaceId] = useState(cloud?.anthropicWorkspaceId ?? "");
   const [keyDraft, setKeyDraft] = useState(""); // never prefilled from a saved secret
   const [envName, setEnvName] = useState(cloud?.keySource.type === "env" ? cloud.keySource.name : "");
   const [filePath, setFilePath] = useState(cloud?.keySource.type === "file" ? cloud.keySource.path : "");
@@ -67,6 +115,7 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
     setBaseUrl(c?.baseUrl ?? "");
     setCloudModel(c?.model ?? "");
     setKeySourceType(c?.keySource.type ?? "inline");
+    setAnthropicWorkspaceId(c?.anthropicWorkspaceId ?? "");
     setKeyDraft("");
     setEnvName(c?.keySource.type === "env" ? c.keySource.name : "");
     setFilePath(c?.keySource.type === "file" ? c.keySource.path : "");
@@ -144,6 +193,9 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
           providerId,
           ...(providerId === "other" ? { baseUrl: baseUrl.trim() } : {}),
           ...(cloudModel.trim() ? { model: cloudModel.trim() } : {}),
+          ...(providerId === "anthropic" && anthropicWorkspaceId.trim()
+            ? { anthropicWorkspaceId: anthropicWorkspaceId.trim() }
+            : {}),
           keySource: currentKeySource(),
         },
       };
@@ -200,6 +252,9 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
           providerId,
           ...(providerId === "other" ? { baseUrl: baseUrl.trim() } : {}),
           ...(cloudModel.trim() ? { model: cloudModel.trim() } : {}),
+          ...(providerId === "anthropic" && anthropicWorkspaceId.trim()
+            ? { anthropicWorkspaceId: anthropicWorkspaceId.trim() }
+            : {}),
           keySource: currentKeySource(),
         }),
       });
@@ -222,6 +277,9 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
         body: JSON.stringify({
           providerId,
           ...(providerId === "other" ? { baseUrl: baseUrl.trim() } : {}),
+          ...(providerId === "anthropic" && anthropicWorkspaceId.trim()
+            ? { anthropicWorkspaceId: anthropicWorkspaceId.trim() }
+            : {}),
           keySource: currentKeySource(),
         }),
       });
@@ -392,6 +450,7 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
             <label className={legendClass} htmlFor={keySourceId}>
               Key source
             </label>
+            <KeyInfoTooltip id={keyTooltipId} />
             <select
               id={keySourceId}
               value={keySourceType}
@@ -418,6 +477,7 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
                 }
                 className={`${inputClass} mt-2`}
                 autoComplete="off"
+                aria-describedby={keyTooltipId}
               />
             )}
             {keySourceType === "env" && (
@@ -429,6 +489,7 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
                 placeholder="MY_PROVIDER_API_KEY"
                 className={`${inputClass} mt-2`}
                 autoComplete="off"
+                aria-describedby={keyTooltipId}
               />
             )}
             {keySourceType === "file" && (
@@ -440,9 +501,27 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
                 placeholder="/absolute/path/to/key.txt"
                 className={`${inputClass} mt-2`}
                 autoComplete="off"
+                aria-describedby={keyTooltipId}
               />
             )}
           </div>
+
+          {providerId === "anthropic" && (
+            <div className="mt-3">
+              <label className={legendClass} htmlFor={workspaceIdInputId}>
+                Workspace ID (only for keys not scoped to a workspace)
+              </label>
+              <input
+                id={workspaceIdInputId}
+                type="text"
+                value={anthropicWorkspaceId}
+                onChange={(e) => setAnthropicWorkspaceId(e.target.value)}
+                placeholder="wrkspc_..."
+                className={inputClass}
+                autoComplete="off"
+              />
+            </div>
+          )}
 
           <div className="mt-3">
             <label className={legendClass} htmlFor={cloudModelId}>

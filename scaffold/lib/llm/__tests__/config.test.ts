@@ -18,6 +18,7 @@ let resolveCloudApiKey: typeof import("../config").resolveCloudApiKey;
 let resolveAnthropicKey: typeof import("../config").resolveAnthropicKey;
 let resolveAnthropicKeySource: typeof import("../config").resolveAnthropicKeySource;
 let isValidAnthropicKey: typeof import("../config").isValidAnthropicKey;
+let isValidAnthropicWorkspaceId: typeof import("../config").isValidAnthropicWorkspaceId;
 let resetLlmConfigCache: typeof import("../config").resetLlmConfigCache;
 let isLocalLlm: typeof import("../client").isLocalLlm;
 
@@ -34,6 +35,7 @@ before(async () => {
     resolveAnthropicKey,
     resolveAnthropicKeySource,
     isValidAnthropicKey,
+    isValidAnthropicWorkspaceId,
     resetLlmConfigCache,
   } = config);
   ({ isLocalLlm } = client);
@@ -147,6 +149,47 @@ describe("llm/config — precedence", () => {
     assert.equal(isValidAnthropicKey("sk-ant-x"), false);
     assert.equal(isValidAnthropicKey("sk-ant-" + "a".repeat(200)), false);
     assert.equal(isValidAnthropicKey("sk-ant-abcXYZ1234567890"), true);
+  });
+
+  test("isValidAnthropicWorkspaceId: shape", () => {
+    assert.equal(isValidAnthropicWorkspaceId("wrkspc_abc123"), true);
+    assert.equal(isValidAnthropicWorkspaceId("wrkspc_"), false);
+    assert.equal(isValidAnthropicWorkspaceId("abc123"), false);
+    assert.equal(isValidAnthropicWorkspaceId("wrkspc_abc 123"), false);
+  });
+
+  test("cloud config round-trips an anthropicWorkspaceId", () => {
+    removeConfigFile();
+    writeLlmConfig({
+      provider: "cloud",
+      cloud: { providerId: "anthropic", keySource: { type: "inline", key: "sk-ant-abcXYZ1234567890" }, anthropicWorkspaceId: "wrkspc_abc123" },
+    });
+    const cfg = resolveCloudConfig();
+    assert.equal(cfg?.anthropicWorkspaceId, "wrkspc_abc123");
+  });
+
+  test("an invalid anthropicWorkspaceId on disk is dropped on read, not trusted", () => {
+    removeConfigFile();
+    fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
+    fs.writeFileSync(
+      CONFIG_PATH,
+      JSON.stringify({
+        provider: "cloud",
+        cloud: { providerId: "anthropic", keySource: { type: "inline", key: "sk-ant-abcXYZ1234567890" }, anthropicWorkspaceId: "not-valid" },
+      }),
+      "utf8",
+    );
+    resetLlmConfigCache();
+    const cfg = resolveCloudConfig();
+    assert.equal(cfg?.anthropicWorkspaceId, undefined);
+  });
+
+  test("backward compat: an existing config file with no anthropicWorkspaceId at all still resolves fine", () => {
+    removeConfigFile();
+    writeLlmConfig({ provider: "cloud", cloud: { providerId: "anthropic", keySource: { type: "inline", key: "sk-ant-abcXYZ1234567890" } } });
+    const cfg = resolveCloudConfig();
+    assert.equal(cfg?.anthropicWorkspaceId, undefined);
+    assert.equal(cfg?.providerId, "anthropic");
   });
 });
 

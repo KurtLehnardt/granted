@@ -367,6 +367,47 @@ describe("POST /api/llm/config", () => {
     assert.equal(deps._get().cloud?.baseUrl, "https://a.example.com/v1");
   });
 
+  test("saves a valid anthropicWorkspaceId and echoes it (not secret)", async () => {
+    const deps = fakeDeps();
+    const res = await handleLlmConfigPost(
+      fakeReq({
+        provider: "cloud",
+        cloud: { providerId: "anthropic", keySource: { type: "inline", key: "sk-ant-abcXYZ1234567890" }, anthropicWorkspaceId: "wrkspc_abc123" },
+      }),
+      deps,
+    );
+    const json = await res.json();
+    assert.equal(res.status, 200);
+    assert.equal(deps._get().cloud?.anthropicWorkspaceId, "wrkspc_abc123");
+    assert.equal(json.cloud.anthropicWorkspaceId, "wrkspc_abc123");
+  });
+
+  test("400 on an invalid anthropicWorkspaceId shape", async () => {
+    const deps = fakeDeps();
+    const res = await handleLlmConfigPost(
+      fakeReq({
+        provider: "cloud",
+        cloud: { providerId: "anthropic", keySource: { type: "inline", key: "sk-ant-abcXYZ1234567890" }, anthropicWorkspaceId: "not-valid" },
+      }),
+      deps,
+    );
+    const json = await res.json();
+    assert.equal(res.status, 400);
+    assert.match(json.error, /Workspace ID/);
+  });
+
+  test("backward compat: saving without anthropicWorkspaceId still works and omits it", async () => {
+    const deps = fakeDeps();
+    const res = await handleLlmConfigPost(
+      fakeReq({ provider: "cloud", cloud: { providerId: "anthropic", keySource: { type: "inline", key: "sk-ant-abcXYZ1234567890" } } }),
+      deps,
+    );
+    const json = await res.json();
+    assert.equal(res.status, 200);
+    assert.equal(json.cloud.anthropicWorkspaceId, undefined);
+    assert.equal(deps._get().cloud?.anthropicWorkspaceId, undefined);
+  });
+
   test("keySource {type:'saved'} after switching provider -> 400, the old key is not reused", async () => {
     const deps = fakeDeps({}, { provider: "cloud", cloud: { providerId: "openai", model: "gpt-4o", keySource: { type: "inline", key: "sk-savedopenaikey0000" } } });
     const res = await handleLlmConfigPost(

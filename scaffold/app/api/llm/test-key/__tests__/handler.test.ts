@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { handleTestKeyPost, type TestKeyDeps } from "../handler";
 import type { CloudConfig } from "@/lib/llm/config";
 import type { ProbeOutcome } from "@/lib/llm/cloudModels";
+import { MODEL } from "@/lib/claude";
 
 function fakeReq(body?: unknown): { headers: { get(name: string): string | null }; json: () => Promise<unknown> } {
   return {
@@ -179,5 +180,72 @@ describe("POST /api/llm/test-key", () => {
     const json = await res.json();
     assert.equal(res.status, 400);
     assert.equal(json.error, "Please enter a key for your cloud provider.");
+  });
+
+  test("draft anthropicWorkspaceId is passed through to probeCloudKey", async () => {
+    let sent: any;
+    const res = await handleTestKeyPost(
+      fakeReq({ providerId: "anthropic", keySource: { type: "inline", key: "sk-ant-abcXYZ1234567890" }, anthropicWorkspaceId: "wrkspc_abc123" }),
+      fakeDeps({ probeCloudKey: (async (params: any) => { sent = params; return { ok: true }; }) as any }),
+    );
+    await res.json();
+    assert.equal(res.status, 200);
+    assert.equal(sent.anthropicWorkspaceId, "wrkspc_abc123");
+  });
+
+  test("no draft anthropicWorkspaceId -> undefined is passed through (no header sent)", async () => {
+    let sent: any;
+    const res = await handleTestKeyPost(
+      fakeReq({ providerId: "anthropic", keySource: { type: "inline", key: "sk-ant-abcXYZ1234567890" } }),
+      fakeDeps({ probeCloudKey: (async (params: any) => { sent = params; return { ok: true }; }) as any }),
+    );
+    await res.json();
+    assert.equal(res.status, 200);
+    assert.equal(sent.anthropicWorkspaceId, undefined);
+  });
+
+  test("anthropic draft with no model probes the app's default search model", async () => {
+    let sent: any;
+    await handleTestKeyPost(
+      fakeReq({ providerId: "anthropic", keySource: { type: "inline", key: "sk-ant-abcXYZ1234567890" } }),
+      fakeDeps({ probeCloudKey: (async (params: any) => { sent = params; return { ok: true }; }) as any }),
+    );
+    assert.equal(sent.model, MODEL);
+  });
+
+  test("non-anthropic draft with no model leaves the fallback to probeCloudKey", async () => {
+    let sent: any;
+    await handleTestKeyPost(
+      fakeReq({ providerId: "mistral", keySource: { type: "inline", key: "key0000000000000000" } }),
+      fakeDeps({ probeCloudKey: (async (params: any) => { sent = params; return { ok: true }; }) as any }),
+    );
+    assert.equal(sent.model, undefined);
+  });
+
+  test("invalid draft anthropicWorkspaceId shape -> 400, no provider call", async () => {
+    let called = false;
+    const res = await handleTestKeyPost(
+      fakeReq({ providerId: "anthropic", keySource: { type: "inline", key: "sk-ant-abcXYZ1234567890" }, anthropicWorkspaceId: "not-valid" }),
+      fakeDeps({ probeCloudKey: (async () => { called = true; return { ok: true }; }) as any }),
+    );
+    const json = await res.json();
+    assert.equal(res.status, 400);
+    assert.match(json.error, /Workspace ID/);
+    assert.equal(called, false);
+  });
+
+  test("saved anthropicWorkspaceId is used when testing the saved config (no draft)", async () => {
+    let sent: any;
+    const savedCloud: CloudConfig = {
+      providerId: "anthropic",
+      keySource: { type: "inline", key: "sk-ant-abcXYZ1234567890" },
+      anthropicWorkspaceId: "wrkspc_saved000",
+    };
+    const res = await handleTestKeyPost(
+      fakeReq({}),
+      fakeDeps({ resolveCloudConfig: () => savedCloud, probeCloudKey: (async (params: any) => { sent = params; return { ok: true }; }) as any }),
+    );
+    await res.json();
+    assert.equal(sent.anthropicWorkspaceId, "wrkspc_saved000");
   });
 });

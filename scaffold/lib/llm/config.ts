@@ -19,6 +19,15 @@ export interface CloudConfig {
   baseUrl?: string;
   model?: string;
   keySource: CloudKeySource;
+  /** Anthropic only: for a key that isn't scoped to a workspace (org-level key with multiple workspaces). Not secret. */
+  anthropicWorkspaceId?: string;
+}
+
+// Anthropic workspace ids look like "wrkspc_" + an alphanumeric token.
+export const ANTHROPIC_WORKSPACE_ID_PATTERN = /^wrkspc_[A-Za-z0-9]+$/;
+
+export function isValidAnthropicWorkspaceId(id: string): boolean {
+  return ANTHROPIC_WORKSPACE_ID_PATTERN.test(id);
 }
 
 // Real Anthropic keys are "sk-ant-" + a long token; catches paste mistakes and the .env.example placeholder ("sk-ant-...").
@@ -66,6 +75,13 @@ function parseCloud(raw: unknown): CloudConfig | undefined {
   const cloud: CloudConfig = { providerId: r.providerId, keySource };
   if (typeof r.baseUrl === "string" && r.baseUrl.length > 0) cloud.baseUrl = r.baseUrl;
   if (typeof r.model === "string" && r.model.length > 0) cloud.model = r.model;
+  if (
+    r.providerId === "anthropic" &&
+    typeof r.anthropicWorkspaceId === "string" &&
+    isValidAnthropicWorkspaceId(r.anthropicWorkspaceId)
+  ) {
+    cloud.anthropicWorkspaceId = r.anthropicWorkspaceId;
+  }
   return cloud;
 }
 

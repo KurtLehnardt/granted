@@ -147,6 +147,20 @@ describe("makeLlmClient — cloud provider routing (non-anthropic, OpenAI-compat
     assert.equal(calls, 1);
   });
 
+  test("a provider 4xx body echoing the key is redacted before it becomes a ProviderHttpError", async () => {
+    delete process.env.LLM_PROVIDER;
+    const key = "gsk_EchoedKey0123456789abcdef";
+    writeLlmConfig({ provider: "cloud", cloud: { providerId: "groq", model: "llama", keySource: { type: "inline", key } } });
+    globalThis.fetch = (async () => ({ ok: false, status: 401, text: async () => `Invalid key ${key}` })) as unknown as typeof fetch;
+
+    const err: any = await makeLlmClient({ timeout: 5000 })
+      .messages.create({ model: "ignored", max_tokens: 10, messages: [{ role: "user", content: "hi" }] })
+      .catch((e) => e);
+    assert.equal(err.name, "ProviderHttpError");
+    assert.equal(err.raw.includes(key), false);
+    assert.equal(err.message.includes(key), false);
+  });
+
   test("missing key -> throws the resolver's specific error, no fetch made", async () => {
     delete process.env.LLM_PROVIDER;
     delete process.env.GRANTED_CLOUD_CLIENT_TEST_UNSET;
@@ -166,6 +180,39 @@ describe("makeLlmClient — anthropic cloud path", () => {
     const client = makeLlmClient({ timeout: 5000 }) as any;
     // Anthropic() constructs a real SDK client; we only assert it doesn't throw and exposes messages.create.
     assert.equal(typeof client.messages.create, "function");
+  });
+
+  test("sends anthropic-workspace-id when a workspace id is saved", async () => {
+    delete process.env.LLM_PROVIDER;
+    writeLlmConfig({
+      provider: "cloud",
+      cloud: { providerId: "anthropic", keySource: { type: "inline", key: "sk-ant-abcXYZ1234567890" }, anthropicWorkspaceId: "wrkspc_abc123" },
+    });
+    let sentHeader: string | undefined;
+    const { withHostedFetch } = await import("../client");
+    await withHostedFetch((async (_url: any, init: any) => {
+      sentHeader = init?.headers?.["anthropic-workspace-id"];
+      return new Response(JSON.stringify({ id: "x", content: [{ type: "text", text: "ok" }], usage: {} }), { status: 200 });
+    }) as any, async () => {
+      const client = makeLlmClient({ timeout: 5000 });
+      await client.messages.create({ model: "claude-sonnet-4-6", max_tokens: 5, messages: [{ role: "user", content: "hi" }] });
+    });
+    assert.equal(sentHeader, "wrkspc_abc123");
+  });
+
+  test("no anthropic-workspace-id header when none is saved", async () => {
+    delete process.env.LLM_PROVIDER;
+    writeLlmConfig({ provider: "cloud", cloud: { providerId: "anthropic", keySource: { type: "inline", key: "sk-ant-abcXYZ1234567890" } } });
+    let sentHeader: string | undefined = "unset";
+    const { withHostedFetch } = await import("../client");
+    await withHostedFetch((async (_url: any, init: any) => {
+      sentHeader = init?.headers?.["anthropic-workspace-id"];
+      return new Response(JSON.stringify({ id: "x", content: [{ type: "text", text: "ok" }], usage: {} }), { status: 200 });
+    }) as any, async () => {
+      const client = makeLlmClient({ timeout: 5000 });
+      await client.messages.create({ model: "claude-sonnet-4-6", max_tokens: 5, messages: [{ role: "user", content: "hi" }] });
+    });
+    assert.equal(sentHeader, undefined);
   });
 
   test("with a saved model: overrides whatever model the call site passes", async () => {

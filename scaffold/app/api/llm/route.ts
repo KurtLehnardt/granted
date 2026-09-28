@@ -19,6 +19,8 @@ function buildCloudBlock(cfg: NonNullable<ReturnType<typeof resolveCloudConfig>>
     // The user's saved choice only — never the provider's default, which
     // would otherwise get echoed back and re-saved against another provider.
     ...(cfg.model ? { model: cfg.model } : {}),
+    // Not secret — an Anthropic workspace id, not a key.
+    ...(cfg.anthropicWorkspaceId ? { anthropicWorkspaceId: cfg.anthropicWorkspaceId } : {}),
     hasKey: Boolean(resolved.key),
     ...(resolved.key ? { keyHint: resolved.key.slice(-4) } : {}),
     keySource: publicKeySource(cfg.keySource),

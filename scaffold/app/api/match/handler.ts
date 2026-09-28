@@ -9,6 +9,7 @@ import { withLocalModel } from "@/lib/llm/modelContext";
 import { listOllamaChatModels } from "@/lib/llm/ollamaInfo";
 import type { LlmInfo } from "@/lib/llm/types";
 import { dropExpiredMatches } from "@/lib/corpus/expiry";
+import { sanitizedProviderErrorFor4xx } from "@/lib/llm/errors";
 
 /**
  * Boundary validation is OBSERVABILITY ONLY (arch review MEDIUM — the payload
@@ -195,9 +196,14 @@ export async function handleMatchRequest(
           return;
         }
         // Log the full error server-side; send a GENERIC message to the client
-        // (never raw err.message / env-var names — security review LOW).
+        // (never raw err.message / env-var names — security review LOW) UNLESS
+        // it's a provider 4xx (bad key/permissions/billing/etc.), in which case
+        // the provider's own message — sanitized — is actually useful to the
+        // user and safe to show. A 5xx/network/unknown error keeps the generic
+        // text, since raw internals shouldn't reach the client.
         console.error("match failed:", err);
-        send({ type: "error", error: "The search didn't complete. Please try again." });
+        const providerMessage = sanitizedProviderErrorFor4xx(err);
+        send({ type: "error", error: providerMessage ?? "The search didn't complete. Please try again." });
         controller.close();
       }
     },
