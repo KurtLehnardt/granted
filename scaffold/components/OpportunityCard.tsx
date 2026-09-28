@@ -9,6 +9,7 @@ import type { EligibilityBucket } from "@/lib/contracts/eligibilityDetermination
 import HowToApplyModal from "@/components/HowToApplyModal";
 import { buildFundingRange, money } from "@/components/ApplicationChecklist";
 import CompetitorAnalysisModal from "@/components/CompetitorAnalysisModal";
+import ScrollFadeContainer from "@/components/ScrollFadeContainer";
 import { isFlagEnabled } from "@/lib/flags";
 import {
   opportunityAvailability,
@@ -699,7 +700,7 @@ function ScoredOpportunityCard({
                 </div>
               )}
 
-              <div className="overflow-x-auto">
+              <ScrollFadeContainer fadeBg="canvas-alt">
                 <table className="w-full min-w-[440px] font-mono text-[11px] tabular-nums">
                   <thead>
                     <tr className={tableHeadRowClass}>
@@ -730,7 +731,7 @@ function ScoredOpportunityCard({
                     ))}
                   </tbody>
                 </table>
-              </div>
+              </ScrollFadeContainer>
             </div>
           )}
 

@@ -1,5 +1,6 @@
 "use client";
 import type { VerifiedRecipient } from "@/lib/similar/aggregate";
+import ScrollFadeContainer from "@/components/ScrollFadeContainer";
 
 /**
  * D1 — free "Similar companies funded" AGGREGATE panel.
@@ -49,7 +50,7 @@ export default function SimilarCompanies({ recipients }: { recipients: VerifiedR
   const yearCellClass = "py-1.5 text-right text-foreground";
 
   return (
-    <div className="overflow-x-auto">
+    <ScrollFadeContainer fadeBg="canvas">
       <table className="w-full min-w-[520px] font-mono text-[11px] tabular-nums">
         <thead>
           <tr className={tableHeadRowClass}>
@@ -79,6 +80,6 @@ export default function SimilarCompanies({ recipients }: { recipients: VerifiedR
           ))}
         </tbody>
       </table>
-    </div>
+    </ScrollFadeContainer>
   );
 }
