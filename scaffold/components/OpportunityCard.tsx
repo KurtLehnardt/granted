@@ -1,5 +1,8 @@
 "use client";
-import { useState } from "react";
+// Explicit React import: needed under the plain `tsx`-run node:test runner
+// (this repo's tsconfig `"jsx": "preserve"` falls back to the classic JSX
+// runtime there) — see the same note in components/ApplicationChecklist.tsx.
+import React, { useEffect, useRef, useState, type ReactNode } from "react";
 import { TIER_LABEL, type Match, type StartupProfile } from "@/lib/types";
 import { isProvisional, type PreviewItem } from "@/lib/ui/previewReducer";
 import type { EligibilityBucket } from "@/lib/contracts/eligibilityDetermination";
@@ -109,6 +112,40 @@ function eyebrowClass(extra = "") {
   return `font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas ${extra}`.trim();
 }
 
+/**
+ * ANALYZING ring (§5) — wraps the match-score badge while a candidate's score
+ * may still change: not yet scored (`ProvisionalCard`), or Pass-A scored but
+ * Pass-B narrative pending for a promoted candidate (`ScoredOpportunityCard`
+ * with `m.final === false`). A slowly rotating ring of repeated "ANALYZING"
+ * text around the number/placeholder — inline SVG `textPath` on a circle, CSS
+ * rotation (`.analyzing-ring` in globals.css). Rotation is disabled under
+ * `prefers-reduced-motion` by the existing global rule (a static ring
+ * remains). Ring text is `aria-hidden`; the caller supplies the accessible
+ * label on the badge itself so a screen reader hears "Analyzing, score may
+ * change" once, not the raw repeated ring text.
+ */
+function AnalyzingRing({ children, fading }: { children: ReactNode; fading?: boolean }) {
+  return (
+    <span className="relative inline-flex items-center justify-center">
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 100 100"
+        className={`analyzing-ring pointer-events-none absolute -inset-4 h-[calc(100%+2rem)] w-[calc(100%+2rem)] text-structure-on-canvas transition-opacity duration-300 ${
+          fading ? "opacity-0" : "opacity-100"
+        }`}
+      >
+        <defs>
+          <path id="analyzing-ring-path" d="M 50,50 m -42,0 a 42,42 0 1,1 84,0 a 42,42 0 1,1 -84,0" fill="none" />
+        </defs>
+        <text className="fill-current font-mono uppercase" style={{ fontSize: "6.5px", letterSpacing: "0.5px" }}>
+          <textPath href="#analyzing-ring-path">ANALYZING &middot; ANALYZING &middot; ANALYZING &middot; </textPath>
+        </text>
+      </svg>
+      {children}
+    </span>
+  );
+}
+
 export default function OpportunityCard({
   m,
   index,
@@ -143,23 +180,22 @@ function ProvisionalCard({ opportunity, index }: { opportunity: Match["opportuni
           </h3>
           <p className="mt-1 text-pretty font-mono text-[12px] text-foreground">{opportunity.agency}</p>
         </div>
-        <div className="shrink-0 text-right" role="status" aria-label="Scoring…">
-          <ProvisionalSpinner />
+        <div className="shrink-0 text-right">
+          <AnalyzingRing>
+            <div
+              role="status"
+              aria-label="Analyzing, score may change"
+              className="font-display text-[26px] font-bold leading-none tabular-nums text-structure-on-canvas"
+            >
+              &mdash;
+            </div>
+          </AnalyzingRing>
           <div className="mt-1 font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas">
             scoring
           </div>
         </div>
       </div>
     </article>
-  );
-}
-
-function ProvisionalSpinner() {
-  return (
-    <svg className="ml-auto h-5 w-5 animate-spin text-structure-on-canvas" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
-      <path className="opacity-90" d="M22 12a10 10 0 0 0-10-10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-    </svg>
   );
 }
 
@@ -174,6 +210,25 @@ function ScoredOpportunityCard({
 }) {
   // Expand the first three cards so criteria / ineligibility / history read at a glance.
   const [open, setOpen] = useState(index < 3);
+  // ANALYZING ring fade-out (§5): once `final` flips true, keep the ring
+  // mounted for one short CSS transition instead of yanking it away —
+  // "the ring fades out leaving the plain badge," not an instant swap.
+  const wasAnalyzing = useRef(m.final === false);
+  const [ringFading, setRingFading] = useState(false);
+  useEffect(() => {
+    if (m.final === false) {
+      wasAnalyzing.current = true;
+      setRingFading(false);
+      return;
+    }
+    if (wasAnalyzing.current) {
+      wasAnalyzing.current = false;
+      setRingFading(true);
+      const t = setTimeout(() => setRingFading(false), 300);
+      return () => clearTimeout(t);
+    }
+  }, [m.final]);
+  const showRing = m.final === false || ringFading;
   // The assisted-apply flow (sign-in / requirements form / package assembly)
   // was unreliable, so it's been pulled from the UI for now (code stays in
   // place: AutoFillFlow.tsx, AutoFillModal.tsx, ApplicationPackage.tsx). This
@@ -394,10 +449,27 @@ function ScoredOpportunityCard({
           </div>
 
           <div className="shrink-0 text-right">
-            <div className="font-display text-[26px] font-bold leading-none tabular-nums text-foreground">
-              {m.score}
-              <span className="text-[15px] font-medium">%</span>
-            </div>
+            {/* ANALYZING ring (§5) — `final === false` means Pass A scored this
+                candidate but it's promoted for Pass B, which may still change
+                its score. Once the final score lands (`final` true/absent),
+                the ring is simply not rendered — no fade-out state to track. */}
+            {showRing ? (
+              <AnalyzingRing fading={ringFading}>
+                <div
+                  role="status"
+                  aria-label="Analyzing, score may change"
+                  className="font-display text-[26px] font-bold leading-none tabular-nums text-foreground"
+                >
+                  {m.score}
+                  <span className="text-[15px] font-medium">%</span>
+                </div>
+              </AnalyzingRing>
+            ) : (
+              <div className="font-display text-[26px] font-bold leading-none tabular-nums text-foreground">
+                {m.score}
+                <span className="text-[15px] font-medium">%</span>
+              </div>
+            )}
             <div className={eyebrowClass("mt-1")}>match</div>
           </div>
         </div>

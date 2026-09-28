@@ -330,7 +330,7 @@ function scorerPrompt(base: "explainMatches" | "scoreMatches"): string {
  *  both resolve to. Exported so `lib/match.ts` can build a `Match` preview from
  *  a single batch's assessments (for progressive rendering) without waiting for
  *  the full candidate set to finish scoring. */
-export type Assessment = { id: string; score: number; tier: Tier; criteria: CriterionCheck[]; whyCare: string; whyFit: string; whyIneligible: string; whatToVerify: string; whatToDoNext: string };
+export type Assessment = { id: string; score: number; tier: Tier; criteria: CriterionCheck[]; whyCare: string; whyFit: string; whyIneligible: string; whatToVerify: string; whatToDoNext: string; final?: boolean; unscored?: boolean };
 
 /**
  * Stage 2 — explain. Given candidate opportunities that already passed rules
@@ -798,11 +798,25 @@ export async function explainMatchesTwoPass(
       });
     } catch { /* best-effort */ }
     for (const s of scores) {
-      try { onAssessment?.(scoreOnlyAssessment(s.id, clampScore(s.score))); } catch { /* best-effort */ }
+      // ANALYZING ring (§5): a candidate whose Pass-A score clears the
+      // promotion floor MIGHT still get a Pass-B narrative (final unknown
+      // until the top-N cut below runs) — everything else is already final,
+      // Pass A being the only pass it will ever get.
+      const final = !(Number.isFinite(s.score) && s.score >= PROMOTION_FLOOR);
+      try { onAssessment?.(scoreOnlyAssessment(s.id, clampScore(s.score), { final })); } catch { /* best-effort */ }
     }
   });
 
   const promoted = selectPassBCandidates(candidates, passA, topN);
+  const promotedIdSet = new Set(promoted.map((o) => o.id));
+  // A candidate that cleared the promotion floor but missed the top-N cut
+  // will never get Pass B — finalize it now instead of leaving its card
+  // "analyzing" forever (no further event will ever arrive for it).
+  for (const s of passA) {
+    if (Number.isFinite(s.score) && s.score >= PROMOTION_FLOOR && !promotedIdSet.has(s.id)) {
+      try { onAssessment?.(scoreOnlyAssessment(s.id, clampScore(s.score), { final: true })); } catch { /* best-effort */ }
+    }
+  }
 
   try {
     onBatch?.(twoPassProgress(total, promoted.length, 0, total), total, {
@@ -830,6 +844,20 @@ export async function explainMatchesTwoPass(
     },
     signal,
   );
+
+  // ANALYZING ring (§5) — a promoted candidate whose Pass-B batch failed
+  // outright never got its own onAssessment call above (a rejected batch's
+  // onBatchSettled fires with `[]`), so its last STREAMED state is still
+  // Pass A's `final: false`. It IS resolved in the return value below
+  // (assembleTwoPass degrades it to its Pass-A score, final: true) — but
+  // finalize it here too so a still-open card stops analyzing as soon as
+  // scoring for it is actually done, not only once the whole search ends.
+  const passBIds = new Set(passB.map((a) => a.id));
+  for (const s of passA) {
+    if (promotedIdSet.has(s.id) && !passBIds.has(s.id)) {
+      try { onAssessment?.(scoreOnlyAssessment(s.id, clampScore(s.score), { final: true })); } catch { /* best-effort */ }
+    }
+  }
 
   return assembleTwoPass(candidates.map((c) => c.id), passA, passB);
 }

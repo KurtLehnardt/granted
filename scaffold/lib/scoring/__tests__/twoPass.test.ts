@@ -108,9 +108,18 @@ describe("E3 twoPass — assembleTwoPass", () => {
     assert.equal(tierFromScore(likely.score), "likely", "still tiers correctly from the score");
   });
 
-  test("a candidate with no Pass-A score is omitted (mirrors single-pass: only scored ids return)", () => {
+  test("a candidate with no Pass-A score is never dropped (§1) — an explicit unscored, final placeholder instead", () => {
     const merged = assembleTwoPass(["likely", "ghost"], [{ id: "likely", score: 72 }], []);
-    assert.deepEqual(merged.map((m) => m.id), ["likely"]);
+    assert.deepEqual(merged.map((m) => m.id), ["likely", "ghost"]);
+    const ghost = merged.find((m) => m.id === "ghost")!;
+    assert.equal(ghost.unscored, true);
+    assert.equal(ghost.final, true);
+    assert.equal(ghost.score, 0);
+  });
+
+  test("every assessment out of assembleTwoPass is final (it's the terminal merge)", () => {
+    const merged = assembleTwoPass(order, passA, [full("likely", 72)]);
+    assert.ok(merged.every((m) => m.final === true));
   });
 
   test("scoreOnlyAssessment is a well-formed, narrative-empty, `none`-tier row", () => {

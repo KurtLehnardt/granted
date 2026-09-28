@@ -40,25 +40,45 @@ export function previewReducer(prev: PreviewItem[], m: PreviewItem): PreviewItem
   return next;
 }
 
-/** Splits an accumulated preview list into the main shown set (provisional or
- *  a real, non-"none" tier) and a "weaker matches" set (a final tier-"none"
- *  score) — mirrors `OpportunityMap`'s `selectShownMatches` for the streaming
- *  view, so a candidate that scores weak collapses into that section instead
- *  of disappearing. `cap` bounds the main list the same way the finished map
- *  does (CARD_CAP); pass it explicitly to avoid this module depending on the
- *  component tree. */
+/**
+ * Splits an accumulated preview list into the main shown set and the ONE
+ * "More matches" collapsed set — mirrors `OpportunityMap`'s
+ * `selectShownMatches` for the streaming view (§2, never-vanish list), so a
+ * candidate never just disappears once it stops fitting the main list.
+ *
+ * The main list is the top `cap` matches by score; a still-provisional card
+ * (no score yet) keeps its current position in the list until it's scored,
+ * so it doesn't jump around while scoring is in flight. Everything else — a
+ * final tier-"none" score, a real match ranked past `cap`, or an unscored
+ * candidate — goes into `weaker`. `cap` bounds the main list the same way the
+ * finished map does (CARD_CAP); pass it explicitly to avoid this module
+ * depending on the component tree.
+ */
 export function partitionPreview(
   items: PreviewItem[],
   cap: number,
-): { shown: PreviewItem[]; weaker: Match[] } {
-  const shown: PreviewItem[] = [];
-  const weaker: Match[] = [];
+): { shown: PreviewItem[]; weaker: PreviewItem[] } {
+  const candidates: PreviewItem[] = [];
+  const weaker: PreviewItem[] = [];
   for (const it of items) {
-    if (!isProvisional(it) && it.tier === "none") {
+    if (!isProvisional(it) && (it.unscored || it.tier === "none")) {
       weaker.push(it);
     } else {
-      shown.push(it);
+      candidates.push(it);
     }
   }
-  return { shown: shown.slice(0, cap), weaker };
+
+  // Rank `candidates` for the cap cut. A still-provisional card has no score
+  // yet, so it's treated as rank-Infinity — it stays in the running (keeps
+  // its position) instead of being displaced by a real score, exactly until
+  // it gets one. Stable by arrival index among ties.
+  const withIndex = candidates.map((it, i) => ({ it, i }));
+  withIndex.sort((a, b) => {
+    const sa = isProvisional(a.it) ? Infinity : a.it.score ?? 0;
+    const sb = isProvisional(b.it) ? Infinity : b.it.score ?? 0;
+    return sb - sa || a.i - b.i;
+  });
+  const sorted = withIndex.map((x) => x.it);
+
+  return { shown: sorted.slice(0, cap), weaker: [...sorted.slice(cap), ...weaker] };
 }

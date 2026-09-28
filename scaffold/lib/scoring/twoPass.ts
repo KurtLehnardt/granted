@@ -32,6 +32,12 @@ export type Assessment = {
   whyIneligible: string;
   whatToVerify: string;
   whatToDoNext: string;
+  /** ANALYZING ring (§5) — false while this score may still change (a
+   *  promoted candidate whose Pass-B narrative hasn't landed yet). */
+  final?: boolean;
+  /** §1 — true only for the "resolve every provisional id" fallback: no pass
+   *  ever produced a real score for this candidate. */
+  unscored?: boolean;
 };
 
 /** One Pass-A result: just an id and its cheap score-only fit score. */
@@ -66,7 +72,7 @@ export function promotedIds(passA: PassAScore[], floor: number = PROMOTION_FLOOR
  * narrative/criteria. `lib/match.ts` recomputes the tier from the score via
  * `tierFromScore`, so the `tier` field here is only a placeholder.
  */
-export function scoreOnlyAssessment(id: string, score: number): Assessment {
+export function scoreOnlyAssessment(id: string, score: number, opts?: { final?: boolean; unscored?: boolean }): Assessment {
   return {
     id,
     score,
@@ -77,25 +83,31 @@ export function scoreOnlyAssessment(id: string, score: number): Assessment {
     whyIneligible: "",
     whatToVerify: "",
     whatToDoNext: "",
+    final: opts?.final,
+    unscored: opts?.unscored,
   };
 }
 
 /**
  * Merge Pass A + Pass B back into the single `Assessment[]` `explainMatches`
- * returns, in `candidateIds` order.
+ * returns, in `candidateIds` order. This is the FINAL merge (called once both
+ * passes are fully done), so every assessment returned here is terminal
+ * (`final: true`).
  *
  * For each candidate id:
  *   - if Pass B returned a full assessment for it → use that Pass-B assessment
  *     (its score is the authoritative one, same as the single pass would have
  *     produced);
  *   - otherwise → a score-only assessment carrying its Pass-A score, so it still
- *     computes a tier downstream and is never silently dropped. This also covers
- *     a candidate whose Pass-B batch failed (graceful degradation): it
- *     keeps its Pass-A score rather than vanishing.
+ *     computes a tier downstream. This covers a candidate whose Pass-B batch
+ *     failed (graceful degradation): it keeps its Pass-A score rather than
+ *     vanishing.
  *
- * A Pass-A score is required for a candidate to appear at all; a candidate with
- * no Pass-A score (Pass A failed to return it) is omitted, mirroring how the
- * single pass only returns ids the model actually scored.
+ * §1 — a candidate with NO Pass-A score (Pass A never returned it, e.g. its
+ * batch failed or the model returned a misnamed/unknown id) is no longer
+ * omitted: it gets an explicit `unscored` assessment instead, so it's never
+ * silently dropped from the final map (`lib/match.ts` also runs a belt-and-
+ * suspenders check across every provisional id for the same reason).
  */
 export function assembleTwoPass(
   candidateIds: string[],
@@ -110,8 +122,12 @@ export function assembleTwoPass(
   const out: Assessment[] = [];
   for (const id of candidateIds) {
     const passAScore = passAById.get(id);
-    if (passAScore === undefined) continue; // Pass A never scored it — omit.
-    out.push(passBById.get(id) ?? scoreOnlyAssessment(id, passAScore));
+    if (passAScore === undefined) {
+      out.push(scoreOnlyAssessment(id, 0, { final: true, unscored: true }));
+      continue;
+    }
+    const assessed = passBById.get(id) ?? scoreOnlyAssessment(id, passAScore, { final: true });
+    out.push({ ...assessed, final: true });
   }
   return out;
 }

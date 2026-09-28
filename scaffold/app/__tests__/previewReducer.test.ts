@@ -109,11 +109,28 @@ describe("partitionPreview", () => {
     assert.deepEqual(weaker.map((p) => p.opportunity.id), ["weak-1"]);
   });
 
-  test("shown is capped, but weaker items are never capped", () => {
+  test("shown is capped at CARD_CAP; everything past the cap — real matches included, §2 — moves to 'more matches', never dropped", () => {
     const reals = Array.from({ length: CARD_CAP + 2 }, (_, i) => match(`real-${i}`, 90 - i, "likely"));
     const weaks = Array.from({ length: 5 }, (_, i) => match(`weak-${i}`, 5, "none"));
     const { shown, weaker } = partitionPreview([...reals, ...weaks], CARD_CAP);
     assert.equal(shown.length, CARD_CAP);
-    assert.equal(weaker.length, 5);
+    // The top CARD_CAP reals by score are shown; the last 2 reals (past the
+    // cap) plus the 5 tier-"none" weaks all land in "more matches" — none
+    // silently dropped.
+    assert.equal(weaker.length, 7);
+    assert.deepEqual(
+      shown.map((p) => p.opportunity.id),
+      reals.slice(0, CARD_CAP).map((m) => m.opportunity.id),
+    );
+  });
+
+  test("an unscored candidate is never shown as a real card — always in 'more matches'", () => {
+    const items: PreviewItem[] = [
+      match("real-1", 70, "likely"),
+      { ...match("unscored-1", 0, "none"), unscored: true },
+    ];
+    const { shown, weaker } = partitionPreview(items, CARD_CAP);
+    assert.deepEqual(shown.map((p) => p.opportunity.id), ["real-1"]);
+    assert.deepEqual(weaker.map((p) => p.opportunity.id), ["unscored-1"]);
   });
 });
