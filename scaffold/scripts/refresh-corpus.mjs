@@ -56,13 +56,14 @@ const MAX_CORPUS_SIZE = Number.isFinite(requestedMax) ? clampCorpusSize(requeste
 
 /**
  * Embeds `toEmbedList` in batches, reporting progress and honoring a stop mid-run. When
- * `allowReembedEscalation` is set (a partial re-embed that's reusing prior vectors), the very
- * first batch's actual vector length is checked against existingMeta.dims: EMBEDDINGS_DIMENSIONS
- * is unset for any non-OpenAI endpoint (lib/embed.ts), so a same-model switch to a differently-
- * sized local embedder wouldn't otherwise be caught until it's too late to avoid mixing dims into
- * the reused priors. On a mismatch this returns `{ escalate: true }` without embedding anything,
- * so the caller can replan as a full re-embed and retry — this fixes a completed run, not just a
- * stopped one.
+ * `allowReembedEscalation` is set (the plan wasn't already a full re-embed), the very first
+ * batch's actual vector length is checked against existingMeta.dims: EMBEDDINGS_DIMENSIONS is
+ * unset for any non-OpenAI endpoint (lib/embed.ts), so a same-model switch to a differently-sized
+ * local embedder wouldn't otherwise be caught until it's too late — either mixing dims into
+ * reused priors, or, with nothing to reuse, letting a Stop mid-embedding save a dims-changed
+ * corpus truncated to just what was embedded so far. On a mismatch this returns
+ * `{ escalate: true }` without embedding anything, so the caller can replan as a full re-embed
+ * and retry — this fixes a completed run, not just a stopped one.
  */
 async function embedAll(toEmbedList, { foundCount, keptCount, allowReembedEscalation, priorDims }) {
   const embedded = [];
@@ -280,7 +281,7 @@ async function main() {
     let result = await embedAll(plan.toEmbed, {
       foundCount,
       keptCount,
-      allowReembedEscalation: plan.reused.length > 0 && !plan.fullReembed,
+      allowReembedEscalation: !plan.fullReembed,
       priorDims: existingMeta.dims,
     });
     if (result.escalate) {
