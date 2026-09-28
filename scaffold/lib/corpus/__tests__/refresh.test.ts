@@ -8,6 +8,7 @@ import {
   findUnhealthySources,
   dedupeById,
   mergePartialSave,
+  computeStopOutcome,
   LEGACY_EMBEDDING_MODEL,
 } from "../refresh";
 
@@ -168,5 +169,59 @@ describe("mergePartialSave", () => {
   test("no prior map at all: not-yet-embedded records are simply skipped", () => {
     const result = mergePartialSave([opp("a")], [], [opp("b"), opp("c")], new Map());
     assert.deepEqual(result.map((o) => o.id), ["a"]);
+  });
+});
+
+describe("computeStopOutcome", () => {
+  const attemptAt = "2026-09-27T00:00:00.000Z";
+
+  test("before embedding: never saves, corpus untouched", () => {
+    const outcome = computeStopOutcome({
+      attemptAt,
+      duringEmbedding: false,
+      fullReembed: false,
+      reused: [],
+      embeddedSoFar: [],
+      notYetEmbedded: [],
+      priorById: new Map(),
+    });
+    assert.equal(outcome.save, false);
+    assert.deepEqual(outcome.status, { lastCompletedAt: attemptAt, stopped: true, savedCount: 0 });
+  });
+
+  test("during a FULL re-embed: never saves, even though prior (old-model) vectors exist — " +
+    "mixing them in under the new model's label would silently corrupt retrieval", () => {
+    const priorById = new Map([
+      ["a", opp("a")],
+      ["b", opp("b")],
+    ]); // old-model cached versions, still carrying old-model vectors
+    const outcome = computeStopOutcome({
+      attemptAt,
+      duringEmbedding: true,
+      fullReembed: true,
+      reused: [], // always empty during a full re-embed
+      embeddedSoFar: [opp("c")], // one batch finished under the NEW model before the stop
+      notYetEmbedded: [opp("a"), opp("b")],
+      priorById,
+    });
+    assert.equal(outcome.save, false);
+    assert.deepEqual(outcome.corpus, []);
+    assert.deepEqual(outcome.status, { lastCompletedAt: attemptAt, stopped: true, savedCount: 0 });
+  });
+
+  test("during a PARTIAL re-embed: saves reused + embedded-so-far + cached not-yet-embedded", () => {
+    const priorById = new Map([["c", opp("c", "cached")]]);
+    const outcome = computeStopOutcome({
+      attemptAt,
+      duringEmbedding: true,
+      fullReembed: false,
+      reused: [opp("a")],
+      embeddedSoFar: [opp("b")],
+      notYetEmbedded: [opp("c")],
+      priorById,
+    });
+    assert.equal(outcome.save, true);
+    assert.deepEqual(outcome.corpus.map((o) => o.id).sort(), ["a", "b", "c"]);
+    assert.deepEqual(outcome.status, { lastCompletedAt: attemptAt, stopped: true, savedCount: 3 });
   });
 });

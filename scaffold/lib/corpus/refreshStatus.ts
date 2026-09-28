@@ -126,9 +126,18 @@ export function writeRefreshStatus(status: RefreshStatus, baseDir: string = proc
   renameSync(tmp, p);
 }
 
-/** Merges just the `progress` field into the status file, leaving lastError/lastAttemptAt etc. untouched. */
+/**
+ * Merges just the `progress` field into the status file, leaving lastError/lastAttemptAt etc.
+ * untouched. Best-effort: this is cosmetic (a progress bar), called on every batch/stage of a
+ * long-running refresh, so a transient EPERM/EBUSY on Windows (Defender or the indexer holding
+ * the tmp file mid-rename) must never crash the refresh — it's swallowed here instead.
+ */
 export function writeRefreshProgress(progress: RefreshProgress, baseDir: string = process.cwd()): void {
-  writeRefreshStatus({ ...readRefreshStatus(baseDir), progress }, baseDir);
+  try {
+    writeRefreshStatus({ ...readRefreshStatus(baseDir), progress }, baseDir);
+  } catch {
+    /* cosmetic — never let a progress-bar write fail the refresh */
+  }
 }
 
 /** Requests that a running refresh stop; checked by the script between detail-fetch and embedding batches. */

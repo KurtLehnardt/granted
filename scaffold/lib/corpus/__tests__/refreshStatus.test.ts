@@ -76,6 +76,17 @@ describe("refresh status", () => {
     assert.deepEqual(status.progress, { stage: "embedding", done: 1, total: 2, pct: 80 });
     rmSync(baseDir, { recursive: true, force: true });
   });
+
+  test("writeRefreshProgress is best-effort — a write failure (e.g. transient EPERM/EBUSY on Windows) never throws", () => {
+    // baseDir is a FILE, not a directory: data/local can't be created under it, so the
+    // underlying writeFileSync/renameSync must fail — this is a stand-in for a transient
+    // Windows EPERM/EBUSY on the tmp-write+rename, which must be cosmetic, not fatal.
+    const parent = mkdtempSync(join(tmpdir(), "granted-refresh-status-"));
+    const baseDir = join(parent, "not-a-directory");
+    writeFileSync(baseDir, "not a directory");
+    assert.doesNotThrow(() => writeRefreshProgress({ stage: "embedding", pct: 10 }, baseDir));
+    rmSync(parent, { recursive: true, force: true });
+  });
 });
 
 describe("stop request", () => {

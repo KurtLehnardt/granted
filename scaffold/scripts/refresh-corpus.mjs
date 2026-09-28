@@ -11,11 +11,11 @@ import { clampCorpusSize, DEFAULT_CORPUS_SIZE } from "../lib/searchSettings.ts";
 import { dropExpiredOpportunities } from "../lib/corpus/expiry.ts";
 import { selectCorpusWithinCap } from "../lib/corpus/selection.ts";
 import {
+  computeStopOutcome,
   countBySource,
   countRemoved,
   dedupeById,
   findUnhealthySources,
-  mergePartialSave,
   opportunityEmbedText,
   planEmbedding,
 } from "../lib/corpus/refresh.ts";
@@ -104,12 +104,47 @@ async function main() {
     process.exitCode = 1;
     return;
   }
-  // A stale stop-request file from a previous run must never stop this one.
-  clearStopRequest();
+  // A stale stop-request file from a previous run must never stop this one. When the API
+  // spawned us (lockHeld), IT already cleared this right after taking the lock — tsx boot plus
+  // imports takes ~1-3s on Windows, and clearing it here too would erase a Stop clicked in that
+  // window. Only clear it ourselves when we took the lock (a plain `npm run data:refresh`).
+  if (!lockHeld) clearStopRequest();
 
-  function stopBeforeEmbedding() {
-    console.log("\ndata:refresh stopped by user — corpus unchanged.");
-    writeRefreshStatus({ lastCompletedAt: attemptAt, stopped: true, savedCount: 0 });
+  let existingMeta = {};
+  let existingById = new Map();
+
+  async function applyStop(opts) {
+    const outcome = computeStopOutcome({
+      attemptAt,
+      duringEmbedding: false,
+      fullReembed: false,
+      reused: [],
+      embeddedSoFar: [],
+      notYetEmbedded: [],
+      priorById: existingById,
+      ...opts,
+    });
+    if (outcome.save) {
+      const dims = outcome.corpus.find((o) => Array.isArray(o.embedding) && o.embedding.length > 0)?.embedding?.length;
+      const meta = {
+        builtAt: new Date().toISOString(),
+        note: "Local corpus refresh (npm run data:refresh) — gitignored, never committed. Read by lib/corpus/store.ts.",
+        count: outcome.corpus.length,
+        embeddingModel: EMBEDDINGS_MODEL,
+        dims: dims ?? existingMeta.dims,
+      };
+      await writeAtomic(LOCAL_OPPS, JSON.stringify(outcome.corpus));
+      await writeAtomic(LOCAL_META, JSON.stringify(meta, null, 2));
+      console.log(`\ndata:refresh stopped by user during embedding — saved ${outcome.corpus.length} records.`);
+    } else if (opts.duringEmbedding && opts.fullReembed) {
+      console.log(
+        "\ndata:refresh stopped by user during a full re-embed — corpus left unchanged " +
+          "to avoid mixing embedding models.",
+      );
+    } else {
+      console.log("\ndata:refresh stopped by user — corpus unchanged.");
+    }
+    writeRefreshStatus(outcome.status);
   }
 
   try {
@@ -122,21 +157,29 @@ async function main() {
       { ...rawEnv, GRANTS_FETCH_MODE: "all", GRANTS_ONLY: "1" },
       { tsx: true },
     );
-    if (grantsRun.stopped) return stopBeforeEmbedding();
+    if (grantsRun.stopped) return await applyStop({});
 
-    reportProgress("sam.gov");
-    if (isStopRequested()) return stopBeforeEmbedding();
+    // Running "found" count: unique open grants.gov ids first (the longest stage, so the count
+    // is useful for it too — see the per-batch report inside 1-fetch.mjs), then each subsequent
+    // source's own count as it finishes.
+    let runningFound = new Set((await readJson(join(RAW_DIR, "grants.json"), [])).map((g) => g.id)).size;
+
+    reportProgress("sam.gov", { foundCount: runningFound });
+    if (isStopRequested()) return await applyStop({});
     run("SAM.gov assistance (everything open)", "scripts/1-fetch-sam-assistance.mjs", { ...rawEnv, SAM_FETCH_MODE: "all" });
+    runningFound += (await readJson(join(RAW_DIR, "sam-assistance.json"), [])).length;
 
-    reportProgress("sbir");
-    if (isStopRequested()) return stopBeforeEmbedding();
+    reportProgress("sbir", { foundCount: runningFound });
+    if (isStopRequested()) return await applyStop({});
     run("SBIR/STTR", "scripts/1-fetch-sbir-corpus.mjs", { ...rawEnv, SBIR_CAP_TOTAL: "260", SBIR_CAP_PER_AGENCY: "60" });
+    runningFound += (await readJson(join(RAW_DIR, "sbir-corpus.json"), [])).length;
 
-    reportProgress("procurement");
-    if (isStopRequested()) return stopBeforeEmbedding();
+    reportProgress("procurement", { foundCount: runningFound });
+    if (isStopRequested()) return await applyStop({});
     run("Procurement", "scripts/1-fetch-procurement.mjs", { ...rawEnv, PROCUREMENT_PER_QUERY: "24", PROCUREMENT_UTAH_LIMIT: "40" });
+    runningFound += (await readJson(join(RAW_DIR, "usaspending-contracts.json"), [])).length;
 
-    if (isStopRequested()) return stopBeforeEmbedding();
+    if (isStopRequested()) return await applyStop({});
 
     const [grants, sbirSolicitations, samAssistance, sbirAwards, procurement] = await Promise.all([
       readJson(join(RAW_DIR, "grants.json"), []),
@@ -147,8 +190,8 @@ async function main() {
     ]);
 
     const existing = await readJson(LOCAL_OPPS, await readJson("data/opportunities.json", []));
-    const existingMeta = await readJson(LOCAL_META, await readJson("data/corpus-meta.json", {}));
-    const existingById = new Map(existing.map((o) => [o.id, o]));
+    existingMeta = await readJson(LOCAL_META, await readJson("data/corpus-meta.json", {}));
+    existingById = new Map(existing.map((o) => [o.id, o]));
 
     // A failed detail fetch normalizes to a title-only record; keep the prior full one, with current dates.
     const normalizedGrants = grants.map((g) => {
@@ -175,14 +218,14 @@ async function main() {
       throw new Error(`refresh aborted — source count dropped sharply: ${unhealthy.join("; ")}`);
     }
 
-    if (isStopRequested()) return stopBeforeEmbedding();
+    if (isStopRequested()) return await applyStop({});
 
     fresh = selectCorpusWithinCap(fresh, MAX_CORPUS_SIZE);
     const keptCount = fresh.length;
     console.log(`Capped to ${keptCount} of the assembled set (max ${MAX_CORPUS_SIZE}).`);
     reportProgress("selecting", { done: 1, total: 1, foundCount, keptCount });
 
-    if (isStopRequested()) return stopBeforeEmbedding();
+    if (isStopRequested()) return await applyStop({});
 
     const priorById = new Map();
     for (const o of existing) {
@@ -215,21 +258,15 @@ async function main() {
 
     if (stoppedDuringEmbedding) {
       const notYetEmbedded = plan.toEmbed.slice(embedded.length);
-      const partial = mergePartialSave(plan.reused, embedded, notYetEmbedded, existingById);
       reportProgress("saving", { foundCount, keptCount });
-      const dims = partial.find((o) => Array.isArray(o.embedding) && o.embedding.length > 0)?.embedding?.length;
-      const meta = {
-        builtAt: new Date().toISOString(),
-        note: "Local corpus refresh (npm run data:refresh) — gitignored, never committed. Read by lib/corpus/store.ts.",
-        count: partial.length,
-        embeddingModel: EMBEDDINGS_MODEL,
-        dims: dims ?? existingMeta.dims,
-      };
-      await writeAtomic(LOCAL_OPPS, JSON.stringify(partial));
-      await writeAtomic(LOCAL_META, JSON.stringify(meta, null, 2));
-      console.log(`\ndata:refresh stopped by user during embedding — saved ${partial.length} records.`);
-      writeRefreshStatus({ lastCompletedAt: attemptAt, stopped: true, savedCount: partial.length });
-      return;
+      return await applyStop({
+        duringEmbedding: true,
+        fullReembed: plan.fullReembed,
+        reused: plan.reused,
+        embeddedSoFar: embedded,
+        notYetEmbedded,
+        priorById: existingById,
+      });
     }
 
     reportProgress("saving", { foundCount, keptCount });

@@ -150,6 +150,15 @@ async function grantsGov() {
   // them.
   const uniqueIds = [...new Set(out.map((o) => o.id).filter(Boolean))];
   console.log(`grants.gov  fetching detail for ${uniqueIds.length} unique opportunities...`);
+  // The search is already done, so the found count is known up front — surface it for the
+  // whole (longest) detail-fetch stage rather than leaving the progress bar countless.
+  writeRefreshProgress({
+    stage: "grants.gov details",
+    done: 0,
+    total: uniqueIds.length,
+    pct: overallPct("grants.gov details", 0, uniqueIds.length),
+    foundCount: uniqueIds.length,
+  });
   let doneDetail = 0;
   const detailConcurrency = FETCH_ALL ? 16 : 8;
   const detailById = new Map();
@@ -185,6 +194,7 @@ async function grantsGov() {
       done: doneDetail,
       total: uniqueIds.length,
       pct: overallPct("grants.gov details", doneDetail, uniqueIds.length),
+      foundCount: uniqueIds.length,
     });
     if (isStopRequested()) {
       stopped = true;

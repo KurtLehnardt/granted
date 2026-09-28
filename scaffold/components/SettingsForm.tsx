@@ -20,9 +20,10 @@ import {
   MAX_CORPUS_SIZE,
 } from "@/lib/searchSettings";
 import type { OllamaModel } from "@/lib/llm/ollamaInfo";
+import { stageLabel, type RefreshStage } from "@/lib/corpus/refreshProgress";
 
 interface CorpusProgress {
-  stage: string;
+  stage: RefreshStage;
   done?: number;
   total?: number;
   pct: number;
@@ -39,23 +40,6 @@ interface CorpusStatus {
   progress?: CorpusProgress;
   stopped?: boolean;
   savedCount?: number;
-}
-
-const STAGE_LABELS: Record<string, string> = {
-  "grants.gov search": "Searching grants.gov",
-  "grants.gov details": "Fetching grants.gov details",
-  "sam.gov": "Fetching SAM.gov",
-  sbir: "Fetching SBIR/STTR",
-  procurement: "Fetching procurement records",
-  selecting: "Selecting within cap",
-  embedding: "Embedding",
-  saving: "Saving",
-};
-
-function progressLabel(p: CorpusProgress): string {
-  if (p.stage === "embedding" && p.total) return `Embedding ${p.done ?? 0} of ${p.total} new`;
-  const base = STAGE_LABELS[p.stage] ?? p.stage;
-  return p.done != null && p.total ? `${base} (${p.done} of ${p.total})` : base;
 }
 
 /**
@@ -430,7 +414,9 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
         {corpusStatus?.refreshing && corpusStatus.progress && (
           <div className="mt-2">
             <div className="mb-1 flex items-center justify-between gap-3">
-              <span className="font-mono text-[11px] text-structure-on-canvas">{progressLabel(corpusStatus.progress)}</span>
+              <span className="font-mono text-[11px] text-structure-on-canvas">
+                {stageLabel(corpusStatus.progress.stage, corpusStatus.progress.done, corpusStatus.progress.total)}
+              </span>
               <span className="font-mono text-[11px] tabular-nums text-foreground">{Math.round(corpusStatus.progress.pct)}%</span>
             </div>
             <div className="h-2.5 w-full overflow-hidden rounded-full bg-canvas">
