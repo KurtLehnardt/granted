@@ -15,10 +15,19 @@ import {
   countRemoved,
   dedupeById,
   findUnhealthySources,
+  mergePartialSave,
   opportunityEmbedText,
   planEmbedding,
 } from "../lib/corpus/refresh.ts";
-import { acquireRefreshLock, releaseRefreshLock, writeRefreshStatus } from "../lib/corpus/refreshStatus.ts";
+import {
+  acquireRefreshLock,
+  clearStopRequest,
+  isStopRequested,
+  releaseRefreshLock,
+  writeRefreshStatus,
+  writeRefreshProgress,
+} from "../lib/corpus/refreshStatus.ts";
+import { overallPct } from "../lib/corpus/refreshProgress.ts";
 import { normalizeGrantsRecord, normalizeSbirSolicitation } from "./lib/normalizeGrants.mjs";
 import { normalizeSamRow, normalizeSbirAward, normalizeProcurementRecord } from "./lib/normalizeNewSources.mjs";
 
@@ -27,7 +36,19 @@ const RAW_DIR = join(LOCAL_DIR, "raw");
 const LOCAL_OPPS = join(LOCAL_DIR, "opportunities.json");
 const LOCAL_META = join(LOCAL_DIR, "corpus-meta.json");
 const EMBED_BATCH = 64;
+const STOP_EXIT_CODE = 75; // 1-fetch.mjs uses this to signal "stopped, not failed" between detail-fetch batches
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function reportProgress(stage, { done, total, foundCount, keptCount } = {}) {
+  writeRefreshProgress({
+    stage,
+    ...(done != null ? { done } : {}),
+    ...(total != null ? { total } : {}),
+    pct: overallPct(stage, done, total),
+    ...(foundCount != null ? { foundCount } : {}),
+    ...(keptCount != null ? { keptCount } : {}),
+  });
+}
 
 const maxFlag = process.argv.indexOf("--max");
 const requestedMax = Number(maxFlag !== -1 ? process.argv[maxFlag + 1] : process.env.CORPUS_MAX);
@@ -60,14 +81,17 @@ async function writeAtomic(path, content) {
   await rename(tmp, path);
 }
 
-function run(label, script, env) {
+function run(label, script, env, { tsx = false } = {}) {
   console.log(`\n— ${label} —`);
-  const res = spawnSync(process.execPath, [script], {
+  const args = tsx ? ["--import", "tsx", script] : [script];
+  const res = spawnSync(process.execPath, args, {
     stdio: "inherit",
     windowsHide: true,
     env: { ...process.env, ...env },
   });
+  if (res.status === STOP_EXIT_CODE) return { stopped: true };
   if (res.status !== 0) throw new Error(`${script} exited ${res.status}`);
+  return { stopped: false };
 }
 
 async function main() {
@@ -80,14 +104,39 @@ async function main() {
     process.exitCode = 1;
     return;
   }
+  // A stale stop-request file from a previous run must never stop this one.
+  clearStopRequest();
+
+  function stopBeforeEmbedding() {
+    console.log("\ndata:refresh stopped by user — corpus unchanged.");
+    writeRefreshStatus({ lastCompletedAt: attemptAt, stopped: true, savedCount: 0 });
+  }
 
   try {
     await mkdir(RAW_DIR, { recursive: true });
     const rawEnv = { RAW_DIR };
-    run("grants.gov (everything open)", "scripts/1-fetch.mjs", { ...rawEnv, GRANTS_FETCH_MODE: "all", GRANTS_ONLY: "1" });
+    reportProgress("grants.gov search");
+    const grantsRun = run(
+      "grants.gov (everything open)",
+      "scripts/1-fetch.mjs",
+      { ...rawEnv, GRANTS_FETCH_MODE: "all", GRANTS_ONLY: "1" },
+      { tsx: true },
+    );
+    if (grantsRun.stopped) return stopBeforeEmbedding();
+
+    reportProgress("sam.gov");
+    if (isStopRequested()) return stopBeforeEmbedding();
     run("SAM.gov assistance (everything open)", "scripts/1-fetch-sam-assistance.mjs", { ...rawEnv, SAM_FETCH_MODE: "all" });
+
+    reportProgress("sbir");
+    if (isStopRequested()) return stopBeforeEmbedding();
     run("SBIR/STTR", "scripts/1-fetch-sbir-corpus.mjs", { ...rawEnv, SBIR_CAP_TOTAL: "260", SBIR_CAP_PER_AGENCY: "60" });
+
+    reportProgress("procurement");
+    if (isStopRequested()) return stopBeforeEmbedding();
     run("Procurement", "scripts/1-fetch-procurement.mjs", { ...rawEnv, PROCUREMENT_PER_QUERY: "24", PROCUREMENT_UTAH_LIMIT: "40" });
+
+    if (isStopRequested()) return stopBeforeEmbedding();
 
     const [grants, sbirSolicitations, samAssistance, sbirAwards, procurement] = await Promise.all([
       readJson(join(RAW_DIR, "grants.json"), []),
@@ -117,15 +166,23 @@ async function main() {
     ].filter((o) => o && o.description && o.description.length >= 60);
     fresh = dedupeById(fresh);
     fresh = dropExpiredOpportunities(fresh);
-    console.log(`\nAssembled ${fresh.length} open records (expired deadlines dropped).`);
+    const foundCount = fresh.length;
+    console.log(`\nAssembled ${foundCount} open records (expired deadlines dropped).`);
+    reportProgress("selecting", { foundCount });
 
     const unhealthy = findUnhealthySources(countBySource(existing), countBySource(fresh));
     if (unhealthy.length) {
       throw new Error(`refresh aborted — source count dropped sharply: ${unhealthy.join("; ")}`);
     }
 
+    if (isStopRequested()) return stopBeforeEmbedding();
+
     fresh = selectCorpusWithinCap(fresh, MAX_CORPUS_SIZE);
-    console.log(`Capped to ${fresh.length} of the assembled set (max ${MAX_CORPUS_SIZE}).`);
+    const keptCount = fresh.length;
+    console.log(`Capped to ${keptCount} of the assembled set (max ${MAX_CORPUS_SIZE}).`);
+    reportProgress("selecting", { done: 1, total: 1, foundCount, keptCount });
+
+    if (isStopRequested()) return stopBeforeEmbedding();
 
     const priorById = new Map();
     for (const o of existing) {
@@ -139,15 +196,43 @@ async function main() {
       `Embedding plan: ${plan.reused.length} reused, ${plan.toEmbed.length} to embed with ${EMBEDDINGS_MODEL}` +
         (plan.fullReembed ? " (embedding model changed — full re-embed)" : ""),
     );
+    reportProgress("embedding", { done: 0, total: plan.toEmbed.length, foundCount, keptCount });
 
     const embedded = [];
+    let stoppedDuringEmbedding = false;
     for (let i = 0; i < plan.toEmbed.length; i += EMBED_BATCH) {
+      if (isStopRequested()) {
+        stoppedDuringEmbedding = true;
+        break;
+      }
       const slice = plan.toEmbed.slice(i, i + EMBED_BATCH);
       const vectors = await embedBatchWithRetry(slice.map((o) => opportunityEmbedText(o)));
       slice.forEach((o, k) => embedded.push({ ...o, embedding: vectors[k].map((v) => Math.round(v * 1e5) / 1e5) }));
       process.stdout.write(`\rembedded ${Math.min(i + EMBED_BATCH, plan.toEmbed.length)}/${plan.toEmbed.length}`);
+      reportProgress("embedding", { done: embedded.length, total: plan.toEmbed.length, foundCount, keptCount });
     }
     if (plan.toEmbed.length) process.stdout.write("\n");
+
+    if (stoppedDuringEmbedding) {
+      const notYetEmbedded = plan.toEmbed.slice(embedded.length);
+      const partial = mergePartialSave(plan.reused, embedded, notYetEmbedded, existingById);
+      reportProgress("saving", { foundCount, keptCount });
+      const dims = partial.find((o) => Array.isArray(o.embedding) && o.embedding.length > 0)?.embedding?.length;
+      const meta = {
+        builtAt: new Date().toISOString(),
+        note: "Local corpus refresh (npm run data:refresh) — gitignored, never committed. Read by lib/corpus/store.ts.",
+        count: partial.length,
+        embeddingModel: EMBEDDINGS_MODEL,
+        dims: dims ?? existingMeta.dims,
+      };
+      await writeAtomic(LOCAL_OPPS, JSON.stringify(partial));
+      await writeAtomic(LOCAL_META, JSON.stringify(meta, null, 2));
+      console.log(`\ndata:refresh stopped by user during embedding — saved ${partial.length} records.`);
+      writeRefreshStatus({ lastCompletedAt: attemptAt, stopped: true, savedCount: partial.length });
+      return;
+    }
+
+    reportProgress("saving", { foundCount, keptCount });
 
     const final = [...plan.reused, ...embedded];
     const removed = countRemoved(existing.map((o) => o.id), new Set(final.map((o) => o.id)));
@@ -176,6 +261,7 @@ async function main() {
     process.exitCode = 1;
   } finally {
     releaseRefreshLock();
+    clearStopRequest();
   }
 }
 

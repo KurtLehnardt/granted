@@ -21,12 +21,41 @@ import {
 } from "@/lib/searchSettings";
 import type { OllamaModel } from "@/lib/llm/ollamaInfo";
 
+interface CorpusProgress {
+  stage: string;
+  done?: number;
+  total?: number;
+  pct: number;
+  foundCount?: number;
+  keptCount?: number;
+}
+
 interface CorpusStatus {
   builtAt: string | null;
   count: number;
   stale: boolean;
   refreshing: boolean;
   lastError?: string;
+  progress?: CorpusProgress;
+  stopped?: boolean;
+  savedCount?: number;
+}
+
+const STAGE_LABELS: Record<string, string> = {
+  "grants.gov search": "Searching grants.gov",
+  "grants.gov details": "Fetching grants.gov details",
+  "sam.gov": "Fetching SAM.gov",
+  sbir: "Fetching SBIR/STTR",
+  procurement: "Fetching procurement records",
+  selecting: "Selecting within cap",
+  embedding: "Embedding",
+  saving: "Saving",
+};
+
+function progressLabel(p: CorpusProgress): string {
+  if (p.stage === "embedding" && p.total) return `Embedding ${p.done ?? 0} of ${p.total} new`;
+  const base = STAGE_LABELS[p.stage] ?? p.stage;
+  return p.done != null && p.total ? `${base} (${p.done} of ${p.total})` : base;
 }
 
 /**
@@ -112,12 +141,21 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ max: maxCorpusSize }),
       });
-      if (res.status === 202) setCorpusStatus((s) => (s ? { ...s, refreshing: true } : s));
+      if (res.status === 202) setCorpusStatus((s) => (s ? { ...s, refreshing: true, stopped: false } : s));
       if (res.status === 202 || res.status === 409) await fetchCorpusStatus();
       else {
         const { error } = await res.json().catch(() => ({}));
         setCorpusStatus((s) => (s ? { ...s, lastError: error ?? `HTTP ${res.status}` } : s));
       }
+    } catch {
+      /* offline / unreachable — nothing to do, status just won't update */
+    }
+  }
+
+  async function handleStopRefresh() {
+    try {
+      await fetch("/api/corpus/refresh/stop", { method: "POST" });
+      await fetchCorpusStatus();
     } catch {
       /* offline / unreachable — nothing to do, status just won't update */
     }
@@ -382,15 +420,51 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
                 corpusStatus.builtAt ? new Date(corpusStatus.builtAt).toLocaleDateString() : "unknown"
               }${corpusStatus.stale ? " (over a day old)" : ""}.`}
           {corpusStatus?.lastError ? ` Last refresh failed: ${corpusStatus.lastError}` : ""}
+          {!corpusStatus?.refreshing && corpusStatus?.stopped
+            ? corpusStatus.savedCount
+              ? ` Stopped — saved ${corpusStatus.savedCount.toLocaleString("en-US")} grants.`
+              : " Stopped — no changes."
+            : ""}
         </p>
-        <button
-          type="button"
-          onClick={handleRefreshCorpus}
-          disabled={corpusStatus?.refreshing}
-          className={`${saveBtnClass} mt-2 disabled:opacity-50`}
-        >
-          {corpusStatus?.refreshing ? "Refreshing…" : "Refresh cached grants"}
-        </button>
+
+        {corpusStatus?.refreshing && corpusStatus.progress && (
+          <div className="mt-2">
+            <div className="mb-1 flex items-center justify-between gap-3">
+              <span className="font-mono text-[11px] text-structure-on-canvas">{progressLabel(corpusStatus.progress)}</span>
+              <span className="font-mono text-[11px] tabular-nums text-foreground">{Math.round(corpusStatus.progress.pct)}%</span>
+            </div>
+            <div className="h-2.5 w-full overflow-hidden rounded-full bg-canvas">
+              <div
+                className="h-full rounded-full bg-action transition-[width] duration-700 ease-out"
+                style={{ width: `${Math.round(corpusStatus.progress.pct)}%` }}
+              />
+            </div>
+            {corpusStatus.progress.foundCount != null && (
+              <p className="mt-1.5 font-body text-[12px] text-foreground opacity-80">
+                {corpusStatus.progress.foundCount.toLocaleString("en-US")} open found
+                {corpusStatus.progress.keptCount != null
+                  ? ` · keeping ${corpusStatus.progress.keptCount.toLocaleString("en-US")}`
+                  : ""}
+              </p>
+            )}
+          </div>
+        )}
+
+        <div className="mt-2 flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={handleRefreshCorpus}
+            disabled={corpusStatus?.refreshing}
+            className={`${saveBtnClass} disabled:opacity-50`}
+          >
+            {corpusStatus?.refreshing ? "Refreshing…" : "Refresh cached grants"}
+          </button>
+          {corpusStatus?.refreshing && (
+            <button type="button" onClick={handleStopRefresh} className={closeTextBtnClass}>
+              Stop
+            </button>
+          )}
+        </div>
         <label className={`mt-3 flex items-center gap-2 ${labelTextClass}`}>
           <input
             type="checkbox"

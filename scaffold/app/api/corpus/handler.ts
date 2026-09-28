@@ -26,5 +26,7 @@ export function buildCorpusStatus(deps: Partial<CorpusStatusDeps> = {}) {
     refreshing: d.isRefreshing(),
     ...(status.lastAttemptAt ? { lastAttemptAt: status.lastAttemptAt } : {}),
     ...(status.lastError ? { lastError: status.lastError } : {}),
+    ...(status.progress ? { progress: status.progress } : {}),
+    ...(status.stopped ? { stopped: status.stopped, savedCount: status.savedCount ?? 0 } : {}),
   };
 }

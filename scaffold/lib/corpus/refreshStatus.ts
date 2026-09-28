@@ -1,5 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { RefreshStage } from "./refreshProgress";
 
 /** Single-flight refresh lock: an O_EXCL file holding the owner's pid, stale once that pid is gone. */
 interface LockInfo {
@@ -15,6 +16,9 @@ function lockPath(baseDir: string): string {
 }
 function statusPath(baseDir: string): string {
   return join(dir(baseDir), "refresh-status.json");
+}
+function stopRequestPath(baseDir: string): string {
+  return join(dir(baseDir), "refresh-stop-request");
 }
 
 function isProcessAlive(pid: number): boolean {
@@ -82,11 +86,28 @@ export function releaseRefreshLock(baseDir: string = process.cwd()): void {
   }
 }
 
+export interface RefreshProgress {
+  stage: RefreshStage;
+  done?: number;
+  total?: number;
+  pct: number;
+  /** Running count of open (non-expired) opportunities found so far. */
+  foundCount?: number;
+  /** Set once selection has run: how many of `foundCount` were kept under the cap. */
+  keptCount?: number;
+}
+
 export interface RefreshStatus {
   lastError?: string;
   lastCompletedAt?: string;
-  /** Written when an attempt starts; a successful run clears it. */
+  /** Written when an attempt starts; a successful run (or a user stop) clears it. */
   lastAttemptAt?: string;
+  /** Live progress while a refresh is running; absent once it finishes. */
+  progress?: RefreshProgress;
+  /** Set on the final status write when the user stopped the refresh — never alongside lastError. */
+  stopped?: boolean;
+  /** Present when `stopped` is true: how many records the partial save wrote (0 if none). */
+  savedCount?: number;
 }
 
 export function readRefreshStatus(baseDir: string = process.cwd()): RefreshStatus {
@@ -99,5 +120,33 @@ export function readRefreshStatus(baseDir: string = process.cwd()): RefreshStatu
 
 export function writeRefreshStatus(status: RefreshStatus, baseDir: string = process.cwd()): void {
   mkdirSync(dir(baseDir), { recursive: true });
-  writeFileSync(statusPath(baseDir), JSON.stringify(status, null, 2));
+  const p = statusPath(baseDir);
+  const tmp = `${p}.tmp-${process.pid}`;
+  writeFileSync(tmp, JSON.stringify(status, null, 2));
+  renameSync(tmp, p);
+}
+
+/** Merges just the `progress` field into the status file, leaving lastError/lastAttemptAt etc. untouched. */
+export function writeRefreshProgress(progress: RefreshProgress, baseDir: string = process.cwd()): void {
+  writeRefreshStatus({ ...readRefreshStatus(baseDir), progress }, baseDir);
+}
+
+/** Requests that a running refresh stop; checked by the script between detail-fetch and embedding batches. */
+export function requestStop(baseDir: string = process.cwd()): void {
+  mkdirSync(dir(baseDir), { recursive: true });
+  writeFileSync(stopRequestPath(baseDir), String(Date.now()));
+}
+
+export function isStopRequested(baseDir: string = process.cwd()): boolean {
+  return existsSync(stopRequestPath(baseDir));
+}
+
+/** Cleared both when a refresh starts (a stale request from a prior run must never stop a new one)
+ *  and when a stopped run finishes handling it. */
+export function clearStopRequest(baseDir: string = process.cwd()): void {
+  try {
+    unlinkSync(stopRequestPath(baseDir));
+  } catch {
+    /* already gone */
+  }
 }

@@ -6,6 +6,10 @@
 import "./_loadEnvLocal.mjs"; // honor scaffold/.env.local when run as plain `node`
 import { writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
+import { isStopRequested, writeRefreshProgress } from "../lib/corpus/refreshStatus.ts";
+import { overallPct } from "../lib/corpus/refreshProgress.ts";
+
+const DETAIL_BATCH = 300; // stop is checked between batches, so a stop lands within one batch of latency
 
 const RAW_DIR = process.env.RAW_DIR || "data/raw";
 const GRANTS_ONLY = process.env.GRANTS_ONLY === "1";
@@ -148,31 +152,47 @@ async function grantsGov() {
   console.log(`grants.gov  fetching detail for ${uniqueIds.length} unique opportunities...`);
   let doneDetail = 0;
   const detailConcurrency = FETCH_ALL ? 16 : 8;
-  const pairs = await mapWithConcurrency(uniqueIds, detailConcurrency, async (id) => {
-    let detail = null;
-    for (let attempt = 0; attempt <= 2 && detail == null; attempt++) {
-      try {
-        const res = await fetch("https://api.grants.gov/v1/api/fetchOpportunity", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ opportunityId: Number(id) }),
-        });
-        if (res.ok) {
-          const json = await res.json();
-          detail = json?.data?.synopsis ?? json?.data?.forecast ?? null;
-        } else if (attempt < 2) {
-          await new Promise((r) => setTimeout(r, 500 * 2 ** attempt));
+  const detailById = new Map();
+  let stopped = false;
+  for (let i = 0; i < uniqueIds.length; i += DETAIL_BATCH) {
+    const batch = uniqueIds.slice(i, i + DETAIL_BATCH);
+    const pairs = await mapWithConcurrency(batch, detailConcurrency, async (id) => {
+      let detail = null;
+      for (let attempt = 0; attempt <= 2 && detail == null; attempt++) {
+        try {
+          const res = await fetch("https://api.grants.gov/v1/api/fetchOpportunity", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ opportunityId: Number(id) }),
+          });
+          if (res.ok) {
+            const json = await res.json();
+            detail = json?.data?.synopsis ?? json?.data?.forecast ?? null;
+          } else if (attempt < 2) {
+            await new Promise((r) => setTimeout(r, 500 * 2 ** attempt));
+          }
+        } catch {
+          if (attempt < 2) await new Promise((r) => setTimeout(r, 500 * 2 ** attempt));
         }
-      } catch {
-        if (attempt < 2) await new Promise((r) => setTimeout(r, 500 * 2 ** attempt));
       }
+      doneDetail++;
+      if (doneDetail % 50 === 0) process.stdout.write(`\r  detail ${doneDetail}/${uniqueIds.length}`);
+      return [id, detail];
+    });
+    for (const [id, d] of pairs) if (d) detailById.set(id, d);
+    writeRefreshProgress({
+      stage: "grants.gov details",
+      done: doneDetail,
+      total: uniqueIds.length,
+      pct: overallPct("grants.gov details", doneDetail, uniqueIds.length),
+    });
+    if (isStopRequested()) {
+      stopped = true;
+      console.log(`\ngrants.gov  detail fetch stopped by user after ${doneDetail}/${uniqueIds.length}`);
+      break;
     }
-    doneDetail++;
-    if (doneDetail % 50 === 0) process.stdout.write(`\r  detail ${doneDetail}/${uniqueIds.length}`);
-    return [id, detail];
-  });
+  }
   process.stdout.write(`\r  detail ${doneDetail}/${uniqueIds.length}\n`);
-  const detailById = new Map(pairs.filter(([, d]) => d));
   let withDetail = 0;
   for (const o of out) {
     const d = detailById.get(o.id);
@@ -182,6 +202,7 @@ async function grantsGov() {
 
   await writeFile(rawPath("grants.json"), JSON.stringify(out, null, 2));
   console.log(`\n→ ${out.length} grants.gov records\n`);
+  if (stopped) process.exitCode = 75; // signals refresh-corpus.mjs: stopped, not failed — corpus stays unchanged
 }
 
 async function sbirSolicitations() {

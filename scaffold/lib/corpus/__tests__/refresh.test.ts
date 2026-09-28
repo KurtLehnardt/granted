@@ -7,6 +7,7 @@ import {
   countBySource,
   findUnhealthySources,
   dedupeById,
+  mergePartialSave,
   LEGACY_EMBEDDING_MODEL,
 } from "../refresh";
 
@@ -132,5 +133,40 @@ describe("dedupeById", () => {
     const result = dedupeById([opp("a", "first"), opp("b"), opp("a", "second")]);
     assert.equal(result.length, 2);
     assert.equal(result.find((o) => o.id === "a")?.description, "second");
+  });
+});
+
+describe("mergePartialSave", () => {
+  test("keeps reused + embedded-so-far, drops not-yet-embedded records with no prior cache", () => {
+    const reused = [opp("a")];
+    const embedded = [opp("b")];
+    const notYetEmbedded = [opp("c")];
+    const result = mergePartialSave(reused, embedded, notYetEmbedded, new Map());
+    assert.deepEqual(result.map((o) => o.id).sort(), ["a", "b"]);
+  });
+
+  test("a not-yet-embedded record with an existing cached version keeps that previous version", () => {
+    const reused = [opp("a")];
+    const embedded: ReturnType<typeof opp>[] = [];
+    const notYetEmbedded = [opp("c", "fresh description")];
+    const prior = new Map([["c", opp("c", "cached description")]]);
+    const result = mergePartialSave(reused, embedded, notYetEmbedded, prior);
+    assert.equal(result.length, 2);
+    assert.equal(result.find((o) => o.id === "c")?.description, "cached description");
+  });
+
+  test("never drops or duplicates a reused or embedded record", () => {
+    const reused = [opp("a"), opp("b")];
+    const embedded = [opp("c")];
+    const notYetEmbedded = [opp("a"), opp("d")]; // "a" already reused — must not duplicate
+    const prior = new Map([["a", opp("a", "stale")], ["d", opp("d", "cached")]]);
+    const result = mergePartialSave(reused, embedded, notYetEmbedded, prior);
+    assert.deepEqual(result.map((o) => o.id).sort(), ["a", "b", "c", "d"]);
+    assert.equal(result.filter((o) => o.id === "a").length, 1);
+  });
+
+  test("no prior map at all: not-yet-embedded records are simply skipped", () => {
+    const result = mergePartialSave([opp("a")], [], [opp("b"), opp("c")], new Map());
+    assert.deepEqual(result.map((o) => o.id), ["a"]);
   });
 });

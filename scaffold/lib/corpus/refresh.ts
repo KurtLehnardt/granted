@@ -86,3 +86,28 @@ export function dedupeById(records: Opportunity[]): Opportunity[] {
   for (const o of records) byId.set(o.id, o);
   return Array.from(byId.values());
 }
+
+/**
+ * A user stop mid-embedding still needs a coherent corpus written: reused records (unchanged,
+ * already embedded) plus whatever finished embedding before the stop. A record that hadn't been
+ * embedded yet is dropped from this save UNLESS it already had a cached version from before —
+ * that prior version is kept as-is, so a stop never loses already-cached data.
+ */
+export function mergePartialSave(
+  reused: Opportunity[],
+  embeddedSoFar: Opportunity[],
+  notYetEmbedded: Opportunity[],
+  priorById: Map<string, Opportunity>,
+): Opportunity[] {
+  const out = [...reused, ...embeddedSoFar];
+  const seen = new Set(out.map((o) => o.id));
+  for (const o of notYetEmbedded) {
+    if (seen.has(o.id)) continue;
+    const prior = priorById.get(o.id);
+    if (prior) {
+      out.push(prior);
+      seen.add(o.id);
+    }
+  }
+  return out;
+}

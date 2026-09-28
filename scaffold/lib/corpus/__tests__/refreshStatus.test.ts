@@ -9,6 +9,10 @@ import {
   isRefreshing,
   readRefreshStatus,
   writeRefreshStatus,
+  writeRefreshProgress,
+  requestStop,
+  isStopRequested,
+  clearStopRequest,
 } from "../refreshStatus";
 
 function makeBaseDir() {
@@ -60,6 +64,34 @@ describe("refresh status", () => {
     assert.deepEqual(readRefreshStatus(baseDir), { lastError: "boom" });
     writeRefreshStatus({ lastCompletedAt: "2026-09-27T00:00:00.000Z" }, baseDir);
     assert.deepEqual(readRefreshStatus(baseDir), { lastCompletedAt: "2026-09-27T00:00:00.000Z" });
+    rmSync(baseDir, { recursive: true, force: true });
+  });
+
+  test("writeRefreshProgress merges progress without clobbering other fields", () => {
+    const baseDir = makeBaseDir();
+    writeRefreshStatus({ lastAttemptAt: "2026-09-27T00:00:00.000Z" }, baseDir);
+    writeRefreshProgress({ stage: "embedding", done: 1, total: 2, pct: 80 }, baseDir);
+    const status = readRefreshStatus(baseDir);
+    assert.equal(status.lastAttemptAt, "2026-09-27T00:00:00.000Z");
+    assert.deepEqual(status.progress, { stage: "embedding", done: 1, total: 2, pct: 80 });
+    rmSync(baseDir, { recursive: true, force: true });
+  });
+});
+
+describe("stop request", () => {
+  test("not requested by default, set by requestStop, cleared by clearStopRequest", () => {
+    const baseDir = makeBaseDir();
+    assert.equal(isStopRequested(baseDir), false);
+    requestStop(baseDir);
+    assert.equal(isStopRequested(baseDir), true);
+    clearStopRequest(baseDir);
+    assert.equal(isStopRequested(baseDir), false);
+    rmSync(baseDir, { recursive: true, force: true });
+  });
+
+  test("clearing when nothing was requested is a no-op", () => {
+    const baseDir = makeBaseDir();
+    assert.doesNotThrow(() => clearStopRequest(baseDir));
     rmSync(baseDir, { recursive: true, force: true });
   });
 });

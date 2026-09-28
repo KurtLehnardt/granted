@@ -30,4 +30,10 @@ describe("shouldAutoRefresh", () => {
   test("ignores an unparseable lastAttemptAt", () => {
     assert.equal(shouldAutoRefresh({ stale: true, refreshing: false, lastAttemptAt: "garbage" }), true);
   });
+
+  test("a user-stopped run clears lastAttemptAt, so it never triggers the failure backoff", () => {
+    // The script's final status write after a stop mirrors a success: no lastAttemptAt, no lastError.
+    const status = { stale: true, refreshing: false, stopped: true, savedCount: 200 };
+    assert.equal(shouldAutoRefresh(status), true);
+  });
 });

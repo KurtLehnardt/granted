@@ -55,4 +55,22 @@ describe("GET /api/corpus", () => {
     assert.equal(body.lastAttemptAt, "2026-09-27T00:00:00.000Z");
     rmSync(baseDir, { recursive: true, force: true });
   });
+
+  test("surfaces live progress while refreshing", () => {
+    const baseDir = makeBaseDir();
+    writeRefreshStatus({ progress: { stage: "embedding", done: 12, total: 34, pct: 60, foundCount: 500, keptCount: 300 } }, baseDir);
+    const body = buildCorpusStatus(depsFor(baseDir));
+    assert.deepEqual(body.progress, { stage: "embedding", done: 12, total: 34, pct: 60, foundCount: 500, keptCount: 300 });
+    rmSync(baseDir, { recursive: true, force: true });
+  });
+
+  test("surfaces stopped + savedCount, and never lastError, after a user stop", () => {
+    const baseDir = makeBaseDir();
+    writeRefreshStatus({ stopped: true, savedCount: 421 }, baseDir);
+    const body = buildCorpusStatus(depsFor(baseDir));
+    assert.equal(body.stopped, true);
+    assert.equal(body.savedCount, 421);
+    assert.equal(body.lastError, undefined);
+    rmSync(baseDir, { recursive: true, force: true });
+  });
 });
