@@ -37,6 +37,18 @@ describe("POST /api/llm/test-key", () => {
     assert.equal(json.ok, false);
   });
 
+  test("malformed draft key -> 400 format error, no API call", async () => {
+    let called = false;
+    const res = await handleTestKeyPost(
+      fakeReq({ anthropicApiKey: "sk-ant-abcdefghijklmnop…" }),
+      fakeDeps({ makeAnthropicClientForKey: (() => { called = true; }) as any }),
+    );
+    const json = await res.json();
+    assert.equal(res.status, 400);
+    assert.match(json.error, /doesn't look like a valid/);
+    assert.equal(called, false);
+  });
+
   test("uses the saved key when none is provided, stubbed SDK -> { ok: true }", async () => {
     let usedKey: string | undefined;
     const res = await handleTestKeyPost(

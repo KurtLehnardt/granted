@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { isLoopbackRequest } from "@/lib/corpus/loopback";
 import { makeAnthropicClientForKey } from "@/lib/llm/client";
-import { resolveAnthropicKey } from "@/lib/llm/config";
+import { resolveAnthropicKey, isValidAnthropicKey } from "@/lib/llm/config";
 import { MODEL } from "@/lib/claude";
 
 // POST /api/llm/test-key — "Test key" button. Loopback-only (spends real credit). One minimal request, saved or draft key. Never echoes the key.
@@ -47,6 +47,12 @@ export async function handleTestKeyPost(
   }
 
   const provided = typeof body?.anthropicApiKey === "string" ? body.anthropicApiKey.trim() : undefined;
+  if (provided && !isValidAnthropicKey(provided)) {
+    return NextResponse.json(
+      { ok: false, error: "That doesn't look like a valid Anthropic API key (it should start with sk-ant-)." },
+      { status: 400 },
+    );
+  }
   const key = provided || d.resolveAnthropicKey();
   if (!key) {
     return NextResponse.json({ ok: false, error: "No Anthropic API key saved or provided." }, { status: 400 });
