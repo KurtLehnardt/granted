@@ -132,13 +132,9 @@ export function exportFileName(pkg: AssembledPackage): string {
 // ---------------------------------------------------------------------------
 
 /**
- * The honest copy shown next to the export button. Mirrors the register of
- * `AOR_HANDOFF`/`PACKAGE_INTRO` in `./package.ts`: this exports a
- * submission-READY draft for the browser extension to fill in; NOTHING is
- * submitted by this export, fundFinder never files anything, and the human
- * AOR still reviews and submits through the program's own portal. Exported so
- * tests can assert the honesty invariants directly against the source of
- * truth, exactly as `AOR_HANDOFF`/`PACKAGE_INTRO` are tested.
+ * The honest copy shown next to the export button, mirroring the register of
+ * `AOR_HANDOFF`/`PACKAGE_INTRO` in `./package.ts`. Exported so tests can
+ * assert the honesty invariants directly against the source of truth.
  */
 export const EXTENSION_EXPORT_COPY = {
   eyebrow: "Optional · browser autofill extension",

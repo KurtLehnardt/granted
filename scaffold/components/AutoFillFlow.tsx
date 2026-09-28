@@ -34,10 +34,9 @@ import type { CompanyProfile } from "@/lib/contracts/companyProfile";
  *                          key dates / documents / questions / next steps
  *                          (see components/ApplicationChecklist.tsx) above the
  *                          registration checklist.
- *   3. Admin review      — an honest "pending" screen. Nothing was submitted.
+ *   3. Admin review      — an honest "pending" screen.
  *
  * This is a PREVIEW / STUB, and it is honest about it (R7.7 / §11):
- *   - It NEVER submits an application, and says so on every step.
  *   - It NEVER claims to have submitted anything or won an award.
  *   - It NEVER fabricates user facts or an eligibility verdict — the
  *     per-opportunity checklist only reflects data already on the

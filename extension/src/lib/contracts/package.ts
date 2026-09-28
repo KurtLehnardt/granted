@@ -81,12 +81,9 @@ export interface AssembledPackage {
 // ---------------------------------------------------------------------------
 
 /**
- * The honest hand-off copy, consistent with `components/AutoApplyFlow.tsx`: the
- * tool drafted a submission-READY package, and final legal submission is the
- * user's authorized AOR's, through the program's official portal. Every string
- * here is deliberately clear of any "submitted"/"filed"/"won"/"approved"
- * CONFIRMATION and of any banned definitive-eligibility phrasing. Exported so
- * tests can assert the invariants directly against the source of truth.
+ * The honest hand-off copy: never a "submitted"/"filed"/"won"/"approved"
+ * confirmation, never a definitive-eligibility claim. Exported so tests can
+ * assert the invariants directly against the source of truth.
  */
 export const AOR_HANDOFF = {
   eyebrow: "Final step",

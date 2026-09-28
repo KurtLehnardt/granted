@@ -33,12 +33,9 @@ import type { BudgetLineItem } from "@/lib/contracts/applicationBudget";
  * result. `<ApplicationPackageView/>` (named) is the PURE presentational split
  * so the honesty invariants can be tested with a static fixture and no network.
  *
- * HONESTY (R7.7, consistent with AutoFillFlow.tsx): the tool drafted a
- * submission-ready DRAFT — nothing was submitted, no application was filed, and
- * final legal submission is the user's authorized AOR's. Every
- * `[you to provide: …]` blank is highlighted for the user to complete.
- * This view NEVER renders a "submitted"/"filed"/"won"/"approved" confirmation
- * and never asserts a definitive eligibility determination.
+ * HONESTY (R7.7, consistent with AutoFillFlow.tsx): this view NEVER renders a
+ * "submitted"/"filed"/"won"/"approved" confirmation and never asserts a
+ * definitive eligibility determination.
  */
 
 // ---------------------------------------------------------------------------

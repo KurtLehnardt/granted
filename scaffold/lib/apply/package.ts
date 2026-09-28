@@ -35,11 +35,8 @@ import type { ApplicationBudget } from "../contracts/applicationBudget";
  *     narrative, and always carries the DETERMINISTIC parts (forms + budget +
  *     checklist inputs) so a degraded model step (`narrativeStatus:
  *     "unavailable"`) still yields a partially-useful package.
- *   - `AOR_HANDOFF` is the honest hand-off copy: the tool assembled a
- *     submission-ready DRAFT, nothing was submitted, no application was filed,
- *     and final legal submission is the user's authorized AOR's — never a
- *     "submitted"/"filed"/"won"/"approved" confirmation, never a definitive
- *     eligibility claim.
+ *   - `AOR_HANDOFF` is the honest hand-off copy: never a "submitted"/"filed"/
+ *     "won"/"approved" confirmation, never a definitive eligibility claim.
  *
  * `FOUNDER_TODO_PATTERN` is REUSED from `applicationDraft.ts` (not re-defined)
  * so G5 scans every WS-G surface with the one convention G2/G3/G4 all emit.
@@ -286,13 +283,9 @@ export function packageProgramTitle(opp: Opportunity): string {
 // ---------------------------------------------------------------------------
 
 /**
- * The honest hand-off copy, consistent with `components/AutoFillFlow.tsx`: the
- * tool drafted a submission-READY package, nothing was submitted, no application
- * was filed, and final legal submission is the user's authorized AOR's,
- * through the program's official portal. Every string here is deliberately clear
- * of any "submitted"/"filed"/"won"/"approved" CONFIRMATION and of any banned
- * definitive-eligibility phrasing. Exported so tests can assert the invariants
- * directly against the source of truth.
+ * The honest hand-off copy: never a "submitted"/"filed"/"won"/"approved"
+ * confirmation, never a definitive-eligibility claim. Exported so tests can
+ * assert the invariants directly against the source of truth.
  */
 export const AOR_HANDOFF = {
   eyebrow: "Final step",
