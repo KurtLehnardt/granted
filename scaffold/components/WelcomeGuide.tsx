@@ -162,13 +162,14 @@ function WelcomeGuideModal({ onDone }: { onDone: (sampleText: string | null) => 
   return createPortal(
     <>
       {step === 2 && <SettingsHighlight />}
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 py-8">
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 py-8" onClick={close}>
         <div
           ref={dialogRef}
           role="dialog"
           aria-modal="true"
           aria-label="Welcome guide"
           className={panelClass}
+          onClick={(e) => e.stopPropagation()}
         >
           <button ref={initialFocusRef} type="button" onClick={close} aria-label="Close" className={closeIconBtnClass}>
             <XIcon className="h-4 w-4" />
