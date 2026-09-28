@@ -4,6 +4,7 @@ import { isLoopbackRequest } from "@/lib/corpus/loopback";
 import { clampCorpusSize } from "@/lib/searchSettings";
 import {
   acquireRefreshLock,
+  clearStopRequest,
   releaseRefreshLock,
   transferRefreshLock,
   writeRefreshStatus,
@@ -12,6 +13,7 @@ import {
 export type RefreshDeps = {
   isLoopbackRequest: typeof isLoopbackRequest;
   acquireRefreshLock: typeof acquireRefreshLock;
+  clearStopRequest: typeof clearStopRequest;
   releaseRefreshLock: typeof releaseRefreshLock;
   transferRefreshLock: typeof transferRefreshLock;
   writeRefreshStatus: typeof writeRefreshStatus;
@@ -21,6 +23,7 @@ export type RefreshDeps = {
 const REAL_DEPS: RefreshDeps = {
   isLoopbackRequest,
   acquireRefreshLock,
+  clearStopRequest,
   releaseRefreshLock,
   transferRefreshLock,
   writeRefreshStatus,
@@ -48,6 +51,8 @@ export async function handleRefreshPost(
   if (!d.acquireRefreshLock()) {
     return NextResponse.json({ error: "Refresh already running" }, { status: 409 });
   }
+  // Clear here, not in the script, so a Stop clicked during tsx boot isn't erased by its own startup.
+  d.clearStopRequest();
   const args = ["--import", "tsx", "scripts/refresh-corpus.mjs"];
   if (max != null) args.push("--max", String(max));
 

@@ -1,6 +1,6 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { closeSync, mkdtempSync, openSync, readdirSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -9,6 +9,10 @@ import {
   isRefreshing,
   readRefreshStatus,
   writeRefreshStatus,
+  writeRefreshProgress,
+  requestStop,
+  isStopRequested,
+  clearStopRequest,
 } from "../refreshStatus";
 
 function makeBaseDir() {
@@ -60,6 +64,59 @@ describe("refresh status", () => {
     assert.deepEqual(readRefreshStatus(baseDir), { lastError: "boom" });
     writeRefreshStatus({ lastCompletedAt: "2026-09-27T00:00:00.000Z" }, baseDir);
     assert.deepEqual(readRefreshStatus(baseDir), { lastCompletedAt: "2026-09-27T00:00:00.000Z" });
+    rmSync(baseDir, { recursive: true, force: true });
+  });
+
+  test("write succeeds while a reader holds the status file open (Windows rename-over EPERM)", () => {
+    const baseDir = makeBaseDir();
+    writeRefreshStatus({ lastAttemptAt: "2026-09-27T00:00:00.000Z" }, baseDir);
+    const fd = openSync(join(baseDir, "data", "local", "refresh-status.json"), "r");
+    try {
+      writeRefreshStatus({ stopped: true, savedCount: 3 }, baseDir);
+    } finally {
+      closeSync(fd);
+    }
+    assert.deepEqual(readRefreshStatus(baseDir), { stopped: true, savedCount: 3 });
+    assert.deepEqual(readdirSync(join(baseDir, "data", "local")), ["refresh-status.json"]);
+    rmSync(baseDir, { recursive: true, force: true });
+  });
+
+  test("writeRefreshProgress merges progress without clobbering other fields", () => {
+    const baseDir = makeBaseDir();
+    writeRefreshStatus({ lastAttemptAt: "2026-09-27T00:00:00.000Z" }, baseDir);
+    writeRefreshProgress({ stage: "embedding", done: 1, total: 2, pct: 80 }, baseDir);
+    const status = readRefreshStatus(baseDir);
+    assert.equal(status.lastAttemptAt, "2026-09-27T00:00:00.000Z");
+    assert.deepEqual(status.progress, { stage: "embedding", done: 1, total: 2, pct: 80 });
+    rmSync(baseDir, { recursive: true, force: true });
+  });
+
+  test("writeRefreshProgress is best-effort — a write failure (e.g. transient EPERM/EBUSY on Windows) never throws", () => {
+    // baseDir is a FILE, not a directory: data/local can't be created under it, so the
+    // underlying writeFileSync/renameSync must fail — this is a stand-in for a transient
+    // Windows EPERM/EBUSY on the tmp-write+rename, which must be cosmetic, not fatal.
+    const parent = mkdtempSync(join(tmpdir(), "granted-refresh-status-"));
+    const baseDir = join(parent, "not-a-directory");
+    writeFileSync(baseDir, "not a directory");
+    assert.doesNotThrow(() => writeRefreshProgress({ stage: "embedding", pct: 10 }, baseDir));
+    rmSync(parent, { recursive: true, force: true });
+  });
+});
+
+describe("stop request", () => {
+  test("not requested by default, set by requestStop, cleared by clearStopRequest", () => {
+    const baseDir = makeBaseDir();
+    assert.equal(isStopRequested(baseDir), false);
+    requestStop(baseDir);
+    assert.equal(isStopRequested(baseDir), true);
+    clearStopRequest(baseDir);
+    assert.equal(isStopRequested(baseDir), false);
+    rmSync(baseDir, { recursive: true, force: true });
+  });
+
+  test("clearing when nothing was requested is a no-op", () => {
+    const baseDir = makeBaseDir();
+    assert.doesNotThrow(() => clearStopRequest(baseDir));
     rmSync(baseDir, { recursive: true, force: true });
   });
 });

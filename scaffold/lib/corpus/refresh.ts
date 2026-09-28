@@ -21,15 +21,18 @@ export interface EmbeddingPlan {
   fullReembed: boolean;
 }
 
-/** Reuses a prior vector only when the model, the embedded text and (if given) the dimensionality all match. */
+/** Reuses a prior vector only when model, embedded text and (if given) dims all match; a model or dims change is a full re-embed. */
 export function planEmbedding(
   incoming: Opportunity[],
   priorById: Map<string, PriorEmbeddingEntry>,
   priorModel: string | undefined,
   currentModel: string,
   dims?: number,
+  priorDims?: number,
+  forceFullReembed = false,
 ): EmbeddingPlan {
-  const fullReembed = (priorModel || LEGACY_EMBEDDING_MODEL) !== currentModel;
+  const dimsChanged = dims != null && priorDims != null && priorDims !== dims;
+  const fullReembed = (priorModel || LEGACY_EMBEDDING_MODEL) !== currentModel || dimsChanged || forceFullReembed;
   const reused: Opportunity[] = [];
   const toEmbed: Opportunity[] = [];
   let added = 0;
@@ -85,4 +88,52 @@ export function dedupeById(records: Opportunity[]): Opportunity[] {
   const byId = new Map<string, Opportunity>();
   for (const o of records) byId.set(o.id, o);
   return Array.from(byId.values());
+}
+
+/** Partial re-embed stop: reused + embedded-so-far + cached priors of the rest, dropping any vector whose length isn't `dims`. */
+export function mergePartialSave(
+  reused: Opportunity[],
+  embeddedSoFar: Opportunity[],
+  notYetEmbedded: Opportunity[],
+  priorById: Map<string, Opportunity>,
+  dims?: number,
+): Opportunity[] {
+  const reusedOk = dims == null ? reused : reused.filter((o) => Array.isArray(o.embedding) && o.embedding.length === dims);
+  const out = [...reusedOk, ...embeddedSoFar];
+  const seen = new Set(out.map((o) => o.id));
+  for (const o of notYetEmbedded) {
+    if (seen.has(o.id)) continue;
+    const prior = priorById.get(o.id);
+    const dimsOk = dims == null || (Array.isArray(prior?.embedding) && prior.embedding.length === dims);
+    if (prior && dimsOk) {
+      out.push(prior);
+      seen.add(o.id);
+    }
+  }
+  return out;
+}
+
+export interface StopOutcome {
+  save: boolean;
+  corpus: Opportunity[];
+  status: { lastStoppedAt: string; stopped: true; savedCount: number };
+}
+
+/** Saves only a stop during a partial re-embed; a full re-embed's priors are incompatible, so the corpus is left untouched. */
+export function computeStopOutcome(params: {
+  stoppedAt: string;
+  duringEmbedding: boolean;
+  fullReembed: boolean;
+  reused: Opportunity[];
+  embeddedSoFar: Opportunity[];
+  notYetEmbedded: Opportunity[];
+  priorById: Map<string, Opportunity>;
+  dims?: number;
+}): StopOutcome {
+  const { stoppedAt, duringEmbedding, fullReembed, reused, embeddedSoFar, notYetEmbedded, priorById, dims } = params;
+  if (!duringEmbedding || fullReembed) {
+    return { save: false, corpus: [], status: { lastStoppedAt: stoppedAt, stopped: true, savedCount: 0 } };
+  }
+  const corpus = mergePartialSave(reused, embeddedSoFar, notYetEmbedded, priorById, dims);
+  return { save: true, corpus, status: { lastStoppedAt: stoppedAt, stopped: true, savedCount: corpus.length } };
 }

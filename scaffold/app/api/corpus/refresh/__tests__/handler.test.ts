@@ -5,7 +5,7 @@ import { handleRefreshPost } from "../handler";
 
 function fakeReq(body?: unknown): { headers: { get(name: string): string | null }; json: () => Promise<unknown> } {
   return {
-    headers: { get: () => null }, // no proxy headers -> loopback
+    headers: { get: () => null }, // unused — isLoopbackRequest is mocked per-test below
     json: async () => {
       if (body === undefined) throw new Error("no body");
       return body;
@@ -26,6 +26,7 @@ describe("POST /api/corpus/refresh (handler)", () => {
     const res = await handleRefreshPost(fakeReq(), {
       isLoopbackRequest: () => false,
       acquireRefreshLock: () => true,
+      clearStopRequest: () => {},
       releaseRefreshLock: () => {},
       transferRefreshLock: () => {},
       spawn: () => {
@@ -59,6 +60,7 @@ describe("POST /api/corpus/refresh (handler)", () => {
     const res = await handleRefreshPost(fakeReq(), {
       isLoopbackRequest: () => true,
       acquireRefreshLock: () => true,
+      clearStopRequest: () => {},
       releaseRefreshLock: () => {},
       transferRefreshLock: (pid) => {
         transferredPid = pid;
@@ -77,12 +79,48 @@ describe("POST /api/corpus/refresh (handler)", () => {
     assert.equal(transferredPid, 4321); // hands the lock to the child's real pid
   });
 
+  test("clears a stale stop-request right after acquiring the lock, before spawning", async () => {
+    const order: string[] = [];
+    await handleRefreshPost(fakeReq(), {
+      isLoopbackRequest: () => true,
+      acquireRefreshLock: () => {
+        order.push("acquire");
+        return true;
+      },
+      clearStopRequest: () => order.push("clearStopRequest"),
+      releaseRefreshLock: () => {},
+      transferRefreshLock: () => {},
+      writeRefreshStatus: () => order.push("writeRefreshStatus"),
+      spawn: () => {
+        order.push("spawn");
+        return fakeChild();
+      },
+    });
+    assert.deepEqual(order, ["acquire", "clearStopRequest", "writeRefreshStatus", "spawn"]);
+  });
+
+  test("never clears the stop-request when the lock isn't acquired", async () => {
+    let cleared = false;
+    await handleRefreshPost(fakeReq(), {
+      isLoopbackRequest: () => true,
+      acquireRefreshLock: () => false,
+      clearStopRequest: () => {
+        cleared = true;
+      },
+      releaseRefreshLock: () => {},
+      transferRefreshLock: () => {},
+      spawn: () => fakeChild(),
+    });
+    assert.equal(cleared, false);
+  });
+
   test("releases the lock and rethrows when spawn itself throws", async () => {
     let released = false;
     await assert.rejects(
       handleRefreshPost(fakeReq(), {
         isLoopbackRequest: () => true,
         acquireRefreshLock: () => true,
+        clearStopRequest: () => {},
         releaseRefreshLock: () => {
           released = true;
         },
@@ -103,6 +141,7 @@ describe("POST /api/corpus/refresh (handler)", () => {
       handleRefreshPost(fakeReq(), {
         isLoopbackRequest: () => true,
         acquireRefreshLock: () => true,
+        clearStopRequest: () => {},
         releaseRefreshLock: () => {
           released = true;
         },
@@ -125,6 +164,7 @@ describe("POST /api/corpus/refresh (handler)", () => {
     await handleRefreshPost(fakeReq({ max: 99999999 }), {
       isLoopbackRequest: () => true,
       acquireRefreshLock: () => true,
+      clearStopRequest: () => {},
       releaseRefreshLock: () => {},
       transferRefreshLock: () => {},
       writeRefreshStatus: () => {},
@@ -143,6 +183,7 @@ describe("POST /api/corpus/refresh (handler)", () => {
     await handleRefreshPost(fakeReq(), {
       isLoopbackRequest: () => true,
       acquireRefreshLock: () => true,
+      clearStopRequest: () => {},
       releaseRefreshLock: () => {},
       transferRefreshLock: () => {},
       writeRefreshStatus: () => {},
@@ -159,6 +200,7 @@ describe("POST /api/corpus/refresh (handler)", () => {
     await handleRefreshPost(fakeReq(), {
       isLoopbackRequest: () => true,
       acquireRefreshLock: () => true,
+      clearStopRequest: () => {},
       releaseRefreshLock: () => {},
       transferRefreshLock: () => {},
       writeRefreshStatus: (status) => {
@@ -178,6 +220,7 @@ describe("POST /api/corpus/refresh (handler)", () => {
     await handleRefreshPost(fakeReq(), {
       isLoopbackRequest: () => true,
       acquireRefreshLock: () => true,
+      clearStopRequest: () => {},
       releaseRefreshLock: () => {
         released = true;
       },
@@ -199,6 +242,7 @@ describe("POST /api/corpus/refresh (handler)", () => {
     await handleRefreshPost(fakeReq(), {
       isLoopbackRequest: () => true,
       acquireRefreshLock: () => true,
+      clearStopRequest: () => {},
       releaseRefreshLock: () => {
         released = true;
       },
