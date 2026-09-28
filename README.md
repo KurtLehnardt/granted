@@ -100,7 +100,7 @@ Both install Node 20, which throws a harmless `EBADENGINE` warning during `npm i
 
 **2. Try it with zero keys**
 ```bash
-cd granted/scaffold   # skip if you already ran install-linux.sh from inside it
+cd granted/scaffold
 npm install            # already done if you used install-linux.sh
 npm run dev            # → http://localhost:3000
 ```
@@ -166,7 +166,7 @@ Now nothing leaves your machine.
 
 ### The honest tradeoff
 
-Hosted Claude is faster and more reliable at the strict, structured JSON this pipeline asks for, and its scoring is better calibrated. A capable local model still handles it — verified end to end on both macOS (`qwen2.5:14b`, 32GB RAM: 3:43 for an 18-candidate search) and Linux (`llama3.2:1b`, 2 vCPU/8GB/no GPU: 20:43 for 21 candidates), both fully local with real matches. Two caveats:
+Hosted Claude is faster and more reliable at the strict, structured JSON this pipeline asks for, and its scoring is better calibrated. A capable local model still handles it — verified end to end on macOS (`qwen2.5:14b`, 32GB RAM: 3:43 for an 18-candidate search) and Linux (`llama3.2:1b`, 2 vCPU/8GB/no GPU: 18:58–20:43 for 21 candidates, depending on distro), both fully local with real matches. Two caveats:
 - **It's much slower on modest hardware.** A CPU-only, small-memory box serves scoring batches one at a time — the Linux number above is close to worst-case. A GPU or more RAM (the macOS number) closes most of that gap. Local runs use two-stage scoring — a score-only pass over all candidates, then full write-ups for the top 8 — tunable with `E3_TWO_PASS_TOP_N` (`NEXT_PUBLIC_FLAG_E3_TWO_PASS=false` writes up every candidate instead); raise `LOCAL_LLM_TIMEOUT_MS` (default 30 min per call) if a big model needs longer.
 - **Quality is rougher.** Smaller or older models score less consistently and occasionally emit JSON even the repair layer can't recover. Use a strong instruction-following model, and expect a coarser result than the hosted default.
 
