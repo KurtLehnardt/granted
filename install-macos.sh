@@ -40,7 +40,7 @@ elif [ -x /usr/local/bin/brew ]; then
 fi
 
 if [ -n "$BREW_BIN" ]; then
-  ok "Homebrew already installed ($($BREW_BIN --version | head -1))"
+  ok "Homebrew already installed ($("$BREW_BIN" --version | head -1))"
 else
   log "Installing Homebrew..."
   # NONINTERACTIVE=1 is Homebrew's own documented unattended-install switch --
@@ -55,14 +55,14 @@ else
   fi
   # Homebrew's own installer prints a "next steps" eval line to add itself to
   # PATH permanently (for future shells); make it available in THIS process too.
-  eval "$($BREW_BIN shellenv)"
-  ok "Homebrew installed ($($BREW_BIN --version | head -1))"
+  eval "$("$BREW_BIN" shellenv)"
+  ok "Homebrew installed ($("$BREW_BIN" --version | head -1))"
 fi
 
 # eval shellenv again even if brew pre-existed -- harmless if already on PATH,
 # and guarantees `brew`-installed git/node land on PATH for the rest of this
 # script without requiring a new shell.
-eval "$($BREW_BIN shellenv)"
+eval "$("$BREW_BIN" shellenv)"
 
 # Persist brew on PATH for the user's NEXT shell too. Homebrew's own installer
 # only does this when it detects an interactive TTY -- under `curl | bash`
@@ -73,18 +73,23 @@ eval "$($BREW_BIN shellenv)"
 # git, or node on PATH at all, despite the "next steps" message below telling
 # them to just run npm commands.
 SHELL_PROFILE=""
+SHELL_PROFILE_UPDATED=0
 case "${SHELL:-}" in
   */zsh) SHELL_PROFILE="$HOME/.zprofile" ;;
   */bash) SHELL_PROFILE="$HOME/.bash_profile" ;;
 esac
 if [ -n "$SHELL_PROFILE" ]; then
   SHELLENV_LINE="eval \"\$($BREW_BIN shellenv)\""
-  if [ ! -f "$SHELL_PROFILE" ] || ! grep -qF "brew shellenv" "$SHELL_PROFILE"; then
+  # -F/fixed-string on the exact line (not a loose substring like "brew
+  # shellenv") so a commented-out or otherwise-worded mention of brew/shellenv
+  # elsewhere in the file can't be mistaken for this already being set up.
+  if [ ! -f "$SHELL_PROFILE" ] || ! grep -qF "$SHELLENV_LINE" "$SHELL_PROFILE"; then
     printf '\n# Added by the Granted installer\n%s\n' "$SHELLENV_LINE" >> "$SHELL_PROFILE"
+    SHELL_PROFILE_UPDATED=1
     ok "added Homebrew to PATH in $SHELL_PROFILE (open a new terminal, or run: source $SHELL_PROFILE)"
   fi
 else
-  warn "unrecognized \$SHELL ($SHELL) -- add 'eval \"\$($BREW_BIN shellenv)\"' to your shell's profile manually"
+  warn "unrecognized \$SHELL (${SHELL:-<unset>}) -- add 'eval \"\$($BREW_BIN shellenv)\"' to your shell's profile manually"
 fi
 
 # 1) git.
@@ -143,7 +148,7 @@ npm install
 ok "dependencies installed"
 
 log "Done. Next steps:"
-if [ -n "$SHELL_PROFILE" ]; then
+if [ "$SHELL_PROFILE_UPDATED" -eq 1 ]; then
   echo "  Open a new terminal window (or run: source $SHELL_PROFILE) so 'npm' is on PATH, then:"
 fi
 echo "  cd $TARGET_DIR/scaffold"

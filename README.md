@@ -22,7 +22,7 @@ Every OS below ends up running the exact same `npm` commands — the setup scrip
 ```bash
 curl -fsSL https://raw.githubusercontent.com/KurtLehnardt/granted/main/install-macos.sh | bash
 ```
-Installs Homebrew, git, and Node 20+ if missing, clones the repo into `./granted`, and runs `npm install`. Safe to re-run. Adds Homebrew to your shell profile if it isn't there yet — open a new terminal window afterward (the script tells you if this happened).
+Installs Homebrew, git, and Node 20+ if missing, clones the repo into `./granted`, and runs `npm install`. Safe to re-run. Adds Homebrew to your shell profile if it isn't there yet — open a new terminal window afterward (the script tells you if this happened). If your new terminal still can't find `npm`, it's likely not opening a login shell (tmux, some terminal-multiplexer setups) — run `source ~/.zprofile` (zsh) or `source ~/.bash_profile` (bash) directly instead.
 
 Prefer to do it by hand?
 ```bash
