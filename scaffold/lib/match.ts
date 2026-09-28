@@ -15,6 +15,7 @@ import { isFlagEnabled, isFlagExplicitlyDisabled } from "./flags";
 import { isLocalLlm } from "./llm/client";
 import { recommendFor, mapVerdict } from "./recommend";
 import { getBM25Index, bm25Query } from "./retrieval/bm25";
+import { scoreFloor, strongAndVerifying, agencyIntelFor } from "./summary";
 // F3 — weak-field redirects should name a few REAL Utah/SBA programs, not just
 // categories. Wrapped around both explainWeakField() call sites below (the
 // zero-candidate weakField() branch and the below-threshold branch in
@@ -49,7 +50,7 @@ export const CALIBRATION = {
    *  while every genuinely-fitting non-grant still promotes. The residual
    *  case-1↔case-5 overlap (case-1's non-grant occasionally dips to ~30) is the
    *  tension the task anticipated: keep case-5 honest, do not over-fit case-1. */
-  scoreFloor: 33,
+  scoreFloor,
   /** If fewer than this many matches clear scoreFloor, declare a weak field.
    *  1 = weak field means ZERO strong matches — cleanly isolates the case-5
    *  "no honest match" finding from thin-but-real cases (e.g. case 1's single
@@ -768,38 +769,6 @@ export async function buildOpportunityMap(
   return result;
 }
 
-/** Shared with `dropPastAwardMatches` (lib/corpus/pastAwards.ts), which rebuilds
- *  a cached/precomputed map's summary+agencyIntelligence the same way after
- *  filtering matches, so a past-award match can never linger in either field. */
-export function strongAndVerifying(
-  matches: Match[],
-  discernment: boolean,
-): { strong: Match[]; verifying: Match[] } {
-  // "Strong" = the headline high-potential set. Under discernment that's the
-  // matches we actually RECOMMEND; otherwise the legacy score>=scoreFloor set.
-  const strong = discernment
-    ? matches.filter((m) => m.recommendation?.recommendation === "recommend")
-    : matches.filter((m) => m.score >= CALIBRATION.scoreFloor);
-  const verifying = discernment
-    ? matches.filter((m) => m.recommendation?.recommendation === "verify")
-    : [];
-  return { strong, verifying };
-}
-
-export function agencyIntelFor(strong: Match[]): {
-  agencies: string[];
-  agencyIntelligence: OpportunityMap["agencyIntelligence"];
-} {
-  const agencies = Array.from(new Set(strong.map((m) => m.opportunity.agency)));
-  return {
-    agencies,
-    agencyIntelligence: agencies.slice(0, 5).map((agency) => ({
-      agency,
-      why: strong.find((m) => m.opportunity.agency === agency)?.whyFit?.slice(0, 180) ?? "",
-      opportunityCount: strong.filter((m) => m.opportunity.agency === agency).length,
-    })),
-  };
-}
 
 async function weakField(
   profile: StartupProfile,

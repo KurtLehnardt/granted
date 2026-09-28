@@ -17,8 +17,8 @@
  *
  * SBIR/STTR award and USAspending records are NOT assembled here — every
  * record either source produces is a past award/closed contract, never
- * matchable (lib/corpus/pastAwards.ts). 1-fetch-sbir-corpus.mjs and
- * 1-fetch-procurement.mjs are no longer part of `npm run data:mvp`.
+ * matchable (lib/corpus/pastAwards.ts), and their fetch scripts have been
+ * removed; they are not part of `npm run data:mvp`.
  *
  * Embedding matches 3-embed.mjs exactly (text-embedding-3-small, dimensions:512,
  * rounded to 5 decimals) so new vectors are comparable to the user query

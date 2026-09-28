@@ -184,13 +184,13 @@ async function main() {
     run("SAM.gov assistance (everything open)", "scripts/1-fetch-sam-assistance.mjs", { ...rawEnv, SAM_FETCH_MODE: "all" });
     runningFound += (await readJson(join(RAW_DIR, "sam-assistance.json"), [])).length;
 
-    // No "sbir"/"procurement" fetch stage: 1-fetch-sbir-corpus.mjs and
-    // 1-fetch-procurement.mjs only ever produced past-award records (SBIR/STTR
-    // awards, closed USAspending contracts) — never matchable, see
-    // lib/corpus/pastAwards.ts — so those network calls were removed rather than
-    // kept to feed a "found" count nobody can act on. Genuine open SBIR/STTR
-    // solicitations still arrive via sbir-solicitations.json, fetched above as
-    // part of the grants.gov search stage (scripts/1-fetch.mjs).
+    // No "sbir"/"procurement" fetch stage: their fetch scripts only ever
+    // produced past-award records (SBIR/STTR awards, closed USAspending
+    // contracts) — never matchable, see lib/corpus/pastAwards.ts — so those
+    // scripts and network calls were removed rather than kept to feed a
+    // "found" count nobody can act on. Genuine open SBIR/STTR solicitations
+    // still arrive via sbir-solicitations.json, fetched above as part of the
+    // grants.gov search stage (scripts/1-fetch.mjs).
     if (isStopRequested()) return await applyStop({});
 
     const [grants, sbirSolicitations, samAssistance] = await Promise.all([
@@ -217,11 +217,12 @@ async function main() {
     ].filter((o) => o && o.description && o.description.length >= 60);
     fresh = dedupeById(fresh);
     fresh = dropExpiredOpportunities(fresh);
-    // No fetch stage feeds a past-award record any more, but `existing`/data/local
-    // can still carry one left over from before this filter shipped — drop it here
-    // so a refresh also removes any already sitting in data/local (see
-    // lib/corpus/pastAwards.ts).
-    fresh = dropPastAwards(fresh);
+    // `fresh` is built only from grants/sbir-solicitations/SAM rows, none of
+    // which can normalize into a past-award shape (lib/corpus/pastAwards.ts),
+    // so it needs no dropPastAwards() pass. `data/local` gets cleaned anyway
+    // because `final` below is rebuilt entirely from `fresh` (plus
+    // selectCorpusWithinCap's own past-award filter, belt-and-suspenders for
+    // any legacy record).
     const foundCount = fresh.length;
     console.log(`\nAssembled ${foundCount} open records (expired deadlines and past awards dropped).`);
     reportProgress("selecting", { foundCount });

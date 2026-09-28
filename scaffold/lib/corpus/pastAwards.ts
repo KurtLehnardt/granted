@@ -1,5 +1,5 @@
 import type { Opportunity, OpportunityMap } from "../types";
-import { strongAndVerifying, agencyIntelFor } from "../match";
+import { strongAndVerifying, agencyIntelFor } from "../summary";
 
 /**
  * Owner decision: a past award must never surface as a match. Users don't
@@ -9,13 +9,15 @@ import { strongAndVerifying, agencyIntelFor } from "../match";
  * (`lib/competitors/retrieve.ts`), never the matchable corpus.
  *
  * Two record shapes in the corpus are past awards, not open opportunities:
- *   - SBIR/STTR: source "sbir", id "sbir-award-*" (scripts/1-fetch-sbir-corpus.mjs
- *     / scripts/lib/normalizeNewSources.mjs's `normalizeSbirAward`). A genuine
- *     open SBIR/STTR solicitation is also source "sbir" but id "sbir-*"
- *     (no "-award-"), from `normalizeSbirSolicitation` — so the id prefix, not
- *     the source, is what distinguishes them.
- *   - USAspending: source "usaspending", status "closed" (every record
- *     `normalizeProcurementRecord` produces is a closed/past contract award).
+ *   - SBIR/STTR: source "sbir", id "sbir-award-*" (that id scheme was produced
+ *     by fetch/normalize scripts since removed — any such records left in a
+ *     cache or data/local are filtered here). A genuine open SBIR/STTR
+ *     solicitation is also source "sbir" but id "sbir-*" (no "-award-"), from
+ *     `normalizeSbirSolicitation` — so the id prefix, not the source, is what
+ *     distinguishes them.
+ *   - USAspending: source "usaspending", status "closed" (that source/status
+ *     pair was produced by a fetch/normalize script since removed — any such
+ *     records left in a cache or data/local are filtered here).
  */
 export function isPastAward(o: Pick<Opportunity, "source" | "id"> & { status?: string }): boolean {
   if (o.source === "sbir" && o.id.startsWith("sbir-award-")) return true;

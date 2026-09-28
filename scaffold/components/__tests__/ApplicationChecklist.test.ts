@@ -349,10 +349,10 @@ describe("buildNextSteps", () => {
     );
   });
 
-  // A USAspending record is always a closed/past contract award (status
-  // "closed" on every record `normalizeProcurementRecord` produces) and is
-  // never matchable (lib/corpus/pastAwards.ts) — so `sourceApplyStep` has no
-  // "usaspending" case, and one reaching it falls to the generic default.
+  // A USAspending record is always a closed/past contract award (source
+  // "usaspending", status "closed") and is never matchable
+  // (lib/corpus/pastAwards.ts) — so `sourceApplyStep` has no "usaspending"
+  // case, and one reaching it falls to the generic default.
   test("a USAspending record (never matchable, but defensively) falls to the generic apply step, not a past-award label", () => {
     const url = "https://www.usaspending.gov/award/CONT_AWD_W911QX25C0002_9700_-NONE-_-NONE-";
     const step = buildNextSteps(
