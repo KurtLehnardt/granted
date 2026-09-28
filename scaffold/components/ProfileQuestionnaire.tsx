@@ -612,7 +612,11 @@ export default function ProfileQuestionnaire({
           rows={isBig ? 5 : 2}
           value={value}
           disabled={disabled}
-          placeholder={isBig ? "What you build, who it's for, and how much you need." : undefined}
+          placeholder={
+            isBig
+              ? "Grant matches improve with a paragraph or two long description — what you build, who it's for, your size, and how much you need."
+              : undefined
+          }
           aria-required={required}
           aria-invalid={Boolean(errorMsg)}
           aria-describedby={errorMsg ? errorId : undefined}

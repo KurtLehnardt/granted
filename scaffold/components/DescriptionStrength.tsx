@@ -5,13 +5,13 @@ import { scoreDescription, type StrengthBand } from "@/lib/descriptionStrength";
 /**
  * Strength meter under the company-description box.
  *
- * It is a NUDGE, not a gate: nothing here blocks a search, because a thin
+ * It is a NUDGE, not a gate: nothing here blocks a search, because a short
  * description still returns real programs (measured — a nine-word one retrieved
- * three on-topic farm programs). What a thin description costs you is ranking
+ * three on-topic farm programs). What a short description costs you is ranking
  * quality and, on a local model, a long wait to find that out. So the meter's
- * job is to say "this will do better with X" BEFORE the user spends the wait.
+ * job is to say "this will do better with more" BEFORE the user spends the wait.
  *
- * See lib/descriptionStrength.ts for why the score is not word count.
+ * The band is length; see lib/descriptionStrength.ts for what that trades away.
  *
  * COLOR (CON-02 / contrast): the band colors are carried by the segment FILLS
  * only. Text stays `text-foreground`, never a semantic color inline — warning
@@ -21,7 +21,7 @@ import { scoreDescription, type StrengthBand } from "@/lib/descriptionStrength";
  */
 
 const BAND_LABEL: Record<StrengthBand, string> = {
-  weak: "Thin",
+  weak: "Short",
   fair: "Workable",
   strong: "Strong",
 };
