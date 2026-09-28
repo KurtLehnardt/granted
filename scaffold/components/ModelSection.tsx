@@ -106,7 +106,10 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
   }
 
   async function handleRemoveKey() {
-    await postConfig({ provider: info?.provider ?? "anthropic", clearAnthropicKey: true });
+    // Removing the key can't leave the provider on "anthropic" with no key
+    // (env or saved) — the handler rejects that combination. Fall back to
+    // Local so Remove always succeeds, regardless of which env key exists.
+    await postConfig({ provider: "ollama", clearAnthropicKey: true });
   }
 
   async function handleTestKey() {

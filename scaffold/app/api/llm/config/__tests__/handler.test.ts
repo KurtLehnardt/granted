@@ -111,6 +111,21 @@ describe("POST /api/llm/config", () => {
     delete process.env.ANTHROPIC_API_KEY;
   });
 
+  // The common case: key was saved from Settings, no ANTHROPIC_API_KEY in
+  // env. Removing it can't leave provider "anthropic" with no key anywhere
+  // (that combination is rejected below), so the Remove button falls back to
+  // "ollama" — this is the request ModelSection.handleRemoveKey now sends.
+  test("clearAnthropicKey with no env key: falling back to ollama removes the key", async () => {
+    delete process.env.ANTHROPIC_API_KEY;
+    const deps = fakeDeps({}, { provider: "anthropic", anthropicApiKey: "sk-ant-existingkey0000" });
+    const res = await handleLlmConfigPost(fakeReq({ provider: "ollama", clearAnthropicKey: true }), deps);
+    const json = await res.json();
+    assert.equal(res.status, 200);
+    assert.equal(deps._get().anthropicApiKey, undefined);
+    assert.equal(json.provider, "ollama");
+    assert.equal(json.hasAnthropicKey, false);
+  });
+
   test("never echoes the key back in the response", async () => {
     const deps = fakeDeps();
     const res = await handleLlmConfigPost(
