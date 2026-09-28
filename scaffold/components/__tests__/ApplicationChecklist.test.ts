@@ -1,4 +1,4 @@
-import { test, describe } from "node:test";
+import { test, describe, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { renderToStaticMarkup } from "react-dom/server";
 import React from "react";
@@ -16,6 +16,14 @@ import ApplicationChecklist, {
 
 // Fixed "now" so deadline-relative assertions don't depend on the actual clock.
 const NOW = Date.parse("2026-09-27T00:00:00.000Z");
+
+const AUTO_FILL_FLAG = "NEXT_PUBLIC_FLAG_R6_AUTO_FILL";
+const previousAutoFillFlag = process.env[AUTO_FILL_FLAG];
+
+afterEach(() => {
+  if (previousAutoFillFlag === undefined) delete process.env[AUTO_FILL_FLAG];
+  else process.env[AUTO_FILL_FLAG] = previousAutoFillFlag;
+});
 
 /**
  * D6 — Application Assistant checklist. Covers:
@@ -233,12 +241,23 @@ describe("buildNextSteps", () => {
     assert.match(stepText(steps[steps.length - 1]), /official portal/i);
   });
 
-  test("wording reflects whether registrations are satisfied, without changing the honesty boundary step", () => {
+  test("with r6_auto_fill on, wording reflects whether registrations are satisfied, without changing the honesty boundary step", () => {
+    process.env[AUTO_FILL_FLAG] = "true";
     const satisfiedSteps = buildNextSteps(asMatch(RD_OPPORTUNITY), true).map(stepText);
     const unsatisfiedSteps = buildNextSteps(asMatch(RD_OPPORTUNITY), false).map(stepText);
     assert.notEqual(satisfiedSteps.join(), unsatisfiedSteps.join());
     assert.ok(unsatisfiedSteps.some((s) => /complete the registrations/i.test(s)));
     assert.ok(satisfiedSteps.some((s) => /marked satisfied/i.test(s)));
+  });
+
+  test("with r6_auto_fill off (default), the registrations step is flag-aware: no mention of Settings, and identical regardless of stored registration state", () => {
+    delete process.env[AUTO_FILL_FLAG];
+    const satisfiedSteps = buildNextSteps(asMatch(RD_OPPORTUNITY), true).map(stepText);
+    const unsatisfiedSteps = buildNextSteps(asMatch(RD_OPPORTUNITY), false).map(stepText);
+    assert.equal(satisfiedSteps.join(), unsatisfiedSteps.join());
+    assert.ok(satisfiedSteps.some((s) => /SAM\.gov registration is Active/i.test(s)));
+    assert.ok(!satisfiedSteps.some((s) => /settings/i.test(s)));
+    assert.ok(!satisfiedSteps.some((s) => /marked satisfied/i.test(s)));
   });
 
   test("points at the opportunity's own URL as a real link when present, else names the source", () => {

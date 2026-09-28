@@ -6,6 +6,7 @@
 import React from "react";
 import type { Match, Opportunity } from "@/lib/types";
 import { isDeadlinePassed, isForecasted } from "@/lib/ui/opportunitySummary";
+import { isFlagEnabled } from "@/lib/flags";
 
 /**
  * D6 — Application Assistant checklist (honest, per-opportunity).
@@ -266,9 +267,11 @@ export function buildNextSteps(match: Match, allRegistrationsSatisfied: boolean,
     steps.push([`From your match assessment, before applying verify: ${match.whatToVerify.trim()}`]);
   }
   steps.push([
-    allRegistrationsSatisfied
-      ? "Your registrations in Settings are marked satisfied — confirm they're still active/current in SAM.gov."
-      : "Complete the registrations checklist in Settings — most federal portals block submission without them.",
+    isFlagEnabled("r6_auto_fill")
+      ? allRegistrationsSatisfied
+        ? "Your registrations in Settings are marked satisfied — confirm they're still active/current in SAM.gov."
+        : "Complete the registrations checklist in Settings — most federal portals block submission without them."
+      : "Make sure your SAM.gov registration is Active and your UEI, AOR, and E-Biz POC delegation are in place — most federal portals block submission without them.",
   ]);
   steps.push(["Draft answers to the questions below and gather the documents listed."]);
   if (match.whatToDoNext?.trim()) {
