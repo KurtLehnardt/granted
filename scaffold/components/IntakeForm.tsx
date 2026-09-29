@@ -5,7 +5,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { useSettingsPanel } from "@/components/AppMenu";
 import { useAnalytics } from "@/components/AnalyticsProvider";
 import { useSearchDraft } from "@/components/SearchDraftProvider";
-import { clearAllLocalData, getAutoFillRequirements } from "@/lib/mockAuth";
+import { clearAllLocalData } from "@/lib/mockAuth";
 import { getMaxCandidates, getModel, LAST_SEARCH_MS_KEY } from "@/lib/searchSettings";
 import type { LlmInfo } from "@/lib/llm/types";
 import SearchProgress from "@/components/SearchProgress";
@@ -188,12 +188,6 @@ export default function IntakeForm({
     // content is sent — the event is a name + timestamp only.
     searchStartRef.current = Date.now();
     analytics.searchStarted();
-    // Arch review: feed the user's OWN self-reported SAM/UEI (from the local
-    // Auto Fill form) into eligibility screening so a registered user isn't
-    // told to register. Empty when unfilled -> server no-ops it. Not analytics,
-    // not the description; used transiently server-side for screening only.
-    const reqs = getAutoFillRequirements();
-    const companyFacts = { samRegistered: reqs.samRegistered, uei: reqs.uei };
     try {
       const res = await fetch("/api/match", {
         method: "POST",
@@ -202,7 +196,6 @@ export default function IntakeForm({
         // when unset → server default). The server clamps it to a safe range.
         body: JSON.stringify({
           description,
-          companyFacts,
           maxCandidates: getMaxCandidates() ?? undefined,
           model: getModel() ?? undefined,
         }),

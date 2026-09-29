@@ -28,7 +28,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BRAND } from "@/lib/brand";
 import { useAuth } from "@/components/AuthProvider";
-import { isFlagEnabled } from "@/lib/flags";
 import { useSearchDraft } from "@/components/SearchDraftProvider";
 import { useDialogA11y } from "@/components/useDialogA11y";
 import { useMediaQuery } from "@/components/useMediaQuery";
@@ -470,12 +469,7 @@ function SidebarSections() {
   return (
     <>
       {/* 1 — Settings ------------------------------------------------------- */}
-      <Section id="settings" label={isFlagEnabled("r6_auto_fill") ? "Auto Fill Settings" : "Settings"}>
-        {isFlagEnabled("r6_auto_fill") && (
-          <p className={noteClass}>
-            Auto-fill requirements — stored on this device only, never sent to a server.
-          </p>
-        )}
+      <Section id="settings" label="Settings">
         <SettingsForm />
 
         <div className="mt-4 border-t border-structure-on-canvas/15 pt-4">

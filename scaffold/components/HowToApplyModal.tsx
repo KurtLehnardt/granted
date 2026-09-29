@@ -3,8 +3,6 @@
 import { useRef } from "react";
 import { createPortal } from "react-dom";
 import { useDialogA11y } from "@/components/useDialogA11y";
-import { getAutoFillRequirements } from "@/lib/mockAuth";
-import { allRegistrationsSatisfied } from "@/lib/apply/package";
 import ApplicationChecklist from "@/components/ApplicationChecklist";
 import type { Match } from "@/lib/types";
 
@@ -26,9 +24,6 @@ export default function HowToApplyModal({
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeBtnRef = useRef<HTMLButtonElement>(null);
   useDialogA11y(dialogRef, onClose, closeBtnRef);
-
-  // Read-only: whatever the user already saved in Settings, never written here.
-  const satisfied = allRegistrationsSatisfied(getAutoFillRequirements());
 
   // Sized against the page's own content column (app/page.tsx's <main> is
   // max-w-4xl with px-6), not an arbitrary modal width — the old max-w-lg
@@ -77,7 +72,7 @@ export default function HowToApplyModal({
           official listing before you invest time in an application.
         </p>
 
-        <ApplicationChecklist match={match} allRegistrationsSatisfied={satisfied} />
+        <ApplicationChecklist match={match} />
 
         <div className="mt-6 flex flex-wrap items-center gap-4">
           <button type="button" onClick={onClose} className={closeTextBtnClass}>

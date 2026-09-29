@@ -12,9 +12,6 @@ import {
   exitDemoMode,
   getConsent,
   setConsent,
-  getAutoFillRequirements,
-  EMPTY_AUTO_FILL_REQUIREMENTS,
-  mapAutoFillToCompanyProfileFields,
   clearAllLocalData,
 } from "../mockAuth";
 
@@ -138,60 +135,6 @@ describe("consent", () => {
     assert.equal(rec.granted, false);
     assert.equal(rec.grantedAt, null);
     assert.deepEqual(getConsent(), rec);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Auto-fill requirements
-// ---------------------------------------------------------------------------
-
-describe("getAutoFillRequirements", () => {
-  test("merges a partial stored record over EMPTY_AUTO_FILL_REQUIREMENTS (no undefined fields)", () => {
-    mem.setItem(STORAGE_KEYS.autoFill, JSON.stringify({ samRegistered: true, uei: "X1" }));
-    const reqs = getAutoFillRequirements();
-    assert.equal(reqs.samRegistered, true);
-    assert.equal(reqs.uei, "X1");
-    // Every field absent from the partial stored record falls back to its
-    // EMPTY_AUTO_FILL_REQUIREMENTS default, never undefined.
-    assert.equal(reqs.samRegisteredDate, EMPTY_AUTO_FILL_REQUIREMENTS.samRegisteredDate);
-    assert.equal(reqs.aorName, EMPTY_AUTO_FILL_REQUIREMENTS.aorName);
-    assert.equal(reqs.aorOnFile, EMPTY_AUTO_FILL_REQUIREMENTS.aorOnFile);
-    assert.equal(reqs.eBizPocOnFile, EMPTY_AUTO_FILL_REQUIREMENTS.eBizPocOnFile);
-    for (const [key, value] of Object.entries(reqs)) {
-      assert.notEqual(value, undefined, `field ${key} must not be undefined`);
-    }
-  });
-});
-
-// ---------------------------------------------------------------------------
-// mapAutoFillToCompanyProfileFields
-// ---------------------------------------------------------------------------
-
-describe("mapAutoFillToCompanyProfileFields", () => {
-  test("samRegistered:false, uei:'' -> {}", () => {
-    const out = mapAutoFillToCompanyProfileFields({
-      ...EMPTY_AUTO_FILL_REQUIREMENTS,
-      samRegistered: false,
-      uei: "",
-    });
-    assert.deepEqual(out, {});
-  });
-
-  test("samRegistered:true -> sam_registered {value:true, provenance:'user_stated', confidence:1}", () => {
-    const out = mapAutoFillToCompanyProfileFields({
-      ...EMPTY_AUTO_FILL_REQUIREMENTS,
-      samRegistered: true,
-    });
-    assert.deepEqual(out.sam_registered, { value: true, provenance: "user_stated", confidence: 1 });
-    assert.equal(out.uei, undefined);
-  });
-
-  test("uei '  X1  ' -> trimmed value, same provenance shape", () => {
-    const out = mapAutoFillToCompanyProfileFields({
-      ...EMPTY_AUTO_FILL_REQUIREMENTS,
-      uei: "  X1  ",
-    });
-    assert.deepEqual(out.uei, { value: "X1", provenance: "user_stated", confidence: 1 });
   });
 });
 

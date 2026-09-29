@@ -6,7 +6,6 @@
 import React from "react";
 import type { Match, Opportunity } from "@/lib/types";
 import { isDeadlinePassed, isForecasted } from "@/lib/ui/opportunitySummary";
-import { isFlagEnabled } from "@/lib/flags";
 
 /**
  * D6 — Application Assistant checklist (honest, per-opportunity).
@@ -23,39 +22,7 @@ import { isFlagEnabled } from "@/lib/flags";
  *       actually have, or
  *   (c) the match's own already-computed AI assessment (`whatToVerify` /
  *       `whatToDoNext`), labeled as coming from that assessment.
- * The four SAM.gov / UEI / AOR / E-Biz registration facts are self-reported by
- * the user elsewhere (lib/mockAuth.ts, unchanged by this file) — this
- * component only reads the already-computed `satisfied` map, it never invents
- * registration status.
  */
-
-export type RequirementKey = "sam" | "uei" | "aor" | "ebiz";
-
-export const REQUIREMENTS: Array<{ key: RequirementKey; label: string; detail: string }> = [
-  {
-    key: "sam",
-    label: "Active SAM.gov registration",
-    detail:
-      "The federal government's vendor registry. It must be completed and show status “Active” — not just started — before you can apply or be paid. A brand-new registration can take up to ~2 weeks to finish, and it must be renewed every year.",
-  },
-  {
-    key: "uei",
-    label: "UEI (Unique Entity Identifier)",
-    detail:
-      "Your organization's 12-character federal ID, assigned when you begin a SAM.gov registration. Having a UEI alone is not enough — grant portals will reject it (“no organization matches this UEI”) until your SAM.gov registration is Active.",
-  },
-  {
-    key: "aor",
-    label: "Authorized AOR (Authorized Organization Representative)",
-    detail: "The person SAM.gov has on file as allowed to submit and sign applications for your organization.",
-  },
-  {
-    key: "ebiz",
-    label: "E-Biz POC delegation",
-    detail:
-      "Your Electronic Business Point of Contact has delegated AOR authority in SAM.gov — required before an AOR can act.",
-  },
-];
 
 /* ---------------------------------------------------------------------------
  * Pure data builders — no React, no DOM. Kept framework-agnostic and
@@ -248,7 +215,7 @@ function sourceApplyStep(opportunity: Opportunity, now?: number): Step {
 
 /** Ordered next actions. The LAST step always points to the opportunity's
  *  official portal, after the org's AOR has reviewed the draft. */
-export function buildNextSteps(match: Match, allRegistrationsSatisfied: boolean, now?: number): Step[] {
+export function buildNextSteps(match: Match, now?: number): Step[] {
   const opportunity = match.opportunity;
   const steps: Step[] = [];
   steps.push(sourceApplyStep(opportunity, now));
@@ -256,11 +223,7 @@ export function buildNextSteps(match: Match, allRegistrationsSatisfied: boolean,
     steps.push([`From your match assessment, before applying verify: ${match.whatToVerify.trim()}`]);
   }
   steps.push([
-    isFlagEnabled("r6_auto_fill")
-      ? allRegistrationsSatisfied
-        ? "Your registrations in Settings are marked satisfied — confirm they're still active/current in SAM.gov."
-        : "Complete the registrations checklist in Settings — most federal portals block submission without them."
-      : "Make sure your SAM.gov registration is Active and your UEI, AOR, and E-Biz POC delegation are in place — most federal portals block submission without them.",
+    "Make sure your SAM.gov registration is Active and your UEI, AOR, and E-Biz POC delegation are in place — most federal portals block submission without them.",
   ]);
   steps.push(["Draft answers to the questions below and gather the documents listed."]);
   if (match.whatToDoNext?.trim()) {
@@ -298,7 +261,7 @@ export type ApplicationChecklistModel = {
   nextSteps: Step[];
 };
 
-export function buildApplicationChecklist(match: Match, allRegistrationsSatisfied: boolean, now?: number): ApplicationChecklistModel {
+export function buildApplicationChecklist(match: Match, now?: number): ApplicationChecklistModel {
   const opportunity = match.opportunity;
   return {
     title: opportunity.title?.trim() || opportunity.program,
@@ -307,7 +270,7 @@ export function buildApplicationChecklist(match: Match, allRegistrationsSatisfie
     keyDates: buildKeyDates(opportunity),
     documents: buildDocumentChecklist(opportunity),
     questions: buildQuestions(opportunity),
-    nextSteps: buildNextSteps(match, allRegistrationsSatisfied, now),
+    nextSteps: buildNextSteps(match, now),
   };
 }
 
@@ -315,14 +278,8 @@ export function buildApplicationChecklist(match: Match, allRegistrationsSatisfie
  * Presentational component
  * ------------------------------------------------------------------------ */
 
-export default function ApplicationChecklist({
-  match,
-  allRegistrationsSatisfied,
-}: {
-  match: Match;
-  allRegistrationsSatisfied: boolean;
-}) {
-  const model = buildApplicationChecklist(match, allRegistrationsSatisfied);
+export default function ApplicationChecklist({ match }: { match: Match }) {
+  const model = buildApplicationChecklist(match);
 
   const eyebrowClass = "font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas";
   const titleClass = "mt-1 font-display text-[18px] font-bold leading-snug text-foreground";
