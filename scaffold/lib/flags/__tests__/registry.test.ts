@@ -45,7 +45,6 @@ describe("FLAG_REGISTRY", () => {
       "r10_analytics",
       "r4b_cost_debug",
       "left_sidebar",
-      "g6_s2s_submission",
       "b2_enriched_ranking",
       "c1b_type_groups",
       "d4_opportunity_graph",
