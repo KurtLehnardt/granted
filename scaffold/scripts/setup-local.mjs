@@ -7,8 +7,8 @@
  *
  * Takes a self-hoster all the way to a fully-offline run in one command:
  *   1. Detects OS + available memory/GPU to recommend a chat model.
- *   2. Verifies Ollama is installed and its daemon is reachable (does NOT try to
- *      install Ollama itself — just prints the platform-specific guidance).
+ *   2. Verifies Ollama is installed and its daemon is reachable, offering to install
+ *      it (winget on Windows, Homebrew on macOS 14+) before falling back to guidance.
  *   3. Installs a NEW recommended model or lets you pick an EXISTING one.
  *   4. ALWAYS pulls the SEPARATE embeddings model (`nomic-embed-text`) — the seam
  *      people miss: `LLM_PROVIDER=ollama` moves only scoring/explanations, NOT the
@@ -29,8 +29,8 @@
 import { readFileSync, writeFileSync, existsSync, copyFileSync, realpathSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { dirname, join } from "node:path";
-import { spawnSync } from "node:child_process";
+import { dirname, join, win32 } from "node:path";
+import { spawn, spawnSync } from "node:child_process";
 
 const SCAFFOLD = join(dirname(fileURLToPath(import.meta.url)), "..");
 const ENV = join(SCAFFOLD, ".env.local");
@@ -235,12 +235,11 @@ export function parseOllamaList(stdout) {
 }
 
 /**
- * Pick the automatic install command for a platform, given what's on PATH.
- * Pure + injectable (`hasWinget`/`hasBrew` are booleans the caller detects) so
- * it's unit-testable without spawning anything. Returns null when there's no
- * automatic path — the caller falls back to `installGuidance`.
+ * Automatic Ollama install command for this platform, or null → manual `installGuidance`.
+ * @param {string} platform
+ * @param {{ hasWinget?: boolean, hasBrew?: boolean, macosMajor?: number | null }} [opts]
  */
-export function pickAutoInstallCommand(platform, { hasWinget = false, hasBrew = false } = {}) {
+export function pickAutoInstallCommand(platform, { hasWinget = false, hasBrew = false, macosMajor = null } = {}) {
   if (platform === "win32" && hasWinget) {
     return {
       cmd: "winget",
@@ -256,7 +255,8 @@ export function pickAutoInstallCommand(platform, { hasWinget = false, hasBrew = 
       label: "winget install -e --id Ollama.Ollama",
     };
   }
-  if (platform === "darwin" && hasBrew) {
+  const macTooOld = macosMajor !== null && macosMajor < OLLAMA_MIN_MACOS;
+  if (platform === "darwin" && hasBrew && !macTooOld) {
     return { cmd: "brew", args: ["install", "ollama"], label: "brew install ollama" };
   }
   return null;
@@ -264,15 +264,13 @@ export function pickAutoInstallCommand(platform, { hasWinget = false, hasBrew = 
 
 /** Windows install dir for the Ollama CLI/daemon (winget's default target). */
 export function ollamaWindowsDir(localAppData) {
-  return join(String(localAppData ?? ""), "Programs", "Ollama");
+  return win32.join(String(localAppData ?? ""), "Programs", "Ollama");
 }
 
 /**
- * Return `env` (defaults to `process.env`-shaped object) with the Windows
- * Ollama install dir prepended to PATH, so a just-installed `ollama` resolves
- * in THIS process's child processes without a shell restart. No-op off
- * win32 or without `localAppData`. Pure/injectable — never touches the real
- * environment itself.
+ * `env` with the Windows Ollama install dir appended to PATH, so a just-installed
+ * `ollama` resolves in child processes without a shell restart. Appended, so an
+ * `ollama` already on PATH still wins.
  */
 export function withOllamaOnPath(env, platform, localAppData) {
   if (platform !== "win32" || !localAppData) return env;
@@ -280,7 +278,7 @@ export function withOllamaOnPath(env, platform, localAppData) {
   const key = Object.keys(env).find((k) => k.toLowerCase() === "path") || "PATH";
   const existing = env[key] || "";
   if (existing.split(";").includes(dir)) return env;
-  return { ...env, [key]: existing ? `${dir};${existing}` : dir };
+  return { ...env, [key]: existing ? `${existing};${dir}` : dir };
 }
 
 /**
@@ -486,11 +484,36 @@ function childEnv() {
   return withOllamaOnPath(process.env, process.platform, process.env.LOCALAPPDATA);
 }
 
-/** Try to install Ollama automatically (winget on Windows, brew on macOS). */
-async function tryAutoInstall(platform) {
+/** `npm run data:embed` in scaffold/, streaming output live while keeping a tail for the failure report. */
+function runDataEmbed() {
+  return new Promise((resolve) => {
+    let output = "";
+    const p = spawn("npm run data:embed", {
+      shell: true,
+      cwd: SCAFFOLD,
+      env: childEnv(),
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    for (const [stream, sink] of [
+      [p.stdout, process.stdout],
+      [p.stderr, process.stderr],
+    ]) {
+      stream.setEncoding("utf8");
+      stream.on("data", (s) => {
+        sink.write(s);
+        output = (output + s).slice(-8000);
+      });
+    }
+    p.on("error", (err) => resolve({ ok: false, output: `${output}\n${err.message}` }));
+    p.on("close", (code) => resolve({ ok: code === 0, output }));
+  });
+}
+
+/** Try to install Ollama automatically (winget on Windows, brew on macOS 14+). */
+async function tryAutoInstall(platform, macosMajor) {
   const hasWinget = platform === "win32" && Boolean(run("winget", ["--version"]));
   const hasBrew = platform === "darwin" && Boolean(run("brew", ["--version"]));
-  const choice = pickAutoInstallCommand(platform, { hasWinget, hasBrew });
+  const choice = pickAutoInstallCommand(platform, { hasWinget, hasBrew, macosMajor });
   if (!choice) return false;
 
   const proceed = await confirm(`Install Ollama automatically now (${choice.label})?`, true);
@@ -514,28 +537,13 @@ async function tryAutoInstall(platform) {
       /* best-effort */
     }
   } else {
-    try {
-      const { spawn } = await import("node:child_process");
-      const p = spawn("ollama", ["serve"], { detached: true, stdio: "ignore", env: childEnv() });
-      p.unref();
-    } catch {
-      /* best-effort */
-    }
+    const p = spawn("ollama", ["serve"], { detached: true, stdio: "ignore", env: childEnv() });
+    p.on("error", () => {});
+    p.unref();
   }
 
   console.log(c.dim("  Waiting for the Ollama daemon to come up (can take over a minute on first start)…"));
-  const fetchTags = async () => {
-    try {
-      const ac = new AbortController();
-      const timer = setTimeout(() => ac.abort(), 1500);
-      const res = await fetch(OLLAMA_API_TAGS, { signal: ac.signal });
-      clearTimeout(timer);
-      return res.ok;
-    } catch {
-      return false;
-    }
-  };
-  const up = await waitForDaemon(fetchTags, { timeoutMs: 120000, intervalMs: 2000 });
+  const up = await waitForDaemon(async () => (await ollamaDaemonModels()) !== null);
   if (up) {
     console.log(`  ${c.g("✓")} daemon reachable at ${c.dim("localhost:11434")}`);
   } else {
@@ -661,7 +669,7 @@ async function main() {
   let daemonUp = false;
   if (!version) {
     console.log(c.y("  Ollama isn't installed (or not on your PATH).\n"));
-    const installed = await tryAutoInstall(platform);
+    const installed = await tryAutoInstall(platform, macosMajor);
     version = run("ollama", ["--version"]);
     daemonUp = installed && Boolean(version);
     if (!version) {
@@ -818,11 +826,12 @@ async function main() {
   if (doEmbed) {
     console.log(c.dim("\n  Warming the embedding model (avoids a cold-start failure on the first request)…"));
     console.log(c.dim("  Re-embedding locally … (reads scaffold/.env.local; nothing leaves your machine)"));
+    let attempt = 0;
     const result = await embedWithRetry({
       warmFn: warmEmbedModel,
-      runFn: async () => {
-        const r = spawnSync("npm", ["run", "data:embed"], { encoding: "utf8", env: childEnv() });
-        return { ok: r.status === 0, output: `${r.stdout || ""}${r.stderr || ""}` };
+      runFn: () => {
+        if (attempt++) console.log(c.y("\n  data:embed failed — retrying once…"));
+        return runDataEmbed();
       },
     });
     if (result.ok) {

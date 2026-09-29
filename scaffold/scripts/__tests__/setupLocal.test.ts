@@ -261,6 +261,10 @@ describe("pickAutoInstallCommand: platform install-command selection", () => {
     assert.equal(cmd?.cmd, "brew");
     assert.deepEqual(cmd?.args, ["install", "ollama"]);
   });
+  test("macOS older than OLLAMA_MIN_MACOS → null even with brew (no bottle)", () => {
+    assert.equal(pickAutoInstallCommand("darwin", { hasBrew: true, macosMajor: OLLAMA_MIN_MACOS - 1 }), null);
+    assert.equal(pickAutoInstallCommand("darwin", { hasBrew: true, macosMajor: OLLAMA_MIN_MACOS })?.cmd, "brew");
+  });
   test("macOS without brew → null", () => {
     assert.equal(pickAutoInstallCommand("darwin", { hasBrew: false }), null);
   });
@@ -276,11 +280,11 @@ describe("ollamaWindowsDir / withOllamaOnPath", () => {
       "C:\\Users\\me\\AppData\\Local\\Programs\\Ollama",
     );
   });
-  test("prepends the install dir to PATH on win32", () => {
-    const env = { PATH: "C:\\Windows\\System32" };
+  test("appends the install dir to PATH on win32, so an ollama already on PATH wins", () => {
+    const env = { Path: "C:\\Windows\\System32" };
     const out = withOllamaOnPath(env, "win32", "C:\\Users\\me\\AppData\\Local");
-    assert.match(out.PATH, /^C:\\Users\\me\\AppData\\Local\\Programs\\Ollama;/);
-    assert.match(out.PATH, /System32$/);
+    assert.equal(out.Path, "C:\\Windows\\System32;C:\\Users\\me\\AppData\\Local\\Programs\\Ollama");
+    assert.equal("PATH" in out, false);
   });
   test("is a no-op off win32", () => {
     const env = { PATH: "/usr/bin" };
