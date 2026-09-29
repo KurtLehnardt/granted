@@ -8,8 +8,6 @@ Run it with your own API keys or a fully local model — see **Run it yourself**
 
 # Run it yourself
 
-**No API keys? Still works.** Clone it, install, run it, and try the 4 built-in sample companies (in the welcome guide, replayable from Settings) — their results are cached, so they need no keys at all. You only need API keys (or a local model) to search your *own* company description.
-
 `npm run dev` only listens on this machine; `npm run dev:lan` opts in to exposing it to your local network.
 
 Every OS below ends up running the exact same `npm` commands — the setup scripts detect your platform automatically. Only the prerequisite installs (Node, git, Ollama) differ, so pick yours:
@@ -32,21 +30,14 @@ cd granted/scaffold
 npm install
 ```
 
-**2. Try it with zero keys**
-```bash
-cd granted/scaffold      # already done if you used install-macos.sh
-npm run dev              # → http://localhost:3000
-```
-Try the 4 sample companies now — no keys needed.
-
-**3. Search your own company — cloud models (OpenAI + Anthropic)**
+**2. cloud models (OpenAI + Anthropic)**
 ```bash
 npm run setup      # interactive: writes .env.local, collects your keys
 npm run dev
 ```
 Or by hand: `cp .env.example .env.local`, then edit `scaffold/.env.local` and set `OPENAI_API_KEY` + `ANTHROPIC_API_KEY` — see **What you need** below for where to get them.
 
-**3, alternative — fully local (Ollama, no API keys)**
+**3. Fully local (Ollama, no API keys)**
 ```bash
 brew install ollama                 # already done if install-macos.sh found Homebrew; or https://ollama.com/download
 npm run setup:local -- --yes        # picks a model sized for your RAM, pulls it, re-embeds the corpus
@@ -81,22 +72,14 @@ cd granted/scaffold
 ```
 No `winget`? Grab [Node 22+](https://nodejs.org) and [git](https://git-scm.com/download/win) directly instead. PowerShell (default on Windows 10/11) or Git Bash both work with everything below.
 
-**2. Try it with zero keys**
-```powershell
-cd granted/scaffold
-npm install            # already done if you used install-windows.ps1
-npm run dev            # → http://localhost:3000
-```
-Try the 4 sample companies now — no keys needed.
-
-**3. Search your own company — hosted (OpenAI + Anthropic)**
+**2. Search your own company — hosted (OpenAI + Anthropic)**
 ```powershell
 npm run setup      # interactive: writes .env.local, collects your keys
 npm run dev
 ```
 Or by hand: `Copy-Item .env.example .env.local` (PowerShell) or `cp .env.example .env.local` (Git Bash), then edit `scaffold/.env.local` and set `OPENAI_API_KEY` + `ANTHROPIC_API_KEY` — see **What you need** below.
 
-**3, alternative — fully local (Ollama, no API keys)**
+**3. Fully local (Ollama, no API keys)**
 ```powershell
 # No Ollama yet? setup:local installs it via winget (or get it at https://ollama.com/download).
 npm run setup:local -- --yes        # picks a model sized for your RAM/VRAM, pulls it, re-embeds the corpus
@@ -125,14 +108,6 @@ cd granted/scaffold
 ```
 Both install Node 22, which is also what the one-shot script installs — see **Which Node version** below for why 22 and not 20.
 
-**2. Try it with zero keys**
-```bash
-cd granted/scaffold
-npm install            # already done if you used install-linux.sh
-npm run dev            # → http://localhost:3000
-```
-Try the 4 sample companies now — no keys needed.
-
 **3. Search your own company — hosted (OpenAI + Anthropic)**
 ```bash
 npm run setup      # interactive: writes .env.local, collects your keys
@@ -140,7 +115,7 @@ npm run dev
 ```
 Or by hand: `cp .env.example .env.local`, then edit `scaffold/.env.local` and set `OPENAI_API_KEY` + `ANTHROPIC_API_KEY` — see **What you need** below.
 
-**3, alternative — fully local (Ollama, no API keys)**
+**3. Fully local (Ollama, no API keys)**
 ```bash
 curl -fsSL https://ollama.com/install.sh | sh
 npm run setup:local -- --yes        # picks a model sized for your RAM, pulls it, re-embeds the corpus
@@ -207,7 +182,7 @@ npm run data:embed:local  # re-embeds the 791-opportunity corpus into the gitign
 ```
 Now nothing leaves your machine.
 
-### The honest tradeoff
+### The tradeoff
 
 Hosted Claude is faster and more reliable at the strict, structured JSON this pipeline asks for, and its scoring is better calibrated. A capable local model still handles it — verified end to end on macOS (`qwen2.5:14b`, 32GB RAM: 3:43 for an 18-candidate search) and Linux (`llama3.2:1b`, 2 vCPU/8GB/no GPU: 18:58–20:43 for 21 candidates, depending on distro), both fully local with real matches. Two caveats:
 - **It's much slower on modest hardware.** A CPU-only, small-memory box serves scoring batches one at a time — the Linux number above is close to worst-case. A GPU or more RAM (the macOS number) closes most of that gap. Local runs use two-stage scoring — a score-only pass over all candidates, then full write-ups for the top 8 — tunable with `E3_TWO_PASS_TOP_N` (`NEXT_PUBLIC_FLAG_E3_TWO_PASS=false` writes up every candidate instead); raise `LOCAL_LLM_TIMEOUT_MS` (default 30 min per call) if a big model needs longer.
@@ -231,45 +206,9 @@ Everything risky ships **default-OFF** so a fresh clone is safe and boring. Flip
 
 The full flag list lives in `scaffold/lib/flags/registry.ts`.
 
-## Real Google sign-in (Supabase + OAuth)
-
-Optional. The app works without it. When you want real accounts:
-
-1. **Create a Supabase project** at [supabase.com](https://supabase.com) → New project.
-2. **Copy your keys:** Supabase Dashboard → *Project Settings → API* → copy the **Project URL** and the **anon / publishable** key into `scaffold/.env.local`:
-   ```bash
-   NEXT_PUBLIC_SUPABASE_URL=https://YOUR-PROJECT-REF.supabase.co
-   NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...        # the anon key — NEVER the service_role key
-   NEXT_PUBLIC_FLAG_R9_SUPABASE_AUTH=true
-   ```
-3. **Create Google OAuth credentials:** [Google Cloud Console](https://console.cloud.google.com) → *APIs & Services → Credentials → Create credentials → OAuth client ID → Web application*.
-   - Under **Authorized redirect URIs**, add the callback Supabase gives you. It looks like `https://YOUR-PROJECT-REF.supabase.co/auth/v1/callback`. (Supabase shows the exact URL in step 4.) *This is the Supabase callback, not your app URL. That's why changing your app domain later does **not** require touching Google.*
-   - Save, then copy the **Client ID** and **Client secret**.
-4. **Enable Google in Supabase:** Dashboard → *Authentication → Providers → Google* → toggle on, paste the Client ID + secret from step 3, save.
-5. **Set your app URLs in Supabase:** Dashboard → *Authentication → URL Configuration*:
-   - **Site URL:** `http://localhost:3000`.
-   - **Redirect URLs:** add `http://localhost:3000/**`.
-6. Restart `npm run dev` and sign in. The app requests OAuth with `redirectTo = <origin>/auth/callback`, so it follows whatever origin it's served from. You only ever update the **Supabase** redirect allowlist, never Google.
-
-> **Common gotcha:** if sign-in bounces to the wrong URL, it's almost always Supabase's *Site URL / Redirect URLs* pointing somewhere other than `http://localhost:3000`. Update them there.
-
-## Chrome extension (assisted fill, experimental, not currently wired up)
-
-An optional companion extension (`extension/`, "Granted Assisted Fill") is built to pre-fill a grant portal's application form **in your own authenticated browser session**, from a `.granted.json` package. Think of it like a password manager for grant forms: it would fill what it can ground, flag what it can't, and let you step through the portal's own sections. **It never submits, signs, certifies, or files anything** — a human always reviews and clicks the portal's own submit button.
-
-**Load it into Chrome:**
-```bash
-cd extension
-npm install
-npm run build            # emits a loadable extension into extension/dist/
-```
-Then in Chrome (or any Chromium browser): open `chrome://extensions` → turn on **Developer mode** (top-right) → **Load unpacked** → select **`extension/dist/`** (the *build output* — **not** the `extension/` folder itself; the manifest is generated into `dist/` by the build, so pointing Chrome at `extension/` gives *"manifest file not found or unreadable"*). The "Granted Assisted Fill" icon appears in the toolbar. After code changes, re-run `npm run build` and hit reload on the extension's card.
-
-Portal field selectors (grants.gov, NIH ASSIST, Research.gov, SBIR.gov) are still `TODO:` placeholders, so today the extension loads and validates a package but fills nothing. Test the import with the bundled sample, [`extension/example.granted.json`](extension/example.granted.json).
-
 ## Refreshing the data (optional)
 
-The corpus (`scaffold/data/opportunities.json`, 791 opportunities across grants.gov and SAM.gov assistance listings) is committed, so you don't need this to run. To rebuild it from the live public sources:
+The corpus (`scaffold/data/opportunities.json`, which contains opportunities across grants.gov and SAM.gov assistance listings) is committed, so you don't need this to run. To rebuild it from the live public sources:
 
 ```bash
 cd scaffold
@@ -292,28 +231,6 @@ To stay current, `npm run data:refresh` (or Settings → "Refresh cached grants"
 6. **When nothing fits.** That's a first-class finding with real redirects, so even a weak-field run points you somewhere useful.
 
 Results **stream**. Progress and grounded evidence appear in seconds rather than behind a frozen spinner.
-
-## Project structure
-
-```
-.
-├── README.md                     (this file)
-├── LICENSE
-├── install-{macos.sh,linux.sh,windows.ps1}  (one-shot installers, see above)
-├── supabase/migrations/          (optional corpus-store schema)
-├── extension/                    (optional Chrome "assisted fill" extension — experimental)
-└── scaffold/                     (the Next.js app)
-    ├── .env.example              (all env vars, documented)
-    ├── scripts/setup.mjs         (npm run setup)
-    ├── lib/
-    │   ├── match.ts              (pipeline + calibration knobs)
-    │   ├── recommend.ts          (the discernment verdict logic)
-    │   ├── flags/registry.ts     (every feature flag)
-    │   └── prompts/registry.ts   (all LLM prompts, hash-locked)
-    ├── data/opportunities.json   (the committed 791-opportunity corpus)
-    ├── app/api/match/route.ts    (the streaming matching endpoint)
-    └── app/{welcome,readiness}/  (marketing landing + free readiness tool)
-```
 
 ## Troubleshooting
 
