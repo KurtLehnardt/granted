@@ -167,7 +167,7 @@ export type AwardRow = {
  * Every `data/awards.json` row was cross-checked against the live SBIR.gov
  * bulk award CSV (firm + agency + program + award year + amount) and only
  * verified rows were written back with a real `sourceUrl`
- * (`https://www.sbir.gov/awards?firm=<firm>`); unverifiable rows were DROPPED
+ * (`https://www.sbir.gov/awards?company_name=<firm>`); unverifiable rows were DROPPED
  * from the data file entirely. This filter is defense-in-depth on top of
  * that: it re-asserts the same guarantee at render time so a row can never
  * reach the UI without provenance, regardless of how it got into the awards
