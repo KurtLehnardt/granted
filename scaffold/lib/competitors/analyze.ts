@@ -1,4 +1,4 @@
-import { makeLlmClient } from "../llm/client";
+import { makeLlmClient, isLocalLlm } from "../llm/client";
 import { embedBatch, cosine } from "../embed";
 import { loadPrompt } from "../prompts";
 import type { CostMeter } from "../metering/meter";
@@ -34,6 +34,13 @@ import {
 
 const MODEL = process.env.COMPETITOR_ANALYSIS_MODEL || "claude-sonnet-4-6";
 const ANTHROPIC_TIMEOUT_MS = Number(process.env.ANTHROPIC_TIMEOUT_MS) || 100_000;
+// Local models are legitimately much slower than the cloud path this timeout
+// was originally sized for (lib/claude.ts draws the same distinction) -- a
+// small local model writing the full cited brief can easily exceed 100s, and
+// without this the SYNTHESIZE call gets aborted mid-generation, which the
+// route can only report as a generic "unavailable" (§ InsufficientEvidenceError
+// vs. everything else -- an abort is "everything else").
+const LOCAL_LLM_TIMEOUT_MS = Number(process.env.LOCAL_LLM_TIMEOUT_MS) || 1_800_000; // 30 min
 
 /** Below which a live run is considered too thin to be worth showing (falls back to demo). */
 const MIN_GROUNDED_RECORDS = 3;
@@ -190,7 +197,10 @@ async function synthesize(
   records: GroundedAwardRecord[],
   webProfiles: WebCompetitorProfile[],
 ): Promise<RawSynthesis> {
-  const client = makeLlmClient({ timeout: ANTHROPIC_TIMEOUT_MS, maxRetries: 0 });
+  const client = makeLlmClient({
+    timeout: isLocalLlm() ? LOCAL_LLM_TIMEOUT_MS : ANTHROPIC_TIMEOUT_MS,
+    maxRetries: 0,
+  });
 
   const awardEvidence = records.map((r) => ({
     id: r.id, recipient: r.recipient, agency: r.agency, amount: r.amount, program: r.program, abstract: r.abstract,
