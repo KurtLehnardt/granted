@@ -112,6 +112,15 @@ export const AwardHistorySchema = z.object({
       sourceUrl: z.string().optional(),
     }),
   ),
+  /**
+   * True when this opportunity has no verified award history of its own and
+   * these are instead companies the SAME AGENCY has funded elsewhere in the
+   * corpus (lib/match.ts's historyForAgency fallback) — a different, broader
+   * claim than "funded under this exact program." Optional/absent (not
+   * `false`) for the direct-match case, so cached/precomputed maps built
+   * before this field existed keep validating unchanged.
+   */
+  fromAgency: z.literal(true).optional(),
 });
 export type AwardHistory = z.infer<typeof AwardHistorySchema>;
 

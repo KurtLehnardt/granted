@@ -109,3 +109,24 @@ test("historyFromRows — an opportunity with ONLY unverified rows returns undef
 test("historyFromRows — empty row array returns undefined", () => {
   assert.equal(historyFromRows([]), undefined);
 });
+
+test("historyFromRows — fromAgency=false (default) omits the fromAgency field entirely", () => {
+  const history = historyFromRows([verifiedA], "Utah");
+  assert.ok(history);
+  assert.ok(!("fromAgency" in history!), "direct-match history must not carry fromAgency at all, not even false");
+});
+
+test("historyFromRows — fromAgency=true sets fromAgency:true and sorts recipients by award size", () => {
+  // Order deliberately NOT amount-descending in the input — fromAgency mode
+  // has no per-opportunity relevance ranking to preserve, so it sorts by
+  // amount instead (the most notable real awards are the most useful thing
+  // to show when these companies aren't specifically tied to this program).
+  const rows = [verifiedB, verifiedA]; // B=$300k, A=$500k
+  const history = historyFromRows(rows, "Utah", true);
+  assert.ok(history);
+  assert.equal(history!.fromAgency, true);
+  assert.deepEqual(
+    history!.recipients.map((r) => r.company),
+    ["VERIFIED COMPANY A", "VERIFIED COMPANY B"], // A ($500k) before B ($300k)
+  );
+});
