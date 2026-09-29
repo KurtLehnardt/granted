@@ -36,7 +36,6 @@ export type FlagName =
   | "r10_analytics"
   | "r4b_cost_debug"
   | "left_sidebar"
-  | "g6_s2s_submission"
   | "b2_enriched_ranking"
   | "c1b_type_groups"
   | "d4_opportunity_graph"
@@ -150,14 +149,6 @@ export const FLAG_REGISTRY: Record<FlagName, FlagDefinition> = {
       "Left slide-out drawer (settings/grants/descriptions/account/mock-billing) replacing the " +
       "hamburger dropdown. Local-only; gates nothing server-side; billing is a labeled mock.",
     envVar: "NEXT_PUBLIC_FLAG_LEFT_SIDEBAR",
-  },
-  g6_s2s_submission: {
-    name: "g6_s2s_submission",
-    requirement: "G6",
-    description:
-      "S2S submission integration (package -> grants.gov XML -> MOCK transport). Demo/preview " +
-      "only; never submits to any federal system, gates nothing server-side, handles no credentials.",
-    envVar: "NEXT_PUBLIC_FLAG_G6_S2S_SUBMISSION",
   },
   b2_enriched_ranking: {
     name: "b2_enriched_ranking",

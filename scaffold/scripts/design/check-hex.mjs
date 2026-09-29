@@ -56,7 +56,6 @@ const EXCLUDED_FILES = new Set(["app/globals.css"]);
 // with real OAuth, delete these files and drop this carve-out.
 const INTERIM_EXCLUDED = new Set([
   "components/UserMenu.tsx",
-  "components/AuthGuard.tsx",
   "app/login/page.tsx",
 ]);
 
