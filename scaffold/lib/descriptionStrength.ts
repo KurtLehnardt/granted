@@ -10,7 +10,7 @@
  * the placeholder asks for would be the confusing option.
  *
  * What it therefore cannot do, so nobody is surprised later: it cannot tell
- * specific prose from padding. Measured against the real 791-program corpus,
+ * specific prose from padding. Measured against the real shipped corpus,
  * this description —
  *
  *   "we are an innovative company leveraging cutting-edge technology to

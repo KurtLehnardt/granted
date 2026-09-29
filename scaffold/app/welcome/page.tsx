@@ -14,7 +14,7 @@
  * fit — free"; secondary actions use the navy `structure` outline affordance,
  * mirroring components/OpportunityCard.tsx.
  *
- * Every factual claim is grounded in the shipped corpus: 791 real opportunities
+ * Every factual claim is grounded in the shipped corpus: 4,383 real opportunities
  * (data/opportunities.json) from grants.gov and SAM.gov assistance listings,
  * spanning four funding types. Nothing here claims a mock/flag-gated capability
  * (no auto-filing of applications).
@@ -74,7 +74,7 @@ export default function WelcomePage() {
                 </h1>
                 <p className="mt-5 max-w-xl text-pretty font-body text-[18px] leading-relaxed text-foreground">
                   Describe your work in plain English. Granted scores your fit
-                  across 791 real federal opportunities, grounded in actual award
+                  across 4,383 real federal opportunities, grounded in actual award
                   data.
                 </p>
 
@@ -102,7 +102,7 @@ export default function WelcomePage() {
             <div className="mt-14 rounded-lg bg-canvas-alt px-6 py-5 shadow-card">
               <p className={eyebrowClass}>What it&rsquo;s grounded in</p>
               <p className="mt-2 font-body text-[15px] leading-relaxed text-foreground">
-                <span className="font-semibold">791 real federal opportunities</span>{" "}
+                <span className="font-semibold">4,383 real federal opportunities</span>{" "}
                 from keyless, public sources — grants.gov and SAM.gov assistance
                 listings — across four funding types.
               </p>
@@ -164,8 +164,8 @@ export default function WelcomePage() {
               />
               <Step
                 n="2"
-                title="We score your fit across 791 real opportunities"
-                body="Your profile is matched against 791 real federal opportunities — grants.gov and SAM.gov assistance listings — and scored on program-officer criteria, then screened for eligibility."
+                title="We score your fit across 4,383 real opportunities"
+                body="Your profile is matched against 4,383 real federal opportunities — grants.gov and SAM.gov assistance listings — and scored on program-officer criteria, then screened for eligibility."
               />
               <Step
                 n="3"
@@ -222,7 +222,7 @@ export default function WelcomePage() {
                     record. Nothing is fabricated.
                   </ProItem>
                   <ProItem>
-                    Fit is scored against a corpus of 791 actual programs, on the
+                    Fit is scored against a corpus of 4,383 actual programs, on the
                     criteria a program officer would apply.
                   </ProItem>
                   <ProItem>
@@ -289,7 +289,7 @@ export default function WelcomePage() {
                 Find funding matched to your work.
               </h2>
               <p className="mx-auto mt-4 max-w-xl text-pretty font-body text-[16px] leading-relaxed text-token-white">
-                A free fit check and a map of 791 real federal opportunities,
+                A free fit check and a map of 4,383 real federal opportunities,
                 scored to your business or research.
               </p>
               <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
