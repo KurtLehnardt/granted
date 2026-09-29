@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { filterVerifiedRows, historyFromRows, type AwardRow } from "../match";
+import { filterVerifiedRows, historyFromRows, dedupeByCompanyKeepingLargestVerified, type AwardRow } from "../match";
 
 /**
  * A3-lite (awards provenance gate) — hermetic tests of the filter/compute
@@ -108,4 +108,61 @@ test("historyFromRows — an opportunity with ONLY unverified rows returns undef
 
 test("historyFromRows — empty row array returns undefined", () => {
   assert.equal(historyFromRows([]), undefined);
+});
+
+test("historyFromRows — fromAgency=false (default) omits the fromAgency field entirely", () => {
+  const history = historyFromRows([verifiedA], "Utah");
+  assert.ok(history);
+  assert.ok(!("fromAgency" in history!), "direct-match history must not carry fromAgency at all, not even false");
+});
+
+test("historyFromRows — fromAgency=true sets fromAgency:true and sorts recipients by award size", () => {
+  // Order deliberately NOT amount-descending in the input — fromAgency mode
+  // has no per-opportunity relevance ranking to preserve, so it sorts by
+  // amount instead (the most notable real awards are the most useful thing
+  // to show when these companies aren't specifically tied to this program).
+  const rows = [verifiedB, verifiedA]; // B=$300k, A=$500k
+  const history = historyFromRows(rows, "Utah", true);
+  assert.ok(history);
+  assert.equal(history!.fromAgency, true);
+  assert.deepEqual(
+    history!.recipients.map((r) => r.company),
+    ["VERIFIED COMPANY A", "VERIFIED COMPANY B"], // A ($500k) before B ($300k)
+  );
+});
+
+// ---------------------------------------------------------------------------
+// dedupeByCompanyKeepingLargestVerified — the historyForAgency reduction step
+// ---------------------------------------------------------------------------
+
+test("dedupeByCompanyKeepingLargestVerified — a larger-amount UNVERIFIED row never bumps a smaller but real, verified row for the same company", () => {
+  // The exact scenario a code review caught: without filtering to verified
+  // rows FIRST, the naive "keep whichever amount is larger" reduction would
+  // let this implausibly-large unverified row win the per-company slot,
+  // silently dropping the real, sourceUrl-verified $500k row entirely (it
+  // never reaches historyFromRows's own filterVerifiedRows call at all, since
+  // only ONE row per company survives this reduction).
+  const unverifiedButHuge: AwardRow = {
+    company: "VERIFIED COMPANY A", // same company as the fixture `verifiedA`
+    program: "SBIR",
+    agency: "Department of Defense",
+    amount: 999_999_999,
+    year: 2023,
+  };
+  const deduped = dedupeByCompanyKeepingLargestVerified([unverifiedButHuge, verifiedA]);
+  assert.equal(deduped.length, 1);
+  assert.equal(deduped[0]!.amount, 500_000, "must keep the real $500k verified row, not the fabricated-looking $1B one");
+  assert.equal(deduped[0]!.sourceUrl, verifiedA.sourceUrl);
+});
+
+test("dedupeByCompanyKeepingLargestVerified — among two verified rows for the same company, keeps the larger amount", () => {
+  const biggerVerified: AwardRow = { ...verifiedA, amount: 750_000, year: 2024 };
+  const deduped = dedupeByCompanyKeepingLargestVerified([verifiedA, biggerVerified]);
+  assert.equal(deduped.length, 1);
+  assert.equal(deduped[0]!.amount, 750_000);
+});
+
+test("dedupeByCompanyKeepingLargestVerified — an unverified-only company is dropped entirely, not just deduped away", () => {
+  const deduped = dedupeByCompanyKeepingLargestVerified([unverifiedNoUrl, unverifiedEmptyUrl]);
+  assert.deepEqual(deduped, []);
 });

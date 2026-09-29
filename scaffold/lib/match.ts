@@ -184,26 +184,105 @@ export function filterVerifiedRows(rows: AwardRow[]): AwardRow[] {
  * reflect only rows with a real `sourceUrl`. Extracted out of `historyFor` so
  * tests can inject a fixture row set (mix of verified + unverified) instead
  * of depending on the real 4,020-row data file.
+ *
+ * `fromAgency`: true when `rows` came from the agency-level fallback (see
+ * `historyFor` below) rather than this exact opportunity — threaded straight
+ * into the result so the UI can honestly relabel it (never implying these
+ * specific companies won THIS program when the real claim is "this agency").
  */
-export function historyFromRows(rows: AwardRow[], state?: string): AwardHistory | undefined {
+export function historyFromRows(rows: AwardRow[], state?: string, fromAgency = false): AwardHistory | undefined {
   const verified = filterVerifiedRows(rows);
   if (verified.length === 0) return undefined;
   const amounts = verified.map((r) => r.amount).sort((a, b) => a - b);
   const mid = Math.floor(amounts.length / 2);
+  // The per-opportunity data file is already sorted by relevance
+  // (2-normalize.mjs's keyword/token overlap ranking) — preserve that order.
+  // The agency-fallback pool has no such per-opportunity ranking (it merges
+  // rows from many unrelated opportunities), so sort by award size instead:
+  // the most notable real awards are the most useful thing to show.
+  const ordered = fromAgency ? verified.slice().sort((a, b) => b.amount - a.amount) : verified;
   return {
     similarCompanies: verified.length,
     totalAwarded: amounts.reduce((a, b) => a + b, 0),
     medianAward: amounts.length % 2 ? amounts[mid] : Math.round((amounts[mid - 1] + amounts[mid]) / 2),
     inState: verified.filter((r) => (r.state ?? "").toLowerCase() === (state ?? "utah").toLowerCase()).length,
     inVertical: verified.filter((r) => r.sameVertical).length,
-    recipients: verified.slice(0, 8) as AwardHistory["recipients"],
+    recipients: ordered.slice(0, 8) as AwardHistory["recipients"],
+    ...(fromAgency ? { fromAgency: true as const } : {}),
   };
 }
 
-export function historyFor(oppId: string, state?: string): AwardHistory | undefined {
-  const rows = (awards as any)[oppId] as AwardRow[] | undefined;
+/** Lazily built, module-cached index of every verified award row grouped by
+ *  the AWARD's own agency (not the viewed opportunity's agency — they're the
+ *  same concept, but keying off the row's own field means this never depends
+ *  on the two data files agreeing on agency-name spelling). Built once per
+ *  process from the same `data/awards.json` `historyFor` already reads. */
+let agencyIndex: Map<string, AwardRow[]> | null = null;
+function getAgencyIndex(): Map<string, AwardRow[]> {
+  if (agencyIndex) return agencyIndex;
+  const idx = new Map<string, AwardRow[]>();
+  for (const rows of Object.values(awards as Record<string, AwardRow[]>)) {
+    for (const r of rows) {
+      if (!r.agency) continue;
+      const list = idx.get(r.agency);
+      if (list) list.push(r);
+      else idx.set(r.agency, [r]);
+    }
+  }
+  agencyIndex = idx;
+  return idx;
+}
+
+/**
+ * Companies this agency has funded ACROSS its other programs in the corpus
+ * (a different, broader claim than "companies funded under this exact
+ * program" — `historyFor`'s direct-match path). Deduped by company (the
+ * source rows are only deduped WITHIN one opportunity at data-build time;
+ * merging several opportunities' rows can reintroduce the same company more
+ * than once), keeping the larger of any duplicate award amounts.
+ */
+/**
+ * Merging several opportunities' award pools can reintroduce the same
+ * company more than once (the source data is only deduped WITHIN one
+ * opportunity at data-build time) — keeps the larger-amount row per company.
+ *
+ * Filters to verified rows FIRST: a larger-amount unverified row must never
+ * win the per-company slot and bump out a smaller but real, sourceUrl-
+ * verified row for the same company. (`historyFromRows` filters to verified
+ * rows too, but only after a per-company reduction like this one has already
+ * picked which single row survives to reach it — filtering after, not
+ * before, would silently drop a real company instead of just its fabricated
+ * competitor.) Exported standalone so this exact ordering is hermetically
+ * testable against a fixture, independent of the real data/awards.json.
+ */
+export function dedupeByCompanyKeepingLargestVerified(rows: AwardRow[]): AwardRow[] {
+  const byCompany = new Map<string, AwardRow>();
+  for (const r of filterVerifiedRows(rows)) {
+    const prior = byCompany.get(r.company);
+    if (!prior || r.amount > prior.amount) byCompany.set(r.company, r);
+  }
+  return Array.from(byCompany.values());
+}
+
+export function historyForAgency(agency: string, state?: string): AwardHistory | undefined {
+  const rows = getAgencyIndex().get(agency);
   if (!rows || rows.length === 0) return undefined;
-  return historyFromRows(rows, state);
+  return historyFromRows(dedupeByCompanyKeepingLargestVerified(rows), state, true);
+}
+
+/**
+ * Direct per-opportunity history when this specific program has verified
+ * award data; otherwise falls back to `historyForAgency` (companies this
+ * agency has funded elsewhere) so a program with no direct match still shows
+ * something real rather than nothing, per the R5/A3-lite "if it's not
+ * grounded in a real record it doesn't render" posture — every row shown
+ * either way is still a real, sourceUrl-verified award.
+ */
+export function historyFor(oppId: string, agency: string | undefined, state?: string): AwardHistory | undefined {
+  const rows = (awards as any)[oppId] as AwardRow[] | undefined;
+  const direct = rows && rows.length > 0 ? historyFromRows(rows, state) : undefined;
+  if (direct) return direct;
+  return agency ? historyForAgency(agency, state) : undefined;
 }
 
 /** A real pipeline milestone, streamed to the client so the loading bar can
@@ -271,7 +350,7 @@ function baseMatchFromAssessment(a: Assessment, opp: Opportunity, profile: Start
     whyIneligible: a.whyIneligible,
     whatToVerify: a.whatToVerify,
     whatToDoNext: a.whatToDoNext,
-    history: historyFor(opp.id, profile.location),
+    history: historyFor(opp.id, opp.agency, profile.location),
     // ANALYZING ring (§5): `final` marks whether this score can still change.
     // Absent from most assessment producers (single-pass explainMatches, a
     // pre-excluded determination) — those are always terminal, so default true.
@@ -644,7 +723,7 @@ export async function buildOpportunityMap(
         whyIneligible: "",
         whatToVerify: "",
         whatToDoNext: "",
-        history: historyFor(opp.id, profile.location),
+        history: historyFor(opp.id, opp.agency, profile.location),
         final: true,
         unscored: true,
       };
