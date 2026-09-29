@@ -234,6 +234,103 @@ export function parseOllamaList(stdout) {
     .filter(Boolean);
 }
 
+/**
+ * Pick the automatic install command for a platform, given what's on PATH.
+ * Pure + injectable (`hasWinget`/`hasBrew` are booleans the caller detects) so
+ * it's unit-testable without spawning anything. Returns null when there's no
+ * automatic path — the caller falls back to `installGuidance`.
+ */
+export function pickAutoInstallCommand(platform, { hasWinget = false, hasBrew = false } = {}) {
+  if (platform === "win32" && hasWinget) {
+    return {
+      cmd: "winget",
+      args: [
+        "install",
+        "-e",
+        "--id",
+        "Ollama.Ollama",
+        "--silent",
+        "--accept-package-agreements",
+        "--accept-source-agreements",
+      ],
+      label: "winget install -e --id Ollama.Ollama",
+    };
+  }
+  if (platform === "darwin" && hasBrew) {
+    return { cmd: "brew", args: ["install", "ollama"], label: "brew install ollama" };
+  }
+  return null;
+}
+
+/** Windows install dir for the Ollama CLI/daemon (winget's default target). */
+export function ollamaWindowsDir(localAppData) {
+  return join(String(localAppData ?? ""), "Programs", "Ollama");
+}
+
+/**
+ * Return `env` (defaults to `process.env`-shaped object) with the Windows
+ * Ollama install dir prepended to PATH, so a just-installed `ollama` resolves
+ * in THIS process's child processes without a shell restart. No-op off
+ * win32 or without `localAppData`. Pure/injectable — never touches the real
+ * environment itself.
+ */
+export function withOllamaOnPath(env, platform, localAppData) {
+  if (platform !== "win32" || !localAppData) return env;
+  const dir = ollamaWindowsDir(localAppData);
+  const key = Object.keys(env).find((k) => k.toLowerCase() === "path") || "PATH";
+  const existing = env[key] || "";
+  if (existing.split(";").includes(dir)) return env;
+  return { ...env, [key]: existing ? `${dir};${existing}` : dir };
+}
+
+/**
+ * Poll `fetchTags` (an injectable `() => Promise<boolean ok>`) until it
+ * resolves true, or `timeoutMs` elapses. `sleepFn` is injectable so tests
+ * don't wait for real. Returns true iff the daemon answered within budget.
+ *
+ * @param {() => Promise<boolean>} fetchTags
+ * @param {{ timeoutMs?: number, intervalMs?: number, sleepFn?: (ms: number) => Promise<void> }} [opts]
+ */
+export async function waitForDaemon(fetchTags, { timeoutMs = 120000, intervalMs = 2000, sleepFn } = {}) {
+  const sleep = sleepFn || ((ms) => new Promise((r) => setTimeout(r, ms)));
+  const start = Date.now();
+  for (;;) {
+    if (await fetchTags()) return true;
+    if (Date.now() - start >= timeoutMs) return false;
+    await sleep(intervalMs);
+  }
+}
+
+/**
+ * Warm the embed model, run `data:embed`, and retry once on failure.
+ *   `warmFn()`  → Promise<boolean> — one small embeddings request (with its
+ *                 own retry) to burn off a cold-start before the real run.
+ *   `runFn()`   → Promise<{ ok: boolean, output: string }> — runs `npm run
+ *                 data:embed`, capturing output for the failure report.
+ *   `waitFn(ms)`→ Promise<void> — injectable delay between attempts.
+ * Never throws; always resolves { ok, output, attempts }.
+ *
+ * @param {{
+ *   warmFn?: () => Promise<boolean>,
+ *   runFn: () => Promise<{ ok: boolean, output: string }>,
+ *   waitFn?: (ms: number) => Promise<void>,
+ *   retryDelayMs?: number,
+ * }} opts
+ */
+export async function embedWithRetry({ warmFn, runFn, waitFn, retryDelayMs = 5000 }) {
+  const wait = waitFn || ((ms) => new Promise((r) => setTimeout(r, ms)));
+  if (warmFn) await warmFn();
+  let attempts = 0;
+  let last = { ok: false, output: "" };
+  for (let i = 0; i < 2; i++) {
+    attempts++;
+    last = await runFn();
+    if (last.ok) return { ok: true, output: last.output, attempts };
+    if (i === 0) await wait(retryDelayMs);
+  }
+  return { ok: false, output: last.output, attempts };
+}
+
 /** Platform → the human install guidance shown when Ollama is missing. */
 /**
  * Platform-specific Ollama install instructions.
@@ -325,7 +422,7 @@ async function confirm(query, dflt = true) {
 /** Run a command, capturing stdout. Returns stdout string on success, else null. */
 function run(cmd, args) {
   try {
-    const r = spawnSync(cmd, args, { encoding: "utf8", timeout: 8000 });
+    const r = spawnSync(cmd, args, { encoding: "utf8", timeout: 8000, env: childEnv() });
     if (r.status === 0 && typeof r.stdout === "string") return r.stdout;
     return null;
   } catch {
@@ -336,7 +433,7 @@ function run(cmd, args) {
 /** Run a command with inherited stdio (progress visible) → boolean success. */
 function runInherit(cmd, args) {
   try {
-    const r = spawnSync(cmd, args, { stdio: "inherit" });
+    const r = spawnSync(cmd, args, { stdio: "inherit", env: childEnv() });
     return r.status === 0;
   } catch {
     return false;
@@ -356,6 +453,95 @@ async function ollamaDaemonModels() {
   } catch {
     return null;
   }
+}
+
+/**
+ * Send one small embeddings request to warm the model, retrying once. A cold
+ * embed model can take long enough on its first request that `data:embed`'s
+ * very first call times out/fails even though the daemon is healthy.
+ */
+async function warmEmbedModel() {
+  for (let i = 0; i < 2; i++) {
+    try {
+      const ac = new AbortController();
+      const timer = setTimeout(() => ac.abort(), 30000);
+      const res = await fetch(`${OLLAMA_BASE_URL}/embeddings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: EMBED_MODEL, input: "warmup" }),
+        signal: ac.signal,
+      });
+      clearTimeout(timer);
+      if (res.ok) return true;
+    } catch {
+      /* retry below */
+    }
+    if (i === 0) await new Promise((r) => setTimeout(r, 3000));
+  }
+  return false;
+}
+
+/** Extend the live env for THIS process's child_process calls (Windows PATH fix-up). */
+function childEnv() {
+  return withOllamaOnPath(process.env, process.platform, process.env.LOCALAPPDATA);
+}
+
+/** Try to install Ollama automatically (winget on Windows, brew on macOS). */
+async function tryAutoInstall(platform) {
+  const hasWinget = platform === "win32" && Boolean(run("winget", ["--version"]));
+  const hasBrew = platform === "darwin" && Boolean(run("brew", ["--version"]));
+  const choice = pickAutoInstallCommand(platform, { hasWinget, hasBrew });
+  if (!choice) return false;
+
+  const proceed = await confirm(`Install Ollama automatically now (${choice.label})?`, true);
+  if (!proceed) return false;
+
+  console.log(c.dim(`\n  Running: ${choice.cmd} ${choice.args.join(" ")}`));
+  const ok = runInherit(choice.cmd, choice.args);
+  if (!ok) {
+    console.log(c.y("\n  Automatic install failed. Falling back to manual guidance."));
+    return false;
+  }
+  console.log(`  ${c.g("✓")} Ollama installed`);
+
+  // Start the daemon (Windows: the app; else `ollama serve` detached), then
+  // poll for it — the observed first start can take well over a minute.
+  if (platform === "win32") {
+    const exe = join(ollamaWindowsDir(process.env.LOCALAPPDATA || ""), "ollama app.exe");
+    try {
+      spawnSync("cmd", ["/c", "start", "", exe], { env: childEnv() });
+    } catch {
+      /* best-effort */
+    }
+  } else {
+    try {
+      const { spawn } = await import("node:child_process");
+      const p = spawn("ollama", ["serve"], { detached: true, stdio: "ignore", env: childEnv() });
+      p.unref();
+    } catch {
+      /* best-effort */
+    }
+  }
+
+  console.log(c.dim("  Waiting for the Ollama daemon to come up (can take over a minute on first start)…"));
+  const fetchTags = async () => {
+    try {
+      const ac = new AbortController();
+      const timer = setTimeout(() => ac.abort(), 1500);
+      const res = await fetch(OLLAMA_API_TAGS, { signal: ac.signal });
+      clearTimeout(timer);
+      return res.ok;
+    } catch {
+      return false;
+    }
+  };
+  const up = await waitForDaemon(fetchTags, { timeoutMs: 120000, intervalMs: 2000 });
+  if (up) {
+    console.log(`  ${c.g("✓")} daemon reachable at ${c.dim("localhost:11434")}`);
+  } else {
+    console.log(c.y("\n  Daemon still not reachable after waiting. Falling back to manual guidance."));
+  }
+  return up;
 }
 
 /**
@@ -471,17 +657,26 @@ async function main() {
 
   // 2) Ollama installed + daemon reachable.
   heading("Ollama");
-  const version = run("ollama", ["--version"]);
+  let version = run("ollama", ["--version"]);
+  let daemonUp = false;
   if (!version) {
     console.log(c.y("  Ollama isn't installed (or not on your PATH).\n"));
-    console.log(installGuidance(platform, macosMajor));
-    console.log(c.dim("\n  Install + start Ollama, then re-run: ") + c.g("npm run setup:local"));
-    process.exit(1);
+    const installed = await tryAutoInstall(platform);
+    version = run("ollama", ["--version"]);
+    daemonUp = installed && Boolean(version);
+    if (!version) {
+      console.log(installGuidance(platform, macosMajor));
+      console.log(c.dim("\n  Install + start Ollama, then re-run: ") + c.g("npm run setup:local"));
+      process.exit(1);
+    }
   }
   console.log(`  ${c.g("✓")} ollama installed ${c.dim(version.trim().split(/\r?\n/)[0] || "")}`);
 
-  const daemonModels = await ollamaDaemonModels();
-  if (daemonModels === null) {
+  if (!daemonUp) {
+    const daemonModels = await ollamaDaemonModels();
+    daemonUp = daemonModels !== null;
+  }
+  if (!daemonUp) {
     console.log(c.y("\n  Ollama is installed but its daemon isn't reachable at localhost:11434.\n"));
     console.log(installGuidance(platform, macosMajor));
     console.log(c.dim("\n  Start the daemon, then re-run: ") + c.g("npm run setup:local"));
@@ -621,18 +816,25 @@ async function main() {
   );
   const doEmbed = await confirm("Re-embed the corpus now?", true);
   if (doEmbed) {
-    console.log(c.dim("\n  Re-embedding locally … (reads scaffold/.env.local; nothing leaves your machine)"));
-    const ok = runInherit("npm", ["run", "data:embed"]);
-    if (ok) {
+    console.log(c.dim("\n  Warming the embedding model (avoids a cold-start failure on the first request)…"));
+    console.log(c.dim("  Re-embedding locally … (reads scaffold/.env.local; nothing leaves your machine)"));
+    const result = await embedWithRetry({
+      warmFn: warmEmbedModel,
+      runFn: async () => {
+        const r = spawnSync("npm", ["run", "data:embed"], { encoding: "utf8", env: childEnv() });
+        return { ok: r.status === 0, output: `${r.stdout || ""}${r.stderr || ""}` };
+      },
+    });
+    if (result.ok) {
       console.log(`  ${c.g("✓")} Corpus re-embedded with ${EMBED_MODEL}`);
     } else {
+      const tail = result.output.trim().split(/\r?\n/).slice(-20).join("\n");
       console.log(
-        c.y("\n  data:embed didn't finish cleanly.") +
-          c.dim(
-            `\n  Your .env.local is set correctly — just run ${"`npm run data:embed`"} again in scaffold/\n` +
-              "  once the daemon is up. Retrieval stays broken until it completes.",
-          ),
+        c.r(`\n  data:embed failed after ${result.attempts} attempt(s). Retrieval is still broken.\n`) +
+          c.dim(`\n  Last output:\n${tail}\n`),
       );
+      console.log(c.y("\n  Fix the error above, then re-run: ") + c.g("npm run data:embed") + c.dim(" in scaffold/"));
+      process.exit(1);
     }
   } else {
     console.log(

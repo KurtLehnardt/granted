@@ -18,6 +18,11 @@ import {
   installGuidance,
   parseMacosMajor,
   OLLAMA_MIN_MACOS,
+  pickAutoInstallCommand,
+  ollamaWindowsDir,
+  withOllamaOnPath,
+  waitForDaemon,
+  embedWithRetry,
 } from "../setup-local.mjs";
 
 /**
@@ -231,5 +236,160 @@ describe("installGuidance: platform-specific, no wrong-OS instructions", () => {
   test("Linux gives the curl|sh installer", () => {
     const g = installGuidance("linux");
     assert.match(g, /install\.sh \| sh/);
+  });
+});
+
+describe("pickAutoInstallCommand: platform install-command selection", () => {
+  test("Windows + winget → winget install", () => {
+    const cmd = pickAutoInstallCommand("win32", { hasWinget: true });
+    assert.equal(cmd?.cmd, "winget");
+    assert.deepEqual(cmd?.args, [
+      "install",
+      "-e",
+      "--id",
+      "Ollama.Ollama",
+      "--silent",
+      "--accept-package-agreements",
+      "--accept-source-agreements",
+    ]);
+  });
+  test("Windows without winget → null (fall back to manual guidance)", () => {
+    assert.equal(pickAutoInstallCommand("win32", { hasWinget: false }), null);
+  });
+  test("macOS + brew → brew install ollama", () => {
+    const cmd = pickAutoInstallCommand("darwin", { hasBrew: true });
+    assert.equal(cmd?.cmd, "brew");
+    assert.deepEqual(cmd?.args, ["install", "ollama"]);
+  });
+  test("macOS without brew → null", () => {
+    assert.equal(pickAutoInstallCommand("darwin", { hasBrew: false }), null);
+  });
+  test("Linux → null (no automatic path; keep existing guidance)", () => {
+    assert.equal(pickAutoInstallCommand("linux", { hasWinget: true, hasBrew: true }), null);
+  });
+});
+
+describe("ollamaWindowsDir / withOllamaOnPath", () => {
+  test("builds the winget default install dir", () => {
+    assert.equal(
+      ollamaWindowsDir("C:\\Users\\me\\AppData\\Local"),
+      "C:\\Users\\me\\AppData\\Local\\Programs\\Ollama",
+    );
+  });
+  test("prepends the install dir to PATH on win32", () => {
+    const env = { PATH: "C:\\Windows\\System32" };
+    const out = withOllamaOnPath(env, "win32", "C:\\Users\\me\\AppData\\Local");
+    assert.match(out.PATH, /^C:\\Users\\me\\AppData\\Local\\Programs\\Ollama;/);
+    assert.match(out.PATH, /System32$/);
+  });
+  test("is a no-op off win32", () => {
+    const env = { PATH: "/usr/bin" };
+    assert.equal(withOllamaOnPath(env, "darwin", "/whatever"), env);
+  });
+  test("is a no-op without localAppData", () => {
+    const env = { PATH: "C:\\Windows\\System32" };
+    assert.equal(withOllamaOnPath(env, "win32", undefined), env);
+  });
+  test("doesn't duplicate an already-present dir", () => {
+    const dir = "C:\\Users\\me\\AppData\\Local\\Programs\\Ollama";
+    const env = { PATH: `${dir};C:\\Windows\\System32` };
+    const out = withOllamaOnPath(env, "win32", "C:\\Users\\me\\AppData\\Local");
+    assert.equal(out.PATH, env.PATH);
+  });
+});
+
+describe("waitForDaemon: poll with injectable fetch + sleep", () => {
+  test("resolves true immediately when the daemon is already up", async () => {
+    const up = await waitForDaemon(async () => true, { sleepFn: async () => {} });
+    assert.equal(up, true);
+  });
+  test("polls until the daemon comes up, then resolves true", async () => {
+    let calls = 0;
+    const fetchTags = async () => {
+      calls++;
+      return calls >= 3;
+    };
+    const sleeps: number[] = [];
+    const up = await waitForDaemon(fetchTags, {
+      timeoutMs: 100000,
+      intervalMs: 2000,
+      sleepFn: async (ms: number) => {
+        sleeps.push(ms);
+      },
+    });
+    assert.equal(up, true);
+    assert.equal(calls, 3);
+    assert.deepEqual(sleeps, [2000, 2000]);
+  });
+  test("gives up and resolves false once the timeout elapses", async () => {
+    let now = 0;
+    const realNow = Date.now;
+    Date.now = () => now;
+    try {
+      const up = await waitForDaemon(async () => false, {
+        timeoutMs: 5000,
+        intervalMs: 2000,
+        sleepFn: async (ms: number) => {
+          now += ms;
+        },
+      });
+      assert.equal(up, false);
+    } finally {
+      Date.now = realNow;
+    }
+  });
+});
+
+describe("embedWithRetry: warm + run data:embed, retry once, report failure", () => {
+  test("succeeds on the first attempt after warming", async () => {
+    let warmed = false;
+    const result = await embedWithRetry({
+      warmFn: async () => {
+        warmed = true;
+        return true;
+      },
+      runFn: async () => ({ ok: true, output: "791 embedded" }),
+      waitFn: async () => {},
+    });
+    assert.equal(warmed, true);
+    assert.equal(result.ok, true);
+    assert.equal(result.attempts, 1);
+  });
+  test("retries once after a failure, then succeeds", async () => {
+    let calls = 0;
+    const waits: number[] = [];
+    const result = await embedWithRetry({
+      runFn: async () => {
+        calls++;
+        return calls === 1 ? { ok: false, output: "ECONNRESET" } : { ok: true, output: "done" };
+      },
+      waitFn: async (ms: number) => {
+        waits.push(ms);
+      },
+    });
+    assert.equal(result.ok, true);
+    assert.equal(result.attempts, 2);
+    assert.deepEqual(waits, [5000]);
+  });
+  test("fails after two attempts, reporting the last output and attempt count", async () => {
+    let calls = 0;
+    const result = await embedWithRetry({
+      runFn: async () => {
+        calls++;
+        return { ok: false, output: `attempt ${calls} failed` };
+      },
+      waitFn: async () => {},
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.attempts, 2);
+    assert.equal(calls, 2);
+    assert.match(result.output, /attempt 2 failed/);
+  });
+  test("works without a warmFn", async () => {
+    const result = await embedWithRetry({
+      runFn: async () => ({ ok: true, output: "" }),
+      waitFn: async () => {},
+    });
+    assert.equal(result.ok, true);
   });
 });
