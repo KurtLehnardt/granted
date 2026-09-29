@@ -28,8 +28,6 @@ export type FlagName =
   | "r2_verify"
   | "r3_enhance"
   | "r4_progress"
-  | "r6_auto_fill"
-  | "r6_export_autofill"
   | "r8_eligibility"
   | "r9_0_mockauth"
   | "r9_supabase_auth"
@@ -86,23 +84,6 @@ export const FLAG_REGISTRY: Record<FlagName, FlagDefinition> = {
     requirement: "R4",
     description: "Event-driven streaming progress UI, replacing the fixed fake progress bar.",
     envVar: "NEXT_PUBLIC_FLAG_R4_PROGRESS",
-  },
-  r6_auto_fill: {
-    name: "r6_auto_fill",
-    requirement: "R6",
-    description:
-      "Assisted-apply demo: sign-in → requirements → admin-review-pending walkthrough " +
-      "(preview only; never submits an application, gates nothing server-side).",
-    envVar: "NEXT_PUBLIC_FLAG_R6_AUTO_FILL",
-  },
-  r6_export_autofill: {
-    name: "r6_export_autofill",
-    requirement: "R6",
-    description:
-      "\"Export for the browser autofill extension\" button on the package screen — client-side " +
-      "serialization of the already-assembled package into a signed .granted.json download for the " +
-      "Granted browser extension (T7). No server call, no server retention (§5.3).",
-    envVar: "NEXT_PUBLIC_FLAG_R6_EXPORT_AUTOFILL",
   },
   r8_eligibility: {
     name: "r8_eligibility",

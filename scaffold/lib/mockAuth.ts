@@ -10,8 +10,6 @@
  * so porting to vanilla JS or another framework means keeping this file as-is.
  */
 
-import type { Provenanced } from '@/lib/contracts/primitives';
-
 export const STORAGE_KEYS = {
   authed: 'ff.auth.isAuthenticated',
   user: 'ff.auth.user',
@@ -19,7 +17,6 @@ export const STORAGE_KEYS = {
   demoUser: 'ff.auth.demoUser',
   consent: 'ff.consent.v1',
   runs: 'ff.runs.v1',
-  autoFill: 'ff.autofill.v1',
   // FE-07 — left-sidebar local stores. All client-only; clearAllLocalData()
   // below already wipes every value in STORAGE_KEYS, so "Delete my data"
   // covers these too without any extra wiring.
@@ -200,92 +197,6 @@ export function setConsent(granted: boolean): ConsentRecord {
   };
   safeStorage()?.setItem(STORAGE_KEYS.consent, JSON.stringify(record));
   return record;
-}
-
-/* ---- Auto-fill requirements (FE-06) ----
- * "Auto Fill" is a locked, stubbed affordance on each opportunity card: it
- * opens a Pro-upsell modal listing what the user needs on file before a
- * real auto-fill flow (blocked on grant-site API keys) could act on their
- * behalf. This form — reached via the hamburger menu's Settings panel — lets
- * them record those facts locally so the modal can show what's already done.
- * Gates nothing: there is no server side to gate.
- */
-
-export type AutoFillRequirements = {
-  samRegistered: boolean;
-  /** Optional; only meaningful when samRegistered is true. Free-form date text, '' if unset. */
-  samRegisteredDate: string;
-  uei: string;
-  aorName: string;
-  /** "Confirm on file" checkbox — satisfies the requirement even with no name typed. */
-  aorOnFile: boolean;
-  /** "Confirm on file" checkbox for E-Biz POC delegation. */
-  eBizPocOnFile: boolean;
-  /**
-   * Standing organization details — the same on EVERY grant. Entered once here
-   * and grounded into each application's SF-424 (organization legal name +
-   * address + congressional district), so they're reused across all grants
-   * instead of being re-typed per application. '' when unset (→ an honest gap).
-   */
-  organizationName: string;
-  street: string;
-  city: string;
-  state: string;
-  zip: string;
-  congressionalDistrict: string;
-};
-
-export const EMPTY_AUTO_FILL_REQUIREMENTS: AutoFillRequirements = {
-  samRegistered: false,
-  samRegisteredDate: '',
-  uei: '',
-  aorName: '',
-  aorOnFile: false,
-  eBizPocOnFile: false,
-  organizationName: '',
-  street: '',
-  city: '',
-  state: '',
-  zip: '',
-  congressionalDistrict: '',
-};
-
-export function getAutoFillRequirements(): AutoFillRequirements {
-  const raw = safeStorage()?.getItem(STORAGE_KEYS.autoFill);
-  if (!raw) return EMPTY_AUTO_FILL_REQUIREMENTS;
-  try {
-    const parsed = JSON.parse(raw);
-    // Merge over the defaults so an older/partial saved record never yields undefined fields.
-    return { ...EMPTY_AUTO_FILL_REQUIREMENTS, ...parsed };
-  } catch {
-    return EMPTY_AUTO_FILL_REQUIREMENTS;
-  }
-}
-
-export function setAutoFillRequirements(reqs: AutoFillRequirements): AutoFillRequirements {
-  safeStorage()?.setItem(STORAGE_KEYS.autoFill, JSON.stringify(reqs));
-  return reqs;
-}
-
-/**
- * §3.1 CompanyProfile carries the same two registration facts (sam_registered,
- * uei) that R8.1 eligibility screening reads. Pure, unwired mapper from the
- * local Auto Fill form to that shape, provided so ELG/Interview can adopt it
- * later without re-deriving the mapping — nothing in the app calls this today.
- * Provenance is always `user_stated` (the user's own self-report);
- * confidence 1 because a self-report carries no model uncertainty.
- */
-export function mapAutoFillToCompanyProfileFields(
-  reqs: AutoFillRequirements
-): { sam_registered?: Provenanced<boolean>; uei?: Provenanced<string> } {
-  const out: { sam_registered?: Provenanced<boolean>; uei?: Provenanced<string> } = {};
-  if (reqs.samRegistered) {
-    out.sam_registered = { value: true, provenance: 'user_stated', confidence: 1 };
-  }
-  if (reqs.uei.trim().length > 0) {
-    out.uei = { value: reqs.uei.trim(), provenance: 'user_stated', confidence: 1 };
-  }
-  return out;
 }
 
 /** Wipe everything this app stored. Wire this to a visible "Delete my data" control. */

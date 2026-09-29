@@ -284,9 +284,8 @@ function ScoredOpportunityCard({
   const showRing = isFinal === false || ringFading || enterFadingActive;
   const fading = ringFading || (enterFadingActive && enterFading);
   // The assisted-apply flow (sign-in / requirements form / package assembly)
-  // was unreliable, so it's been pulled from the UI for now (code stays in
-  // place: AutoFillFlow.tsx, AutoFillModal.tsx, ApplicationPackage.tsx). This
-  // control is now a plain, read-only "how do I apply?" reference instead —
+  // was unreliable, so it was pulled from the UI and later removed entirely.
+  // This control is a plain, read-only "how do I apply?" reference instead —
   // nothing to submit, nothing that can break.
   const [howToApplyOpen, setHowToApplyOpen] = useState(false);
   // PRO-01: locked "Analyze competing companies" stub — opens a Pro-upsell
