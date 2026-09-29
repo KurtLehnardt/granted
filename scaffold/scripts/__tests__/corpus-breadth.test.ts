@@ -41,9 +41,16 @@ const by = (pred: (o: any) => boolean) => opps.filter(pred);
 const EXPECTED_DIM: number =
   (opps.find((o: any) => Array.isArray(o.embedding) && o.embedding.length > 0) as any)?.embedding?.length ?? 0;
 
-test("the original 476 grants.gov opportunities are preserved and embedded", () => {
+test("at least the original 476 grants.gov opportunities are present and embedded", () => {
+  // Floor, not exact match (matches the "healthy count" idiom below): the
+  // original MVP ingest shipped exactly 476, but a later broader refresh
+  // (npm run data:refresh, fetching ALL open grants.gov listings nationally
+  // instead of a 14-keyword subset) legitimately grows this over time as
+  // real government supply changes. An exact-equality check would fail on
+  // every future honest refresh; this still catches a real regression
+  // (the corpus silently shrinking below its historical baseline).
   const grants = by((o) => o.source === "grants.gov");
-  assert.equal(grants.length, 476, "expected the original 476 grants.gov opps");
+  assert.ok(grants.length >= 476, `expected >= 476 grants.gov opps, got ${grants.length}`);
   assert.ok(EXPECTED_DIM > 0, "corpus must be embedded (positive dimension)");
   assert.ok(
     grants.every((o: any) => Array.isArray(o.embedding) && o.embedding.length === EXPECTED_DIM),

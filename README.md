@@ -178,7 +178,7 @@ ollama pull nomic-embed-text
 EMBEDDINGS_BASE_URL=http://localhost:11434/v1
 EMBEDDINGS_MODEL=nomic-embed-text
 # then just run (data:embed:local reads scaffold/.env.local — no inline env needed):
-npm run data:embed:local  # re-embeds the 791-opportunity corpus into the gitignored data/local/
+npm run data:embed:local  # re-embeds the 4,383-opportunity corpus into the gitignored data/local/
 ```
 Now nothing leaves your machine.
 
@@ -224,7 +224,7 @@ To stay current, `npm run data:refresh` (or Settings → "Refresh cached grants"
 ## How it works
 
 1. **Intake.** Describe your company in natural language; Claude extracts a structured profile + expands it into government vocabulary.
-2. **Retrieval.** OpenAI embeddings + in-memory cosine similarity over the 791-opportunity corpus (no vector DB); per-type quotas keep every instrument reachable.
+2. **Retrieval.** OpenAI embeddings + in-memory cosine similarity over the 4,383-opportunity corpus (no vector DB); per-type quotas keep every instrument reachable.
 3. **Scoring.** Claude scores each candidate 0–100 on the criteria a program officer would apply, with a met/unmet checklist and plain-language explanations.
 4. **Eligibility screen.** A rules layer buckets eligibility from *stated* facts; it never turns a model guess into an exclusion.
 5. **Discernment** *(flag)*. Recommend / verify / **don't-recommend** per match, plus a whole-map verdict, so a weak idea gets an honest "don't apply" instead of a wall of maybes.
