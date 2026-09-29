@@ -634,7 +634,7 @@
                 "year": 2017,
                 "state": "Washington",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=Mental%20Health%20Data%20Services%2C%20Inc."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=Mental%20Health%20Data%20Services%2C%20Inc."
               },
               {
                 "company": "BELLETORUS CORPORATION",
@@ -644,7 +644,7 @@
                 "year": 2023,
                 "state": "Massachusetts",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=BELLETORUS%20CORPORATION"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=BELLETORUS%20CORPORATION"
               },
               {
                 "company": "ELDER RESEARCH, INC.",
@@ -654,7 +654,7 @@
                 "year": 2019,
                 "state": "Virginia",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=ELDER%20RESEARCH%2C%20INC."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=ELDER%20RESEARCH%2C%20INC."
               },
               {
                 "company": "Lifeboard Medical",
@@ -664,7 +664,7 @@
                 "year": 2022,
                 "state": "Colorado",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=Lifeboard%20Medical"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=Lifeboard%20Medical"
               },
               {
                 "company": "HEALCISIO INC",
@@ -674,7 +674,7 @@
                 "year": 2024,
                 "state": "California",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=HEALCISIO%20INC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=HEALCISIO%20INC"
               },
               {
                 "company": "Ideal Medical Technologies Inc.",
@@ -684,7 +684,7 @@
                 "year": 2022,
                 "state": "North Carolina",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=Ideal%20Medical%20Technologies%20Inc."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=Ideal%20Medical%20Technologies%20Inc."
               },
               {
                 "company": "INTRALYTIX INC",
@@ -694,7 +694,7 @@
                 "year": 2022,
                 "state": "Maryland",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=INTRALYTIX%20INC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=INTRALYTIX%20INC"
               },
               {
                 "company": "COMPUTCHEM, LLC",
@@ -704,7 +704,7 @@
                 "year": 2021,
                 "state": "Maryland",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=COMPUTCHEM%2C%20LLC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=COMPUTCHEM%2C%20LLC"
               }
             ]
           },
@@ -1314,7 +1314,7 @@
                 "year": 2017,
                 "state": "Washington",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=Mental%20Health%20Data%20Services%2C%20Inc."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=Mental%20Health%20Data%20Services%2C%20Inc."
               },
               {
                 "company": "Lifeboard Medical",
@@ -1324,7 +1324,7 @@
                 "year": 2022,
                 "state": "Colorado",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=Lifeboard%20Medical"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=Lifeboard%20Medical"
               },
               {
                 "company": "BRIGHTOUTCOME INC",
@@ -1334,7 +1334,7 @@
                 "year": 2009,
                 "state": "Illinois",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=BRIGHTOUTCOME%20INC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=BRIGHTOUTCOME%20INC"
               },
               {
                 "company": "DYNAMIC CLINICAL SYSTEMS, INC.",
@@ -1344,7 +1344,7 @@
                 "year": 2009,
                 "state": "New Hampshire",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=DYNAMIC%20CLINICAL%20SYSTEMS%2C%20INC."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=DYNAMIC%20CLINICAL%20SYSTEMS%2C%20INC."
               },
               {
                 "company": "ONCOBIOMIX INC.",
@@ -1354,7 +1354,7 @@
                 "year": 2024,
                 "state": "Texas",
                 "sameVertical": false,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=ONCOBIOMIX%20INC."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=ONCOBIOMIX%20INC."
               },
               {
                 "company": "AEMS CORP",
@@ -1364,7 +1364,7 @@
                 "year": 2022,
                 "state": "California",
                 "sameVertical": false,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=AEMS%20CORP"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=AEMS%20CORP"
               },
               {
                 "company": "LaCell LLC",
@@ -1374,7 +1374,7 @@
                 "year": 2019,
                 "state": "Louisiana",
                 "sameVertical": false,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=LaCell%20LLC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=LaCell%20LLC"
               },
               {
                 "company": "SOTERIX MEDICAL, INC.",
@@ -1384,7 +1384,7 @@
                 "year": 2020,
                 "state": "New Jersey",
                 "sameVertical": false,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=SOTERIX%20MEDICAL%2C%20INC."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=SOTERIX%20MEDICAL%2C%20INC."
               }
             ]
           },
@@ -2580,7 +2580,7 @@
                 "year": 2017,
                 "state": "Washington",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=Mental%20Health%20Data%20Services%2C%20Inc."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=Mental%20Health%20Data%20Services%2C%20Inc."
               },
               {
                 "company": "Lifeboard Medical",
@@ -2590,7 +2590,7 @@
                 "year": 2022,
                 "state": "Colorado",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=Lifeboard%20Medical"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=Lifeboard%20Medical"
               },
               {
                 "company": "BRIGHTOUTCOME INC",
@@ -2600,7 +2600,7 @@
                 "year": 2009,
                 "state": "Illinois",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=BRIGHTOUTCOME%20INC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=BRIGHTOUTCOME%20INC"
               },
               {
                 "company": "DYNAMIC CLINICAL SYSTEMS, INC.",
@@ -2610,7 +2610,7 @@
                 "year": 2009,
                 "state": "New Hampshire",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=DYNAMIC%20CLINICAL%20SYSTEMS%2C%20INC."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=DYNAMIC%20CLINICAL%20SYSTEMS%2C%20INC."
               },
               {
                 "company": "AEMS CORP",
@@ -2620,7 +2620,7 @@
                 "year": 2022,
                 "state": "California",
                 "sameVertical": false,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=AEMS%20CORP"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=AEMS%20CORP"
               },
               {
                 "company": "LaCell LLC",
@@ -2630,7 +2630,7 @@
                 "year": 2019,
                 "state": "Louisiana",
                 "sameVertical": false,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=LaCell%20LLC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=LaCell%20LLC"
               },
               {
                 "company": "Dms Systems Inc",
@@ -2640,7 +2640,7 @@
                 "year": 1985,
                 "state": "Utah",
                 "sameVertical": false,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=Dms%20Systems%20Inc"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=Dms%20Systems%20Inc"
               },
               {
                 "company": "Carterra, Inc.",
@@ -2650,7 +2650,7 @@
                 "year": 2016,
                 "state": "Utah",
                 "sameVertical": false,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=Carterra%2C%20Inc."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=Carterra%2C%20Inc."
               }
             ]
           },
@@ -3853,7 +3853,7 @@
                 "year": 2023,
                 "state": "Oregon",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=SILOAM%20VISION%2C%20INC."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=SILOAM%20VISION%2C%20INC."
               },
               {
                 "company": "INTRALYTIX INC",
@@ -3863,7 +3863,7 @@
                 "year": 2022,
                 "state": "Maryland",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=INTRALYTIX%20INC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=INTRALYTIX%20INC"
               },
               {
                 "company": "Healthtech Solutions, Inc.",
@@ -3873,7 +3873,7 @@
                 "year": 2019,
                 "state": "Iowa",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=Healthtech%20Solutions%2C%20Inc."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=Healthtech%20Solutions%2C%20Inc."
               },
               {
                 "company": "HEALCISIO INC",
@@ -3883,7 +3883,7 @@
                 "year": 2024,
                 "state": "California",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=HEALCISIO%20INC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=HEALCISIO%20INC"
               },
               {
                 "company": "Ideal Medical Technologies Inc.",
@@ -3893,7 +3893,7 @@
                 "year": 2022,
                 "state": "North Carolina",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=Ideal%20Medical%20Technologies%20Inc."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=Ideal%20Medical%20Technologies%20Inc."
               },
               {
                 "company": "COMPUTER TECHNOLOGY ASSOCIATES, INC.",
@@ -3903,7 +3903,7 @@
                 "year": 2022,
                 "state": "California",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=COMPUTER%20TECHNOLOGY%20ASSOCIATES%2C%20INC."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=COMPUTER%20TECHNOLOGY%20ASSOCIATES%2C%20INC."
               },
               {
                 "company": "CARINA MEDICAL LLC",
@@ -3913,7 +3913,7 @@
                 "year": 2023,
                 "state": "Virginia",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=CARINA%20MEDICAL%20LLC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=CARINA%20MEDICAL%20LLC"
               },
               {
                 "company": "Biocogniv Inc.",
@@ -3923,7 +3923,7 @@
                 "year": 2020,
                 "state": "Vermont",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=Biocogniv%20Inc."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=Biocogniv%20Inc."
               }
             ]
           },
@@ -4529,7 +4529,7 @@
                 "year": 2023,
                 "state": "Oregon",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=SILOAM%20VISION%2C%20INC."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=SILOAM%20VISION%2C%20INC."
               },
               {
                 "company": "Healthtech Solutions, Inc.",
@@ -4539,7 +4539,7 @@
                 "year": 2019,
                 "state": "Iowa",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=Healthtech%20Solutions%2C%20Inc."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=Healthtech%20Solutions%2C%20Inc."
               },
               {
                 "company": "HEALCISIO INC",
@@ -4549,7 +4549,7 @@
                 "year": 2024,
                 "state": "California",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=HEALCISIO%20INC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=HEALCISIO%20INC"
               },
               {
                 "company": "Ideal Medical Technologies Inc.",
@@ -4559,7 +4559,7 @@
                 "year": 2022,
                 "state": "North Carolina",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=Ideal%20Medical%20Technologies%20Inc."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=Ideal%20Medical%20Technologies%20Inc."
               },
               {
                 "company": "INTRALYTIX INC",
@@ -4569,7 +4569,7 @@
                 "year": 2022,
                 "state": "Maryland",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=INTRALYTIX%20INC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=INTRALYTIX%20INC"
               },
               {
                 "company": "CARINA MEDICAL LLC",
@@ -4579,7 +4579,7 @@
                 "year": 2023,
                 "state": "Virginia",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=CARINA%20MEDICAL%20LLC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=CARINA%20MEDICAL%20LLC"
               },
               {
                 "company": "Biocogniv Inc.",
@@ -4589,7 +4589,7 @@
                 "year": 2020,
                 "state": "Vermont",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=Biocogniv%20Inc."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=Biocogniv%20Inc."
               },
               {
                 "company": "BELLETORUS CORPORATION",
@@ -4599,7 +4599,7 @@
                 "year": 2023,
                 "state": "Massachusetts",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=BELLETORUS%20CORPORATION"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=BELLETORUS%20CORPORATION"
               }
             ]
           },
@@ -5207,7 +5207,7 @@
                 "year": 2023,
                 "state": "Oregon",
                 "sameVertical": false,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=REWIRE%20NEUROSCIENCE%20LLC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=REWIRE%20NEUROSCIENCE%20LLC"
               },
               {
                 "company": "JSK THERAPEUTICS INC.",
@@ -5217,7 +5217,7 @@
                 "year": 2017,
                 "state": "Utah",
                 "sameVertical": false,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=JSK%20THERAPEUTICS%20INC."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=JSK%20THERAPEUTICS%20INC."
               },
               {
                 "company": "AEMS CORP",
@@ -5227,7 +5227,7 @@
                 "year": 2022,
                 "state": "California",
                 "sameVertical": false,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=AEMS%20CORP"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=AEMS%20CORP"
               },
               {
                 "company": "Lifeboard Medical",
@@ -5237,7 +5237,7 @@
                 "year": 2022,
                 "state": "Colorado",
                 "sameVertical": false,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=Lifeboard%20Medical"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=Lifeboard%20Medical"
               },
               {
                 "company": "SAFELYYOU INC.",
@@ -5247,7 +5247,7 @@
                 "year": 2019,
                 "state": "California",
                 "sameVertical": false,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=SAFELYYOU%20INC."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=SAFELYYOU%20INC."
               },
               {
                 "company": "Elate Medical, Inc.",
@@ -5257,7 +5257,7 @@
                 "year": 2022,
                 "state": "New York",
                 "sameVertical": false,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=Elate%20Medical%2C%20Inc."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=Elate%20Medical%2C%20Inc."
               },
               {
                 "company": "MRIMATH LLC",
@@ -5267,7 +5267,7 @@
                 "year": 2020,
                 "state": "Alabama",
                 "sameVertical": false,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=MRIMATH%20LLC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=MRIMATH%20LLC"
               },
               {
                 "company": "ONCOBIOMIX INC.",
@@ -5277,7 +5277,7 @@
                 "year": 2024,
                 "state": "Texas",
                 "sameVertical": false,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=ONCOBIOMIX%20INC."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=ONCOBIOMIX%20INC."
               }
             ]
           },
@@ -5877,7 +5877,7 @@
                 "year": 2023,
                 "state": "Oregon",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=SILOAM%20VISION%2C%20INC."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=SILOAM%20VISION%2C%20INC."
               },
               {
                 "company": "Healthtech Solutions, Inc.",
@@ -5887,7 +5887,7 @@
                 "year": 2019,
                 "state": "Iowa",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=Healthtech%20Solutions%2C%20Inc."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=Healthtech%20Solutions%2C%20Inc."
               },
               {
                 "company": "INTRALYTIX INC",
@@ -5897,7 +5897,7 @@
                 "year": 2022,
                 "state": "Maryland",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=INTRALYTIX%20INC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=INTRALYTIX%20INC"
               },
               {
                 "company": "SAFELYYOU INC.",
@@ -5907,7 +5907,7 @@
                 "year": 2019,
                 "state": "California",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=SAFELYYOU%20INC."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=SAFELYYOU%20INC."
               },
               {
                 "company": "CARINA MEDICAL LLC",
@@ -5917,7 +5917,7 @@
                 "year": 2023,
                 "state": "Virginia",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=CARINA%20MEDICAL%20LLC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=CARINA%20MEDICAL%20LLC"
               },
               {
                 "company": "JiLLiON Therapeutics Inc.",
@@ -5927,7 +5927,7 @@
                 "year": 2025,
                 "state": "New York",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=JiLLiON%20Therapeutics%20Inc."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=JiLLiON%20Therapeutics%20Inc."
               },
               {
                 "company": "GRADIENT HEALTH, INC.",
@@ -5937,7 +5937,7 @@
                 "year": 2023,
                 "state": "North Carolina",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=GRADIENT%20HEALTH%2C%20INC."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=GRADIENT%20HEALTH%2C%20INC."
               },
               {
                 "company": "BELLETORUS CORPORATION",
@@ -5947,7 +5947,7 @@
                 "year": 2023,
                 "state": "Massachusetts",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=BELLETORUS%20CORPORATION"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=BELLETORUS%20CORPORATION"
               }
             ]
           },
@@ -6554,7 +6554,7 @@
                 "year": 2017,
                 "state": "Washington",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=Mental%20Health%20Data%20Services%2C%20Inc."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=Mental%20Health%20Data%20Services%2C%20Inc."
               },
               {
                 "company": "Lifeboard Medical",
@@ -6564,7 +6564,7 @@
                 "year": 2022,
                 "state": "Colorado",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=Lifeboard%20Medical"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=Lifeboard%20Medical"
               },
               {
                 "company": "HEALCISIO INC",
@@ -6574,7 +6574,7 @@
                 "year": 2024,
                 "state": "California",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=HEALCISIO%20INC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=HEALCISIO%20INC"
               },
               {
                 "company": "COMPUTER TECHNOLOGY ASSOCIATES, INC.",
@@ -6584,7 +6584,7 @@
                 "year": 2022,
                 "state": "California",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=COMPUTER%20TECHNOLOGY%20ASSOCIATES%2C%20INC."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=COMPUTER%20TECHNOLOGY%20ASSOCIATES%2C%20INC."
               },
               {
                 "company": "ELDER RESEARCH, INC.",
@@ -6594,7 +6594,7 @@
                 "year": 2019,
                 "state": "Virginia",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=ELDER%20RESEARCH%2C%20INC."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=ELDER%20RESEARCH%2C%20INC."
               },
               {
                 "company": "BRIGHTOUTCOME INC",
@@ -6604,7 +6604,7 @@
                 "year": 2009,
                 "state": "Illinois",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=BRIGHTOUTCOME%20INC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=BRIGHTOUTCOME%20INC"
               },
               {
                 "company": "DYNAMIC CLINICAL SYSTEMS, INC.",
@@ -6614,7 +6614,7 @@
                 "year": 2009,
                 "state": "New Hampshire",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=DYNAMIC%20CLINICAL%20SYSTEMS%2C%20INC."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=DYNAMIC%20CLINICAL%20SYSTEMS%2C%20INC."
               },
               {
                 "company": "SILOAM VISION, INC.",
@@ -6624,7 +6624,7 @@
                 "year": 2023,
                 "state": "Oregon",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=SILOAM%20VISION%2C%20INC."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=SILOAM%20VISION%2C%20INC."
               }
             ]
           },
@@ -8403,7 +8403,7 @@
                 "year": 2023,
                 "state": "Oregon",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=REWIRE%20NEUROSCIENCE%20LLC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=REWIRE%20NEUROSCIENCE%20LLC"
               },
               {
                 "company": "BELLETORUS CORPORATION",
@@ -8413,7 +8413,7 @@
                 "year": 2023,
                 "state": "Massachusetts",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=BELLETORUS%20CORPORATION"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=BELLETORUS%20CORPORATION"
               },
               {
                 "company": "MAPHABIT INC",
@@ -8423,7 +8423,7 @@
                 "year": 2021,
                 "state": "Georgia",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=MAPHABIT%20INC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=MAPHABIT%20INC"
               },
               {
                 "company": "OPTIMA INTEGRATED HEALTH, INC.",
@@ -8433,7 +8433,7 @@
                 "year": 2017,
                 "state": "California",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=OPTIMA%20INTEGRATED%20HEALTH%2C%20INC."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=OPTIMA%20INTEGRATED%20HEALTH%2C%20INC."
               },
               {
                 "company": "INTRALYTIX INC",
@@ -8443,7 +8443,7 @@
                 "year": 2022,
                 "state": "Maryland",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=INTRALYTIX%20INC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=INTRALYTIX%20INC"
               },
               {
                 "company": "HEALCISIO INC",
@@ -8453,7 +8453,7 @@
                 "year": 2024,
                 "state": "California",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=HEALCISIO%20INC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=HEALCISIO%20INC"
               },
               {
                 "company": "SAFELYYOU INC.",
@@ -8463,7 +8463,7 @@
                 "year": 2019,
                 "state": "California",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=SAFELYYOU%20INC."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=SAFELYYOU%20INC."
               },
               {
                 "company": "INFORMAI, INC.",
@@ -8473,7 +8473,7 @@
                 "year": 2025,
                 "state": "Texas",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=INFORMAI%2C%20INC."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=INFORMAI%2C%20INC."
               }
             ]
           },
@@ -9074,7 +9074,7 @@
                 "year": 2023,
                 "state": "Georgia",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=SHAMRCK%20SOCIAL%20IMPACT%20CORP"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=SHAMRCK%20SOCIAL%20IMPACT%20CORP"
               },
               {
                 "company": "SOSTOS LLC",
@@ -9084,7 +9084,7 @@
                 "year": 2025,
                 "state": "West Virginia",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=SOSTOS%20LLC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=SOSTOS%20LLC"
               },
               {
                 "company": "SURGIC, LLC",
@@ -9094,7 +9094,7 @@
                 "year": 2023,
                 "state": "Texas",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=SURGIC%2C%20LLC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=SURGIC%2C%20LLC"
               },
               {
                 "company": "BRIO DATA GROUP, LLC",
@@ -9104,7 +9104,7 @@
                 "year": 2022,
                 "state": "Oklahoma",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=BRIO%20DATA%20GROUP%2C%20LLC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=BRIO%20DATA%20GROUP%2C%20LLC"
               },
               {
                 "company": "ASPIRING UNIVERSE CORPORATION",
@@ -9114,7 +9114,7 @@
                 "year": 2021,
                 "state": "Illinois",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=ASPIRING%20UNIVERSE%20CORPORATION"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=ASPIRING%20UNIVERSE%20CORPORATION"
               },
               {
                 "company": "MBIENTLAB INC.",
@@ -9124,7 +9124,7 @@
                 "year": 2016,
                 "state": "California",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=MBIENTLAB%20INC."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=MBIENTLAB%20INC."
               },
               {
                 "company": "Red Oak Strategic, LLC",
@@ -9134,7 +9134,7 @@
                 "year": 2023,
                 "state": "Virginia",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=Red%20Oak%20Strategic%2C%20LLC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=Red%20Oak%20Strategic%2C%20LLC"
               },
               {
                 "company": "PROTABIT, LLC",
@@ -9144,7 +9144,7 @@
                 "year": 2022,
                 "state": "California",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=PROTABIT%2C%20LLC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=PROTABIT%2C%20LLC"
               }
             ]
           },
@@ -13361,7 +13361,7 @@
                 "year": 1997,
                 "state": "Arizona",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=ATS-MER%2C%20LLC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=ATS-MER%2C%20LLC"
               },
               {
                 "company": "MYRIAS OPTICS INC",
@@ -13371,7 +13371,7 @@
                 "year": 2025,
                 "state": "Massachusetts",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=MYRIAS%20OPTICS%20INC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=MYRIAS%20OPTICS%20INC"
               },
               {
                 "company": "SUNTHETICS, INC.",
@@ -13381,7 +13381,7 @@
                 "year": 2023,
                 "state": "New York",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=SUNTHETICS%2C%20INC."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=SUNTHETICS%2C%20INC."
               },
               {
                 "company": "LAMBDA FUNCTION, INC",
@@ -13391,7 +13391,7 @@
                 "year": 2023,
                 "state": "California",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=LAMBDA%20FUNCTION%2C%20INC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=LAMBDA%20FUNCTION%2C%20INC"
               },
               {
                 "company": "SunDensity Inc",
@@ -13401,7 +13401,7 @@
                 "year": 2021,
                 "state": "Massachusetts",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=SunDensity%20Inc"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=SunDensity%20Inc"
               },
               {
                 "company": "Berd L. L. C.",
@@ -13411,7 +13411,7 @@
                 "year": 2020,
                 "state": "Minnesota",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=Berd%20L.%20L.%20C."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=Berd%20L.%20L.%20C."
               },
               {
                 "company": "ADVANCED CARPET RECYCLING LLC",
@@ -13421,7 +13421,7 @@
                 "year": 2024,
                 "state": "Texas",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=ADVANCED%20CARPET%20RECYCLING%20LLC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=ADVANCED%20CARPET%20RECYCLING%20LLC"
               },
               {
                 "company": "TOP GRAIN TECHNOLOGIES, INC.",
@@ -13431,7 +13431,7 @@
                 "year": 2024,
                 "state": "Texas",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=TOP%20GRAIN%20TECHNOLOGIES%2C%20INC."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=TOP%20GRAIN%20TECHNOLOGIES%2C%20INC."
               }
             ]
           },
@@ -14037,7 +14037,7 @@
                 "year": 2018,
                 "state": "Alabama",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=Integration%20Innovation%2C%20Inc."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=Integration%20Innovation%2C%20Inc."
               },
               {
                 "company": "TEXAS RESEARCH INSTITUTE , AUSTIN, INC.",
@@ -14047,7 +14047,7 @@
                 "year": 2015,
                 "state": "Texas",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=TEXAS%20RESEARCH%20INSTITUTE%20%2C%20AUSTIN%2C%20INC."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=TEXAS%20RESEARCH%20INSTITUTE%20%2C%20AUSTIN%2C%20INC."
               },
               {
                 "company": "METIS DESIGN CORPORATION",
@@ -14057,7 +14057,7 @@
                 "year": 2009,
                 "state": "Massachusetts",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=METIS%20DESIGN%20CORPORATION"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=METIS%20DESIGN%20CORPORATION"
               },
               {
                 "company": "CREARE LLC",
@@ -14067,7 +14067,7 @@
                 "year": 2007,
                 "state": "New Hampshire",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=CREARE%20LLC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=CREARE%20LLC"
               },
               {
                 "company": "5ME, LLC",
@@ -14077,7 +14077,7 @@
                 "year": 2018,
                 "state": "Ohio",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=5ME%2C%20LLC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=5ME%2C%20LLC"
               },
               {
                 "company": "Systems & Materials Research Corporation",
@@ -14087,7 +14087,7 @@
                 "year": 2014,
                 "state": "Texas",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=Systems%20%26%20Materials%20Research%20Corporation"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=Systems%20%26%20Materials%20Research%20Corporation"
               },
               {
                 "company": "Synectic Research And Analysis, Inc.",
@@ -14097,7 +14097,7 @@
                 "year": 2017,
                 "state": "Alabama",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=Synectic%20Research%20And%20Analysis%2C%20Inc."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=Synectic%20Research%20And%20Analysis%2C%20Inc."
               },
               {
                 "company": "SAFE Inc.",
@@ -14107,7 +14107,7 @@
                 "year": 2014,
                 "state": "Colorado",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=SAFE%20Inc."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=SAFE%20Inc."
               }
             ]
           },
@@ -16466,7 +16466,7 @@
                 "year": 2019,
                 "state": "Maryland",
                 "sameVertical": false,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=Intelligent%20Automation%2C%20Inc."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=Intelligent%20Automation%2C%20Inc."
               },
               {
                 "company": "INTERPHASE MATERIALS, INC",
@@ -16476,7 +16476,7 @@
                 "year": 2022,
                 "state": "Pennsylvania",
                 "sameVertical": false,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=INTERPHASE%20MATERIALS%2C%20INC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=INTERPHASE%20MATERIALS%2C%20INC"
               },
               {
                 "company": "Daedalus Research Inc.",
@@ -16486,7 +16486,7 @@
                 "year": 1985,
                 "state": "Utah",
                 "sameVertical": false,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=Daedalus%20Research%20Inc."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=Daedalus%20Research%20Inc."
               },
               {
                 "company": "WAVETRONIX LLC",
@@ -16496,7 +16496,7 @@
                 "year": 2009,
                 "state": "Utah",
                 "sameVertical": false,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=WAVETRONIX%20LLC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=WAVETRONIX%20LLC"
               },
               {
                 "company": "Collison Safety Engineer Inc",
@@ -16506,7 +16506,7 @@
                 "year": 1986,
                 "state": "Utah",
                 "sameVertical": false,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=Collison%20Safety%20Engineer%20Inc"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=Collison%20Safety%20Engineer%20Inc"
               },
               {
                 "company": "WI-TRONIX, LLC",
@@ -16516,7 +16516,7 @@
                 "year": 2021,
                 "state": "Illinois",
                 "sameVertical": false,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=WI-TRONIX%2C%20LLC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=WI-TRONIX%2C%20LLC"
               },
               {
                 "company": "PROTECTION ENGINEERING CONSULTANTS LLC",
@@ -16526,7 +16526,7 @@
                 "year": 2025,
                 "state": "Texas",
                 "sameVertical": false,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=PROTECTION%20ENGINEERING%20CONSULTANTS%20LLC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=PROTECTION%20ENGINEERING%20CONSULTANTS%20LLC"
               },
               {
                 "company": "PRETECKT INC",
@@ -16536,7 +16536,7 @@
                 "year": 2021,
                 "state": "Tennessee",
                 "sameVertical": false,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=PRETECKT%20INC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=PRETECKT%20INC"
               }
             ]
           },
@@ -17141,7 +17141,7 @@
                 "year": 2024,
                 "state": "California",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=CRAITOR%2C%20INC."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=CRAITOR%2C%20INC."
               },
               {
                 "company": "REM Chemicals, Inc. d/b/a/ REM Surface Engineering",
@@ -17151,7 +17151,7 @@
                 "year": 2025,
                 "state": "Connecticut",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=REM%20Chemicals%2C%20Inc.%20d%2Fb%2Fa%2F%20REM%20Surface%20Engineering"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=REM%20Chemicals%2C%20Inc.%20d%2Fb%2Fa%2F%20REM%20Surface%20Engineering"
               },
               {
                 "company": "Synterials, Inc",
@@ -17161,7 +17161,7 @@
                 "year": 2007,
                 "state": "Virginia",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=Synterials%2C%20Inc"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=Synterials%2C%20Inc"
               },
               {
                 "company": "CREARE LLC",
@@ -17171,7 +17171,7 @@
                 "year": 2013,
                 "state": "New Hampshire",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=CREARE%20LLC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=CREARE%20LLC"
               },
               {
                 "company": "Sciperio, Inc.",
@@ -17181,7 +17181,7 @@
                 "year": 2022,
                 "state": "Florida",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=Sciperio%2C%20Inc."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=Sciperio%2C%20Inc."
               },
               {
                 "company": "CSA Engineering, Inc.",
@@ -17191,7 +17191,7 @@
                 "year": 2004,
                 "state": "California",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=CSA%20Engineering%2C%20Inc."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=CSA%20Engineering%2C%20Inc."
               },
               {
                 "company": "Foundation Alloy Technology Explorations, Inc",
@@ -17201,7 +17201,7 @@
                 "year": 2023,
                 "state": "Massachusetts",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=Foundation%20Alloy%20Technology%20Explorations%2C%20Inc"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=Foundation%20Alloy%20Technology%20Explorations%2C%20Inc"
               },
               {
                 "company": "Photonics Systems, Inc.",
@@ -17211,7 +17211,7 @@
                 "year": 1990,
                 "state": "Ohio",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=Photonics%20Systems%2C%20Inc."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=Photonics%20Systems%2C%20Inc."
               }
             ]
           },
@@ -22587,7 +22587,7 @@
                 "year": 2003,
                 "state": "Michigan",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=Technova%20Corporation"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=Technova%20Corporation"
               },
               {
                 "company": "NEI CORPORATION",
@@ -22597,7 +22597,7 @@
                 "year": 2010,
                 "state": "New Jersey",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=NEI%20CORPORATION"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=NEI%20CORPORATION"
               },
               {
                 "company": "Technology Holding, LLC",
@@ -22607,7 +22607,7 @@
                 "year": 2002,
                 "state": "Utah",
                 "sameVertical": false,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=Technology%20Holding%2C%20LLC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=Technology%20Holding%2C%20LLC"
               },
               {
                 "company": "IBC ADVANCED TECHNOLOGIES, INC",
@@ -22617,7 +22617,7 @@
                 "year": 1989,
                 "state": "Utah",
                 "sameVertical": false,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=IBC%20ADVANCED%20TECHNOLOGIES%2C%20INC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=IBC%20ADVANCED%20TECHNOLOGIES%2C%20INC"
               },
               {
                 "company": "REACTION ENGINEERING INTERNATIONAL",
@@ -22627,7 +22627,7 @@
                 "year": 1992,
                 "state": "Utah",
                 "sameVertical": false,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=REACTION%20ENGINEERING%20INTERNATIONAL"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=REACTION%20ENGINEERING%20INTERNATIONAL"
               },
               {
                 "company": "Espira, Inc.",
@@ -22637,7 +22637,7 @@
                 "year": 2020,
                 "state": "Utah",
                 "sameVertical": false,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=Espira%2C%20Inc."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=Espira%2C%20Inc."
               },
               {
                 "company": "NOVATEK",
@@ -22647,7 +22647,7 @@
                 "year": 1990,
                 "state": "Utah",
                 "sameVertical": false,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=NOVATEK"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=NOVATEK"
               },
               {
                 "company": "Albion Instruments",
@@ -22657,7 +22657,7 @@
                 "year": 1989,
                 "state": "Utah",
                 "sameVertical": false,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=Albion%20Instruments"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=Albion%20Instruments"
               }
             ]
           },
@@ -32747,7 +32747,7 @@
                 "year": 2022,
                 "state": "Colorado",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=STILMAN%20ADVANCED%20STRATEGIES%2C%20LLC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=STILMAN%20ADVANCED%20STRATEGIES%2C%20LLC"
               },
               {
                 "company": "STATHEROS LLC",
@@ -32757,7 +32757,7 @@
                 "year": 2023,
                 "state": "Tennessee",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=STATHEROS%20LLC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=STATHEROS%20LLC"
               },
               {
                 "company": "METRON INCORPORATED",
@@ -32767,7 +32767,7 @@
                 "year": 2022,
                 "state": "Virginia",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=METRON%20INCORPORATED"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=METRON%20INCORPORATED"
               },
               {
                 "company": "TOYON RESEARCH CORPORATION",
@@ -32777,7 +32777,7 @@
                 "year": 2019,
                 "state": "California",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=TOYON%20RESEARCH%20CORPORATION"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=TOYON%20RESEARCH%20CORPORATION"
               },
               {
                 "company": "XTENSOR SYSTEMS INC",
@@ -32787,7 +32787,7 @@
                 "year": 2022,
                 "state": "California",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=XTENSOR%20SYSTEMS%20INC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=XTENSOR%20SYSTEMS%20INC"
               },
               {
                 "company": "HEAVY.AI PUBLIC SECTOR LLC",
@@ -32797,7 +32797,7 @@
                 "year": 2025,
                 "state": "Virginia",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=HEAVY.AI%20PUBLIC%20SECTOR%20LLC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=HEAVY.AI%20PUBLIC%20SECTOR%20LLC"
               },
               {
                 "company": "Continental Systems Technology",
@@ -32807,7 +32807,7 @@
                 "year": 1991,
                 "state": "Georgia",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=Continental%20Systems%20Technology"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=Continental%20Systems%20Technology"
               },
               {
                 "company": "Third Coast Federal, Inc.",
@@ -32817,7 +32817,7 @@
                 "year": 2021,
                 "state": "Indiana",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=Third%20Coast%20Federal%2C%20Inc."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=Third%20Coast%20Federal%2C%20Inc."
               }
             ]
           },
@@ -34013,7 +34013,7 @@
                 "year": 2023,
                 "state": "Georgia",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=SHAMRCK%20SOCIAL%20IMPACT%20CORP"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=SHAMRCK%20SOCIAL%20IMPACT%20CORP"
               },
               {
                 "company": "MAIJKER CORP.",
@@ -34023,7 +34023,7 @@
                 "year": 2024,
                 "state": "Indiana",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=MAIJKER%20CORP."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=MAIJKER%20CORP."
               },
               {
                 "company": "PROTABIT, LLC",
@@ -34033,7 +34033,7 @@
                 "year": 2022,
                 "state": "California",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=PROTABIT%2C%20LLC"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=PROTABIT%2C%20LLC"
               },
               {
                 "company": "EMTRUTH, INC.",
@@ -34043,7 +34043,7 @@
                 "year": 2023,
                 "state": "California",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=EMTRUTH%2C%20INC."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=EMTRUTH%2C%20INC."
               },
               {
                 "company": "Quantum Simulations, Inc.",
@@ -34053,7 +34053,7 @@
                 "year": 2008,
                 "state": "Pennsylvania",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=Quantum%20Simulations%2C%20Inc."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=Quantum%20Simulations%2C%20Inc."
               },
               {
                 "company": "LEXEL SYNERGETICS, INC.",
@@ -34063,7 +34063,7 @@
                 "year": 2025,
                 "state": "Oregon",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=LEXEL%20SYNERGETICS%2C%20INC."
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=LEXEL%20SYNERGETICS%2C%20INC."
               },
               {
                 "company": "Yeboah, Amy",
@@ -34073,7 +34073,7 @@
                 "year": 2025,
                 "state": "Maryland",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=Yeboah%2C%20Amy"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=Yeboah%2C%20Amy"
               },
               {
                 "company": "Amie Health Inc",
@@ -34083,7 +34083,7 @@
                 "year": 2023,
                 "state": "Delaware",
                 "sameVertical": true,
-                "sourceUrl": "https://www.sbir.gov/awards?firm=Amie%20Health%20Inc"
+                "sourceUrl": "https://www.sbir.gov/awards?company_name=Amie%20Health%20Inc"
               }
             ]
           },
