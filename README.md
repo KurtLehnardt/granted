@@ -299,6 +299,7 @@ Results **stream**. Progress and grounded evidence appear in seconds rather than
 .
 ├── README.md                     (this file)
 ├── LICENSE
+├── install-{macos.sh,linux.sh,windows.ps1}  (one-shot installers, see above)
 ├── supabase/migrations/          (optional corpus-store schema)
 ├── extension/                    (optional Chrome "assisted fill" extension — experimental)
 └── scaffold/                     (the Next.js app)
