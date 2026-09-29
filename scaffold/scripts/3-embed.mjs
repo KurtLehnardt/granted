@@ -17,17 +17,19 @@
  *   EMBEDDINGS_BASE_URL=http://localhost:11434/v1
  *   EMBEDDINGS_MODEL=nomic-embed-text
  *
- * --target=local (or npm run data:embed:local): always reads the committed
- * data/opportunities.json as input, but writes the result to the gitignored
- * data/local/ instead of overwriting the committed snapshot — the same place
+ * --target=local (or npm run data:embed:local): re-embeds the corpus the app
+ * actually loads (data/local/ if a data:refresh corpus exists, else the committed
+ * snapshot) and writes it to the gitignored data/local/ — the same place
  * scripts/refresh-corpus.mjs writes and lib/corpus/store.ts prefers. Used by
  * setup-local.mjs so a fresh clone's re-embed never dirties the committed corpus.
  */
 import "./_loadEnvLocal.mjs"; // honor scaffold/.env.local when run as plain `node`
+import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 
 const TARGET_LOCAL = process.argv.includes("--target=local");
 const OUT_DIR = TARGET_LOCAL ? "data/local" : "data";
+const IN_DIR = TARGET_LOCAL && existsSync("data/local/opportunities.json") ? "data/local" : "data";
 
 const BASE_URL = (process.env.EMBEDDINGS_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
 const MODEL = process.env.EMBEDDINGS_MODEL || "text-embedding-3-small";
@@ -45,7 +47,7 @@ if (IS_OPENAI && !process.env.EMBEDDINGS_API_KEY && !process.env.OPENAI_API_KEY)
   process.exit(1);
 }
 
-const opps = JSON.parse(await readFile("data/opportunities.json", "utf8"));
+const opps = JSON.parse(await readFile(`${IN_DIR}/opportunities.json`, "utf8"));
 const BATCH = 32;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -96,15 +98,17 @@ await writeFile(`${OUT_DIR}/opportunities.json`, JSON.stringify(opps));
 // the corpus's final in-place write and always runs on a (re)build, so it's the
 // natural "built at" moment. `now` is the honest signal here — the corpus has
 // no per-record retrieved_at, and its newest deadline is a sentinel, not a
-// build time.
-const builtAt = new Date().toISOString();
+// build time. A --target=local re-embed doesn't make the records newer, so it
+// keeps the input corpus's stamp.
+const inputMeta = TARGET_LOCAL ? JSON.parse(await readFile(`${IN_DIR}/corpus-meta.json`, "utf8").catch(() => "{}")) : {};
+const builtAt = inputMeta.builtAt ?? new Date().toISOString();
 await writeFile(
   `${OUT_DIR}/corpus-meta.json`,
   JSON.stringify(
     {
       builtAt,
       note: TARGET_LOCAL
-        ? "When this local re-embed was built (written by scripts/3-embed.mjs --target=local, e.g. via setup:local). Gitignored — never overwrites the committed snapshot. Read by lib/corpus/meta.ts."
+        ? "Local re-embed (scripts/3-embed.mjs --target=local, e.g. via setup:local) — gitignored. builtAt is carried over from the input corpus. Read by lib/corpus/store.ts."
         : "When this committed opportunity snapshot was built (written by scripts/3-embed.mjs on every data:embed). Read by lib/corpus/meta.ts to surface an honest 'Opportunities as of <date>' caveat.",
       count: opps.length,
       embeddingModel: MODEL,

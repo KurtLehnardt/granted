@@ -35,11 +35,22 @@ async function withFakeEmbeddingServer(fn: (baseUrl: string) => Promise<void>) {
   }
 }
 
-async function runInTempCwd(args: string[], baseUrl: string) {
+const COMMITTED_BUILT_AT = "2026-08-15T00:00:00.000Z";
+const LOCAL_BUILT_AT = "2026-09-01T00:00:00.000Z";
+
+async function seedCorpus(dir: string, opps: object[], builtAt: string) {
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, "opportunities.json"), JSON.stringify(opps));
+  await writeFile(join(dir, "corpus-meta.json"), JSON.stringify({ builtAt }));
+}
+
+async function runInTempCwd(args: string[], baseUrl: string, { withLocal = false } = {}) {
   const dir = await mkdtemp(join(tmpdir(), "embed-target-"));
-  await mkdir(join(dir, "data"), { recursive: true });
-  const sample = [{ program: "P", agency: "A", description: "D" }];
-  await writeFile(join(dir, "data", "opportunities.json"), JSON.stringify(sample));
+  await seedCorpus(join(dir, "data"), [{ program: "P", agency: "A", description: "D" }], COMMITTED_BUILT_AT);
+  if (withLocal) {
+    const refreshed = [1, 2].map((i) => ({ program: `R${i}`, agency: "A", description: "D", embedding: [9] }));
+    await seedCorpus(join(dir, "data", "local"), refreshed, LOCAL_BUILT_AT);
+  }
 
   // spawn (not spawnSync): the fake embedding server above runs in THIS process,
   // so a synchronous spawn would block the event loop and starve it, hanging
@@ -75,9 +86,27 @@ describe("3-embed.mjs --target=local", () => {
 
       const localMeta = JSON.parse(await readFile(join(dir, "data", "local", "corpus-meta.json"), "utf8"));
       assert.equal(localMeta.count, 1);
+      assert.equal(localMeta.builtAt, COMMITTED_BUILT_AT); // re-embedding doesn't make the data newer
 
       const committed = JSON.parse(await readFile(join(dir, "data", "opportunities.json"), "utf8"));
       assert.equal(committed[0].embedding, undefined); // committed input file untouched
+      const committedMeta = JSON.parse(await readFile(join(dir, "data", "corpus-meta.json"), "utf8"));
+      assert.deepEqual(committedMeta, { builtAt: COMMITTED_BUILT_AT });
+    });
+  });
+
+  test("re-embeds an existing data/local/ (data:refresh) corpus instead of replacing it with the snapshot", async () => {
+    await withFakeEmbeddingServer(async (baseUrl) => {
+      const dir = await runInTempCwd(["--target=local"], baseUrl, { withLocal: true });
+      dirs.push(dir);
+
+      const localOpps = JSON.parse(await readFile(join(dir, "data", "local", "opportunities.json"), "utf8"));
+      assert.deepEqual(localOpps.map((o: { program: string }) => o.program), ["R1", "R2"]);
+      assert.deepEqual(localOpps[0].embedding, [0.1, 0.2, 0.3]);
+
+      const localMeta = JSON.parse(await readFile(join(dir, "data", "local", "corpus-meta.json"), "utf8"));
+      assert.equal(localMeta.builtAt, LOCAL_BUILT_AT);
+      assert.equal(localMeta.dims, 3);
     });
   });
 
@@ -88,6 +117,8 @@ describe("3-embed.mjs --target=local", () => {
 
       const committed = JSON.parse(await readFile(join(dir, "data", "opportunities.json"), "utf8"));
       assert.deepEqual(committed[0].embedding, [0.1, 0.2, 0.3]);
+      const committedMeta = JSON.parse(await readFile(join(dir, "data", "corpus-meta.json"), "utf8"));
+      assert.notEqual(committedMeta.builtAt, COMMITTED_BUILT_AT); // a real rebuild re-stamps
 
       await assert.rejects(readFile(join(dir, "data", "local", "opportunities.json"), "utf8"));
     });
