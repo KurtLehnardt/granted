@@ -453,13 +453,12 @@ function ScoredOpportunityCard({
   const howToApplyBtnClass =
     "inline-flex min-h-[40px] items-center gap-1.5 rounded-sm border border-structure-on-canvas bg-canvas pl-2 pr-2.5 py-1.5 font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas transition hover:bg-structure hover:text-token-white active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2";
 
-  // PRO-01: locked "Analyze competing companies" control — same
-  // secondary/structure affordance as "How can I apply?" above, but lives
-  // inside the "Similar companies funded" history section rather than its own row.
+  // PRO-01: "Analyze competing companies" control — a light tint of the same
+  // structure-on-canvas blue used for text/links throughout, so it reads as an
+  // inviting, distinct action rather than blending into the plain bordered
+  // secondary buttons ("How can I apply?") beside it.
   const competitorBtnClass =
-    "inline-flex items-center gap-1.5 rounded-sm border border-structure-on-canvas bg-canvas px-2.5 py-1.5 font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2";
-
-  const competitorHintClass = "font-mono text-[10px] text-foreground";
+    "inline-flex items-center gap-1.5 rounded-sm border border-structure-on-canvas/40 bg-structure-on-canvas/10 px-2.5 py-1.5 font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas transition hover:bg-structure-on-canvas/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2";
 
   return (
     <article className={articleClass}>
@@ -696,7 +695,6 @@ function ScoredOpportunityCard({
                   >
                     Analyze competing companies
                   </button>
-                  <span className={competitorHintClass}>Live</span>
                 </div>
               )}
 
