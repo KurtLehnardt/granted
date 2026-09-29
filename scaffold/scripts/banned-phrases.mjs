@@ -3,11 +3,11 @@
  *
  * `BANNED_PHRASES` + `findBannedPhrases` are the pure, runtime-safe half of
  * `scripts/check-prompt-registry.mjs`. They were factored out here so RUNTIME
- * code (e.g. `lib/apply/draft.ts`'s grounding guard, which must ship in the
- * Next.js server bundle) can reuse the EXACT same "banned phrasing" definition
- * WITHOUT dragging in the check script's build-only machinery — `typescript`,
- * `node:fs`, and a `new URL("..", import.meta.url)` that webpack tries (and
- * fails) to resolve as a bundled asset.
+ * code that must ship in the Next.js server bundle can reuse the EXACT same
+ * "banned phrasing" definition WITHOUT dragging in the check script's
+ * build-only machinery — `typescript`, `node:fs`, and a
+ * `new URL("..", import.meta.url)` that webpack tries (and fails) to resolve
+ * as a bundled asset.
  *
  * `check-prompt-registry.mjs` re-exports both symbols, so every existing
  * importer (the `check:prompts` gate, its tests, the G2 drafting tests) keeps

@@ -3,9 +3,9 @@
 import { useEffect, useRef, type RefObject } from "react";
 
 /**
- * FE-06 — shared accessible-dialog behavior for AutoFillModal and
- * SettingsPanel (kept as a hook rather than duplicated in both so the
- * focus-trap logic only has to be gotten right once).
+ * FE-06 — shared accessible-dialog behavior for every modal/dialog in the app
+ * (kept as a hook rather than duplicated in each one so the focus-trap logic
+ * only has to be gotten right once).
  *
  * On mount: focuses `initialFocusRef` (falls back to the first focusable
  * descendant of `dialogRef`), locks body scroll, and starts trapping Tab
