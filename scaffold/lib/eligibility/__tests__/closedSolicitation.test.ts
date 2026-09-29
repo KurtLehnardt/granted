@@ -2,11 +2,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { screen } from "../screen";
 import { toScreenableOpportunity } from "../bridge";
-import { annotateFreshness } from "../freshness";
+import {
+  annotateFreshness,
+  type FreshnessResult,
+  type CurrentSnapshotResult,
+} from "../freshness";
 import type { CompanyProfile } from "../../contracts/companyProfile";
 import type { Opportunity } from "../../contracts/opportunity";
-import type { FreshnessResult } from "../../canon/freshness";
-import type { CurrentSnapshotResult } from "../../canon/version";
 import type { Provenance } from "../../contracts/primitives";
 
 /**

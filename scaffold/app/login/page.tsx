@@ -3,10 +3,14 @@
 /**
  * app/login/page.tsx — the sign-in screen.
  *
- * Runtime toggle (no env change required) between two identities:
- *   - "Real Google account" → clears any demo override, then the context
- *     signIn(): a genuine Supabase Google OAuth redirect when r9_supabase_auth
- *     is on, or the existing simulated mock sign-in when it is off.
+ * Granted is local-only now — there is no real OAuth backend (the Supabase +
+ * Google integration this screen used to be able to front has been removed).
+ * Runtime toggle (no env change required) between two identities, both
+ * localStorage-only:
+ *   - "Google" option → clears any demo override, then the context signIn():
+ *     the simulated mock sign-in (see AuthProvider.tsx). Kept labeled/styled
+ *     as a Google-style button for now; TODO revisit this copy/branding now
+ *     that a real Google backend can never be behind it.
  *   - "Hackathon judge (demo)" → sets the local demo-mode override (see
  *     useDemoMode / lib/mockAuth) and redirects home signed-in as a clearly
  *     labelled demo identity — never a real account.
@@ -30,16 +34,12 @@ export default function LoginPage() {
   const router = useRouter();
   const [mode, setMode] = useState<Mode>('google');
 
-  // With real Supabase auth on, the Google option is a genuine OAuth redirect;
-  // with it off, that option is the existing simulated mock sign-in. The demo
-  // option is always an honest, local demo identity in either case.
-  const realAuth = isFlagEnabled('r9_supabase_auth');
   // The hackathon-judge demo sign-in is commercial/demo scaffolding — hidden by
   // default so a self-hosted user just sees real sign-in. Flip commercial_ui to restore.
   const showModeToggle = isFlagEnabled('commercial_ui');
   const asGoogle = !showModeToggle || mode === 'google';
 
-  // Already signed in (real, mock, or demo)? Skip the screen.
+  // Already signed in (mock or demo)? Skip the screen.
   useEffect(() => {
     if (!loading && user) router.replace('/');
   }, [loading, user, router]);
@@ -47,10 +47,9 @@ export default function LoginPage() {
   const handleGoogle = () => {
     // Never carry a stale demo identity into a real sign-in.
     exitDemoMode();
-    signIn(); // real Google OAuth when configured; simulated mock otherwise
-    // Real OAuth navigates away and returns via /auth/callback → home; the mock
-    // signs in synchronously and needs an explicit push.
-    if (!realAuth) router.push('/');
+    signIn(); // always the simulated mock sign-in now — see AuthProvider.tsx
+    // Signs in synchronously (no OAuth redirect exists anymore) — push home.
+    router.push('/');
   };
 
   const handleDemo = () => {
@@ -75,7 +74,7 @@ export default function LoginPage() {
           Find federal funding your company can actually apply for.
         </p>
 
-        {/* Runtime toggle: real Google account vs. hackathon-judge demo.
+        {/* Runtime toggle: simulated Google-style sign-in vs. hackathon-judge demo.
             Native radios grouped in a fieldset give free keyboard support and
             screen-reader "radio group" semantics. Hidden unless commercial_ui is on. */}
         {showModeToggle && (
@@ -133,9 +132,7 @@ export default function LoginPage() {
 
         <p className="mt-4 text-center text-xs leading-relaxed text-foreground">
           {asGoogle
-            ? realAuth
-              ? 'Sign in with your real Google account.'
-              : 'Simulated sign-in for demo purposes. No Google account is contacted and no credentials are collected.'
+            ? 'Simulated sign-in for demo purposes. No Google account is contacted and no credentials are collected.'
             : 'Explore signed in as a hackathon judge. This is a demo identity, not a real account — nothing is sent to Google and no credentials are collected.'}
         </p>
       </div>
