@@ -202,8 +202,8 @@ ollama pull nomic-embed-text
 # add these two lines to scaffold/.env.local:
 EMBEDDINGS_BASE_URL=http://localhost:11434/v1
 EMBEDDINGS_MODEL=nomic-embed-text
-# then just run (data:embed reads scaffold/.env.local — no inline env needed):
-npm run data:embed        # re-embeds the 791-opportunity corpus locally
+# then just run (data:embed:local reads scaffold/.env.local — no inline env needed):
+npm run data:embed:local  # re-embeds the 791-opportunity corpus into the gitignored data/local/
 ```
 Now nothing leaves your machine.
 

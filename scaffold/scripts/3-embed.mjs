@@ -16,9 +16,18 @@
  * Fully-local example (Ollama nomic-embed-text, 768-dim) — in scaffold/.env.local:
  *   EMBEDDINGS_BASE_URL=http://localhost:11434/v1
  *   EMBEDDINGS_MODEL=nomic-embed-text
+ *
+ * --target=local (or npm run data:embed:local): always reads the committed
+ * data/opportunities.json as input, but writes the result to the gitignored
+ * data/local/ instead of overwriting the committed snapshot — the same place
+ * scripts/refresh-corpus.mjs writes and lib/corpus/store.ts prefers. Used by
+ * setup-local.mjs so a fresh clone's re-embed never dirties the committed corpus.
  */
 import "./_loadEnvLocal.mjs"; // honor scaffold/.env.local when run as plain `node`
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+
+const TARGET_LOCAL = process.argv.includes("--target=local");
+const OUT_DIR = TARGET_LOCAL ? "data/local" : "data";
 
 const BASE_URL = (process.env.EMBEDDINGS_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
 const MODEL = process.env.EMBEDDINGS_MODEL || "text-embedding-3-small";
@@ -78,7 +87,8 @@ for (let i = 0; i < opps.length; i += BATCH) {
   if (IS_OPENAI) await sleep(400); // gentle inter-batch pacing for the hosted API; unneeded locally
 }
 
-await writeFile("data/opportunities.json", JSON.stringify(opps));
+if (TARGET_LOCAL) await mkdir(OUT_DIR, { recursive: true });
+await writeFile(`${OUT_DIR}/opportunities.json`, JSON.stringify(opps));
 
 // Data-freshness stamp: record WHEN this corpus was built so the app can
 // surface "Opportunities as of <date>" and never present a point-in-time
@@ -89,11 +99,13 @@ await writeFile("data/opportunities.json", JSON.stringify(opps));
 // build time.
 const builtAt = new Date().toISOString();
 await writeFile(
-  "data/corpus-meta.json",
+  `${OUT_DIR}/corpus-meta.json`,
   JSON.stringify(
     {
       builtAt,
-      note: "When this committed opportunity snapshot was built (written by scripts/3-embed.mjs on every data:embed). Read by lib/corpus/meta.ts to surface an honest 'Opportunities as of <date>' caveat.",
+      note: TARGET_LOCAL
+        ? "When this local re-embed was built (written by scripts/3-embed.mjs --target=local, e.g. via setup:local). Gitignored — never overwrites the committed snapshot. Read by lib/corpus/meta.ts."
+        : "When this committed opportunity snapshot was built (written by scripts/3-embed.mjs on every data:embed). Read by lib/corpus/meta.ts to surface an honest 'Opportunities as of <date>' caveat.",
       count: opps.length,
       embeddingModel: MODEL,
       dims: opps.find((o) => Array.isArray(o.embedding) && o.embedding.length > 0)?.embedding?.length,
@@ -104,5 +116,5 @@ await writeFile(
 );
 
 console.log(`\n→ ${done} programs embedded with ${MODEL} @ ${BASE_URL}`);
-console.log(`→ data/corpus-meta.json stamped builtAt=${builtAt}`);
+console.log(`→ ${OUT_DIR}/corpus-meta.json stamped builtAt=${builtAt}`);
 console.log("Next: npm run dev — then npm run data:precompute once it works");

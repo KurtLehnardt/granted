@@ -3,9 +3,11 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/KurtLehnardt/granted/main/install-macos.sh | bash
 #
-# Installs git + Node.js 22+ if missing, clones the repo, runs `npm install`,
+# Installs git + Node.js 22+ if missing, clones the repo, runs `npm ci`
+# (installs exactly what's pinned in package-lock.json, and never rewrites it),
 # and (optionally) installs Ollama for a fully local run. Safe to re-run: skips
-# anything already present/done.
+# anything already present/done (npm ci does remove and reinstall node_modules
+# each time, which is expected).
 #
 # After this finishes, `cd granted/scaffold` and run `npm run setup` (cloud
 # API keys) or `npm run setup:local -- --yes` (fully local via Ollama), then
@@ -189,10 +191,10 @@ else
   ok "cloned"
 fi
 
-# 4) npm install.
+# 4) npm ci -- never rewrites package-lock.json (unlike npm install).
 cd "$TARGET_DIR/scaffold"
 log "Installing npm dependencies..."
-npm install
+npm ci
 ok "dependencies installed"
 
 # 5) Ollama (only needed for the fully-local path, so never fatal).

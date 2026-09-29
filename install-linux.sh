@@ -4,7 +4,9 @@
 #   curl -fsSL https://raw.githubusercontent.com/KurtLehnardt/granted/main/install-linux.sh | bash
 #
 # Installs git + Node.js 22+ if missing (apt/dnf/yum), clones the repo, and
-# runs `npm install`. Safe to re-run: skips anything already present/done.
+# runs `npm ci` (installs exactly what's pinned in package-lock.json, and never
+# rewrites it). Safe to re-run: skips anything already present/done (npm ci does
+# remove and reinstall node_modules each time, which is expected).
 #
 # After this finishes, `cd granted/scaffold` and run `npm run setup` (hosted
 # API keys) or `npm run setup:local -- --yes` (fully local via Ollama), then
@@ -112,10 +114,10 @@ else
   ok "cloned"
 fi
 
-# 5) npm install.
+# 5) npm ci -- never rewrites package-lock.json (unlike npm install).
 cd "$TARGET_DIR/scaffold"
 log "Installing npm dependencies..."
-npm install
+npm ci
 ok "dependencies installed"
 
 log "Done. Next steps:"
