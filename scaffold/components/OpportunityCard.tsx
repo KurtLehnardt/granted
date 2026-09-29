@@ -684,7 +684,15 @@ function ScoredOpportunityCard({
 
           {m.history && (
             <div className={historyBorderClass}>
-              <p className={eyebrowClass("mb-3")}>Similar companies funded</p>
+              <p className={eyebrowClass("mb-3")}>
+                {m.history.fromAgency ? "Companies this agency has funded" : "Similar companies funded"}
+              </p>
+              {m.history.fromAgency && (
+                <p className="mb-3 font-body text-[11px] italic leading-relaxed text-foreground">
+                  This program has no award history of its own yet — these are real, verified companies{" "}
+                  {o.agency} has funded through its other programs, not this specific one.
+                </p>
+              )}
               <div className="mb-4 flex flex-wrap gap-x-5 gap-y-3 sm:gap-x-8">
                 <Stat n={m.history.similarCompanies} label="similar companies" />
                 <Stat n={money(m.history.totalAwarded)} label="total awarded" />
