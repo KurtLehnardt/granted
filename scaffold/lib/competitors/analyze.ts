@@ -38,8 +38,9 @@ const ANTHROPIC_TIMEOUT_MS = Number(process.env.ANTHROPIC_TIMEOUT_MS) || 100_000
 // was originally sized for (lib/claude.ts draws the same distinction) -- a
 // small local model writing the full cited brief can easily exceed 100s, and
 // without this the SYNTHESIZE call gets aborted mid-generation, which the
-// route can only report as a generic "unavailable" (§ InsufficientEvidenceError
-// vs. everything else -- an abort is "everything else").
+// route can only report as a generic "unavailable" (the route only
+// distinguishes InsufficientEvidenceError from everything else -- an abort
+// is "everything else").
 const LOCAL_LLM_TIMEOUT_MS = Number(process.env.LOCAL_LLM_TIMEOUT_MS) || 1_800_000; // 30 min
 
 /** Below which a live run is considered too thin to be worth showing (falls back to demo). */
