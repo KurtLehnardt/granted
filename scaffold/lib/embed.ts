@@ -64,7 +64,7 @@ export function checkEmbeddingsMisconfig(
     throw new Error(
       "Local LLM is set (Settings or LLM_PROVIDER) but embeddings still target OpenAI. For a fully-local setup, set " +
         "EMBEDDINGS_BASE_URL=http://localhost:11434/v1 and EMBEDDINGS_MODEL=nomic-embed-text in " +
-        "scaffold/.env.local, run `ollama pull nomic-embed-text`, then re-embed with `npm run data:embed`. " +
+        "scaffold/.env.local, run `ollama pull nomic-embed-text`, then re-embed with `npm run data:embed:local`. " +
         "See the README 'Fully offline' section.",
     );
   }
@@ -208,6 +208,6 @@ export function assertEmbeddingDimsMatch(queryDim: number, corpusDim: number | n
   if (queryDim === corpusDim) return;
   throw new Error(
     `Embedding dimension mismatch: your query embeds to ${queryDim} dims but the committed corpus is ${corpusDim} dims — these must match for retrieval to work. ` +
-      "You likely changed EMBEDDINGS_MODEL without re-embedding the corpus. Re-embed it with the same model: run `npm run data:embed` from the scaffold/ directory.",
+      "You likely changed EMBEDDINGS_MODEL without re-embedding the corpus. Re-embed it with the same model: run `npm run data:embed:local` from the scaffold/ directory.",
   );
 }

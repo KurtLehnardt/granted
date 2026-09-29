@@ -18,6 +18,7 @@
     "data:fetch": "node --import tsx scripts/1-fetch.mjs",
     "data:normalize": "node scripts/2-normalize.mjs",
     "data:embed": "node scripts/3-embed.mjs",
+    "data:embed:local": "node scripts/3-embed.mjs --target=local",
     "data:precompute": "node scripts/4-precompute.mjs",
     "data:competitors": "node --import tsx scripts/5-competitors.mjs",
     "data:all": "npm run data:fetch && npm run data:normalize && npm run data:embed",

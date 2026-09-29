@@ -151,17 +151,17 @@ console.log(`\n${c.g("✓")} Saved .env.local`);
 
 // 2) Dependencies.
 heading("Dependencies");
-const wantsInstall = (await ask(`  Run "npm install" now? ${c.dim("[Y/n]")} `)).toLowerCase();
+const wantsInstall = (await ask(`  Run "npm ci" now? ${c.dim("[Y/n]")} `)).toLowerCase();
 if (wantsInstall === "" || wantsInstall === "y") {
   console.log(c.dim("  Installing… (this can take a minute)"));
   try {
-    execSync("npm install", { cwd: SCAFFOLD, stdio: "inherit" });
+    execSync("npm ci", { cwd: SCAFFOLD, stdio: "inherit" });
     console.log(`${c.g("✓")} Dependencies installed`);
   } catch {
-    console.log(c.y("  npm install failed — run it yourself in scaffold/ and check the output."));
+    console.log(c.y("  npm ci failed — run it yourself in scaffold/ and check the output."));
   }
 } else {
-  console.log(c.dim("  Skipped — run `npm install` in scaffold/ before starting."));
+  console.log(c.dim("  Skipped — run `npm ci` in scaffold/ before starting."));
 }
 
 // 3) Next steps.

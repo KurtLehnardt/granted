@@ -4,8 +4,10 @@
 #
 # Installs Node.js 22+ and git if missing (winget if available, otherwise a
 # direct official-installer download -- winget isn't present on every Windows
-# box, notably Windows Server), clones the repo, and runs `npm install`.
-# Safe to re-run: skips anything already present/done.
+# box, notably Windows Server), clones the repo, and runs `npm ci` (installs
+# exactly what's in package-lock.json, and never rewrites it).
+# Safe to re-run: skips anything already present/done (npm ci does remove and
+# reinstall node_modules each time, which is expected).
 #
 # After this finishes, `cd granted\scaffold` and run `npm run setup` (hosted
 # API keys) or `npm run setup:local -- --yes` (fully local via Ollama), then
@@ -162,11 +164,12 @@ if (Test-Path "$TargetDir\scaffold\package.json") {
   Ok "cloned"
 }
 
-# 4) npm install.
+# 4) npm ci -- installs exactly what package-lock.json pins, and never rewrites it
+# (unlike `npm install`, which can touch the lockfile on a version/registry mismatch).
 Set-Location "$TargetDir\scaffold"
 Log "Installing npm dependencies..."
-npm install
-Assert-LastExitCode "npm install failed -- see the output above for the underlying error."
+npm ci
+Assert-LastExitCode "npm ci failed -- see the output above for the underlying error."
 Ok "dependencies installed"
 
 Log "Done. Next steps:"

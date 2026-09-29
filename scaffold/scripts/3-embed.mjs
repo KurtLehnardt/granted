@@ -16,9 +16,20 @@
  * Fully-local example (Ollama nomic-embed-text, 768-dim) — in scaffold/.env.local:
  *   EMBEDDINGS_BASE_URL=http://localhost:11434/v1
  *   EMBEDDINGS_MODEL=nomic-embed-text
+ *
+ * --target=local (or npm run data:embed:local): re-embeds the corpus the app
+ * actually loads (data/local/ if a data:refresh corpus exists, else the committed
+ * snapshot) and writes it to the gitignored data/local/ — the same place
+ * scripts/refresh-corpus.mjs writes and lib/corpus/store.ts prefers. Used by
+ * setup-local.mjs so a fresh clone's re-embed never dirties the committed corpus.
  */
 import "./_loadEnvLocal.mjs"; // honor scaffold/.env.local when run as plain `node`
-import { readFile, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+
+const TARGET_LOCAL = process.argv.includes("--target=local");
+const OUT_DIR = TARGET_LOCAL ? "data/local" : "data";
+const IN_DIR = TARGET_LOCAL && existsSync("data/local/opportunities.json") ? "data/local" : "data";
 
 const BASE_URL = (process.env.EMBEDDINGS_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
 const MODEL = process.env.EMBEDDINGS_MODEL || "text-embedding-3-small";
@@ -36,7 +47,7 @@ if (IS_OPENAI && !process.env.EMBEDDINGS_API_KEY && !process.env.OPENAI_API_KEY)
   process.exit(1);
 }
 
-const opps = JSON.parse(await readFile("data/opportunities.json", "utf8"));
+const opps = JSON.parse(await readFile(`${IN_DIR}/opportunities.json`, "utf8"));
 const BATCH = 32;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -78,7 +89,8 @@ for (let i = 0; i < opps.length; i += BATCH) {
   if (IS_OPENAI) await sleep(400); // gentle inter-batch pacing for the hosted API; unneeded locally
 }
 
-await writeFile("data/opportunities.json", JSON.stringify(opps));
+if (TARGET_LOCAL) await mkdir(OUT_DIR, { recursive: true });
+await writeFile(`${OUT_DIR}/opportunities.json`, JSON.stringify(opps));
 
 // Data-freshness stamp: record WHEN this corpus was built so the app can
 // surface "Opportunities as of <date>" and never present a point-in-time
@@ -86,14 +98,18 @@ await writeFile("data/opportunities.json", JSON.stringify(opps));
 // the corpus's final in-place write and always runs on a (re)build, so it's the
 // natural "built at" moment. `now` is the honest signal here — the corpus has
 // no per-record retrieved_at, and its newest deadline is a sentinel, not a
-// build time.
-const builtAt = new Date().toISOString();
+// build time. A --target=local re-embed doesn't make the records newer, so it
+// keeps the input corpus's stamp.
+const inputMeta = TARGET_LOCAL ? JSON.parse(await readFile(`${IN_DIR}/corpus-meta.json`, "utf8").catch(() => "{}")) : {};
+const builtAt = inputMeta.builtAt ?? new Date().toISOString();
 await writeFile(
-  "data/corpus-meta.json",
+  `${OUT_DIR}/corpus-meta.json`,
   JSON.stringify(
     {
       builtAt,
-      note: "When this committed opportunity snapshot was built (written by scripts/3-embed.mjs on every data:embed). Read by lib/corpus/meta.ts to surface an honest 'Opportunities as of <date>' caveat.",
+      note: TARGET_LOCAL
+        ? "Local re-embed (scripts/3-embed.mjs --target=local, e.g. via setup:local) — gitignored. builtAt is carried over from the input corpus. Read by lib/corpus/store.ts."
+        : "When this committed opportunity snapshot was built (written by scripts/3-embed.mjs on every data:embed). Read by lib/corpus/meta.ts to surface an honest 'Opportunities as of <date>' caveat.",
       count: opps.length,
       embeddingModel: MODEL,
       dims: opps.find((o) => Array.isArray(o.embedding) && o.embedding.length > 0)?.embedding?.length,
@@ -104,5 +120,5 @@ await writeFile(
 );
 
 console.log(`\n→ ${done} programs embedded with ${MODEL} @ ${BASE_URL}`);
-console.log(`→ data/corpus-meta.json stamped builtAt=${builtAt}`);
+console.log(`→ ${OUT_DIR}/corpus-meta.json stamped builtAt=${builtAt}`);
 console.log("Next: npm run dev — then npm run data:precompute once it works");

@@ -484,11 +484,11 @@ function childEnv() {
   return withOllamaOnPath(process.env, process.platform, process.env.LOCALAPPDATA);
 }
 
-/** `npm run data:embed` in scaffold/, streaming output live while keeping a tail for the failure report. */
+/** `npm run data:embed:local` in scaffold/ (writes the gitignored data/local/, never the committed corpus), streaming output live while keeping a tail for the failure report. */
 function runDataEmbed() {
   return new Promise((resolve) => {
     let output = "";
-    const p = spawn("npm run data:embed", {
+    const p = spawn("npm run data:embed:local", {
       shell: true,
       cwd: SCAFFOLD,
       env: childEnv(),
@@ -819,7 +819,8 @@ async function main() {
     c.dim(
       "  The committed corpus is OpenAI 512-dim vectors. Your local query embeds at a\n" +
         `  different size (${EMBED_MODEL} is 768-dim), so retrieval is broken until you\n` +
-        "  re-embed the corpus with the SAME local model. Runs `npm run data:embed` (~1–2 min).",
+        "  re-embed the corpus with the SAME local model. Runs `npm run data:embed:local`\n" +
+        "  (~1–2 min), writing to the gitignored data/local/ — the committed corpus is untouched.",
     ),
   );
   const doEmbed = await confirm("Re-embed the corpus now?", true);
@@ -842,13 +843,13 @@ async function main() {
         c.r(`\n  data:embed failed after ${result.attempts} attempt(s). Retrieval is still broken.\n`) +
           c.dim(`\n  Last output:\n${tail}\n`),
       );
-      console.log(c.y("\n  Fix the error above, then re-run: ") + c.g("npm run data:embed") + c.dim(" in scaffold/"));
+      console.log(c.y("\n  Fix the error above, then re-run: ") + c.g("npm run data:embed:local") + c.dim(" in scaffold/"));
       process.exit(1);
     }
   } else {
     console.log(
       c.y("  Skipped.") +
-        c.dim(` Retrieval will be broken until you run ${"`npm run data:embed`"} (dim mismatch).`),
+        c.dim(` Retrieval will be broken until you run ${"`npm run data:embed:local`"} (dim mismatch).`),
     );
   }
 
@@ -857,7 +858,7 @@ async function main() {
   console.log(`  ${c.dim("Chat model:")}      ${c.b(chosenModel)}`);
   console.log(`  ${c.dim("Embeddings:")}      ${c.b(EMBED_MODEL)} ${c.dim(`@ ${OLLAMA_BASE_URL}`)}`);
   console.log(`  ${c.dim("Config written:")}  scaffold/.env.local`);
-  if (!doEmbed) console.log(c.y("  ! Run `npm run data:embed` before searching — retrieval is broken otherwise."));
+  if (!doEmbed) console.log(c.y("  ! Run `npm run data:embed:local` before searching — retrieval is broken otherwise."));
   console.log(`\n  ${c.b("Now run:")} ${c.g("npm run dev")}   ${c.dim("→ http://localhost:3000")}`);
   console.log(
     c.dim(
