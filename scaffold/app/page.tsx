@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import IntakeForm from "@/components/IntakeForm";
 import OpportunityMap, { Boundary } from "@/components/OpportunityMap";
 import OpportunityCard from "@/components/OpportunityCard";
-import type { OpportunityMap as MapT } from "@/lib/types";
+import type { OpportunityMap as MapT, StartupProfile } from "@/lib/types";
 import AppMenu from "@/components/AppMenu";
 import { isFlagEnabled } from "@/lib/flags";
 import { SidebarProvider, useSidebar } from "@/components/SidebarProvider";
@@ -49,6 +49,13 @@ function HomeShell({ sidebarOn }: { sidebarOn: boolean }) {
   const [loading, setLoading] = useState(false);
   const [previewMatches, setPreviewMatches] = useState<PreviewItem[]>([]);
   const [searchDuration, setSearchDuration] = useState<number | null>(null);
+  // The description the in-flight search is running on, minimally shaped as a
+  // StartupProfile — set the instant a run starts (IntakeForm's onSearchStart),
+  // well before the authoritative `map.profile` exists. Without this, a preview
+  // card's "Analyze competing companies" (R5-deep) has no profile to run on for
+  // the whole loading phase — several minutes on a local model — and shows a
+  // confusing "fill out your description" message despite one being filled in.
+  const [previewProfile, setPreviewProfile] = useState<StartupProfile | null>(null);
 
   function handleLoadingChange(isLoading: boolean) {
     setLoading(isLoading);
@@ -178,6 +185,7 @@ function HomeShell({ sidebarOn }: { sidebarOn: boolean }) {
         onLoadingChange={handleLoadingChange}
         onMatchPreview={handleMatchPreview}
         onSearchDuration={setSearchDuration}
+        onSearchStart={(description) => setPreviewProfile({ description })}
       />
 
       {/* While a search is running, show cards as they're scored instead of the
@@ -199,10 +207,15 @@ function HomeShell({ sidebarOn }: { sidebarOn: boolean }) {
                   <>
                     <div className="mt-4 space-y-3">
                       {shown.map((m, i) => (
-                        <OpportunityCard key={m.opportunity?.id ?? i} m={m} index={i} />
+                        <OpportunityCard
+                          key={m.opportunity?.id ?? i}
+                          m={m}
+                          index={i}
+                          startupProfile={previewProfile ?? undefined}
+                        />
                       ))}
                     </div>
-                    <WeakerMatches matches={weaker} />
+                    <WeakerMatches matches={weaker} startupProfile={previewProfile ?? undefined} />
                   </>
                 );
               })()}

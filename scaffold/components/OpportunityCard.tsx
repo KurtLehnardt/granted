@@ -453,13 +453,21 @@ function ScoredOpportunityCard({
   const howToApplyBtnClass =
     "inline-flex min-h-[40px] items-center gap-1.5 rounded-sm border border-structure-on-canvas bg-canvas pl-2 pr-2.5 py-1.5 font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas transition hover:bg-structure hover:text-token-white active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2";
 
-  // PRO-01: locked "Analyze competing companies" control — same
-  // secondary/structure affordance as "How can I apply?" above, but lives
-  // inside the "Similar companies funded" history section rather than its own row.
+  // PRO-01: "Analyze competing companies" control — a light tint of the same
+  // structure-on-canvas blue used for text/links throughout, so it reads as an
+  // inviting, distinct action rather than blending into the plain bordered
+  // secondary buttons ("How can I apply?") beside it.
+  //
+  // NOTE: structure-on-canvas resolves through a CSS custom property to a bare
+  // hex string (see app/globals.css), which Tailwind's `/opacity` modifier
+  // can't parse at build time -- `bg-structure-on-canvas/10` silently compiles
+  // to NO rule at all (confirmed via a real production build; the same
+  // silent-no-op already affects AppSidebar.tsx's `/opacity` usage of this
+  // token). `color-mix()` as an arbitrary value sidesteps that: it's real,
+  // themeable CSS (mixes whatever the variable resolves to, light or dark,
+  // against transparent) instead of a Tailwind-parsed modifier.
   const competitorBtnClass =
-    "inline-flex items-center gap-1.5 rounded-sm border border-structure-on-canvas bg-canvas px-2.5 py-1.5 font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2";
-
-  const competitorHintClass = "font-mono text-[10px] text-foreground";
+    "inline-flex items-center gap-1.5 rounded-sm border border-[color-mix(in_srgb,var(--color-structure-on-canvas)_40%,transparent)] bg-[color-mix(in_srgb,var(--color-structure-on-canvas)_10%,transparent)] px-2.5 py-1.5 font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas transition hover:bg-[color-mix(in_srgb,var(--color-structure-on-canvas)_20%,transparent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2";
 
   return (
     <article className={articleClass}>
@@ -696,7 +704,6 @@ function ScoredOpportunityCard({
                   >
                     Analyze competing companies
                   </button>
-                  <span className={competitorHintClass}>Live</span>
                 </div>
               )}
 

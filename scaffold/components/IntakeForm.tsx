@@ -57,6 +57,7 @@ export default function IntakeForm({
   onLoadingChange,
   onMatchPreview,
   onSearchDuration,
+  onSearchStart,
 }: {
   onResult: (m: any) => void;
   /** Fires alongside every `setLoading` transition, so a parent can drive a
@@ -73,6 +74,12 @@ export default function IntakeForm({
   onMatchPreview?: (m: PreviewItem) => void;
   /** Fires right before `onResult` with the search's duration, or null for a cached result. */
   onSearchDuration?: (ms: number | null) => void;
+  /** Fires the instant a run starts, with the exact description it's running on
+   *  (same value `lastSearched` is set to) — well before the authoritative `map`
+   *  (and its parsed `profile`) exists. Lets a parent thread a minimal profile
+   *  into progressive preview cards (e.g. so "Analyze competing companies" has a
+   *  description to run on during the loading phase, not just after `onResult`). */
+  onSearchStart?: (description: string) => void;
 }) {
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(false);
@@ -175,6 +182,7 @@ export default function IntakeForm({
     setProgress(null);
     setLlmInfo(null);
     setLastSearched(description);
+    onSearchStart?.(description);
     let cacheHit = false;
     // H5: search start + mark a run in flight (for run_abandoned). No description
     // content is sent — the event is a name + timestamp only.
