@@ -33,9 +33,6 @@ export type MockUser = {
   signedInAt: string;
 };
 
-/** Demo mode is opt-in via env so this can never silently ride to production. */
-export const MOCK_AUTH_ENABLED = process.env.NEXT_PUBLIC_MOCK_AUTH === 'true';
-
 /** localStorage is unavailable during SSR and in some privacy modes. Never throw. */
 function safeStorage(): Storage | null {
   if (typeof window === 'undefined') return null;
