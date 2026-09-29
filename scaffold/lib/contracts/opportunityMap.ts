@@ -85,7 +85,7 @@ export const AwardHistorySchema = z.object({
   inVertical: z.number(),
   /**
    * A3-lite (provenance gate) — `sourceUrl` is a real SBIR.gov awards link
-   * (`https://www.sbir.gov/awards?firm=<firm>`) proving this specific award
+   * (`https://www.sbir.gov/awards?company_name=<firm>`) proving this specific award
    * was cross-checked against the live SBIR bulk award CSV
    * (`data.www.sbir.gov/mod_awarddatapublic_no_abstract/...`). Every row
    * written to `data/awards.json` now carries one — unverifiable rows were
