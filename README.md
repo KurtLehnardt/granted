@@ -98,7 +98,7 @@ Or by hand: `Copy-Item .env.example .env.local` (PowerShell) or `cp .env.example
 
 **3, alternative — fully local (Ollama, no API keys)**
 ```powershell
-# Install Ollama first: https://ollama.com/download — it runs as a background app once installed.
+# No Ollama yet? setup:local installs it via winget (or get it at https://ollama.com/download).
 npm run setup:local -- --yes        # picks a model sized for your RAM/VRAM, pulls it, re-embeds the corpus
 npm run dev
 ```
