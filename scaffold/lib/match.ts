@@ -241,15 +241,33 @@ function getAgencyIndex(): Map<string, AwardRow[]> {
  * merging several opportunities' rows can reintroduce the same company more
  * than once), keeping the larger of any duplicate award amounts.
  */
-export function historyForAgency(agency: string, state?: string): AwardHistory | undefined {
-  const rows = getAgencyIndex().get(agency);
-  if (!rows || rows.length === 0) return undefined;
+/**
+ * Merging several opportunities' award pools can reintroduce the same
+ * company more than once (the source data is only deduped WITHIN one
+ * opportunity at data-build time) — keeps the larger-amount row per company.
+ *
+ * Filters to verified rows FIRST: a larger-amount unverified row must never
+ * win the per-company slot and bump out a smaller but real, sourceUrl-
+ * verified row for the same company. (`historyFromRows` filters to verified
+ * rows too, but only after a per-company reduction like this one has already
+ * picked which single row survives to reach it — filtering after, not
+ * before, would silently drop a real company instead of just its fabricated
+ * competitor.) Exported standalone so this exact ordering is hermetically
+ * testable against a fixture, independent of the real data/awards.json.
+ */
+export function dedupeByCompanyKeepingLargestVerified(rows: AwardRow[]): AwardRow[] {
   const byCompany = new Map<string, AwardRow>();
-  for (const r of rows) {
+  for (const r of filterVerifiedRows(rows)) {
     const prior = byCompany.get(r.company);
     if (!prior || r.amount > prior.amount) byCompany.set(r.company, r);
   }
-  return historyFromRows(Array.from(byCompany.values()), state, true);
+  return Array.from(byCompany.values());
+}
+
+export function historyForAgency(agency: string, state?: string): AwardHistory | undefined {
+  const rows = getAgencyIndex().get(agency);
+  if (!rows || rows.length === 0) return undefined;
+  return historyFromRows(dedupeByCompanyKeepingLargestVerified(rows), state, true);
 }
 
 /**
