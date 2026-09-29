@@ -10,7 +10,7 @@ import {
 import {
   universalRulesForOpportunity,
   type UniversalRule,
-} from "../canon/universalRules";
+} from "./universalRules";
 
 /**
  * screen.ts — ELG-01, the R8 eligibility screening engine (three buckets).

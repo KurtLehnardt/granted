@@ -64,10 +64,10 @@ export default function AppMenu({ center }: { center?: ReactNode } = {}) {
   // instead of Settings directly (Settings lives inside the drawer).
   // Default OFF -> the hamburger opens the Settings modal directly.
   const sidebar = isFlagEnabled("left_sidebar");
-  // Show the sign-in surface when EITHER auth backend is live: the real
-  // Supabase flag (R9) or the interim mock flag (R9.0). Checking only the mock
-  // flag would hide sign-in when real auth is the one that's on.
-  const authOn = isFlagEnabled("r9_supabase_auth") || isFlagEnabled("r9_0_mockauth");
+  // Show the sign-in surface when the mock auth flag is on. (A real Supabase
+  // backend used to be a second way to turn this on; removed along with the
+  // rest of the Supabase dependency — mock auth is the only backend now.)
+  const authOn = isFlagEnabled("r9_0_mockauth");
   const { user, loading } = useAuth();
   const { openSettings } = useSettingsPanel();
 

@@ -3,10 +3,11 @@ import assert from "node:assert/strict";
 import {
   annotateFreshness,
   type EligibilityDeterminationWithFreshness,
+  type CurrentSnapshotResult,
+  type SyncHealthResult,
+  type FreshnessResult,
 } from "../freshness";
 import type { EligibilityDetermination } from "../../contracts/eligibilityDetermination";
-import type { CurrentSnapshotResult, SyncHealthResult } from "../../canon/version";
-import type { FreshnessResult } from "../../canon/freshness";
 
 /**
  * ELG-02 unit tests — the pure data-freshness annotator (§4.5 / CAN-05 / CAN-06,

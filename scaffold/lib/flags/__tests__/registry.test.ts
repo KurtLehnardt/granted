@@ -39,7 +39,6 @@ describe("FLAG_REGISTRY", () => {
       "r4_progress",
       "r8_eligibility",
       "r9_0_mockauth",
-      "r9_supabase_auth",
       "r10_analytics",
       "r4b_cost_debug",
       "left_sidebar",

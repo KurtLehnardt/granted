@@ -1,7 +1,94 @@
-import { CANON_SYNC_CADENCE_HOURS } from "../canon/version";
-import type { CurrentSnapshotResult, SyncHealthResult } from "../canon/version";
-import type { FreshnessResult } from "../canon/freshness";
+import type { OpportunitySource, OpportunityStatus } from "../contracts/opportunity";
 import type { EligibilityDetermination } from "../contracts/eligibilityDetermination";
+
+/**
+ * These shapes and the cadence constant used to live in lib/canon/{version,
+ * freshness}.ts, alongside the Supabase-backed corpus-sync pipeline that
+ * would have populated them. That pipeline was retired (Granted is local-
+ * only now) — but `lib/match.ts` has only ever called `annotateFreshness()`
+ * with NO options (`m.eligibility = annotateFreshness(determination)`,
+ * `annotateFreshness(known)`), so `snapshot`/`syncHealth`/`freshness` below
+ * were always undefined in production regardless: every real search already
+ * hit the "no Canon corpus snapshot was available" branch unconditionally.
+ * Inlining these types (rather than deleting the options entirely) keeps
+ * that exact behavior AND this module's existing tests intact, with zero
+ * dependency on Supabase or any corpus-sync system.
+ */
+
+/** Cadence a corpus snapshot is expected to refresh within, in hours. */
+const CANON_SYNC_CADENCE_HOURS = 24;
+
+interface SnapshotSourceCoverage {
+  alarms?: string[];
+  gaps?: string[];
+  notes?: string;
+  [key: string]: unknown;
+}
+
+interface DataAge {
+  /** Milliseconds between `retrieved_at` and now — for programmatic comparison. */
+  ms: number;
+  /** Convenience: `ms` in hours (fractional). */
+  hours: number;
+  /** Human-readable for logs/UI copy, e.g. "3.2 hours", "2 days". */
+  human: string;
+}
+
+/** The data-age surface (§4.4 "opportunities as of …"). */
+export interface CurrentSnapshotResult {
+  version: string;
+  data_age: DataAge;
+  retrieved_at: string; // ISO 8601 — alias of the snapshot's created_at
+  source_coverage: SnapshotSourceCoverage;
+}
+
+type SyncHealthStatus = "OK" | "ALARM";
+
+export interface SyncHealthResult {
+  status: SyncHealthStatus;
+  /** Empty when OK; one entry per reason when ALARM. */
+  reasons: string[];
+  snapshot: CurrentSnapshotResult | null;
+  checked_at: string; // ISO 8601, when this check ran
+}
+
+export interface FreshnessResult {
+  /** Opportunity id, e.g. "grants-360339". */
+  id: string;
+  /** Resolved source, "unknown" if the id doesn't map to one we recognize. */
+  source: OpportunitySource | "unknown";
+  /**
+   * Live status as of `checked_at`. `null` iff `freshness_unavailable` is
+   * true — a degraded check NEVER guesses a status.
+   */
+  status: OpportunityStatus | null;
+  /** ISO-8601 close/response date, when the status has a real one. */
+  close_date?: string;
+  /**
+   * ceil((close_date - checked_at) / 1 day). Positive while still open,
+   * <= 0 once past close_date. Absent when there is no real close_date.
+   */
+  days_remaining?: number;
+  /** When this determination was made (live check time, or cache-write time on a hit). */
+  checked_at: string;
+  /** Whether this result was served from the short-TTL cache. */
+  cache: "hit" | "miss";
+  /** True when the live source could not be re-verified. */
+  freshness_unavailable?: boolean;
+  /** Why `freshness_unavailable` is true, when known. */
+  reason?: string;
+  /**
+   * Best-effort context from the last known-good check when freshness is
+   * unavailable. This is explicitly the STALE cached view — it is never
+   * promoted into `status`/`close_date` above, so a caller can't accidentally
+   * treat it as current.
+   */
+  last_known?: {
+    status: OpportunityStatus | null;
+    close_date?: string;
+    retrieved_at?: string;
+  };
+}
 
 /**
  * freshness.ts (ELG-02) — data-freshness annotator for an ELG-01

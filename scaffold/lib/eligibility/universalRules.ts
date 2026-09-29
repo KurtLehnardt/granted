@@ -1,8 +1,21 @@
 import { z } from "zod";
 import { EligibilityRuleCategorySchema } from "../contracts/opportunity";
 import type { OpportunityKind } from "../contracts/opportunity";
-import { CitedCitationSchema } from "./rules";
+import { CitationSchema } from "../contracts/primitives";
 import type { CanonOpportunity } from "./CanonOpportunity";
+
+/**
+ * Used to live in lib/canon/rules.ts (CAN-04's per-NOFO extractor), relocated
+ * here when the Supabase-backed Canon ingestion pipeline was retired (Granted
+ * is local-only now) -- this schema itself has no DB dependency, it's just a
+ * stricter citation shape than the base CitationSchema (source_url + quote
+ * both required, not optional) for a rule that's curated in code rather than
+ * extracted by a model, so it still needs to be genuinely grounded.
+ */
+const CitedCitationSchema = CitationSchema.extend({
+  source_url: z.string().url(),
+  quote: z.string().min(1),
+});
 
 /**
  * universalRules.ts — CAN-04 "universal overlay".
