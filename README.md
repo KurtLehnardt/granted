@@ -10,7 +10,7 @@ Run it with your own API keys or a fully local model — see **Run it yourself**
 
 # Run it yourself
 
-`npm run dev` only listens on this machine; `npm run dev:lan` opts in to exposing it to your local network.
+`npm run dev` listens only on your machine; `npm run dev:lan` opts in to exposing it to your local network.
 
 Every OS below ends up running the exact same `npm` commands — the setup scripts detect your platform automatically. Only the prerequisite installs (Node, git, Ollama) differ, so pick yours:
 
