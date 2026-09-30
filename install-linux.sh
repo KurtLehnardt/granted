@@ -1,7 +1,17 @@
 #!/usr/bin/env bash
 # Granted — one-shot Linux installer.
 #
-#   curl -fsSL https://raw.githubusercontent.com/KurtLehnardt/granted/main/install-linux.sh | bash
+#   bash -c "$(curl -fsSL https://raw.githubusercontent.com/KurtLehnardt/granted/main/install-linux.sh)"
+#
+# Deliberately not `curl ... | bash`: this script shells out to the system
+# package manager (apt/dnf/yum), which can read from stdin during its own
+# install -- when this script's own source is arriving on that same stdin
+# pipe, the package manager can silently steal bytes meant for the rest of
+# the script (bash reads a piped script incrementally, not all at once),
+# truncating everything after that point with no error and a 0 exit code.
+# `bash -c "$(curl ...)"` hands the whole script to bash as an already-fully-
+# read string argument instead, so it's never competing with anything for
+# stdin. Don't revert this.
 #
 # Installs git + Node.js 22+ if missing (apt/dnf/yum), clones the repo, and
 # runs `npm ci` (installs exactly what's pinned in package-lock.json, and never
