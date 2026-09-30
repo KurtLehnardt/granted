@@ -1,5 +1,6 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
+import { spawn, spawnSync } from "node:child_process";
 
 import {
   MODEL_TIERS,
@@ -23,6 +24,7 @@ import {
   withOllamaOnPath,
   waitForDaemon,
   embedWithRetry,
+  launchOllamaDaemon,
 } from "../setup-local.mjs";
 
 /**
@@ -395,5 +397,64 @@ describe("embedWithRetry: warm + run data:embed, retry once, report failure", ()
       waitFn: async () => {},
     });
     assert.equal(result.ok, true);
+  });
+});
+
+describe("launchOllamaDaemon: never inherits stdio from a long-lived grandchild", () => {
+  test("Windows: spawns via `cmd /c start` detached with stdio ignored", () => {
+    const calls: Array<{ cmd: string; args: string[]; options: Record<string, unknown> }> = [];
+    launchOllamaDaemon("win32", {
+      localAppData: "C:/Users/me/AppData/Local",
+      env: { FOO: "bar", NODE_ENV: "test" },
+      spawnFn: ((cmd: string, args: string[], options: Record<string, unknown>) => {
+        calls.push({ cmd, args, options });
+        return { on: () => {}, unref: () => {} };
+      }) as unknown as typeof spawn,
+    });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].cmd, "cmd");
+    assert.deepEqual(calls[0].args.slice(0, 3), ["/c", "start", ""]);
+    assert.equal(calls[0].options.stdio, "ignore");
+    assert.equal(calls[0].options.detached, true);
+  });
+
+  test("non-Windows: spawns `ollama serve` detached with stdio ignored", () => {
+    const calls: Array<{ cmd: string; args: string[]; options: Record<string, unknown> }> = [];
+    launchOllamaDaemon("darwin", {
+      env: { FOO: "bar", NODE_ENV: "test" },
+      spawnFn: ((cmd: string, args: string[], options: Record<string, unknown>) => {
+        calls.push({ cmd, args, options });
+        return { on: () => {}, unref: () => {} };
+      }) as unknown as typeof spawn,
+    });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].cmd, "ollama");
+    assert.deepEqual(calls[0].args, ["serve"]);
+    assert.equal(calls[0].options.stdio, "ignore");
+    assert.equal(calls[0].options.detached, true);
+  });
+
+  test("real process: a caller waiting on the launcher isn't held open by the long-lived daemon", () => {
+    const driver = `import { spawn } from "node:child_process";
+      import { launchOllamaDaemon } from ${JSON.stringify(new URL("../setup-local.mjs", import.meta.url).href)};
+      const d = launchOllamaDaemon(process.platform, {
+        spawnFn: (_cmd, _args, options) => spawn(process.execPath, ["-e", "setTimeout(() => {}, 30000)"], options),
+      });
+      console.log(d.pid);`;
+    const r = spawnSync(process.execPath, ["--input-type=module", "-e", driver], { encoding: "utf8", timeout: 10000 });
+    const pid = Number(r.stdout);
+    try {
+      assert.equal(r.error, undefined, "the caller blocked on pipes inherited by the daemon");
+      assert.equal(r.status, 0, r.stderr);
+      assert.ok(pid > 0 && process.kill(pid, 0), "the daemon stand-in should still be running");
+    } finally {
+      if (pid > 0) {
+        try {
+          process.kill(pid);
+        } catch {
+          /* already gone */
+        }
+      }
+    }
   });
 });

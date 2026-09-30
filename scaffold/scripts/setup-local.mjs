@@ -509,6 +509,33 @@ function runDataEmbed() {
   });
 }
 
+/**
+ * Launch the Ollama daemon detached, with stdio NOT inherited — a `start`-launched
+ * Windows child inherits our stdio pipes otherwise, so it (and any grandchild it
+ * spawns) can keep them open forever and hang a caller waiting on the child to exit.
+ * `spawnFn` is injectable for tests; returns the child (unref'd) it spawned.
+ * @param {string} platform
+ * @param {object} [opts]
+ * @param {string} [opts.localAppData]
+ * @param {NodeJS.ProcessEnv} [opts.env]
+ * @param {(cmd: string, args: string[], options: object) => import("node:child_process").ChildProcess} [opts.spawnFn]
+ */
+export function launchOllamaDaemon(platform, opts = {}) {
+  const { localAppData = "", env, spawnFn = spawn } = opts;
+  const child =
+    platform === "win32"
+      ? spawnFn("cmd", ["/c", "start", "", join(ollamaWindowsDir(localAppData), "ollama app.exe")], {
+          stdio: "ignore",
+          detached: true,
+          windowsHide: true,
+          env,
+        })
+      : spawnFn("ollama", ["serve"], { detached: true, stdio: "ignore", env });
+  child.on("error", () => {});
+  child.unref();
+  return child;
+}
+
 /** Try to install Ollama automatically (winget on Windows, brew on macOS 14+). */
 async function tryAutoInstall(platform, macosMajor) {
   const hasWinget = platform === "win32" && Boolean(run("winget", ["--version"]));
@@ -529,17 +556,16 @@ async function tryAutoInstall(platform, macosMajor) {
 
   // Start the daemon (Windows: the app; else `ollama serve` detached), then
   // poll for it — the observed first start can take well over a minute.
-  if (platform === "win32") {
-    const exe = join(ollamaWindowsDir(process.env.LOCALAPPDATA || ""), "ollama app.exe");
+  // Skip launching if it's already up: winget's installer often starts the
+  // app itself, and on Windows a `start`-launched child inherits our stdio
+  // pipes, so spawning it again (or with those pipes) can hang indefinitely.
+  const alreadyUp = (await ollamaDaemonModels()) !== null;
+  if (!alreadyUp) {
     try {
-      spawnSync("cmd", ["/c", "start", "", exe], { env: childEnv() });
+      launchOllamaDaemon(platform, { localAppData: process.env.LOCALAPPDATA || "", env: childEnv() });
     } catch {
       /* best-effort */
     }
-  } else {
-    const p = spawn("ollama", ["serve"], { detached: true, stdio: "ignore", env: childEnv() });
-    p.on("error", () => {});
-    p.unref();
   }
 
   console.log(c.dim("  Waiting for the Ollama daemon to come up (can take over a minute on first start)…"));
