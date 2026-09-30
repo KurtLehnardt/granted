@@ -845,8 +845,10 @@ async function main() {
     c.dim(
       "  The committed corpus is OpenAI 512-dim vectors. Your local query embeds at a\n" +
         `  different size (${EMBED_MODEL} is 768-dim), so retrieval is broken until you\n` +
-        "  re-embed the corpus with the SAME local model. Runs `npm run data:embed:local`\n" +
-        "  (~1–2 min), writing to the gitignored data/local/ — the committed corpus is untouched.",
+        "  re-embed the corpus with the SAME local model. Runs `npm run data:embed:local` —\n" +
+        "  may take a while, from a few minutes to a half hour depending on your system\n" +
+        "  specifications and the number of grants being searched — writing to the gitignored\n" +
+        "  data/local/ — the committed corpus is untouched.",
     ),
   );
   const doEmbed = await confirm("Re-embed the corpus now?", true);
