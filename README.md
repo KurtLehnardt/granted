@@ -20,7 +20,7 @@ Every OS below ends up running the exact same `npm` commands — the setup scrip
 
 **1. Install prerequisites + clone (one command)**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/KurtLehnardt/granted/main/install-macos.sh | bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/KurtLehnardt/granted/main/install-macos.sh)"
 ```
 Installs Node 22+ and git if missing — via Homebrew where available, otherwise the Xcode Command Line Tools for git and the official nodejs.org `.pkg` for Node — clones the repo into `./granted`, runs `npm install`, and installs Ollama with the method your macOS version actually supports (see the note below). Safe to re-run.
 
@@ -92,7 +92,7 @@ npm run dev
 
 **1. Install prerequisites + clone (one command)**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/KurtLehnardt/granted/main/install-linux.sh | bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/KurtLehnardt/granted/main/install-linux.sh)"
 ```
 Installs git and Node 22+ if missing (supports `apt`, `dnf`, and `yum` — verified end to end on both Ubuntu and Amazon Linux 2023), clones the repo into `./granted`, and runs `npm install`. Safe to re-run.
 

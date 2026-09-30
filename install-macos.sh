@@ -1,7 +1,16 @@
 #!/usr/bin/env bash
 # Granted — one-shot macOS installer.
 #
-#   curl -fsSL https://raw.githubusercontent.com/KurtLehnardt/granted/main/install-macos.sh | bash
+#   bash -c "$(curl -fsSL https://raw.githubusercontent.com/KurtLehnardt/granted/main/install-macos.sh)"
+#
+# Deliberately not `curl ... | bash`: this script shells out
+# to `brew install` more than once, and Homebrew's own progress renderer reads
+# from stdin -- when this script's own source is arriving on that same stdin
+# pipe, brew can silently steal bytes meant for the rest of the script (bash
+# reads a piped script incrementally, not all at once), truncating everything
+# after that point with no error and a 0 exit code. `bash -c "$(curl ...)"`
+# hands the whole script to bash as an already-fully-read string argument
+# instead, so it's never competing with anything for stdin. Don't revert this.
 #
 # Installs git + Node.js 22+ if missing, clones the repo, runs `npm ci`
 # (installs exactly what's pinned in package-lock.json, and never rewrites it),
@@ -45,7 +54,8 @@ else
 fi
 
 # Homebrew lives at a different prefix per architecture and is NOT on PATH in a
-# non-login shell (which is what `curl ... | bash` gets). Look in both places so
+# non-login shell (which is what this one-liner runs as, even when pasted into
+# an interactive terminal). Look in both places so
 # we don't wrongly conclude brew is missing and send the user down a slower path.
 # (Used both here and after a fresh bootstrap below -- kept as one function so
 # the two call sites can't drift apart.)
@@ -65,17 +75,21 @@ if command -v brew >/dev/null 2>&1; then
   HAVE_BREW=1
   ok "Homebrew found ($(brew --prefix))"
 elif [ -t 0 ]; then
-  # No Homebrew, but we're attached to a real terminal (pasted directly, not
-  # `curl | bash`): the git/Node fallbacks below can prompt for a sudo
-  # password and actually get an answer, so it's fine to skip Homebrew here
-  # if the user would rather not install it.
+  # No Homebrew, but we're attached to a real terminal -- e.g. the documented
+  # one-liner (`bash -c "$(curl -fsSL ...)"`) run interactively, which
+  # inherits the caller's own stdin rather than a pipe: the git/Node
+  # fallbacks below can prompt for a sudo password and actually get an
+  # answer, so it's fine to skip Homebrew here if the user would rather not
+  # install it.
   HAVE_BREW=0
   warn "Homebrew not found — will use Apple's tools and nodejs.org instead"
 else
-  # No Homebrew AND no TTY -- this is the documented `curl | bash` one-liner.
-  # The fallbacks below need sudo to prompt on a real terminal, which a piped
-  # script never has, so without Homebrew this path cannot finish unattended
-  # at all. Bootstrap Homebrew instead of dying with a "re-run this by hand"
+  # No Homebrew AND no TTY -- a genuinely non-interactive invocation (CI, a
+  # cron job, a non-tty SSH session, or the one-liner piped/redirected rather
+  # than run interactively). The fallbacks below need sudo to prompt on a
+  # real terminal, which none of those have, so without Homebrew this path
+  # cannot finish unattended at all. Bootstrap Homebrew instead of dying with
+  # a "re-run this by hand"
   # message -- but its own NONINTERACTIVE installer still needs *some* sudo
   # access to create /opt/homebrew (Apple Silicon) or use /usr/local (Intel)
   # on a brand new Mac; it just refuses to prompt for it (`sudo -n`) rather
@@ -156,8 +170,8 @@ if [ "$NODE_OK" -ne 1 ]; then
     brew install node
   else
     # No Homebrew: use Apple's own installer with the official universal .pkg.
-    # This needs sudo, so it only works in an interactive shell — a piped
-    # `curl | bash` has no TTY to prompt on.
+    # This needs sudo, so it only works in an interactive shell — a
+    # non-interactive invocation has no TTY to prompt on.
     log "Installing Node.js ${NODE_MAJOR_MIN}+ from nodejs.org..."
     [ -t 0 ] || die "Node.js ${NODE_MAJOR_MIN}+ is required and installing it needs sudo, which can't prompt through a pipe. Install Node from https://nodejs.org (or install Homebrew), then re-run this script."
     PKG_URL="https://nodejs.org/dist/latest-v${NODE_MAJOR_MIN}.x/"
