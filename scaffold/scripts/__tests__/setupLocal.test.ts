@@ -1,9 +1,6 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { spawn, spawnSync } from "node:child_process";
 
 import {
   MODEL_TIERS,
@@ -431,48 +428,33 @@ describe("launchOllamaDaemon: never inherits stdio from a long-lived grandchild"
       }) as unknown as typeof spawn,
     });
     assert.equal(calls.length, 1);
-    assert.deepEqual(calls[0], calls[0]);
     assert.equal(calls[0].cmd, "ollama");
     assert.deepEqual(calls[0].args, ["serve"]);
     assert.equal(calls[0].options.stdio, "ignore");
     assert.equal(calls[0].options.detached, true);
   });
 
-  test("real process: spawning a child that spawns a long-lived grandchild returns promptly", async (t) => {
-    if (process.platform !== "win32") {
-      t.skip("Windows-only regression for the `cmd /c start` pipe-inheritance hang");
-      return;
-    }
-    const dir = mkdtempSync(join(tmpdir(), "setup-local-launch-"));
-    // A stand-in for `ollama app.exe`: spawns a long-lived (sleeping) grandchild
-    // of its own, then exits immediately — mirroring the real hang shape.
-    const grandchildScript = join(dir, "grandchild.js");
-    const childScript = join(dir, "child.js");
-    writeFileSync(grandchildScript, "setTimeout(() => {}, 60000);");
-    writeFileSync(
-      childScript,
-      `const { spawn } = require("node:child_process");
-       spawn(process.execPath, [${JSON.stringify(grandchildScript)}], { detached: true, stdio: "ignore" }).unref();`,
-    );
+  test("real process: a caller waiting on the launcher isn't held open by the long-lived daemon", () => {
+    const driver = `import { spawn } from "node:child_process";
+      import { launchOllamaDaemon } from ${JSON.stringify(new URL("../setup-local.mjs", import.meta.url).href)};
+      const d = launchOllamaDaemon(process.platform, {
+        spawnFn: (_cmd, _args, options) => spawn(process.execPath, ["-e", "setTimeout(() => {}, 30000)"], options),
+      });
+      console.log(d.pid);`;
+    const r = spawnSync(process.execPath, ["--input-type=module", "-e", driver], { encoding: "utf8", timeout: 10000 });
+    const pid = Number(r.stdout);
     try {
-      const start = Date.now();
-      const child = launchOllamaDaemon("win32", {
-        env: process.env,
-        spawnFn: () =>
-          spawn(process.execPath, [childScript], {
-            stdio: "ignore",
-            detached: true,
-            windowsHide: true,
-          }),
-      });
-      await new Promise<void>((resolve, reject) => {
-        child.on("exit", () => resolve());
-        child.on("error", reject);
-        setTimeout(resolve, 5000);
-      });
-      assert.ok(Date.now() - start < 5000, "spawning the child must not block on the grandchild's pipes");
+      assert.equal(r.error, undefined, "the caller blocked on pipes inherited by the daemon");
+      assert.equal(r.status, 0, r.stderr);
+      assert.ok(pid > 0 && process.kill(pid, 0), "the daemon stand-in should still be running");
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      if (pid > 0) {
+        try {
+          process.kill(pid);
+        } catch {
+          /* already gone */
+        }
+      }
     }
   });
 });
