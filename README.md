@@ -1,5 +1,7 @@
 # Granted: government opportunity finder
 
+<img width="979" height="965" alt="image" src="https://github.com/user-attachments/assets/2c3b54ae-9e96-4436-881f-cd691c1e774b" />
+
 **Granted** turns a description of your business or research into a list of real **federal funding opportunities**: grants, SBIR/STTR R&D, procurement, loans, assistance, scholarships. Each match is scored for fit on the criteria a program officer would apply, and screened for eligibility.
 
 Run it with your own API keys or a fully local model — see **Run it yourself** below.
