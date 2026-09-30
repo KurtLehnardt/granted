@@ -1,5 +1,9 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import {
   MODEL_TIERS,
@@ -23,6 +27,7 @@ import {
   withOllamaOnPath,
   waitForDaemon,
   embedWithRetry,
+  launchOllamaDaemon,
 } from "../setup-local.mjs";
 
 /**
@@ -395,5 +400,79 @@ describe("embedWithRetry: warm + run data:embed, retry once, report failure", ()
       waitFn: async () => {},
     });
     assert.equal(result.ok, true);
+  });
+});
+
+describe("launchOllamaDaemon: never inherits stdio from a long-lived grandchild", () => {
+  test("Windows: spawns via `cmd /c start` detached with stdio ignored", () => {
+    const calls: Array<{ cmd: string; args: string[]; options: Record<string, unknown> }> = [];
+    launchOllamaDaemon("win32", {
+      localAppData: "C:/Users/me/AppData/Local",
+      env: { FOO: "bar", NODE_ENV: "test" },
+      spawnFn: ((cmd: string, args: string[], options: Record<string, unknown>) => {
+        calls.push({ cmd, args, options });
+        return { on: () => {}, unref: () => {} };
+      }) as unknown as typeof spawn,
+    });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].cmd, "cmd");
+    assert.deepEqual(calls[0].args.slice(0, 3), ["/c", "start", ""]);
+    assert.equal(calls[0].options.stdio, "ignore");
+    assert.equal(calls[0].options.detached, true);
+  });
+
+  test("non-Windows: spawns `ollama serve` detached with stdio ignored", () => {
+    const calls: Array<{ cmd: string; args: string[]; options: Record<string, unknown> }> = [];
+    launchOllamaDaemon("darwin", {
+      env: { FOO: "bar", NODE_ENV: "test" },
+      spawnFn: ((cmd: string, args: string[], options: Record<string, unknown>) => {
+        calls.push({ cmd, args, options });
+        return { on: () => {}, unref: () => {} };
+      }) as unknown as typeof spawn,
+    });
+    assert.equal(calls.length, 1);
+    assert.deepEqual(calls[0], calls[0]);
+    assert.equal(calls[0].cmd, "ollama");
+    assert.deepEqual(calls[0].args, ["serve"]);
+    assert.equal(calls[0].options.stdio, "ignore");
+    assert.equal(calls[0].options.detached, true);
+  });
+
+  test("real process: spawning a child that spawns a long-lived grandchild returns promptly", async (t) => {
+    if (process.platform !== "win32") {
+      t.skip("Windows-only regression for the `cmd /c start` pipe-inheritance hang");
+      return;
+    }
+    const dir = mkdtempSync(join(tmpdir(), "setup-local-launch-"));
+    // A stand-in for `ollama app.exe`: spawns a long-lived (sleeping) grandchild
+    // of its own, then exits immediately — mirroring the real hang shape.
+    const grandchildScript = join(dir, "grandchild.js");
+    const childScript = join(dir, "child.js");
+    writeFileSync(grandchildScript, "setTimeout(() => {}, 60000);");
+    writeFileSync(
+      childScript,
+      `const { spawn } = require("node:child_process");
+       spawn(process.execPath, [${JSON.stringify(grandchildScript)}], { detached: true, stdio: "ignore" }).unref();`,
+    );
+    try {
+      const start = Date.now();
+      const child = launchOllamaDaemon("win32", {
+        env: process.env,
+        spawnFn: () =>
+          spawn(process.execPath, [childScript], {
+            stdio: "ignore",
+            detached: true,
+            windowsHide: true,
+          }),
+      });
+      await new Promise<void>((resolve, reject) => {
+        child.on("exit", () => resolve());
+        child.on("error", reject);
+        setTimeout(resolve, 5000);
+      });
+      assert.ok(Date.now() - start < 5000, "spawning the child must not block on the grandchild's pipes");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
