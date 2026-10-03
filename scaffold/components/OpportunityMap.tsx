@@ -5,6 +5,7 @@ import EligibilityBuckets, { type EligibilityItem } from "./EligibilityBuckets";
 import SimilarCompanies from "./SimilarCompanies";
 import AgencyMap from "./AgencyMap";
 import OpportunityGroups from "./OpportunityGroups";
+import OpportunityFilters from "./OpportunityFilters";
 import WeakerMatches from "./WeakerMatches";
 import OpportunityGraph from "./OpportunityGraph";
 import FundingStrategy from "./FundingStrategy";
@@ -251,10 +252,16 @@ export default function OpportunityMap({ map }: { map: MapT }) {
             <p className={eyebrowClass("mb-4")}>
               {w ? "Adjacent and partial matches" : "Your opportunity map"}
             </p>
-            {/* C1b — user-facing type filters + grouping by kind, flag-gated
-                (default off). All logic lives in OpportunityGroups + lib/
-                opportunities/group.ts; the flat list stays the baseline. */}
-            {isFlagEnabled("c1b_type_groups") ? (
+            {/* Match-results filter/sort (location/match %/award/recency),
+                flag-gated (default off) — takes precedence over the C1b
+                kind-filter chips when both are on, feeding its own filtered+
+                sorted array into whichever of those two renders next, so the
+                two controls stack rather than one replacing the other.
+                Falls through to C1b's own kind-filter-or-flat-list choice
+                when match_filters is off, exactly as before this feature. */}
+            {isFlagEnabled("match_filters") ? (
+              <OpportunityFilters matches={shown} startupProfile={map.profile} />
+            ) : isFlagEnabled("c1b_type_groups") ? (
               <OpportunityGroups matches={shown} startupProfile={map.profile} />
             ) : (
               <div className="space-y-3">

@@ -41,7 +41,8 @@ export type FlagName =
   | "r5_deep_analysis"
   | "e3_two_pass"
   | "discernment_layer"
-  | "commercial_ui";
+  | "commercial_ui"
+  | "match_filters";
 
 export interface FlagDefinition {
   /** Stable identifier. Matches the key it's stored under in FLAG_REGISTRY. */
@@ -207,5 +208,16 @@ export const FLAG_REGISTRY: Record<FlagName, FlagDefinition> = {
       "sign-in toggle. Default OFF so a self-hosted / run-it-locally user is never shown a subscription " +
       "for something that is free to run; the underlying code stays in place. Flip ON to restore the paid framing.",
     envVar: "NEXT_PUBLIC_FLAG_COMMERCIAL_UI",
+  },
+  match_filters: {
+    name: "match_filters",
+    requirement: "FILT",
+    description:
+      "User-facing filter/sort control on the opportunity map: filter by location (state, via the " +
+      "new CA/IL/NC sources' geography field; never hides a nationwide/geography-less opportunity) " +
+      "and sort by match %, award amount, or recency (Granted's own first-seen retrieved_at timestamp " +
+      "— 'added to Granted,' not 'posted by the agency'). Default OFF: on day one only a few hundred " +
+      "records carry geography, so the control's usefulness grows with the corpus.",
+    envVar: "NEXT_PUBLIC_FLAG_MATCH_FILTERS",
   },
 };
