@@ -14,9 +14,10 @@
  * fit — free"; secondary actions use the navy `structure` outline affordance,
  * mirroring components/OpportunityCard.tsx.
  *
- * Every factual claim is grounded in the shipped corpus: 4,383 real opportunities
- * (data/opportunities.json) from grants.gov and SAM.gov assistance listings,
- * spanning four funding types. Nothing here claims a mock/flag-gated capability
+ * Every factual claim is grounded in the shipped corpus: 4,698 real opportunities
+ * (data/opportunities.json) from grants.gov, SAM.gov assistance listings, and
+ * state grant programs in California, Illinois, and North Carolina, spanning
+ * four funding types. Nothing here claims a mock/flag-gated capability
  * (no auto-filing of applications).
  *
  * TO PROMOTE /welcome TO ROOT LATER: rename this route to app/page.tsx (moving
@@ -74,7 +75,7 @@ export default function WelcomePage() {
                 </h1>
                 <p className="mt-5 max-w-xl text-pretty font-body text-[18px] leading-relaxed text-foreground">
                   Describe your work in plain English. Granted scores your fit
-                  across 4,383 real federal opportunities, grounded in actual award
+                  across 4,698 real opportunities, grounded in actual award
                   data.
                 </p>
 
@@ -102,9 +103,10 @@ export default function WelcomePage() {
             <div className="mt-14 rounded-lg bg-canvas-alt px-6 py-5 shadow-card">
               <p className={eyebrowClass}>What it&rsquo;s grounded in</p>
               <p className="mt-2 font-body text-[15px] leading-relaxed text-foreground">
-                <span className="font-semibold">4,383 real federal opportunities</span>{" "}
-                from keyless, public sources — grants.gov and SAM.gov assistance
-                listings — across four funding types.
+                <span className="font-semibold">4,698 real opportunities</span>{" "}
+                from keyless, public sources — grants.gov, SAM.gov assistance
+                listings, and state grant programs in California, Illinois, and
+                North Carolina — across four funding types.
               </p>
               <ul className="mt-4 flex flex-wrap gap-2">
                 {[
@@ -164,8 +166,8 @@ export default function WelcomePage() {
               />
               <Step
                 n="2"
-                title="We score your fit across 4,383 real opportunities"
-                body="Your profile is matched against 4,383 real federal opportunities — grants.gov and SAM.gov assistance listings — and scored on program-officer criteria, then screened for eligibility."
+                title="We score your fit across 4,698 real opportunities"
+                body="Your profile is matched against 4,698 real opportunities — grants.gov, SAM.gov assistance listings, and state grant programs in California, Illinois, and North Carolina — and scored on program-officer criteria, then screened for eligibility."
               />
               <Step
                 n="3"
@@ -218,11 +220,11 @@ export default function WelcomePage() {
                 </h3>
                 <ul className="mt-4 space-y-3">
                   <ProItem>
-                    Every claim traces to a real federal opportunity or award
+                    Every claim traces to a real opportunity or award
                     record. Nothing is fabricated.
                   </ProItem>
                   <ProItem>
-                    Fit is scored against a corpus of 4,383 actual programs, on the
+                    Fit is scored against a corpus of 4,698 actual programs, on the
                     criteria a program officer would apply.
                   </ProItem>
                   <ProItem>
@@ -289,7 +291,7 @@ export default function WelcomePage() {
                 Find funding matched to your work.
               </h2>
               <p className="mx-auto mt-4 max-w-xl text-pretty font-body text-[16px] leading-relaxed text-token-white">
-                A free fit check and a map of 4,383 real federal opportunities,
+                A free fit check and a map of 4,698 real opportunities,
                 scored to your business or research.
               </p>
               <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">

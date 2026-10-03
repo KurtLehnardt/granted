@@ -6,7 +6,8 @@
  * type-only import (erased at runtime), so this module loads under plain node.
  *
  * Every claim here is grounded in the shipped corpus (data/opportunities.json:
- * 4383 opportunities from grants.gov and SAM.gov assistance listings). No
+ * 4698 opportunities from grants.gov, SAM.gov assistance listings, and state
+ * grant programs in California, Illinois, and North Carolina). No
  * mock/flag-gated capability is claimed.
  */
 import type { Metadata } from "next";
@@ -19,7 +20,7 @@ export const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:30
 export const TITLE = "Granted — find federal funding matched to your business or research";
 
 export const DESCRIPTION =
-  "Describe your business or research in plain English and Granted maps you to 4383 real federal funding opportunities — grants, assistance listings, loans, and scholarships — scored on the criteria a program officer would actually apply. Grounded in real federal award data.";
+  "Describe your business or research in plain English and Granted maps you to 4698 real funding opportunities — federal grants, assistance listings, loans, and scholarships, plus state grant programs in California, Illinois, and North Carolina — scored on the criteria a program officer would actually apply. Grounded in real award data.";
 
 export const metadata: Metadata = {
   title: TITLE,
@@ -70,7 +71,7 @@ export const structuredData = {
       operatingSystem: "Web",
       url: SITE_URL,
       description:
-        "Describe your business or research in plain English and Granted scores your fit across 4383 real federal funding opportunities — grants.gov and SAM.gov assistance listings — screens eligibility, and scores each match, grounded in real federal award data.",
+        "Describe your business or research in plain English and Granted scores your fit across 4698 real funding opportunities — grants.gov, SAM.gov assistance listings, and state grant programs in California, Illinois, and North Carolina — screens eligibility, and scores each match, grounded in real award data.",
       offers: {
         "@type": "Offer",
         price: "0",
