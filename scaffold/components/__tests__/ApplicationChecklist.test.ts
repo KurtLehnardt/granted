@@ -286,6 +286,14 @@ describe("buildNextSteps", () => {
     assert.ok(steps.some((s) => /organization's AOR review the draft/i.test(s)));
   });
 
+  test("the final submit step doesn't name federal-only portal examples for a state-grant source", () => {
+    const federalSteps = buildNextSteps(asMatch(RD_OPPORTUNITY)).map(stepText);
+    const caSteps = buildNextSteps(asMatch({ ...BARE_OPPORTUNITY, source: "ca-grants" })).map(stepText);
+    assert.ok(federalSteps.some((s) => /e\.g\., Grants\.gov or SAM\.gov/i.test(s)));
+    assert.ok(!caSteps.some((s) => /Grants\.gov or SAM\.gov/i.test(s)));
+    assert.ok(caSteps.some((s) => /official portal/i.test(s)));
+  });
+
   test("points at the opportunity's own URL as a real link when present, else names the source", () => {
     const withUrl = buildNextSteps(asMatch(RD_OPPORTUNITY));
     const withoutUrl = buildNextSteps(asMatch(GRANT_OPPORTUNITY));

@@ -281,7 +281,9 @@ export function buildNextSteps(match: Match, now?: number): Step[] {
       : "Have your organization's authorized signer review the draft before anything is submitted.",
   ]);
   steps.push([
-    "Submit only through the opportunity's official portal (e.g., Grants.gov or SAM.gov).",
+    FEDERAL_SOURCES.has(opportunity.source)
+      ? "Submit only through the opportunity's official portal (e.g., Grants.gov or SAM.gov)."
+      : "Submit only through the opportunity's official portal, as named on the listing above.",
   ]);
   return steps;
 }
