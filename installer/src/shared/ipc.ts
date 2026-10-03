@@ -41,6 +41,14 @@ export interface OpenInstallTerminalResult {
   message: string;
   /** The one-liner command that was run/copied, so the UI can also show it. */
   command: string;
+  /**
+   * Whether a `terminal:install-status` event will eventually follow this
+   * call (currently: only a successful Windows launch). The renderer uses
+   * this — rather than re-deriving "is this Windows" from separately
+   * fetched prereq-check state — to decide whether to keep its UI in a
+   * waiting state until that event arrives.
+   */
+  pollingStarted: boolean;
 }
 
 /**

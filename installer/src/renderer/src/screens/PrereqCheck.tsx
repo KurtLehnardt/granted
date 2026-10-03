@@ -64,14 +64,19 @@ export default function PrereqCheck(): React.JSX.Element {
       .openInstallTerminal()
       .then((result) => {
         setTerminalResult(result);
-        const isWindows = state.status === "loaded" && state.report.platform === "win32";
-        setWaitingForInstall(result.ok && isWindows);
+        // Main process is the source of truth for whether a
+        // terminal:install-status event will follow — not re-derived from
+        // separately-fetched prereq-check state here, which could still be
+        // "loading" (and so wrongly read as non-Windows) if this resolves
+        // before that first check does.
+        setWaitingForInstall(result.ok && result.pollingStarted);
       })
       .catch((err: unknown) => {
         setTerminalResult({
           ok: false,
           message: err instanceof Error ? err.message : String(err),
           command: "",
+          pollingStarted: false,
         });
       })
       .finally(() => setOpeningTerminal(false));
