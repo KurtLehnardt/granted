@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { normalizeSamRow, normalizeCaRow } from "../normalizeNewSources.mjs";
+import { normalizeSamRow, normalizeCaRow, normalizeIlRow, normalizeNcRow } from "../normalizeNewSources.mjs";
 import { normalizeStateName } from "../../../lib/location";
 
 test("normalizeSamRow — blank title returns null", () => {
@@ -164,4 +164,94 @@ test("normalizeCaRow — Loan type maps to kind:loan, everything else to kind:gr
   assert.equal(normalizeCaRow({ ...base, Type: "Loan" })!.kind, "loan");
   assert.equal(normalizeCaRow({ ...base, Type: "Grant" })!.kind, "grant");
   assert.equal(normalizeCaRow({ ...base, Type: "Grant; Loan" })!.kind, "grant");
+});
+
+test("normalizeIlRow — blank title returns null", () => {
+  assert.equal(normalizeIlRow({ title: "" }), null);
+});
+
+test("normalizeIlRow — real fixture maps correctly (open-ended date, real award range)", () => {
+  const row = {
+    title: "APS_Spring 2025 Semester Pathways Program",
+    url: "https://il.amplifund.com/Public/Opportunities/Details/0f9fad21-8730-4308-9a6e-d2b062587e1b",
+    agency: "AGE (402)",
+    dateRange: "04/03/2025 - No end date",
+    awardRange: "$15000 - $75000",
+  };
+  const o = normalizeIlRow(row);
+  assert.ok(o);
+  assert.equal(o!.source, "il-grants");
+  assert.equal(o!.geography, "Illinois");
+  assert.equal(o!.deadline, undefined, "'No end date' must not become a fabricated deadline");
+  assert.equal(o!.fundingLow, 15_000);
+  assert.equal(o!.fundingHigh, 75_000);
+  assert.ok(o!.description.length >= 60);
+});
+
+test("normalizeIlRow — a real close date is used as the deadline", () => {
+  const row = {
+    title: "93.324 - State Health Insurance Assistance Program (SHIP) Base Grant Year 2",
+    url: "https://il.amplifund.com/Public/Opportunities/Details/776d2338-6519-4ecb-a7a1-9b3618158966",
+    agency: "AGE (402)",
+    dateRange: "09/22/2026 - 10/22/2026",
+    awardRange: "$0 - $0",
+  };
+  const o = normalizeIlRow(row);
+  assert.ok(o);
+  assert.equal(o!.deadline, "10/22/2026");
+  assert.equal(o!.fundingLow, undefined, "$0-$0 is not a real figure, must not be reported as free funding");
+  assert.equal(o!.fundingHigh, undefined);
+});
+
+test("normalizeIlRow — 'Not Applicable' award range never fabricates a figure", () => {
+  const row = {
+    title: "Targeted Holistic Resources to Invest in Vision, Empowerment, and Success (THRIVES) Grants",
+    url: "https://omb.illinois.gov/public/gata/csfa/Opportunity.aspx?nofo=4339",
+    agency: "BHE (601)",
+    dateRange: "08/31/2026 - 10/19/2026",
+    awardRange: "Not Applicable",
+  };
+  const o = normalizeIlRow(row);
+  assert.ok(o);
+  assert.equal(o!.fundingLow, undefined);
+  assert.equal(o!.fundingHigh, undefined);
+  assert.equal(o!.deadline, "10/19/2026");
+});
+
+test("normalizeNcRow — blank title returns null", () => {
+  assert.equal(normalizeNcRow({ title: "" }), null);
+});
+
+test("normalizeNcRow — real fixture maps correctly; no deadline/funding/eligibility (honest data ceiling)", () => {
+  const row = {
+    category: "Agriculture",
+    url: "https://www.ncadfp.org/",
+    title: "Agricultural Development and Farmland Preservation Trust Fund",
+    agency: "AGR",
+    description: "This program supports the farming, forestry, and horticulture communities within the agriculture industry.",
+  };
+  const o = normalizeNcRow(row);
+  assert.ok(o);
+  assert.equal(o!.source, "nc-grants");
+  assert.equal(o!.geography, "North Carolina");
+  assert.equal(o!.deadline, undefined, "NC's index has no deadline field at all -- must never be fabricated");
+  assert.equal(o!.fundingLow, undefined);
+  assert.equal(o!.fundingHigh, undefined);
+  assert.equal(o!.eligibility, undefined);
+  assert.deepEqual(o!.industryTags, ["Agriculture"]);
+  assert.ok(o!.description.length >= 60);
+});
+
+test("normalizeNcRow — HTML entities in real scraped text are decoded (&amp; -> &)", () => {
+  // Real value seen live: category "Art &amp; Culture".
+  const row = {
+    category: "Art &amp; Culture",
+    url: "https://www.ncarts.org/grants-resources/grants-dashboard",
+    title: "NC Arts Council Grants",
+    agency: "DNCR",
+    description: "The NC Arts Council provides grants to artists and organizations across the state every single year.",
+  };
+  const o = normalizeNcRow(row);
+  assert.ok(o);
+  assert.deepEqual(o!.industryTags, ["Art & Culture"]);
 });
