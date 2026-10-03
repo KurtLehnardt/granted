@@ -10,10 +10,10 @@
  * Categories/Purpose/Description/ApplicantType/ApplicantTypeNotes/Geography/
  * EstAvailFunds/EstAmounts/OpenDate/ApplicationDeadline/GrantURL.
  *
- * IMPORTANT: `GrantID` is almost always null in the real data, and the rare
- * non-null values are garbage (agency names, not ids) — confirmed directly
- * against live data. `PortalID` is the reliable, always-populated key. Do
- * NOT use GrantID as the id source.
+ * IMPORTANT: `GrantID` is null in most of the real data (confirmed live:
+ * 1550/2017 records, 76.9%), and even the populated remainder is garbage
+ * (agency names, not ids) — confirmed directly against live data. `PortalID`
+ * is the reliable, always-populated key. Do NOT use GrantID as the id source.
  *
  * Writes ONLY its own raw file (data/raw/ca-grants.json), same convention as
  * every other fetcher — one atomic assembly step (refresh-corpus.mjs)

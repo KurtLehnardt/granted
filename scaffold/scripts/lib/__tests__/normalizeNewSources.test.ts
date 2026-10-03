@@ -90,6 +90,55 @@ test("normalizeCaRow — 'Ongoing' deadline becomes undefined, not a literal non
   assert.equal(o!.deadline, undefined);
 });
 
+test("normalizeCaRow — 'Between $A and $B' range funding uses the CEILING, not the floor", () => {
+  // Real bug found live: California's EstAmounts often reads "Between $A and
+  // $B" (A is the floor, B the ceiling). Taking only the first dollar figure
+  // in the text silently returns the floor as if it were the ceiling --
+  // confirmed live, 3 real programs collapsed to a literal fundingHigh of $1.
+  const row = {
+    PortalID: "141033",
+    Title: "Beet Curly Top Virus Control Program Grants",
+    AgencyDept: "Department of Food and Agriculture",
+    Purpose: "Funds control of the beet curly top virus across affected growing regions statewide.",
+    EstAmounts: "Between $1.00 and $190,000.00",
+  };
+  const o = normalizeCaRow(row);
+  assert.ok(o);
+  assert.equal(o!.fundingHigh, 190_000, "ceiling must be the larger figure, not the first one found");
+  assert.equal(o!.fundingLow, 1);
+});
+
+test("normalizeCaRow — EstAvailFunds (a single total, not a range) is used wholesale, never mixed with EstAmounts", () => {
+  const row = {
+    PortalID: "190509",
+    Title: "Urban Streams Restoration Program",
+    AgencyDept: "Department of Water Resources",
+    Purpose: "Restores urban streams across California communities statewide every year.",
+    EstAvailFunds: "$3,000,000.00",
+    EstAmounts: "Between $1.00 and $190,000.00", // must be ignored -- EstAvailFunds has a real figure
+  };
+  const o = normalizeCaRow(row);
+  assert.ok(o);
+  assert.equal(o!.fundingHigh, 3_000_000);
+  assert.equal(o!.fundingLow, undefined, "a single total is not a range -- no fundingLow");
+});
+
+test("normalizeCaRow — deadline requires an explicit YYYY-MM-DD shape, not just any 4-digit substring", () => {
+  // Tightened per review: a bare "any 4-digit token + Date() doesn't throw"
+  // check would wrongly accept non-date text like "FY 2027" or "Round 2027"
+  // and fabricate a Jan-1 deadline via JS Date's permissive parsing.
+  const base = {
+    PortalID: "1",
+    Title: "Some Program With A Reasonably Long Enough Title For This Test",
+    AgencyDept: "Dept",
+    Purpose: "Purpose text that is long enough to clear the description floor easily here.",
+  };
+  assert.equal(normalizeCaRow({ ...base, ApplicationDeadline: "FY 2027" })!.deadline, undefined);
+  assert.equal(normalizeCaRow({ ...base, ApplicationDeadline: "Round 2027" })!.deadline, undefined);
+  assert.equal(normalizeCaRow({ ...base, ApplicationDeadline: "2027" })!.deadline, undefined);
+  assert.equal(normalizeCaRow({ ...base, ApplicationDeadline: "2026-11-02 17:00:00" })!.deadline, "2026-11-02 17:00:00");
+});
+
 test("normalizeCaRow — missing deadline/funding never fabricates a value", () => {
   const row = {
     PortalID: "192057",
