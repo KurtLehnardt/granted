@@ -50,6 +50,15 @@ test("[edge] unparseable input returns undefined, never a default", () => {
   assert.equal(normalizeStateName("asdf1234"), undefined);
 });
 
+test("[edge] word-boundary guard: a state name as a mere substring of a place name must not match", () => {
+  // Real place names that contain a full state name as a substring but are
+  // not that state -- a bare .includes() scan would wrongly match these.
+  assert.equal(normalizeStateName("Ohiopyle"), undefined); // real PA town
+  assert.equal(normalizeStateName("Washingtonville"), undefined); // real NY village
+  // The comma-qualified form still resolves correctly via the comma-tail step.
+  assert.equal(normalizeStateName("Ohiopyle, PA"), "Pennsylvania");
+});
+
 test("[edge] common-word collision guard: no bare-abbreviation scan over prose", () => {
   // "or" and "in" are real abbreviations (Oregon, Indiana) but must not be
   // picked up from arbitrary prose -- only a comma-tail or the whole string.

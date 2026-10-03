@@ -697,7 +697,7 @@ function ScoredOpportunityCard({
                 <Stat n={m.history.similarCompanies} label="similar companies" />
                 <Stat n={money(m.history.totalAwarded)} label="total awarded" />
                 <Stat n={money(m.history.medianAward)} label="median award" />
-                <Stat n={m.history.inState} label={m.history.inStateLabel ? `in ${m.history.inStateLabel}` : "in-state"} />
+                <Stat n={m.history.inState} label={m.history.inStateLabel ? `in ${m.history.inStateLabel}` : "in your state"} />
                 <Stat n={m.history.inVertical} label="in your vertical" />
               </div>
 

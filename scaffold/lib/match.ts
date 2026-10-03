@@ -202,6 +202,7 @@ export function historyFromRows(rows: AwardRow[], state?: string, fromAgency = f
   // rows from many unrelated opportunities), so sort by award size instead:
   // the most notable real awards are the most useful thing to show.
   const ordered = fromAgency ? verified.slice().sort((a, b) => b.amount - a.amount) : verified;
+  const stateLabel = normalizeStateName(state);
   return {
     similarCompanies: verified.length,
     totalAwarded: amounts.reduce((a, b) => a + b, 0),
@@ -210,7 +211,7 @@ export function historyFromRows(rows: AwardRow[], state?: string, fromAgency = f
     inVertical: verified.filter((r) => r.sameVertical).length,
     recipients: ordered.slice(0, 8) as AwardHistory["recipients"],
     ...(fromAgency ? { fromAgency: true as const } : {}),
-    ...(normalizeStateName(state) ? { inStateLabel: normalizeStateName(state)! } : {}),
+    ...(stateLabel ? { inStateLabel: stateLabel } : {}),
   };
 }
 

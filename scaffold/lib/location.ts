@@ -99,8 +99,10 @@ function resolveExact(cleaned: string): string | undefined {
  *     "Draper, UT 84020", "Salt Lake City, Utah 84020", and correctly
  *     resolves "Washington, DC" to the District of Columbia rather than
  *     misfiring on "Washington" the state.
- *  3. A longest-name-first substring scan of the whole string — catches
- *     "Headquartered in Draper, Utah".
+ *  3. A longest-name-first, WORD-BOUNDARY scan of the whole string — catches
+ *     "Headquartered in Draper, Utah" without falsely matching a state name
+ *     that's merely a substring of an unrelated word ("Ohiopyle", PA, must
+ *     not match "Ohio"; "Washingtonville", NY, must not match "Washington").
  *
  * Deliberately NOT done: scanning for bare 2-letter abbreviations at
  * arbitrary positions in prose. Common words collide with real state codes
@@ -130,8 +132,12 @@ export function normalizeStateName(input: string | null | undefined): string | u
     }
   }
 
+  // Word-boundary, not a bare substring check: "Ohiopyle" (a real Pennsylvania
+  // town) and "Washingtonville" (a real New York village) both contain a
+  // full state name as a substring but are not that state.
   for (const name of FULL_NAMES_LONGEST_FIRST) {
-    if (whole.includes(name)) return STATE_ABBREVIATIONS[FULL_NAME_TO_ABBREV.get(name)!];
+    const pattern = new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`);
+    if (pattern.test(whole)) return STATE_ABBREVIATIONS[FULL_NAME_TO_ABBREV.get(name)!];
   }
 
   return undefined;
