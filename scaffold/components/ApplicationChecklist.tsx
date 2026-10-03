@@ -205,6 +205,21 @@ function sourceApplyStep(opportunity: Opportunity, now?: number): Step {
       const pointer = sourcePointer(opportunity, "this opportunity's page");
       return [`Respond through SAM.gov Contract Opportunities, following ${opportunity.agency}'s solicitation instructions. Details: `, pointer, `.`];
     }
+    case "ca-grants": {
+      const pointer = sourcePointer(opportunity, "the official California Grants Portal listing");
+      const deadline = formatDate(opportunity.deadline);
+      return deadline
+        ? [`Read the full program details on `, pointer, ` and apply directly with ${opportunity.agency} before its deadline of ${deadline}.`]
+        : [`Read the full program details on `, pointer, ` and apply directly with ${opportunity.agency}. No deadline is listed — confirm the application window on the listing.`];
+    }
+    case "il-grants": {
+      const pointer = sourcePointer(opportunity, "the official Illinois CSFA opportunity listing");
+      return [`Read the full program details on `, pointer, ` and apply directly with ${opportunity.agency} (Illinois state grants are administered per-agency, often through AmpliFund).`];
+    }
+    case "nc-grants": {
+      const pointer = sourcePointer(opportunity, "the program's official page");
+      return [`This is a directory listing, not an application page — read the full program details on `, pointer, ` and contact ${opportunity.agency} directly to ask how to apply (North Carolina's grant directory doesn't list deadlines or amounts centrally).`];
+    }
     case "agency-feed":
     default: {
       const pointer = sourcePointer(opportunity, "this opportunity's page");
@@ -212,6 +227,20 @@ function sourceApplyStep(opportunity: Opportunity, now?: number): Step {
     }
   }
 }
+
+/** Sources whose apply path genuinely runs through SAM.gov/grants.gov-style
+ *  federal registration (UEI, AOR, E-Biz POC) — state-grant portals (CA/IL
+ *  CSFA/NC) have their own, different registration requirements (or none
+ *  centrally at all, per their own listing), so this boilerplate would be
+ *  actively wrong there, not just generic. */
+const FEDERAL_SOURCES = new Set<Opportunity["source"]>([
+  "grants.gov",
+  "sbir",
+  "sbir.gov",
+  "assistance-listings",
+  "sam.gov",
+  "sam-contracts",
+]);
 
 /** Ordered next actions. The LAST step always points to the opportunity's
  *  official portal, after the org's AOR has reviewed the draft. */
@@ -222,9 +251,11 @@ export function buildNextSteps(match: Match, now?: number): Step[] {
   if (match.whatToVerify?.trim()) {
     steps.push([`From your match assessment, before applying verify: ${match.whatToVerify.trim()}`]);
   }
-  steps.push([
-    "Make sure your SAM.gov registration is Active and your UEI, AOR, and E-Biz POC delegation are in place — most federal portals block submission without them.",
-  ]);
+  if (FEDERAL_SOURCES.has(opportunity.source)) {
+    steps.push([
+      "Make sure your SAM.gov registration is Active and your UEI, AOR, and E-Biz POC delegation are in place — most federal portals block submission without them.",
+    ]);
+  }
   steps.push(["Draft answers to the questions below and gather the documents listed."]);
   if (match.whatToDoNext?.trim()) {
     steps.push([`From your match assessment: ${match.whatToDoNext.trim()}`]);

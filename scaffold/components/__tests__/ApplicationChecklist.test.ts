@@ -233,9 +233,28 @@ describe("buildNextSteps", () => {
     assert.match(stepText(steps[steps.length - 1]), /official portal/i);
   });
 
-  test("always includes the generic SAM.gov/UEI/AOR/E-Biz registration reminder", () => {
+  test("federal sources include the generic SAM.gov/UEI/AOR/E-Biz registration reminder", () => {
     const steps = buildNextSteps(asMatch(RD_OPPORTUNITY)).map(stepText);
     assert.ok(steps.some((s) => /SAM\.gov registration is Active/i.test(s)));
+  });
+
+  test("state-grant sources do NOT show the federal SAM.gov/UEI/AOR/E-Biz reminder -- it would be actively wrong there", () => {
+    const CA_OPPORTUNITY: Opportunity = {
+      id: "opp-ca-1",
+      source: "ca-grants",
+      kind: "grant",
+      program: "A California Grant Program",
+      agency: "California Department of Example",
+      description: "Funds example things across California.",
+      geography: "California",
+    };
+    for (const source of ["ca-grants", "il-grants", "nc-grants"] as const) {
+      const steps = buildNextSteps(asMatch({ ...CA_OPPORTUNITY, source })).map(stepText);
+      assert.ok(
+        !steps.some((s) => /SAM\.gov registration is Active/i.test(s)),
+        `${source} must not show the federal registration reminder`,
+      );
+    }
   });
 
   test("points at the opportunity's own URL as a real link when present, else names the source", () => {
@@ -285,6 +304,19 @@ describe("buildNextSteps", () => {
     assert.notEqual(sbirStep, samContractsStep);
     assert.notEqual(sbirStep, assistanceStep);
     assert.notEqual(grantsGovStep, samContractsStep);
+  });
+
+  test("state-grant sources get their own apply-step text, not the generic agency-feed default", () => {
+    const withUrl = { ...BARE_OPPORTUNITY, url: "https://example.gov/program" };
+    const caStep = stepText(buildNextSteps(asMatch({ ...withUrl, source: "ca-grants" }))[0]);
+    const ilStep = stepText(buildNextSteps(asMatch({ ...withUrl, source: "il-grants" }))[0]);
+    const ncStep = stepText(buildNextSteps(asMatch({ ...withUrl, source: "nc-grants" }))[0]);
+
+    assert.match(caStep, /California Grants Portal/i);
+    assert.match(ilStep, /Illinois CSFA/i);
+    assert.match(ncStep, /directory listing, not an application page/i);
+    assert.notEqual(caStep, ilStep);
+    assert.notEqual(ilStep, ncStep);
   });
 
   test("a SBIR/STTR step is a real apply step (agency solicitation page + deadline), never an awardee/background label", () => {
