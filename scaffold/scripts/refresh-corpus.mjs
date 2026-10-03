@@ -30,7 +30,7 @@ import {
 } from "../lib/corpus/refreshStatus.ts";
 import { overallPct } from "../lib/corpus/refreshProgress.ts";
 import { normalizeGrantsRecord, normalizeSbirSolicitation } from "./lib/normalizeGrants.mjs";
-import { normalizeSamRow, normalizeCaRow } from "./lib/normalizeNewSources.mjs";
+import { normalizeSamRow, normalizeCaRow, normalizeIlRow, normalizeNcRow } from "./lib/normalizeNewSources.mjs";
 
 const LOCAL_DIR = "data/local";
 const RAW_DIR = join(LOCAL_DIR, "raw");
@@ -184,14 +184,18 @@ async function main() {
 
     if (isStopRequested()) return await applyStop({});
     run("California Grants Portal", "scripts/1-fetch-ca-grants.mjs", rawEnv);
+    run("Illinois CSFA", "scripts/1-fetch-il-grants.mjs", rawEnv);
+    run("North Carolina grant directory", "scripts/1-fetch-nc-grants.mjs", rawEnv);
 
     if (isStopRequested()) return await applyStop({});
 
-    const [grants, sbirSolicitations, samAssistance, caGrants] = await Promise.all([
+    const [grants, sbirSolicitations, samAssistance, caGrants, ilGrants, ncGrants] = await Promise.all([
       readJson(join(RAW_DIR, "grants.json"), []),
       readJson(join(RAW_DIR, "sbir-solicitations.json"), []),
       readJson(join(RAW_DIR, "sam-assistance.json"), []),
       readJson(join(RAW_DIR, "ca-grants.json"), []),
+      readJson(join(RAW_DIR, "il-grants.json"), []),
+      readJson(join(RAW_DIR, "nc-grants.json"), []),
     ]);
 
     const existing = await readJson(LOCAL_OPPS, await readJson("data/opportunities.json", []));
@@ -210,6 +214,8 @@ async function main() {
       ...sbirSolicitations.map(normalizeSbirSolicitation),
       ...samAssistance.map(normalizeSamRow),
       ...caGrants.map(normalizeCaRow),
+      ...ilGrants.map(normalizeIlRow),
+      ...ncGrants.map(normalizeNcRow),
     ].filter((o) => o && o.description && o.description.length >= 60);
     fresh = dedupeById(fresh);
     // Carry a record's first-ever retrieval timestamp forward across refreshes

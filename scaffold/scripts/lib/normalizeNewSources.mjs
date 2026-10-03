@@ -1,7 +1,15 @@
 import { createHash } from "node:crypto";
 
+// Grants.gov/SAM.gov deliver already-decoded JSON field values, so `clean`
+// never needed HTML-entity decoding before. Illinois/NC are scraped from raw
+// HTML, which does carry real entities (confirmed live: &amp; -- common in
+// "Health & Human Services"-style text --, &nbsp;, &#x27;). Decode the small,
+// confirmed-real set rather than pulling in a full HTML-entity library.
+const HTML_ENTITIES = { "&amp;": "&", "&nbsp;": " ", "&#x27;": "'", "&#39;": "'", "&quot;": '"' };
+const decodeEntities = (s) => s.replace(/&(?:amp|nbsp|#x27|#39|quot);/g, (m) => HTML_ENTITIES[m]);
+
 export const clean = (s) =>
-  (s ?? "")
+  decodeEntities(s ?? "")
     .replace(/<\/?[a-zA-Z][^>]*>/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -88,6 +96,73 @@ export function normalizeCaRow(p) {
     fundingHigh: amounts.high,
     url: clean(p.GrantURL) || undefined,
     geography: "California",
+  };
+}
+
+/** Illinois CSFA's "Application Date Range" column is "MM/DD/YYYY -
+ *  MM/DD/YYYY" or "MM/DD/YYYY - No end date" -- the close date (second one)
+ *  is the real deadline when present. Passed through as-is: Date.parse
+ *  correctly handles US MM/DD/YYYY strings, same as every other consumer of
+ *  `deadline` downstream already assumes. */
+function parseIlDeadline(dateRange) {
+  const m = clean(dateRange).match(/-\s*(\d{2}\/\d{2}\/\d{4})\s*$/);
+  if (!m) return undefined; // "No end date" or an unrecognized shape
+  return Number.isNaN(Date.parse(m[1])) ? undefined : m[1];
+}
+
+/** One raw data/raw/il-grants.json row (Illinois CSFA, the statutorily
+ *  mandated single live-opportunities list) -> Opportunity. No natural
+ *  numeric key in the row itself, so id is a content hash. */
+export function normalizeIlRow(p) {
+  const title = clean(p.title);
+  if (!title) return null;
+  const agency = clean(p.agency) || "Illinois state agency";
+  const description =
+    `${title}. ${agency}. See the official Illinois CSFA opportunity listing for full eligibility and deadlines.`.slice(
+      0,
+      4000,
+    );
+  const { low, high } = parseDollarAmounts(p.awardRange);
+  return {
+    id: `il-${shortId(p.url || title)}`,
+    source: "il-grants",
+    kind: "grant",
+    program: title,
+    agency,
+    description,
+    deadline: parseIlDeadline(p.dateRange),
+    fundingLow: low !== high ? low : undefined,
+    fundingHigh: high,
+    url: clean(p.url) || undefined,
+    geography: "Illinois",
+  };
+}
+
+/** One raw data/raw/nc-grants.json row (the one NC.gov grant-opportunities
+ *  directory page) -> Opportunity. Genuinely shallow source -- confirmed live
+ *  the index has no deadline, award amount, or eligibility fields at all;
+ *  fundingLow/High/deadline/eligibility are intentionally left undefined
+ *  rather than guessed. No natural numeric key, so id is a content hash. */
+export function normalizeNcRow(p) {
+  const title = clean(p.title);
+  if (!title) return null;
+  const agency = clean(p.agency) || "North Carolina state agency";
+  const category = clean(p.category);
+  const description = [title, agency, clean(p.description)].filter(Boolean).join(". ").slice(0, 4000);
+  return {
+    id: `nc-${shortId(p.url || title)}`,
+    source: "nc-grants",
+    kind: "grant",
+    program: title,
+    agency,
+    description,
+    eligibility: undefined,
+    deadline: undefined,
+    fundingLow: undefined,
+    fundingHigh: undefined,
+    industryTags: category ? [category] : [],
+    url: clean(p.url) || undefined,
+    geography: "North Carolina",
   };
 }
 
