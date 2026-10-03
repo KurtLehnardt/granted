@@ -30,7 +30,7 @@ import {
 } from "../lib/corpus/refreshStatus.ts";
 import { overallPct } from "../lib/corpus/refreshProgress.ts";
 import { normalizeGrantsRecord, normalizeSbirSolicitation } from "./lib/normalizeGrants.mjs";
-import { normalizeSamRow } from "./lib/normalizeNewSources.mjs";
+import { normalizeSamRow, normalizeCaRow } from "./lib/normalizeNewSources.mjs";
 
 const LOCAL_DIR = "data/local";
 const RAW_DIR = join(LOCAL_DIR, "raw");
@@ -183,11 +183,15 @@ async function main() {
     run("SAM.gov assistance (everything open)", "scripts/1-fetch-sam-assistance.mjs", { ...rawEnv, SAM_FETCH_MODE: "all" });
 
     if (isStopRequested()) return await applyStop({});
+    run("California Grants Portal", "scripts/1-fetch-ca-grants.mjs", rawEnv);
 
-    const [grants, sbirSolicitations, samAssistance] = await Promise.all([
+    if (isStopRequested()) return await applyStop({});
+
+    const [grants, sbirSolicitations, samAssistance, caGrants] = await Promise.all([
       readJson(join(RAW_DIR, "grants.json"), []),
       readJson(join(RAW_DIR, "sbir-solicitations.json"), []),
       readJson(join(RAW_DIR, "sam-assistance.json"), []),
+      readJson(join(RAW_DIR, "ca-grants.json"), []),
     ]);
 
     const existing = await readJson(LOCAL_OPPS, await readJson("data/opportunities.json", []));
@@ -205,8 +209,15 @@ async function main() {
       ...normalizedGrants,
       ...sbirSolicitations.map(normalizeSbirSolicitation),
       ...samAssistance.map(normalizeSamRow),
+      ...caGrants.map(normalizeCaRow),
     ].filter((o) => o && o.description && o.description.length >= 60);
     fresh = dedupeById(fresh);
+    // Carry a record's first-ever retrieval timestamp forward across refreshes
+    // (a real "recently added" signal over time), source-agnostic -- stamps
+    // every genuinely-new record (including every CA/IL/NC row on their first
+    // run) with this run's timestamp.
+    const attemptAt = new Date().toISOString();
+    fresh = fresh.map((o) => ({ ...o, retrieved_at: existingById.get(o.id)?.retrieved_at ?? o.retrieved_at ?? attemptAt }));
     fresh = dropExpiredOpportunities(fresh);
     const foundCount = fresh.length;
     console.log(`\nAssembled ${foundCount} open records (expired deadlines dropped).`);

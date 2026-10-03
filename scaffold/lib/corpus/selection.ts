@@ -6,6 +6,9 @@ export const DEFAULT_SOURCE_WEIGHTS: Record<string, number> = {
   "grants.gov": 2,
   sbir: 2,
   "assistance-listings": 1,
+  "ca-grants": 1,
+  "il-grants": 1,
+  "nc-grants": 1,
 };
 
 /** Splits `cap` by weight × availability, redistributing unused share; every non-empty source gets a slot first. */
@@ -94,7 +97,15 @@ function sortWithinSource(source: string, records: Opportunity[]): Opportunity[]
     sorted.sort((a, b) => recencyKey(b) - recencyKey(a));
   } else if (source === "assistance-listings") {
     sorted.sort((a, b) => keywordScore(b) - keywordScore(a));
+  } else if (source === "ca-grants" || source === "il-grants") {
+    // Both have real deadlines -- soonest first, same idea as grants.gov.
+    sorted.sort((a, b) => {
+      const da = a.deadline ? Date.parse(a.deadline) : Infinity;
+      const db = b.deadline ? Date.parse(b.deadline) : Infinity;
+      return (Number.isNaN(da) ? Infinity : da) - (Number.isNaN(db) ? Infinity : db);
+    });
   }
+  // nc-grants: no date signal at all (confirmed) -- falls through to raw order.
   return sorted;
 }
 
