@@ -58,9 +58,15 @@ async function checkVersionedTool(cmd: string, args: string[]): Promise<ToolChec
 // again" button (and the auto-recheck on a real completion event) useless
 // for the one scenario they exist for: both installed from scratch stayed
 // reported as missing until the whole app was relaunched. Re-reading the
-// registry before every check (cheap, and mirrors install-windows.ps1's own
-// Sync-Path, which exists for the identical reason within that script) is
-// the actual fix — not something a restart should be required for.
+// registry (mirrors install-windows.ps1's own Sync-Path, which exists for
+// the identical reason within that script) is the actual fix — not
+// something a restart should be required for.
+//
+// Not extended to macOS/Linux: the same snapshot-staleness could plausibly
+// exist there too (e.g. a Homebrew install in a separate Terminal, then
+// "Check again" without relaunching the GUI), but that's unverified, not
+// assumed safe — a follow-up, like the InstallStatusEvent scoping note
+// above for the separate false-success gap.
 async function refreshWindowsPathEnv(): Promise<void> {
   try {
     const { stdout } = await execFileAsync(
@@ -73,33 +79,58 @@ async function refreshWindowsPathEnv(): Promise<void> {
       ],
       { timeout: 5000, windowsHide: true },
     );
-    const registryPath = stdout.trim();
-    if (registryPath) {
-      process.env["PATH"] = `${process.env["PATH"] ?? ""};${registryPath}`;
+    // Registry PATH values routinely carry a trailing `;`, and a missing
+    // key makes PowerShell concatenate an empty string — both would
+    // otherwise leave an empty segment in process.env.PATH. CreateProcess
+    // resolves an empty PATH segment as "look in the current directory,"
+    // which isn't catastrophic (every real directory is still present and
+    // still found) but is worth not relying on.
+    const registryEntries = stdout
+      .trim()
+      .split(";")
+      .filter((entry) => entry.length > 0);
+    if (registryEntries.length > 0) {
+      process.env["PATH"] = [process.env["PATH"], ...registryEntries].filter(Boolean).join(";");
     }
-  } catch {
+  } catch (err) {
     // Best-effort: on failure, checks just run against whatever PATH the
     // process already had — the pre-fix behavior, not something worse.
+    // Logged (not shown to the user, same as openInstallTerminal's catch)
+    // so a silent failure here still leaves a trail instead of just
+    // reading as "git/node genuinely missing" with no way to tell why.
+    console.error("refreshWindowsPathEnv failed:", err);
   }
 }
 
 async function checkPrereqs(): Promise<PrereqReport> {
-  if (process.platform === "win32") await refreshWindowsPathEnv();
-
-  const [git, node] = await Promise.all([
-    checkVersionedTool("git", ["--version"]),
-    checkVersionedTool("node", ["--version"]),
-  ]);
-
-  const nodeOk = node.present && node.major !== null && node.major >= NODE_MAJOR_MIN;
-
-  return {
-    platform: process.platform,
-    git,
-    node,
-    nodeMajorMin: NODE_MAJOR_MIN,
-    allSatisfied: git.present && nodeOk,
+  const build = async (): Promise<PrereqReport> => {
+    const [git, node] = await Promise.all([
+      checkVersionedTool("git", ["--version"]),
+      checkVersionedTool("node", ["--version"]),
+    ]);
+    const nodeOk = node.present && node.major !== null && node.major >= NODE_MAJOR_MIN;
+    return {
+      platform: process.platform,
+      git,
+      node,
+      nodeMajorMin: NODE_MAJOR_MIN,
+      allSatisfied: git.present && nodeOk,
+    };
   };
+
+  let report = await build();
+  // Only pay for a registry refresh (a powershell.exe spawn) when the
+  // fast, unrefreshed check actually found something missing — covers
+  // both "genuinely not installed" and "was just installed in a detached
+  // process, but this already-running app's PATH snapshot hasn't caught
+  // up" (see refreshWindowsPathEnv) without adding that cost to every
+  // single check forever, including the common case (already-configured
+  // machine) that can never need it.
+  if (!report.allSatisfied && process.platform === "win32") {
+    await refreshWindowsPathEnv();
+    report = await build();
+  }
+  return report;
 }
 
 /** AppleScript string-literal escaping (backslashes and double quotes only). */
@@ -159,11 +190,12 @@ async function readInstallStatus(statusPath: string): Promise<InstallStatusEvent
 /**
  * Polls statusPath until install-windows.ps1 reports "done"/"error", or we
  * give up — then sends exactly one `terminal:install-status` event to the
- * renderer, releases `installInFlight`, and best-effort deletes the status
- * file so repeated use doesn't litter %TEMP% with one file per attempt.
- * Never awaited by the IPC handler: the install can take minutes (observed
- * up to ~280s from a pristine machine), far longer than it's reasonable to
- * hold an `ipcMain.handle` call open.
+ * renderer and releases `installInFlight`. Leaves the status file in place
+ * (each attempt already has its own unique path, so there's nothing to
+ * clean up for correctness, and it's a real diagnostic trail). Never
+ * awaited by the IPC handler: the install can take minutes (observed up to
+ * ~280s from a pristine machine), far longer than it's reasonable to hold
+ * an `ipcMain.handle` call open.
  */
 function pollInstallStatus(sender: WebContents, statusPath: string): void {
   const startedAt = Date.now();
