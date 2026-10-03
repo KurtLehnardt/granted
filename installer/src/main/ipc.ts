@@ -67,6 +67,10 @@ async function checkVersionedTool(cmd: string, args: string[]): Promise<ToolChec
 // "Check again" without relaunching the GUI), but that's unverified, not
 // assumed safe — a follow-up, like the InstallStatusEvent scoping note
 // above for the separate false-success gap.
+// Fixed at module load, before anything can refresh/mutate process.env.PATH
+// — the pristine baseline refreshWindowsPathEnv always rebuilds from below.
+const ORIGINAL_PATH = process.env["PATH"] ?? "";
+
 async function refreshWindowsPathEnv(): Promise<void> {
   try {
     const { stdout } = await execFileAsync(
@@ -79,19 +83,34 @@ async function refreshWindowsPathEnv(): Promise<void> {
       ],
       { timeout: 5000, windowsHide: true },
     );
-    // Registry PATH values routinely carry a trailing `;`, and a missing
-    // key makes PowerShell concatenate an empty string — both would
-    // otherwise leave an empty segment in process.env.PATH. CreateProcess
-    // resolves an empty PATH segment as "look in the current directory,"
-    // which isn't catastrophic (every real directory is still present and
-    // still found) but is worth not relying on.
+    // Rebuilds from ORIGINAL_PATH every call rather than appending to
+    // whatever process.env.PATH currently is. A real validation pass
+    // caught the append version growing unbounded: every failed check
+    // re-ran this and tacked on a full fresh copy of the registry PATH,
+    // eventually saturating Windows's 32,767-char env-var limit (measured:
+    // ~16-120 failed checks depending on how long the real machine's PATH
+    // already is) — at which point SetEnvironmentVariableW silently stops
+    // applying further changes, and the exact bug this function exists to
+    // fix comes back. Rebuilding from a fixed origin makes repeated calls
+    // idempotent: the result stabilizes after the first call and never
+    // grows again, regardless of how many times a user clicks "Check
+    // again." Deduped case-insensitively since Windows paths are.
     const registryEntries = stdout
       .trim()
       .split(";")
       .filter((entry) => entry.length > 0);
-    if (registryEntries.length > 0) {
-      process.env["PATH"] = [process.env["PATH"], ...registryEntries].filter(Boolean).join(";");
+    if (registryEntries.length === 0) return;
+    const originalEntries = ORIGINAL_PATH.split(";").filter((entry) => entry.length > 0);
+    const seen = new Set<string>();
+    const merged: string[] = [];
+    for (const entry of [...originalEntries, ...registryEntries]) {
+      const key = entry.toLowerCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        merged.push(entry);
+      }
     }
+    process.env["PATH"] = merged.join(";");
   } catch (err) {
     // Best-effort: on failure, checks just run against whatever PATH the
     // process already had — the pre-fix behavior, not something worse.
