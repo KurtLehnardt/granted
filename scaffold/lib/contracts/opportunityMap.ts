@@ -121,6 +121,15 @@ export const AwardHistorySchema = z.object({
    * before this field existed keep validating unchanged.
    */
   fromAgency: z.literal(true).optional(),
+  /**
+   * Canonical display name of the state `inState` was computed against
+   * (e.g. "Texas"), derived from the company's free-text location via
+   * `lib/location.ts`'s `normalizeStateName`. Absent when that location
+   * didn't resolve to a known state — never a guessed/default state.
+   * Optional/absent for cached/precomputed maps built before this field
+   * existed, same reasoning as `fromAgency` above.
+   */
+  inStateLabel: z.string().optional(),
 });
 export type AwardHistory = z.infer<typeof AwardHistorySchema>;
 
