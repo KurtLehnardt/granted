@@ -37,6 +37,11 @@ async function main() {
   if (!res.ok) throw new Error(`NC grants directory HTTP ${res.status}`);
   const html = await res.text();
 
+  // Assumes exactly one <tbody> on the page (confirmed live, the grants
+  // table is the only one) -- if the page ever grows a second table above
+  // it with >=20 rows, this would silently latch onto the wrong one without
+  // tripping the row-count warning below. Not enforced further since there's
+  // nothing else on this page to disambiguate against.
   const tbodyStart = html.indexOf("<tbody");
   const tbodyEnd = html.indexOf("</tbody>", tbodyStart);
   if (tbodyStart === -1 || tbodyEnd === -1) throw new Error("NC grants directory: <tbody> not found -- page markup may have changed");
