@@ -192,6 +192,14 @@ describe("buildDocumentChecklist", () => {
     assert.ok(rdDocs.some((d) => /SF-424/.test(d)));
     assert.ok(grantDocs.some((d) => /SF-424/.test(d)));
   });
+
+  test("a federal source's registration document names SAM.gov; a state-grant source's does not", () => {
+    const federalDocs = buildDocumentChecklist(RD_OPPORTUNITY); // source: "sbir"
+    const caDocs = buildDocumentChecklist({ ...BARE_OPPORTUNITY, source: "ca-grants" });
+    assert.ok(federalDocs.some((d) => /SAM\.gov registration summary/i.test(d)));
+    assert.ok(!caDocs.some((d) => /SAM\.gov/i.test(d)));
+    assert.ok(caDocs.some((d) => /state registration\/incorporation summary/i.test(d)));
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -221,6 +229,14 @@ describe("buildQuestions", () => {
     const questions = buildQuestions(GRANTS_GOV_OPEN);
     assert.ok(questions.some((q) => q.includes("$500K–$1.5M")));
   });
+
+  test("a federal source is asked about its AOR; a state-grant source is asked generically instead", () => {
+    const federalQuestions = buildQuestions(RD_OPPORTUNITY).join(" "); // source: "sbir"
+    const caQuestions = buildQuestions({ ...BARE_OPPORTUNITY, source: "ca-grants" }).join(" ");
+    assert.match(federalQuestions, /organization's AOR/i);
+    assert.doesNotMatch(caQuestions, /\bAOR\b/i);
+    assert.match(caQuestions, /authorized to sign and submit/i);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -233,9 +249,49 @@ describe("buildNextSteps", () => {
     assert.match(stepText(steps[steps.length - 1]), /official portal/i);
   });
 
-  test("always includes the generic SAM.gov/UEI/AOR/E-Biz registration reminder", () => {
+  test("federal sources include the generic SAM.gov/UEI/AOR/E-Biz registration reminder", () => {
     const steps = buildNextSteps(asMatch(RD_OPPORTUNITY)).map(stepText);
     assert.ok(steps.some((s) => /SAM\.gov registration is Active/i.test(s)));
+  });
+
+  test("state-grant sources do NOT show the federal SAM.gov/UEI/AOR/E-Biz reminder -- it would be actively wrong there", () => {
+    const CA_OPPORTUNITY: Opportunity = {
+      id: "opp-ca-1",
+      source: "ca-grants",
+      kind: "grant",
+      program: "A California Grant Program",
+      agency: "California Department of Example",
+      description: "Funds example things across California.",
+      geography: "California",
+    };
+    for (const source of ["ca-grants", "il-grants", "nc-grants"] as const) {
+      const steps = buildNextSteps(asMatch({ ...CA_OPPORTUNITY, source })).map(stepText);
+      assert.ok(
+        !steps.some((s) => /SAM\.gov registration is Active/i.test(s)),
+        `${source} must not show the federal registration reminder`,
+      );
+      assert.ok(
+        !steps.some((s) => /\bAOR\b/.test(s)),
+        `${source}'s final review step must not reference AOR -- that's federal-only terminology`,
+      );
+      assert.ok(
+        steps.some((s) => /authorized signer review the draft/i.test(s)),
+        `${source} should still get a generic review-before-submitting step`,
+      );
+    }
+  });
+
+  test("a federal source's final review step still says AOR", () => {
+    const steps = buildNextSteps(asMatch(RD_OPPORTUNITY)).map(stepText); // source: "sbir"
+    assert.ok(steps.some((s) => /organization's AOR review the draft/i.test(s)));
+  });
+
+  test("the final submit step doesn't name federal-only portal examples for a state-grant source", () => {
+    const federalSteps = buildNextSteps(asMatch(RD_OPPORTUNITY)).map(stepText);
+    const caSteps = buildNextSteps(asMatch({ ...BARE_OPPORTUNITY, source: "ca-grants" })).map(stepText);
+    assert.ok(federalSteps.some((s) => /e\.g\., Grants\.gov or SAM\.gov/i.test(s)));
+    assert.ok(!caSteps.some((s) => /Grants\.gov or SAM\.gov/i.test(s)));
+    assert.ok(caSteps.some((s) => /official portal/i.test(s)));
   });
 
   test("points at the opportunity's own URL as a real link when present, else names the source", () => {
@@ -285,6 +341,19 @@ describe("buildNextSteps", () => {
     assert.notEqual(sbirStep, samContractsStep);
     assert.notEqual(sbirStep, assistanceStep);
     assert.notEqual(grantsGovStep, samContractsStep);
+  });
+
+  test("state-grant sources get their own apply-step text, not the generic agency-feed default", () => {
+    const withUrl = { ...BARE_OPPORTUNITY, url: "https://example.gov/program" };
+    const caStep = stepText(buildNextSteps(asMatch({ ...withUrl, source: "ca-grants" }))[0]);
+    const ilStep = stepText(buildNextSteps(asMatch({ ...withUrl, source: "il-grants" }))[0]);
+    const ncStep = stepText(buildNextSteps(asMatch({ ...withUrl, source: "nc-grants" }))[0]);
+
+    assert.match(caStep, /California Grants Portal/i);
+    assert.match(ilStep, /Illinois CSFA/i);
+    assert.match(ncStep, /directory listing, not an application page/i);
+    assert.notEqual(caStep, ilStep);
+    assert.notEqual(ilStep, ncStep);
   });
 
   test("a SBIR/STTR step is a real apply step (agency solicitation page + deadline), never an awardee/background label", () => {

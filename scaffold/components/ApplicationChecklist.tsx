@@ -88,12 +88,38 @@ export function buildFundingRange(opportunity: Opportunity): string | null {
   return null;
 }
 
+/** Sources whose apply path genuinely runs through SAM.gov/grants.gov-style
+ *  federal registration (UEI, AOR, E-Biz POC) — state-grant portals (CA/IL
+ *  CSFA/NC) have their own, different registration requirements (or none
+ *  centrally at all, per their own listing), so this terminology would be
+ *  actively wrong there, not just generic. Shared by the document checklist,
+ *  the questions, and the next-steps below — every place in this file that
+ *  otherwise assumed every opportunity is federal. */
+const FEDERAL_SOURCES = new Set<Opportunity["source"]>([
+  "grants.gov",
+  "sbir",
+  "sbir.gov",
+  "assistance-listings",
+  "sam.gov",
+  "sam-contracts",
+  "usaspending",
+]);
+
 const BASE_DOCUMENTS = [
   "SF-424 (Application for Federal Assistance) or the program's equivalent cover form",
   "Project or technical narrative describing what the funding would be used for",
   "Budget and budget narrative",
-  "Organizational documents (EIN letter, formation documents, SAM.gov registration summary)",
 ];
+
+/** The organizational-documents line is the one BASE_DOCUMENTS item that
+ *  names a specific registration system -- SAM.gov doesn't exist for a
+ *  state grant, so this needs a source-aware alternative rather than one
+ *  shared string. */
+function registrationDocument(source: Opportunity["source"]): string {
+  return FEDERAL_SOURCES.has(source)
+    ? "Organizational documents (EIN letter, formation documents, SAM.gov registration summary)"
+    : "Organizational documents (EIN letter, formation documents, state registration/incorporation summary)";
+}
 
 const KIND_DOCUMENTS: Partial<Record<Opportunity["kind"], string[]>> = {
   rd: [
@@ -115,7 +141,7 @@ const KIND_DOCUMENTS: Partial<Record<Opportunity["kind"], string[]>> = {
  */
 export function buildDocumentChecklist(opportunity: Opportunity): string[] {
   const extra = KIND_DOCUMENTS[opportunity.kind] ?? [];
-  return [...BASE_DOCUMENTS, ...extra];
+  return [...BASE_DOCUMENTS, registrationDocument(opportunity.source), ...extra];
 }
 
 /**
@@ -134,7 +160,9 @@ export function buildQuestions(opportunity: Opportunity): string[] {
   const fundingRange = buildFundingRange(opportunity);
   questions.push(
     `Have you re-checked ${opportunity.agency}'s official eligibility requirements on the current listing? This checklist doesn't determine eligibility for you.`,
-    "Who is your organization's AOR, and have they reviewed this specific opportunity?",
+    FEDERAL_SOURCES.has(opportunity.source)
+      ? "Who is your organization's AOR, and have they reviewed this specific opportunity?"
+      : "Who is authorized to sign and submit on your organization's behalf, and have they reviewed this specific opportunity?",
     "What outcome or deliverable would you propose, in one or two sentences?",
     fundingRange
       ? `What budget request fits within this program's funding range (${fundingRange}) and your actual project scope?`
@@ -205,6 +233,21 @@ function sourceApplyStep(opportunity: Opportunity, now?: number): Step {
       const pointer = sourcePointer(opportunity, "this opportunity's page");
       return [`Respond through SAM.gov Contract Opportunities, following ${opportunity.agency}'s solicitation instructions. Details: `, pointer, `.`];
     }
+    case "ca-grants": {
+      const pointer = sourcePointer(opportunity, "the official California Grants Portal listing");
+      const deadline = formatDate(opportunity.deadline);
+      return deadline
+        ? [`Read the full program details on `, pointer, ` and apply directly with ${opportunity.agency} before its deadline of ${deadline}.`]
+        : [`Read the full program details on `, pointer, ` and apply directly with ${opportunity.agency}. No deadline is listed — confirm the application window on the listing.`];
+    }
+    case "il-grants": {
+      const pointer = sourcePointer(opportunity, "the official Illinois CSFA opportunity listing");
+      return [`Read the full program details on `, pointer, ` and apply directly with ${opportunity.agency} (Illinois state grants are administered per-agency, often through AmpliFund).`];
+    }
+    case "nc-grants": {
+      const pointer = sourcePointer(opportunity, "the program's official page");
+      return [`This is a directory listing, not an application page — read the full program details on `, pointer, ` and contact ${opportunity.agency} directly to ask how to apply (North Carolina's grant directory doesn't list deadlines or amounts centrally).`];
+    }
     case "agency-feed":
     default: {
       const pointer = sourcePointer(opportunity, "this opportunity's page");
@@ -214,7 +257,8 @@ function sourceApplyStep(opportunity: Opportunity, now?: number): Step {
 }
 
 /** Ordered next actions. The LAST step always points to the opportunity's
- *  official portal, after the org's AOR has reviewed the draft. */
+ *  official portal, after the org's authorized signer (AOR, for a federal
+ *  source) has reviewed the draft. */
 export function buildNextSteps(match: Match, now?: number): Step[] {
   const opportunity = match.opportunity;
   const steps: Step[] = [];
@@ -222,16 +266,24 @@ export function buildNextSteps(match: Match, now?: number): Step[] {
   if (match.whatToVerify?.trim()) {
     steps.push([`From your match assessment, before applying verify: ${match.whatToVerify.trim()}`]);
   }
-  steps.push([
-    "Make sure your SAM.gov registration is Active and your UEI, AOR, and E-Biz POC delegation are in place — most federal portals block submission without them.",
-  ]);
+  if (FEDERAL_SOURCES.has(opportunity.source)) {
+    steps.push([
+      "Make sure your SAM.gov registration is Active and your UEI, AOR, and E-Biz POC delegation are in place — most federal portals block submission without them.",
+    ]);
+  }
   steps.push(["Draft answers to the questions below and gather the documents listed."]);
   if (match.whatToDoNext?.trim()) {
     steps.push([`From your match assessment: ${match.whatToDoNext.trim()}`]);
   }
-  steps.push(["Have your organization's AOR review the draft before anything is submitted."]);
   steps.push([
-    "Submit only through the opportunity's official portal (e.g., Grants.gov or SAM.gov).",
+    FEDERAL_SOURCES.has(opportunity.source)
+      ? "Have your organization's AOR review the draft before anything is submitted."
+      : "Have your organization's authorized signer review the draft before anything is submitted.",
+  ]);
+  steps.push([
+    FEDERAL_SOURCES.has(opportunity.source)
+      ? "Submit only through the opportunity's official portal (e.g., Grants.gov or SAM.gov)."
+      : "Submit only through the opportunity's official portal, as named on the listing above.",
   ]);
   return steps;
 }
