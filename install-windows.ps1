@@ -29,7 +29,14 @@ function Write-Status($state, $message) {
     $payload = @{ state = $state; message = $message } | ConvertTo-Json -Compress
     Set-Content -Path $StatusPath -Value $payload -Encoding utf8 -ErrorAction Stop
   } catch {
-    # Never let status reporting itself break the install.
+    # Never let status reporting itself break the install -- but don't go
+    # silent about it either: the GUI's only way to learn this write failed
+    # is a generic "couldn't confirm it started" timeout, which reads as a
+    # security-policy block even when the real cause is something else
+    # (AV, a redirected/read-only %TEMP%, disk full). Surfacing it here
+    # means it's at least visible in the one place that's guaranteed to be
+    # readable -- this console window.
+    Write-Host "  [!] Couldn't write install status to $StatusPath -- $($_.Exception.Message)" -ForegroundColor Yellow
   }
 }
 

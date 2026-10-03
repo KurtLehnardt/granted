@@ -2,7 +2,7 @@ import { clipboard, ipcMain } from "electron";
 import type { WebContents } from "electron";
 import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { readFile, rm, writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -51,7 +51,41 @@ async function checkVersionedTool(cmd: string, args: string[]): Promise<ToolChec
   }
 }
 
+// Windows only: the Electron process's PATH is a one-time snapshot taken at
+// launch. install-windows.ps1 adds git/Node to the Machine/User PATH in the
+// registry, which this long-lived process never re-reads on its own — a
+// real install-windows-VM validation pass found this made the "Check
+// again" button (and the auto-recheck on a real completion event) useless
+// for the one scenario they exist for: both installed from scratch stayed
+// reported as missing until the whole app was relaunched. Re-reading the
+// registry before every check (cheap, and mirrors install-windows.ps1's own
+// Sync-Path, which exists for the identical reason within that script) is
+// the actual fix — not something a restart should be required for.
+async function refreshWindowsPathEnv(): Promise<void> {
+  try {
+    const { stdout } = await execFileAsync(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "[Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')",
+      ],
+      { timeout: 5000, windowsHide: true },
+    );
+    const registryPath = stdout.trim();
+    if (registryPath) {
+      process.env["PATH"] = `${process.env["PATH"] ?? ""};${registryPath}`;
+    }
+  } catch {
+    // Best-effort: on failure, checks just run against whatever PATH the
+    // process already had — the pre-fix behavior, not something worse.
+  }
+}
+
 async function checkPrereqs(): Promise<PrereqReport> {
+  if (process.platform === "win32") await refreshWindowsPathEnv();
+
   const [git, node] = await Promise.all([
     checkVersionedTool("git", ["--version"]),
     checkVersionedTool("node", ["--version"]),
@@ -145,10 +179,16 @@ function pollInstallStatus(sender: WebContents, statusPath: string): void {
     if (!sender.isDestroyed()) sender.send("terminal:install-status", status);
   };
 
+  // Deliberately leaves statusPath in place rather than deleting it here:
+  // each attempt already gets a fresh, unique path (see
+  // newInstallStatusPath), so there's no collision risk to clean up for —
+  // and leaving it is a real diagnostic trail (what did the last install
+  // actually report?) that an immediate delete would erase. A real-VM
+  // validation pass also found that deleting it right after reading made
+  // external verification of a "done" state racy for no benefit.
   const finish = (status: InstallStatusEvent): void => {
     installInFlight = false;
     safeSend(status);
-    void rm(statusPath, { force: true });
   };
 
   const timer = setInterval(() => {
