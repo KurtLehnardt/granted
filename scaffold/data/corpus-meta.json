@@ -1,7 +1,7 @@
 {
-  "builtAt": "2026-09-29T07:44:57.831Z",
+  "builtAt": "2026-10-03T15:53:54.551Z",
   "note": "When this committed opportunity snapshot was built (written by scripts/3-embed.mjs on every data:embed). Read by lib/corpus/meta.ts to surface an honest 'Opportunities as of <date>' caveat.",
-  "count": 4383,
+  "count": 4698,
   "embeddingModel": "text-embedding-3-small",
   "dims": 512
 }

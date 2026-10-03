@@ -25,6 +25,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { OpportunitySchema } from "../../lib/contracts/opportunity";
 import { isPastAward } from "../../lib/corpus/pastAwards";
+import { normalizeStateName } from "../../lib/location";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const corpus = JSON.parse(
@@ -71,9 +72,41 @@ test("each new resource type is represented with a healthy count", () => {
 
 test("new sources are present under the A0 source vocabulary", () => {
   const sources = new Set(opps.map((o: any) => o.source));
-  for (const s of ["grants.gov", "assistance-listings"]) {
+  for (const s of ["grants.gov", "assistance-listings", "ca-grants", "il-grants", "nc-grants"]) {
     assert.ok(sources.has(s), `expected source ${s} in the corpus`);
   }
+});
+
+test("each state-grant source has a healthy count (floor, not exact match -- see the grants.gov test above for why)", () => {
+  // Live counts at the time this was written: ca-grants 169, il-grants 113,
+  // nc-grants 74 (confirmed against the real refresh this committed). Floors
+  // set well below those so a future honest refresh (the state's own
+  // listings naturally changing) doesn't spuriously fail this gate -- it
+  // still catches a real regression (a source silently breaking/returning
+  // near-zero rows).
+  const counts: Record<string, number> = {};
+  for (const o of opps) counts[(o as any).source] = (counts[(o as any).source] || 0) + 1;
+  assert.ok((counts["ca-grants"] ?? 0) >= 50, `ca-grants=${counts["ca-grants"]}`);
+  assert.ok((counts["il-grants"] ?? 0) >= 30, `il-grants=${counts["il-grants"]}`);
+  assert.ok((counts["nc-grants"] ?? 0) >= 20, `nc-grants=${counts["nc-grants"]}`);
+});
+
+test("every state-grant record's geography resolves to a real state via the shared normalizer", () => {
+  // Catches a scraper bug that writes a garbled/misspelled state string
+  // before it ever reaches the match-results location filter (lib/
+  // opportunities/filterSort.ts), which trusts this field completely.
+  const stateGrants = by((o) => ["ca-grants", "il-grants", "nc-grants"].includes(o.source as string));
+  assert.ok(stateGrants.length > 0, "expected at least one state-grant record");
+  for (const o of stateGrants as any[]) {
+    const resolved = normalizeStateName(o.geography);
+    assert.ok(resolved, `${o.id} (source ${o.source}) has an unresolvable geography: ${JSON.stringify(o.geography)}`);
+  }
+  const caOk = stateGrants.filter((o: any) => o.source === "ca-grants").every((o: any) => normalizeStateName(o.geography) === "California");
+  const ilOk = stateGrants.filter((o: any) => o.source === "il-grants").every((o: any) => normalizeStateName(o.geography) === "Illinois");
+  const ncOk = stateGrants.filter((o: any) => o.source === "nc-grants").every((o: any) => normalizeStateName(o.geography) === "North Carolina");
+  assert.ok(caOk, "every ca-grants record must resolve to California, not some other state");
+  assert.ok(ilOk, "every il-grants record must resolve to Illinois, not some other state");
+  assert.ok(ncOk, "every nc-grants record must resolve to North Carolina, not some other state");
 });
 
 test("no past-award record (SBIR/STTR award or closed USAspending contract) is in the committed corpus", () => {

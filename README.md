@@ -2,7 +2,7 @@
 
 <img width="979" height="965" alt="image" src="https://github.com/user-attachments/assets/2c3b54ae-9e96-4436-881f-cd691c1e774b" />
 
-**Granted** turns a description of your business or research into a list of real **federal funding opportunities**: grants, SBIR/STTR R&D, procurement, loans, assistance, scholarships. Each match is scored for fit on the criteria a program officer would apply, and screened for eligibility.
+**Granted** turns a description of your business or research into a list of real **government funding opportunities** — federal grants, SBIR/STTR R&D, procurement, loans, assistance, scholarships, plus state grant programs in California, Illinois, and North Carolina. Each match is scored for fit on the criteria a program officer would apply, and screened for eligibility.
 
 Run it with your own API keys or a fully local model — see **Run it yourself** below.
 
@@ -178,7 +178,7 @@ ollama pull nomic-embed-text
 EMBEDDINGS_BASE_URL=http://localhost:11434/v1
 EMBEDDINGS_MODEL=nomic-embed-text
 # then just run (data:embed:local reads scaffold/.env.local — no inline env needed):
-npm run data:embed:local  # re-embeds the 4,383-opportunity corpus into the gitignored data/local/
+npm run data:embed:local  # re-embeds the 4,698-opportunity corpus into the gitignored data/local/
 ```
 Now nothing leaves your machine.
 
@@ -207,7 +207,7 @@ The full flag list lives in `scaffold/lib/flags/registry.ts`.
 
 ## Refreshing the data (optional)
 
-The corpus (`scaffold/data/opportunities.json`, which contains opportunities across grants.gov and SAM.gov assistance listings) is committed, so you don't need this to run. To rebuild it from the live public sources:
+The corpus (`scaffold/data/opportunities.json`, which contains opportunities across grants.gov, SAM.gov assistance listings, and state grant programs in California, Illinois, and North Carolina) is committed, so you don't need this to run. To rebuild it from the live public sources:
 
 ```bash
 cd scaffold
@@ -223,7 +223,7 @@ To stay current, `npm run data:refresh` (or Settings → "Refresh cached grants"
 ## How it works
 
 1. **Intake.** Describe your company in natural language; Claude extracts a structured profile + expands it into government vocabulary.
-2. **Retrieval.** OpenAI embeddings + in-memory cosine similarity over the 4,383-opportunity corpus (no vector DB); per-type quotas keep every instrument reachable.
+2. **Retrieval.** OpenAI embeddings + in-memory cosine similarity over the 4,698-opportunity corpus (no vector DB); per-type quotas keep every instrument reachable.
 3. **Scoring.** Claude scores each candidate 0–100 on the criteria a program officer would apply, with a met/unmet checklist and plain-language explanations.
 4. **Eligibility screen.** A rules layer buckets eligibility from *stated* facts; it never turns a model guess into an exclusion.
 5. **Discernment** *(flag)*. Recommend / verify / **don't-recommend** per match, plus a whole-map verdict, so a weak idea gets an honest "don't apply" instead of a wall of maybes.

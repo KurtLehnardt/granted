@@ -174,7 +174,7 @@ if (!haveOpenAI || !haveAnthropic) {
 }
 console.log(`  ${c.b("1.")} Start the app:      ${c.g("npm run dev")}   ${c.dim("→ http://localhost:3000")}`);
 console.log(`  ${c.b("2.")} Describe a company in the box and run a search. That's the whole core app.`);
-console.log(c.dim("     (The 4,383-opportunity corpus ships committed — no data pipeline needed to start.)"));
+console.log(c.dim("     (The 4,698-opportunity corpus ships committed — no data pipeline needed to start.)"));
 console.log(`\n  ${c.b("Optional, when you want them")} ${c.dim("(see README):")}`);
 console.log(`  • Run fully on a local model    → ${c.g("npm run setup:local")} ${c.dim("(guided Ollama setup — no API keys, offline)")}`);
 console.log(`  • Live competitor web results  → add ${c.g("EXA_API_KEY")} + set ${c.g("NEXT_PUBLIC_FLAG_R5_DEEP_ANALYSIS=true")}`);
