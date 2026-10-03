@@ -1,4 +1,4 @@
-import { normalizeStateName, statesMatch } from "../location";
+import { normalizeStateName } from "../location";
 
 /**
  * Match-results filter/sort (pure helpers) — location, match %, award amount,
@@ -63,6 +63,14 @@ export function availableLocations(matches: FilterableMatch[] | null | undefined
  * "excluded." A location filter must never hide a nationwide opportunity just
  * because it doesn't carry a state, matching this codebase's "never silently
  * drop a real match" rule (§2, the same reasoning WeakerMatches exists for).
+ *
+ * A PRESENT but unrecognizable `geography` (e.g. a future source writing
+ * something `normalizeStateName` can't resolve) gets the SAME treatment as
+ * an absent one, not the opposite — it's just as "unscoped" from this
+ * filter's point of view. Comparing through the normalizer on both sides
+ * (rather than short-circuiting on truthiness) means a garbled value can
+ * never flip from visible-by-default to silently-hidden the instant a user
+ * picks any specific state.
  */
 export function filterByLocation<M extends FilterableMatch>(
   matches: M[] | null | undefined,
@@ -71,8 +79,8 @@ export function filterByLocation<M extends FilterableMatch>(
   const list = Array.isArray(matches) ? matches : [];
   if (!state) return [...list];
   return list.filter((m) => {
-    const geo = m?.opportunity?.geography;
-    return !geo || statesMatch(geo, state);
+    const resolved = normalizeStateName(m?.opportunity?.geography);
+    return !resolved || resolved === normalizeStateName(state);
   });
 }
 

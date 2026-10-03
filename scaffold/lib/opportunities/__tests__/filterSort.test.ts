@@ -101,6 +101,16 @@ describe("filterByLocation", () => {
     const filtered = filterByLocation(matches, "Texas");
     assert.deepEqual(filtered.map((x) => x.opportunity!.id), ["fed1"]);
   });
+
+  test("a PRESENT but unrecognizable geography is treated the same as absent -- never hidden by a specific-state filter", () => {
+    // Real review finding: a naive `!geo || statesMatch(...)` check only
+    // protects an ABSENT geography. A garbled-but-present value (e.g. a
+    // future bad scrape writing "N/A") is just as unscoped as absent, but
+    // must get the same treatment, not the opposite.
+    const withGarbled = [...matches, m("garbled", { geography: "N/A" })];
+    const filtered = filterByLocation(withGarbled, "California");
+    assert.deepEqual(filtered.map((x) => x.opportunity!.id), ["ca1", "fed1", "garbled"]);
+  });
 });
 
 describe("sortMatches", () => {
