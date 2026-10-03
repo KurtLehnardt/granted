@@ -100,6 +100,36 @@ test("historyFromRows — counts/totals/median reflect ONLY verified rows", () =
   assert.equal(history!.inVertical, 1);
 });
 
+test("historyFromRows — state abbreviation matches the same as the full name", () => {
+  const rows = [verifiedA, unverifiedNoUrl, unverifiedEmptyUrl, verifiedB];
+  const byAbbrev = historyFromRows(rows, "UT");
+  const byFullName = historyFromRows(rows, "Utah");
+  assert.equal(byAbbrev!.inState, byFullName!.inState);
+  assert.equal(byAbbrev!.inState, 1);
+});
+
+test("historyFromRows — realistic free-text location ('Draper, UT 84020') matches too", () => {
+  const rows = [verifiedA, unverifiedNoUrl, unverifiedEmptyUrl, verifiedB];
+  const history = historyFromRows(rows, "Draper, UT 84020");
+  assert.equal(history!.inState, 1);
+});
+
+test("historyFromRows — no state at all yields inState: 0, NOT a Utah default", () => {
+  // This is the key regression test: historyFromRows must never assume
+  // Utah when the caller has no location at all, even though this fixture
+  // set contains real Utah rows that would wrongly count under the old
+  // hardcoded `state ?? "utah"` fallback.
+  const rows = [verifiedA, unverifiedNoUrl, unverifiedEmptyUrl, verifiedB];
+  const history = historyFromRows(rows);
+  assert.equal(history!.inState, 0);
+  assert.ok(!("inStateLabel" in history!), "no resolvable state means no inStateLabel at all");
+});
+
+test("historyFromRows — inStateLabel reflects the normalized state when resolvable", () => {
+  const history = historyFromRows([verifiedA], "UT");
+  assert.equal(history!.inStateLabel, "Utah");
+});
+
 test("historyFromRows — an opportunity with ONLY unverified rows returns undefined (no history section at all)", () => {
   const rows = [unverifiedNoUrl, unverifiedEmptyUrl];
   const history = historyFromRows(rows);

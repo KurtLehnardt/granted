@@ -23,6 +23,7 @@ import { scoreFloor, strongAndVerifying, agencyIntelFor } from "./summary";
 // list and the (pure, hermetic) guarantee it makes.
 import { ensureRealRedirects } from "./redirects/utahSbaPrograms";
 import { deriveEnrichmentSignal, enrichmentQueryTerms, boostForOpportunity } from "./retrieval/enrich";
+import { normalizeStateName, statesMatch } from "./location";
 
 /**
  * CALIBRATION KNOBS — tune these against all four test cases before touching UI.
@@ -201,14 +202,16 @@ export function historyFromRows(rows: AwardRow[], state?: string, fromAgency = f
   // rows from many unrelated opportunities), so sort by award size instead:
   // the most notable real awards are the most useful thing to show.
   const ordered = fromAgency ? verified.slice().sort((a, b) => b.amount - a.amount) : verified;
+  const stateLabel = normalizeStateName(state);
   return {
     similarCompanies: verified.length,
     totalAwarded: amounts.reduce((a, b) => a + b, 0),
     medianAward: amounts.length % 2 ? amounts[mid] : Math.round((amounts[mid - 1] + amounts[mid]) / 2),
-    inState: verified.filter((r) => (r.state ?? "").toLowerCase() === (state ?? "utah").toLowerCase()).length,
+    inState: verified.filter((r) => statesMatch(r.state, state)).length,
     inVertical: verified.filter((r) => r.sameVertical).length,
     recipients: ordered.slice(0, 8) as AwardHistory["recipients"],
     ...(fromAgency ? { fromAgency: true as const } : {}),
+    ...(stateLabel ? { inStateLabel: stateLabel } : {}),
   };
 }
 
