@@ -74,12 +74,6 @@ const FULL_NAME_TO_ABBREV: ReadonlyMap<string, string> = new Map(
   Object.entries(STATE_ABBREVIATIONS).map(([abbr, full]) => [full.toLowerCase(), abbr]),
 );
 
-// Longest-first so a substring scan matches "New York" before a hypothetical
-// shorter prefix could steal the match.
-const FULL_NAMES_LONGEST_FIRST: readonly string[] = Array.from(FULL_NAME_TO_ABBREV.keys()).sort(
-  (a, b) => b.length - a.length,
-);
-
 function resolveExact(cleaned: string): string | undefined {
   const abbrevMatch = STATE_ABBREVIATIONS[cleaned];
   if (abbrevMatch) return abbrevMatch;
@@ -93,22 +87,32 @@ function resolveExact(cleaned: string): string | undefined {
  * (e.g. "Utah"), or `undefined` when none can be confidently extracted.
  *
  * Resolution order:
- *  1. Whole-string exact match (abbreviation or full name).
+ *  1. Whole-string exact match (abbreviation or full name) — "Utah", "UT".
  *  2. If the string contains a comma, the segment after the LAST comma
  *     (with a trailing ZIP/ZIP+4 stripped) — handles "Draper, UT",
  *     "Draper, UT 84020", "Salt Lake City, Utah 84020", and correctly
  *     resolves "Washington, DC" to the District of Columbia rather than
  *     misfiring on "Washington" the state.
- *  3. A longest-name-first, WORD-BOUNDARY scan of the whole string — catches
- *     "Headquartered in Draper, Utah" without falsely matching a state name
- *     that's merely a substring of an unrelated word ("Ohiopyle", PA, must
- *     not match "Ohio"; "Washingtonville", NY, must not match "Washington").
  *
- * Deliberately NOT done: scanning for bare 2-letter abbreviations at
- * arbitrary positions in prose. Common words collide with real state codes
- * ("in"->Indiana, "or"->Oregon, "me"->Maine, "co"->Colorado) — "based in
- * Texas" must not wrongly hit "in" -> Indiana. Abbreviation matching is
- * restricted to the whole input or the comma-tail, never a free scan.
+ * Deliberately NOT done: any scan over comma-less free-text prose for a
+ * state name appearing anywhere in the string. An earlier version of this
+ * function did this (word-boundary-guarded) specifically to catch phrasing
+ * like "Headquartered in Draper, Utah" without a comma before "Headquartered"
+ * — but a word boundary alone cannot distinguish a real state name from the
+ * first word of an unrelated multi-word place name: "Idaho Springs" (a real
+ * town in COLORADO) and "Nevada City" (a real town in CALIFORNIA) both
+ * contain a full, word-bounded state name as their first token, so that scan
+ * confidently returned the wrong state for them — the same failure mode
+ * (confident wrong guess instead of honest `undefined`) the original bug fix
+ * was trying to eliminate, just a narrower trigger. There is no bounded way
+ * to close this for arbitrary free text, so this function only ever resolves
+ * a state from the whole input or an explicit comma-delimited tail, matching
+ * this codebase's existing conservative philosophy for free-text geography
+ * (see `lib/eligibility/screen.ts`'s `geography_in` predicate comment: "too
+ * ambiguous to fail on without risking a false exclusion, stays
+ * indeterminate"). Likewise, no scanning for bare 2-letter abbreviations at
+ * arbitrary positions in prose — common words collide with real state codes
+ * ("in"->Indiana, "or"->Oregon, "me"->Maine, "co"->Colorado).
  */
 export function normalizeStateName(input: string | null | undefined): string | undefined {
   if (!input) return undefined;
@@ -130,14 +134,6 @@ export function normalizeStateName(input: string | null | undefined): string | u
       const tailMatch = resolveExact(tail);
       if (tailMatch) return tailMatch;
     }
-  }
-
-  // Word-boundary, not a bare substring check: "Ohiopyle" (a real Pennsylvania
-  // town) and "Washingtonville" (a real New York village) both contain a
-  // full state name as a substring but are not that state.
-  for (const name of FULL_NAMES_LONGEST_FIRST) {
-    const pattern = new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`);
-    if (pattern.test(whole)) return STATE_ABBREVIATIONS[FULL_NAME_TO_ABBREV.get(name)!];
   }
 
   return undefined;
