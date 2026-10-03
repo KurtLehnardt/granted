@@ -1,8 +1,8 @@
 import { clipboard, ipcMain } from "electron";
 import { execFile, spawn } from "node:child_process";
 import { writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { homedir, tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import {
   INSTALL_ONE_LINERS,
@@ -126,7 +126,17 @@ async function openInstallTerminal(): Promise<OpenInstallTerminalResult> {
           "/c",
           `"start "" powershell.exe -NoExit -ExecutionPolicy Bypass -File "${scriptPath}""`,
         ],
-        { detached: true, stdio: "ignore", windowsHide: true, windowsVerbatimArguments: true },
+        {
+          // install-windows.ps1 clones into .\granted relative to its working
+          // directory. Without this it inherits ours — the app's own folder
+          // (or wherever it was launched from) — so start in the user's home
+          // folder, same as a freshly opened PowerShell window would.
+          cwd: homedir(),
+          detached: true,
+          stdio: "ignore",
+          windowsHide: true,
+          windowsVerbatimArguments: true,
+        },
       );
       // spawn() reports launch failures (ENOENT, EPERM from AV, ...) via an
       // async 'error' event, not a throw — wait for it so the catch below
@@ -136,10 +146,10 @@ async function openInstallTerminal(): Promise<OpenInstallTerminalResult> {
         child.once("error", reject);
       });
       child.unref();
+      const installDir = resolve(homedir(), process.env["GRANTED_INSTALL_DIR"] || "granted");
       return {
         ok: true,
-        message:
-          "Opened PowerShell and started the installer. If that window closes before it finishes, paste the command from your clipboard into PowerShell.",
+        message: `Opened PowerShell and started the installer — Granted will be installed to ${installDir}. If that window closes before it finishes, paste the command from your clipboard into PowerShell.`,
         command,
       };
     }
