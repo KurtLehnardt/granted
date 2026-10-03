@@ -192,6 +192,14 @@ describe("buildDocumentChecklist", () => {
     assert.ok(rdDocs.some((d) => /SF-424/.test(d)));
     assert.ok(grantDocs.some((d) => /SF-424/.test(d)));
   });
+
+  test("a federal source's registration document names SAM.gov; a state-grant source's does not", () => {
+    const federalDocs = buildDocumentChecklist(RD_OPPORTUNITY); // source: "sbir"
+    const caDocs = buildDocumentChecklist({ ...BARE_OPPORTUNITY, source: "ca-grants" });
+    assert.ok(federalDocs.some((d) => /SAM\.gov registration summary/i.test(d)));
+    assert.ok(!caDocs.some((d) => /SAM\.gov/i.test(d)));
+    assert.ok(caDocs.some((d) => /state registration\/incorporation summary/i.test(d)));
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -220,6 +228,14 @@ describe("buildQuestions", () => {
   test("states the actual funding range in the budget question when known", () => {
     const questions = buildQuestions(GRANTS_GOV_OPEN);
     assert.ok(questions.some((q) => q.includes("$500K–$1.5M")));
+  });
+
+  test("a federal source is asked about its AOR; a state-grant source is asked generically instead", () => {
+    const federalQuestions = buildQuestions(RD_OPPORTUNITY).join(" "); // source: "sbir"
+    const caQuestions = buildQuestions({ ...BARE_OPPORTUNITY, source: "ca-grants" }).join(" ");
+    assert.match(federalQuestions, /organization's AOR/i);
+    assert.doesNotMatch(caQuestions, /\bAOR\b/i);
+    assert.match(caQuestions, /authorized to sign and submit/i);
   });
 });
 
@@ -254,7 +270,20 @@ describe("buildNextSteps", () => {
         !steps.some((s) => /SAM\.gov registration is Active/i.test(s)),
         `${source} must not show the federal registration reminder`,
       );
+      assert.ok(
+        !steps.some((s) => /\bAOR\b/.test(s)),
+        `${source}'s final review step must not reference AOR -- that's federal-only terminology`,
+      );
+      assert.ok(
+        steps.some((s) => /authorized signer review the draft/i.test(s)),
+        `${source} should still get a generic review-before-submitting step`,
+      );
     }
+  });
+
+  test("a federal source's final review step still says AOR", () => {
+    const steps = buildNextSteps(asMatch(RD_OPPORTUNITY)).map(stepText); // source: "sbir"
+    assert.ok(steps.some((s) => /organization's AOR review the draft/i.test(s)));
   });
 
   test("points at the opportunity's own URL as a real link when present, else names the source", () => {
