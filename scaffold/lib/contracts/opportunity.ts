@@ -31,6 +31,10 @@ export const OpportunitySourceSchema = z.enum([
   "sbir",
   "assistance-listings",
   "sam-contracts",
+  // State grant sources:
+  "ca-grants",
+  "il-grants",
+  "nc-grants",
   // §4.2 Canon sources (forward-compatible):
   "sam.gov",
   "sbir.gov",
