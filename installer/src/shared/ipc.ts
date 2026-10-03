@@ -44,6 +44,19 @@ export interface OpenInstallTerminalResult {
 }
 
 /**
+ * Pushed from main → renderer once the escape-hatch's spawned install
+ * actually finishes (or is given up on) — see ipc.ts's `pollInstallStatus`.
+ * Currently only ever sent on win32: install-windows.ps1 is the only script
+ * that reports a real sentinel back (macOS/Linux weren't found to have the
+ * same false-success gap in validation, and extending this there is
+ * unverified, not silently assumed done).
+ */
+export interface InstallStatusEvent {
+  state: "running" | "done" | "error";
+  message?: string | null;
+}
+
+/**
  * The exact, already-published, already-revalidated one-liners from the
  * README / install-*.sh / install-windows.ps1. Not reimplemented — just
  * referenced here so the GUI's escape hatch runs the identical command.
@@ -65,4 +78,6 @@ export function isSupportedPlatform(p: string): p is SupportedPlatform {
 export interface GrantedInstallerApi {
   checkPrereqs: () => Promise<PrereqReport>;
   openInstallTerminal: () => Promise<OpenInstallTerminalResult>;
+  /** Subscribe to install-status pushes (see InstallStatusEvent). Returns an unsubscribe function. */
+  onInstallStatus: (listener: (status: InstallStatusEvent) => void) => () => void;
 }

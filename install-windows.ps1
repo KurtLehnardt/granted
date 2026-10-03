@@ -15,6 +15,42 @@
 
 $ErrorActionPreference = "Stop"
 
+# Reports real progress back to the Electron GUI, which launches this script
+# detached (via `cmd /c start`) specifically so its console window survives
+# the GUI closing -- which also means the GUI can't see this process's exit
+# code. Without this file the GUI could only ever report "I opened
+# PowerShell", never whether the install actually succeeded. $env:GRANTED_
+# STATUS_FILE is set by the GUI to a path that matches what it's polling;
+# falls back to a fixed name so this script still no-ops safely when run
+# standalone (copy-pasted into a terminal by hand, as the README documents).
+$StatusPath = if ($env:GRANTED_STATUS_FILE) { $env:GRANTED_STATUS_FILE } else { Join-Path $env:TEMP "granted-install-status.json" }
+function Write-Status($state, $message) {
+  try {
+    $payload = @{ state = $state; message = $message } | ConvertTo-Json -Compress
+    Set-Content -Path $StatusPath -Value $payload -Encoding utf8 -ErrorAction Stop
+  } catch {
+    # Never let status reporting itself break the install.
+  }
+}
+
+function Log($msg)  { Write-Host "`n$msg" -ForegroundColor White }
+function Ok($msg)   { Write-Host "  [ok] $msg" -ForegroundColor Green }
+function Warn($msg) { Write-Host "  [!] $msg" -ForegroundColor Yellow }
+function Die($msg)  { Write-Status "error" $msg; Write-Host "  [x] $msg" -ForegroundColor Red; exit 1 }
+
+# Catches anything Die() doesn't -- a terminating error PowerShell itself
+# raises (a failed Invoke-WebRequest/Invoke-RestMethod, for example) would
+# otherwise unwind straight out of the script with the status file still
+# stuck on "running" forever. `exit 1` inside Die() does NOT re-trigger this
+# (it isn't a terminating error), so there's no risk of a double report.
+trap {
+  Write-Status "error" $_.Exception.Message
+  Write-Host "  [x] $($_.Exception.Message)" -ForegroundColor Red
+  exit 1
+}
+
+Write-Status "running" $null
+
 # Windows PowerShell 5.1 (still the default on many machines, including every
 # Windows Server image) defaults its underlying .NET stack to TLS 1.0/1.1,
 # which GitHub and nodejs.org both reject -- Invoke-WebRequest fails with a
@@ -25,11 +61,6 @@ $ErrorActionPreference = "Stop"
 $RepoUrl = "https://github.com/KurtLehnardt/granted.git"
 $TargetDir = if ($env:GRANTED_INSTALL_DIR) { $env:GRANTED_INSTALL_DIR } else { "granted" }
 $NodeMajorMin = 22
-
-function Log($msg)  { Write-Host "`n$msg" -ForegroundColor White }
-function Ok($msg)   { Write-Host "  [ok] $msg" -ForegroundColor Green }
-function Warn($msg) { Write-Host "  [!] $msg" -ForegroundColor Yellow }
-function Die($msg)  { Write-Host "  [x] $msg" -ForegroundColor Red; exit 1 }
 
 function Have($cmd) { return [bool](Get-Command $cmd -ErrorAction SilentlyContinue) }
 function HaveWinget() { return (Have "winget") }
@@ -100,7 +131,11 @@ if (Have "git") {
     Log "Running installer silently..."
     # /CURRENTUSER installs per-user -- unlike Node's .msi below, git-for-
     # windows' Inno Setup installer supports this, so it works without
-    # Administrator rights regardless of $script:IsElevated.
+    # Administrator rights regardless of $script:IsElevated. Validated
+    # behavior: as a standard user this lands per-user with no UAC prompt,
+    # as documented; run elevated, Inno Setup installs all-users anyway
+    # (Program Files, Machine PATH) -- both work, /CURRENTUSER just isn't a
+    # hard guarantee once already elevated.
     Start-Process -FilePath $gitInstaller -ArgumentList "/VERYSILENT", "/NORESTART", "/NOCANCEL", "/SP-", "/CURRENTUSER" -Wait
     Remove-Item $gitInstaller -ErrorAction SilentlyContinue
   }
@@ -172,6 +207,7 @@ npm ci
 Assert-LastExitCode "npm ci failed -- see the output above for the underlying error."
 Ok "dependencies installed"
 
+Write-Status "done" $null
 Log "Done. Next steps:"
 Write-Host "  cd $TargetDir\scaffold"
 Write-Host "  npm run setup                  # hosted API keys (OpenAI + Anthropic), or"

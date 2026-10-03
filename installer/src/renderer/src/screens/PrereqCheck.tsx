@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import type { OpenInstallTerminalResult, PrereqReport } from "../../../shared/ipc";
+import { useCallback, useEffect, useState } from "react";
+import type { InstallStatusEvent, OpenInstallTerminalResult, PrereqReport } from "../../../shared/ipc";
 
 type LoadState =
   | { status: "loading" }
@@ -16,33 +16,57 @@ export default function PrereqCheck(): React.JSX.Element {
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [terminalResult, setTerminalResult] = useState<OpenInstallTerminalResult | null>(null);
   const [openingTerminal, setOpeningTerminal] = useState(false);
+  // Separate from openingTerminal: that one covers the brief IPC round-trip
+  // to *launch* the installer; this covers the (much longer) wait for the
+  // installer to actually finish, so the button can't be double-clicked
+  // into starting a second, racing install. Only ever set on Windows — it's
+  // the only platform that reports a real completion event (see below).
+  const [waitingForInstall, setWaitingForInstall] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
+  const refreshPrereqs = useCallback((): void => {
+    setState((prev) => (prev.status === "loaded" ? prev : { status: "loading" }));
     window.api
       .checkPrereqs()
-      .then((report) => {
-        if (!cancelled) setState({ status: "loaded", report });
-      })
+      .then((report) => setState({ status: "loaded", report }))
       .catch((err: unknown) => {
-        if (!cancelled) {
-          setState({
-            status: "error",
-            message: err instanceof Error ? err.message : String(err),
-          });
-        }
+        setState({
+          status: "error",
+          message: err instanceof Error ? err.message : String(err),
+        });
       });
-    return () => {
-      cancelled = true;
-    };
   }, []);
+
+  useEffect(() => {
+    refreshPrereqs();
+  }, [refreshPrereqs]);
+
+  // Automatically re-checks once Windows's install actually finishes, so a
+  // user who just watched "Done." in the console doesn't come back to this
+  // screen and still see two stale red marks with no way to clear them.
+  useEffect(() => {
+    return window.api.onInstallStatus((status: InstallStatusEvent) => {
+      setWaitingForInstall(false);
+      if (status.state === "done") {
+        setTerminalResult((prev) => (prev ? { ...prev, message: "Install finished — re-checking…" } : prev));
+        refreshPrereqs();
+      } else if (status.state === "error") {
+        setTerminalResult((prev) =>
+          prev ? { ...prev, ok: false, message: status.message ?? "The install didn't finish successfully." } : prev,
+        );
+      }
+    });
+  }, [refreshPrereqs]);
 
   const handleOpenTerminal = (): void => {
     setOpeningTerminal(true);
     setTerminalResult(null);
     window.api
       .openInstallTerminal()
-      .then((result) => setTerminalResult(result))
+      .then((result) => {
+        setTerminalResult(result);
+        const isWindows = state.status === "loaded" && state.report.platform === "win32";
+        setWaitingForInstall(result.ok && isWindows);
+      })
       .catch((err: unknown) => {
         setTerminalResult({
           ok: false,
@@ -52,6 +76,8 @@ export default function PrereqCheck(): React.JSX.Element {
       })
       .finally(() => setOpeningTerminal(false));
   };
+
+  const busy = openingTerminal || waitingForInstall;
 
   return (
     <main className="screen">
@@ -65,14 +91,19 @@ export default function PrereqCheck(): React.JSX.Element {
       )}
 
       {state.status === "loaded" && (
-        <ul className="check-list" aria-label="Prerequisite check results">
-          <ToolRow label="Git" result={state.report.git} />
-          <ToolRow
-            label={`Node.js (${state.report.nodeMajorMin}+ required)`}
-            result={state.report.node}
-            minMajor={state.report.nodeMajorMin}
-          />
-        </ul>
+        <>
+          <ul className="check-list" aria-label="Prerequisite check results">
+            <ToolRow label="Git" result={state.report.git} />
+            <ToolRow
+              label={`Node.js (${state.report.nodeMajorMin}+ required)`}
+              result={state.report.node}
+              minMajor={state.report.nodeMajorMin}
+            />
+          </ul>
+          <button type="button" className="link" onClick={refreshPrereqs} disabled={busy}>
+            Check again
+          </button>
+        </>
       )}
 
       <div className="actions">
@@ -80,9 +111,9 @@ export default function PrereqCheck(): React.JSX.Element {
           type="button"
           className="secondary"
           onClick={handleOpenTerminal}
-          disabled={openingTerminal}
+          disabled={busy}
         >
-          {openingTerminal ? "Opening…" : "Open a terminal for me"}
+          {openingTerminal ? "Opening…" : waitingForInstall ? "Installing…" : "Open a terminal for me"}
         </button>
       </div>
 

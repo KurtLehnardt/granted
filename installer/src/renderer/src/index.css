@@ -71,6 +71,22 @@ button.secondary {
   border-color: #d9d9de;
 }
 
+button.link {
+  background: none;
+  border: none;
+  padding: 4px 0;
+  color: #0a66ff;
+  font-size: 13px;
+  text-decoration: underline;
+  align-self: flex-start;
+}
+
+button.link:disabled {
+  color: #9cbcf5;
+  cursor: default;
+  text-decoration: none;
+}
+
 .check-list {
   list-style: none;
   margin: 0 0 24px;
