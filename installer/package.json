@@ -5,6 +5,7 @@
   "description": "Cross-platform GUI installer wizard for Granted.",
   "main": "./out/main/index.js",
   "scripts": {
+    "postinstall": "node -e \"console.log('Fetching the Electron binary (~100 MB download on first install, can take a minute)...')\" && install-electron",
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",

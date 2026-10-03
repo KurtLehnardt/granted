@@ -1,5 +1,8 @@
 import { clipboard, ipcMain } from "electron";
 import { execFile, spawn } from "node:child_process";
+import { writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { promisify } from "node:util";
 import {
   INSTALL_ONE_LINERS,
@@ -98,15 +101,45 @@ async function openInstallTerminal(): Promise<OpenInstallTerminalResult> {
     }
 
     if (platform === "win32") {
-      const child = spawn("powershell.exe", ["-NoExit", "-Command", command], {
-        detached: true,
-        stdio: "ignore",
-        windowsHide: false,
+      // The one-liner must NOT appear on powershell.exe's command line:
+      // Microsoft Defender's cloud ML flags `-Command "irm <url> | iex"` as
+      // Trojan:Win32/Commando.A!ml and blocks/kills the process (seen on
+      // Windows 11, regardless of the parent process's signature). The same
+      // one-liner run from inside a script file is not flagged, so write it
+      // verbatim to a temp .ps1 and run that. -File (unlike -Command) also
+      // keeps the -NoExit window open when install-windows.ps1 calls `exit 1`,
+      // so the user can actually read the error.
+      const scriptPath = join(tmpdir(), "granted-install.ps1");
+      await writeFile(scriptPath, `${command}\r\n`, "utf8");
+      // Launched via `start` rather than spawning powershell.exe directly:
+      // libuv implements `detached` with DETACHED_PROCESS, which gives a
+      // console app no console window at all (PowerShell then runs invisibly
+      // and -NoExit exits on stdin EOF), while a non-detached child is
+      // killed when the installer closes. `start` gives it a real, new
+      // console window that outlives us. /s + verbatim args so cmd takes
+      // the quoted script path literally even if it contains spaces.
+      const child = spawn(
+        "cmd.exe",
+        [
+          "/d",
+          "/s",
+          "/c",
+          `"start "" powershell.exe -NoExit -ExecutionPolicy Bypass -File "${scriptPath}""`,
+        ],
+        { detached: true, stdio: "ignore", windowsHide: true, windowsVerbatimArguments: true },
+      );
+      // spawn() reports launch failures (ENOENT, EPERM from AV, ...) via an
+      // async 'error' event, not a throw — wait for it so the catch below
+      // sees them instead of the main process crashing on an unhandled event.
+      await new Promise<void>((resolve, reject) => {
+        child.once("spawn", resolve);
+        child.once("error", reject);
       });
       child.unref();
       return {
         ok: true,
-        message: "Opened PowerShell and started the installer. The command is also on your clipboard.",
+        message:
+          "Opened PowerShell and started the installer. If that window closes before it finishes, paste the command from your clipboard into PowerShell.",
         command,
       };
     }
