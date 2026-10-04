@@ -171,7 +171,17 @@ Every scoring/explanation call now routes to Ollama's OpenAI-compatible endpoint
 
 ### Fully offline
 
-**Embeddings are a SEPARATE setting from the LLM.** `LLM_PROVIDER=ollama` only moves the scoring/explanation calls — it does **not** move the query embedding. By default that tiny embedding still uses OpenAI (the corpus ships pre-embedded at 512 dims; it costs fractions of a cent), and if `OPENAI_API_KEY` is missing or still the `.env.example` placeholder you'll get a clear error rather than a hosted call. `npm run setup:local` sets this up for you; to do it by hand, pull a local embedding model and re-embed the corpus with it:
+Search also embeds your description and compares it against the corpus, and the shipped corpus is embedded with OpenAI (512 dims). A local model can't search that corpus until the corpus is re-embedded with the same local model. **Picking Local in Settings → Model handles this for you.** In the background, Granted:
+
+1. checks that Ollama is running and pulls the `nomic-embed-text` embedding model if you don't have it,
+2. re-embeds the corpus with it into a separate, gitignored index (`scaffold/data/local/local-embeddings/`). This takes from a few minutes to half an hour, depending on your machine.
+3. switches search to that index only once it's complete.
+
+Settings shows the progress, and any failure in plain language (Ollama not running, the download failed or stalled, embedding failed or stalled) with a **Retry** button. Until the index is ready, searches on Local can't run yet; your hosted setup is never touched. Switch back to a Cloud model and search goes straight back to hosted OpenAI embeddings and the original corpus. Switch to Local again later and the finished index is reused. After **Refresh cached grants** on Local, the index is updated in the background, re-embedding only new or changed grants. (The refresh itself still embeds the hosted corpus with OpenAI, so it needs `OPENAI_API_KEY`.) Run the setup from a terminal instead with `node --import tsx scripts/local-embeddings-job.mjs` (in `scaffold/`); its output goes to `scaffold/data/local/local-embeddings-job.log`.
+
+This automatic setup is for Ollama. If your local model runs on another OpenAI-compatible server (`LLM_PROVIDER=openai` or `local`, e.g. LM Studio), Settings tells you to configure embeddings by hand, as below.
+
+**Configuring `.env.local` by hand** (or via `npm run setup:local`) still works, and an `EMBEDDINGS_BASE_URL` there always wins over Settings. `LLM_PROVIDER=ollama` alone only moves the scoring/explanation calls, not the query embedding. If `OPENAI_API_KEY` is missing or still the `.env.example` placeholder, you'll get a clear error rather than a hosted call. To do it by hand, pull a local embedding model and re-embed the corpus with it:
 ```bash
 ollama pull nomic-embed-text
 # add these two lines to scaffold/.env.local:

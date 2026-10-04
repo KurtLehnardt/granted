@@ -175,3 +175,62 @@ describe("CorpusStore", () => {
     rmSync(baseDir, { recursive: true, force: true });
   });
 });
+
+describe("CorpusStore — Settings → Local's index", () => {
+  function writeIndexed(baseDir: string, opps: unknown[], meta: object = {}) {
+    const dir = join(baseDir, "data", "local", "local-embeddings");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "opportunities.json"), JSON.stringify(opps));
+    writeFileSync(join(dir, "corpus-meta.json"), JSON.stringify(meta));
+    return dir;
+  }
+
+  test("serves the local index only while it's active, and the hosted corpus again once it isn't", () => {
+    const baseDir = makeBaseDir();
+    writeCommitted(baseDir, [{ id: "committed", embedding: [1, 2] }], { builtAt: "2026-01-01T00:00:00.000Z" });
+    const indexDir = writeIndexed(baseDir, [{ id: "committed", embedding: [1, 2, 3] }], { builtAt: "2026-01-01T00:00:00.000Z" });
+    let active = true;
+    const store = new CorpusStore(baseDir, { localIndexDir: () => (active ? indexDir : null) });
+
+    const local = store.load();
+    assert.equal(local.source, "local-embeddings");
+    assert.equal(local.opportunities[0].embedding?.length, 3);
+
+    active = false; // e.g. switched back to a cloud model
+    const hosted = store.load();
+    assert.equal(hosted.source, "committed");
+    assert.equal(hosted.opportunities[0].embedding?.length, 2);
+    rmSync(baseDir, { recursive: true, force: true });
+  });
+
+  test("freshness comes from the hosted corpus, not the index: a data:refresh is visible at once (no auto-refresh loop)", () => {
+    const baseDir = makeBaseDir();
+    writeCommitted(baseDir, [{ id: "a" }], { builtAt: "2026-01-01T00:00:00.000Z" });
+    // The index carries the OLD builtAt of the corpus it was built from.
+    const indexDir = writeIndexed(baseDir, [{ id: "a", embedding: [1, 2, 3] }], { builtAt: "2026-01-01T00:00:00.000Z" });
+    const store = new CorpusStore(baseDir, { localIndexDir: () => indexDir });
+    assert.equal(store.load().meta.builtAt, "2026-01-01T00:00:00.000Z");
+
+    // data:refresh writes a newer hosted corpus; the index hasn't been re-embedded yet.
+    writeLocal(baseDir, [{ id: "a" }, { id: "b" }], { builtAt: "2026-10-04T00:00:00.000Z" });
+    const after = store.load();
+    assert.equal(after.source, "local-embeddings", "still searching the local-model vectors");
+    assert.equal(after.meta.builtAt, "2026-10-04T00:00:00.000Z", "but reports the refreshed corpus' date");
+    assert.equal(after.meta.count, 1, "count is what's actually searchable");
+
+    // A later rewrite of the hosted meta alone (same index file) is picked up too (cache keyed on it).
+    const later = new Date(Date.now() + 5000);
+    writeFileSync(join(baseDir, "data", "local", "corpus-meta.json"), JSON.stringify({ builtAt: "2026-10-05T00:00:00.000Z" }));
+    utimesSync(join(baseDir, "data", "local", "corpus-meta.json"), later, later);
+    assert.equal(store.load().meta.builtAt, "2026-10-05T00:00:00.000Z");
+    rmSync(baseDir, { recursive: true, force: true });
+  });
+
+  test("without the option, behaves exactly as before (index ignored)", () => {
+    const baseDir = makeBaseDir();
+    writeCommitted(baseDir, [{ id: "committed" }]);
+    writeIndexed(baseDir, [{ id: "x" }]);
+    assert.equal(new CorpusStore(baseDir).load().source, "committed");
+    rmSync(baseDir, { recursive: true, force: true });
+  });
+});

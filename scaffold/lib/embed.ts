@@ -1,6 +1,7 @@
 import type { CostMeter } from "./metering/meter";
 import { isLocalLlm } from "./llm/client";
 import { normalizeOpenAiBaseUrl } from "./llm/baseUrl";
+import { LOCAL_EMBED_MODEL, localEmbeddingsActive, localOllamaUrls } from "./embeddings/localEmbeddings";
 
 /**
  * Embeddings. Default: OpenAI text-embedding-3-small @ 512 dims, which matches
@@ -8,10 +9,15 @@ import { normalizeOpenAiBaseUrl } from "./llm/baseUrl";
  * scripts/3-embed.mjs; user queries are embedded here at runtime — both must
  * use the SAME model or the vectors aren't comparable).
  *
- * The same env seam as lib/llm/client.ts lets you point at a LOCAL,
- * OpenAI-compatible embedder (e.g. Ollama's `nomic-embed-text`) for a fully
- * offline run — but then RE-EMBED the corpus with that model (`npm run
- * data:embed`), since vectors are only comparable within one model.
+ * Two ways to run them locally instead:
+ *   - Settings → Model → Local, with no EMBEDDINGS_* in .env.local: the app pulls
+ *     Ollama's `nomic-embed-text` and builds a separate local search index in the
+ *     background (lib/embeddings/), and switches query embeddings (and
+ *     lib/corpus/store.ts) to it only once it's complete. Back on a cloud model,
+ *     the env target below is used again, untouched.
+ *   - The env seam (same as lib/llm/client.ts): point EMBEDDINGS_BASE_URL at a
+ *     local OpenAI-compatible embedder and RE-EMBED the corpus with it (`npm run
+ *     data:embed:local`). An explicit env setting always wins over Settings.
  *
  * Env: EMBEDDINGS_BASE_URL / EMBEDDINGS_MODEL / EMBEDDINGS_DIMENSIONS /
  *      EMBEDDINGS_API_KEY (falls back to OPENAI_API_KEY).
@@ -27,7 +33,39 @@ const DIMENSIONS = process.env.EMBEDDINGS_DIMENSIONS
   : IS_OPENAI
     ? 512
     : undefined;
+/** The env-configured target (what data:embed and data:refresh use). A search uses activeEmbeddingTarget(). */
 export { MODEL as EMBEDDINGS_MODEL, DIMENSIONS as EMBEDDINGS_DIMENSIONS, IS_OPENAI as EMBEDDINGS_IS_OPENAI };
+
+export interface EmbeddingTarget {
+  baseUrl: string;
+  model: string;
+  dimensions?: number;
+  isOpenAi: boolean;
+  /** "settings-local": the index Settings → Local built (lib/embeddings). */
+  source: "env" | "settings-local";
+}
+
+export function envEmbeddingTarget(): EmbeddingTarget {
+  return { baseUrl: BASE_URL, model: MODEL, dimensions: DIMENSIONS, isOpenAi: IS_OPENAI, source: "env" };
+}
+
+export function settingsLocalEmbeddingTarget(): EmbeddingTarget {
+  return { baseUrl: localOllamaUrls().openAiBaseUrl, model: LOCAL_EMBED_MODEL, isOpenAi: false, source: "settings-local" };
+}
+
+/** What query embeddings use right now: the Settings-built local index once it's ready (and Local is selected), else env. */
+export function activeEmbeddingTarget(): EmbeddingTarget {
+  return localEmbeddingsActive() ? settingsLocalEmbeddingTarget() : envEmbeddingTarget();
+}
+
+/**
+ * The target whose vectors match a loaded corpus (lib/corpus/store.ts's CorpusInfo.source).
+ * A search embeds its query with THIS, not a second, separate readiness check, so the
+ * query and the corpus it's compared against always share one embedding space.
+ */
+export function embeddingTargetForCorpus(source: "local-embeddings" | "local" | "committed"): EmbeddingTarget {
+  return source === "local-embeddings" ? settingsLocalEmbeddingTarget() : envEmbeddingTarget();
+}
 
 /**
  * Conservative placeholder detector: real `sk-`/`sk-proj-` keys are dozens of
@@ -62,7 +100,9 @@ export function checkEmbeddingsMisconfig(
   if (!isOpenAiTarget) return; // EMBEDDINGS_BASE_URL already points off OpenAI — nothing to check
   if (isLocal) {
     throw new Error(
-      "Local LLM is set (Settings or LLM_PROVIDER) but embeddings still target OpenAI. For a fully-local setup, set " +
+      "Local LLM is set (Settings or LLM_PROVIDER) but embeddings still target OpenAI, and local search isn't ready yet. " +
+        "Settings → Model → Local sets it up for you (it downloads the nomic-embed-text model and builds a local search " +
+        "index in the background) and shows its progress, with a Retry if it failed. Configuring .env.local by hand instead? Set " +
         "EMBEDDINGS_BASE_URL=http://localhost:11434/v1 and EMBEDDINGS_MODEL=nomic-embed-text in " +
         "scaffold/.env.local, run `ollama pull nomic-embed-text`, then re-embed with `npm run data:embed:local`. " +
         "See the README 'Fully offline' section.",
@@ -76,14 +116,25 @@ export function checkEmbeddingsMisconfig(
   }
 }
 
-/** Preflight check called at the top of embed()/embedBatch(), before any network call. */
-function assertEmbeddingsConfigured(): void {
-  checkEmbeddingsMisconfig(IS_OPENAI, isLocalLlm(), process.env.EMBEDDINGS_API_KEY || process.env.OPENAI_API_KEY);
+/**
+ * Preflight check called at the top of embed()/embedBatch(), before any network call.
+ * `pinned`: the caller chose the target explicitly (data:refresh writing the hosted
+ * corpus with the env embedder, or a search embedding for the corpus it loaded), so
+ * "Local is selected but this targets OpenAI" is intended, not a misconfiguration;
+ * only the missing/placeholder-key check still applies.
+ */
+function assertEmbeddingsConfigured(target: EmbeddingTarget, pinned: boolean): void {
+  checkEmbeddingsMisconfig(
+    target.isOpenAi,
+    pinned ? false : isLocalLlm(),
+    process.env.EMBEDDINGS_API_KEY || process.env.OPENAI_API_KEY,
+  );
 }
 
-function embeddingKey(): string {
+function embeddingKey(target: EmbeddingTarget): string {
+  if (target.source === "settings-local") return "local"; // Ollama ignores it; never send an OpenAI key there
   const key = process.env.EMBEDDINGS_API_KEY || process.env.OPENAI_API_KEY;
-  if (!key && IS_OPENAI) {
+  if (!key && target.isOpenAi) {
     throw new Error(
       "OPENAI_API_KEY is not set. Add it to .env.local (or set EMBEDDINGS_BASE_URL to a local embedder).",
     );
@@ -91,20 +142,36 @@ function embeddingKey(): string {
   return key || "local"; // local endpoints (Ollama) ignore the bearer token
 }
 
-function embedBody(input: string | string[]): string {
-  return JSON.stringify(
-    DIMENSIONS != null ? { model: MODEL, dimensions: DIMENSIONS, input } : { model: MODEL, input },
-  );
+function embedBody(target: EmbeddingTarget, input: string | string[]): string {
+  const { model, dimensions } = target;
+  return JSON.stringify(dimensions != null ? { model, dimensions, input } : { model, input });
 }
 
-export async function embed(text: string, meter?: CostMeter, signal?: AbortSignal): Promise<number[]> {
-  assertEmbeddingsConfigured();
-  const key = embeddingKey();
+export interface EmbedOptions {
+  /** Pin a target instead of the active one (a search pins the target matching the corpus it loaded). */
+  target?: EmbeddingTarget;
+  /**
+   * With a pinned hosted target: skip the "Local is selected but embeddings target OpenAI"
+   * guard. Only data:refresh sets this: it must embed the HOSTED corpus with the env
+   * embedder even while Settings is on Local (the local index is updated from it after).
+   */
+  allowHostedOnLocal?: boolean;
+}
+
+export async function embed(
+  text: string,
+  meter?: CostMeter,
+  signal?: AbortSignal,
+  opts: EmbedOptions = {},
+): Promise<number[]> {
+  const target = opts.target ?? activeEmbeddingTarget();
+  assertEmbeddingsConfigured(target, opts.target != null && opts.allowHostedOnLocal === true);
+  const key = embeddingKey(target);
   const t0 = performance.now();
-  const res = await fetch(`${BASE_URL}/embeddings`, {
+  const res = await fetch(`${target.baseUrl}/embeddings`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-    body: embedBody(text),
+    body: embedBody(target, text),
     signal,
   });
 
@@ -118,7 +185,7 @@ export async function embed(text: string, meter?: CostMeter, signal?: AbortSigna
   meter?.record({
     stage: "query_embedding",
     provider: "openai",
-    model: MODEL,
+    model: target.model,
     inputTokens: json?.usage?.prompt_tokens ?? 0,
     outputTokens: 0,
     latencyMs: performance.now() - t0,
@@ -142,10 +209,12 @@ export async function embedBatch(
   texts: string[],
   meter?: CostMeter,
   signal?: AbortSignal,
+  opts: EmbedOptions = {},
 ): Promise<number[][]> {
   if (texts.length === 0) return [];
-  assertEmbeddingsConfigured();
-  const key = embeddingKey();
+  const target = opts.target ?? activeEmbeddingTarget();
+  assertEmbeddingsConfigured(target, opts.target != null && opts.allowHostedOnLocal === true);
+  const key = embeddingKey(target);
 
   const CHUNK = 128;
   const chunks: string[][] = [];
@@ -154,10 +223,10 @@ export async function embedBatch(
   const perChunk = await Promise.all(
     chunks.map(async (chunk) => {
       const t0 = performance.now();
-      const res = await fetch(`${BASE_URL}/embeddings`, {
+      const res = await fetch(`${target.baseUrl}/embeddings`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-        body: embedBody(chunk),
+        body: embedBody(target, chunk),
         signal,
       });
       if (!res.ok) throw new Error(`Batch embedding request failed (${res.status}): ${await res.text()}`);
@@ -166,7 +235,7 @@ export async function embedBatch(
       meter?.record({
         stage: "query_embedding",
         provider: "openai",
-        model: MODEL,
+        model: target.model,
         inputTokens: json?.usage?.prompt_tokens ?? 0,
         outputTokens: 0,
         latencyMs: performance.now() - t0,

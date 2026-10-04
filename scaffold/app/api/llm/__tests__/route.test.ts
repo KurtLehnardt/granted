@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { EMBEDDINGS_IS_OPENAI } from "@/lib/embed";
 
 const CONFIG_PATH = path.join(os.tmpdir(), `granted-llm-config-route-test-${process.pid}.json`);
 
@@ -63,7 +62,8 @@ describe("GET /api/llm", () => {
     assert.equal(j.cloud.keyHint, "5678");
     assert.deepEqual(j.cloud.keySource, { type: "env", name: "ANTHROPIC_API_KEY" });
     assert.equal(JSON.stringify(j).includes("sk-ant-abcd1234efgh5678"), false);
-    assert.equal(j.openAiEmbeddings, EMBEDDINGS_IS_OPENAI);
+    assert.equal("openAiEmbeddings" in j, false, "dead field removed; the UI reads localEmbeddings");
+    assert.equal(j.localEmbeddings.model, "nomic-embed-text");
     assert.equal(fetched, false, "hosted must never call Ollama");
   });
 

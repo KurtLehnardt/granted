@@ -1,18 +1,17 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { RefreshStage } from "./refreshProgress";
+import { readJsonFile, writeFileAtomic } from "../fs/atomicFile";
+import { createPidLock } from "../fs/pidLock";
 
-/** Single-flight refresh lock: an O_EXCL file holding the owner's pid, stale once that pid is gone. */
-interface LockInfo {
-  pid: number;
-  startedAt: number;
-}
+export { isProcessAlive } from "../fs/pidLock";
 
+/** Single-flight refresh lock: see lib/fs/pidLock.ts (shared with the local-embeddings job). */
 function dir(baseDir: string): string {
   return join(baseDir, "data", "local");
 }
-function lockPath(baseDir: string): string {
-  return join(dir(baseDir), "refresh.lock");
+function lock(baseDir: string) {
+  return createPidLock(join(dir(baseDir), "refresh.lock"));
 }
 function statusPath(baseDir: string): string {
   return join(dir(baseDir), "refresh-status.json");
@@ -21,69 +20,20 @@ function stopRequestPath(baseDir: string): string {
   return join(dir(baseDir), "refresh-stop-request");
 }
 
-function isProcessAlive(pid: number): boolean {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (e) {
-    return (e as NodeJS.ErrnoException).code === "EPERM";
-  }
-}
-
 export function isRefreshing(baseDir: string = process.cwd()): boolean {
-  const p = lockPath(baseDir);
-  if (!existsSync(p)) return false;
-  let info: Partial<LockInfo>;
-  try {
-    info = JSON.parse(readFileSync(p, "utf8"));
-  } catch {
-    return false;
-  }
-  if (typeof info.pid === "number" && isProcessAlive(info.pid)) return true;
-  try {
-    unlinkSync(p);
-  } catch {
-    /* already gone */
-  }
-  return false;
+  return lock(baseDir).isHeld();
 }
 
 export function acquireRefreshLock(baseDir: string = process.cwd(), pid: number = process.pid): boolean {
-  mkdirSync(dir(baseDir), { recursive: true });
-  const p = lockPath(baseDir);
-  const info: LockInfo = { pid, startedAt: Date.now() };
-  try {
-    writeFileSync(p, JSON.stringify(info), { flag: "wx" });
-    return true;
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
-  }
-  if (isRefreshing(baseDir)) return false;
-  try {
-    writeFileSync(p, JSON.stringify(info), { flag: "wx" });
-    return true;
-  } catch {
-    return false;
-  }
+  return lock(baseDir).acquire(pid);
 }
 
 export function transferRefreshLock(pid: number, baseDir: string = process.cwd()): void {
-  const p = lockPath(baseDir);
-  try {
-    const info = JSON.parse(readFileSync(p, "utf8")) as LockInfo;
-    writeFileSync(p, JSON.stringify({ ...info, pid }));
-  } catch {
-    /* already released */
-  }
+  lock(baseDir).transfer(pid);
 }
 
 export function releaseRefreshLock(baseDir: string = process.cwd()): void {
-  try {
-    unlinkSync(lockPath(baseDir));
-  } catch {
-    /* already gone */
-  }
+  lock(baseDir).release();
 }
 
 export interface RefreshProgress {
@@ -113,26 +63,12 @@ export interface RefreshStatus {
 }
 
 export function readRefreshStatus(baseDir: string = process.cwd()): RefreshStatus {
-  try {
-    return JSON.parse(readFileSync(statusPath(baseDir), "utf8"));
-  } catch {
-    return {};
-  }
+  return readJsonFile<RefreshStatus>(statusPath(baseDir)) ?? {};
 }
 
 export function writeRefreshStatus(status: RefreshStatus, baseDir: string = process.cwd()): void {
-  mkdirSync(dir(baseDir), { recursive: true });
-  const p = statusPath(baseDir);
-  const body = JSON.stringify(status, null, 2);
-  const tmp = `${p}.tmp-${process.pid}`;
-  writeFileSync(tmp, body);
-  try {
-    renameSync(tmp, p);
-  } catch {
-    // Windows refuses to rename over a file a reader (GET /api/corpus) has open.
-    rmSync(tmp, { force: true });
-    writeFileSync(p, body);
-  }
+  // Windows refuses to rename over a file a reader (GET /api/corpus) has open; the status is cosmetic, so fall back to a direct write.
+  writeFileAtomic(statusPath(baseDir), JSON.stringify(status, null, 2), { fallback: "direct" });
 }
 
 /** Merges `progress` into the status file; best-effort, swallows write errors since it's cosmetic. */

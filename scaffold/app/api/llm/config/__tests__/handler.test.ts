@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { handleLlmConfigPost, type LlmConfigDeps } from "../handler";
 import { readLlmConfig, resolveCloudConfig, resetLlmConfigCache, type LlmConfigFile } from "@/lib/llm/config";
+import type { LocalEmbeddingsStatus } from "@/lib/embeddings/localEmbeddings";
 
 async function withRealConfigFile(initial: object, fn: () => Promise<void>) {
   const p = path.join(os.tmpdir(), `granted-llm-config-handler-${process.pid}-${Date.now()}.json`);
@@ -37,6 +38,10 @@ function fakeDeps(overrides: Partial<LlmConfigDeps> = {}, initial: LlmConfigFile
   const writes: LlmConfigFile[] = [];
   return {
     isLoopbackRequest: () => true,
+    localEmbeddingsStatus: () => null,
+    startLocalEmbeddings: () => {
+      throw new Error("fakeDeps: no local-embeddings job in these tests");
+    },
     readLlmConfig: () => stored,
     writeLlmConfig: (patch: LlmConfigFile) => {
       stored = { ...stored, ...patch };
@@ -267,7 +272,7 @@ describe("POST /api/llm/config", () => {
 
   test("switching to ollama moves a legacy #210 key into cloud rather than dropping it (real file)", async () => {
     await withRealConfigFile({ provider: "anthropic", anthropicApiKey: "sk-ant-legacyplaintext0" }, async () => {
-      const res = await handleLlmConfigPost(fakeReq({ provider: "ollama" }), { isLoopbackRequest: () => true });
+      const res = await handleLlmConfigPost(fakeReq({ provider: "ollama" }), { isLoopbackRequest: () => true, localEmbeddingsStatus: () => null });
       assert.equal(res.status, 200);
       assert.deepEqual(readLlmConfig(), {
         provider: "ollama",
@@ -279,7 +284,7 @@ describe("POST /api/llm/config", () => {
 
   test("clearCloud on a legacy #210 file removes the key entirely (real file)", async () => {
     await withRealConfigFile({ provider: "anthropic", anthropicApiKey: "sk-ant-legacyplaintext0" }, async () => {
-      const res = await handleLlmConfigPost(fakeReq({ provider: "ollama", clearCloud: true }), { isLoopbackRequest: () => true });
+      const res = await handleLlmConfigPost(fakeReq({ provider: "ollama", clearCloud: true }), { isLoopbackRequest: () => true, localEmbeddingsStatus: () => null });
       assert.equal(res.status, 200);
       assert.deepEqual(readLlmConfig(), { provider: "ollama" });
     });
@@ -289,7 +294,7 @@ describe("POST /api/llm/config", () => {
     await withRealConfigFile({ provider: "ollama", anthropicApiKey: "sk-ant-legacyplaintext0" }, async () => {
       const res = await handleLlmConfigPost(
         fakeReq({ provider: "cloud", cloud: { providerId: "anthropic", keySource: { type: "saved" } } }),
-        { isLoopbackRequest: () => true },
+        { isLoopbackRequest: () => true, localEmbeddingsStatus: () => null },
       );
       assert.equal(res.status, 200);
       assert.deepEqual(readLlmConfig(), {
@@ -376,5 +381,97 @@ describe("POST /api/llm/config", () => {
     const json = await res.json();
     assert.equal(res.status, 400);
     assert.equal(json.error, "Please enter a key for your cloud provider.");
+  });
+});
+
+describe("POST /api/llm/config — switching to Local starts local search setup", () => {
+  const status = (s: Partial<LocalEmbeddingsStatus>): LocalEmbeddingsStatus => ({ state: "needed", model: "nomic-embed-text", active: false, ...s });
+
+  function withEmbeddings(initial: LocalEmbeddingsStatus | null, startImpl?: () => void) {
+    let current = initial;
+    let starts = 0;
+    const deps = fakeDeps({
+      localEmbeddingsStatus: () => current,
+      startLocalEmbeddings: () => {
+        starts++;
+        if (startImpl) startImpl();
+        current = status({ state: "running", progress: { stage: "checking" } });
+      },
+    });
+    return { deps, starts: () => starts };
+  }
+
+  test("nothing built yet → starts the background job and returns its running status", async () => {
+    const { deps, starts } = withEmbeddings(status({}));
+    const res = await handleLlmConfigPost(fakeReq({ provider: "ollama" }), deps);
+    assert.equal(res.status, 200);
+    assert.equal(starts(), 1);
+    const json = await res.json();
+    assert.equal(json.provider, "ollama");
+    assert.equal(json.localEmbeddings.state, "running");
+  });
+
+  test("a previous failure → re-picking Local retries", async () => {
+    const { deps, starts } = withEmbeddings(status({ state: "failed", error: "x" }));
+    await handleLlmConfigPost(fakeReq({ provider: "ollama" }), deps);
+    assert.equal(starts(), 1);
+  });
+
+  test("index already ready → no job, search switches to it immediately", async () => {
+    const { deps, starts } = withEmbeddings(status({ state: "ready", active: true, outdated: false }));
+    const json = await (await handleLlmConfigPost(fakeReq({ provider: "ollama" }), deps)).json();
+    assert.equal(starts(), 0);
+    assert.equal(json.localEmbeddings.state, "ready");
+  });
+
+  test("ready but built from an older corpus → refreshes it in the background", async () => {
+    const { deps, starts } = withEmbeddings(status({ state: "ready", active: true, outdated: true }));
+    await handleLlmConfigPost(fakeReq({ provider: "ollama" }), deps);
+    assert.equal(starts(), 1);
+  });
+
+  test("already running, or embeddings set in .env.local → no second job", async () => {
+    for (const s of [status({ state: "running" }), status({ state: "not-applicable" })]) {
+      const { deps, starts } = withEmbeddings(s);
+      await handleLlmConfigPost(fakeReq({ provider: "ollama" }), deps);
+      assert.equal(starts(), 0, s.state);
+    }
+  });
+
+  test("the job failing to spawn never fails the provider switch", async () => {
+    const { deps } = withEmbeddings(status({}), () => {
+      throw new Error("EACCES");
+    });
+    const res = await handleLlmConfigPost(fakeReq({ provider: "ollama" }), deps);
+    assert.equal(res.status, 200);
+    assert.deepEqual(deps._get(), { provider: "ollama" });
+  });
+
+  test("a cloud save never starts it", async () => {
+    const { deps, starts } = withEmbeddings(status({}));
+    const res = await handleLlmConfigPost(
+      fakeReq({ provider: "cloud", cloud: { providerId: "anthropic", keySource: { type: "inline", key: "sk-ant-abcXYZ1234567890" } } }),
+      deps,
+    );
+    assert.equal(res.status, 200);
+    assert.equal(starts(), 0);
+  });
+});
+
+describe("POST /api/llm/config — status is built once per switch", () => {
+  test("auto-start reports the started job as running without re-reading the status", async () => {
+    let builds = 0;
+    let starts = 0;
+    const deps = fakeDeps({
+      localEmbeddingsStatus: () => {
+        builds++;
+        return { state: "failed", model: "nomic-embed-text", active: false, error: "old", errorKind: "embed-failed" };
+      },
+      startLocalEmbeddings: () => void starts++,
+    });
+    const json = await (await handleLlmConfigPost(fakeReq({ provider: "ollama" }), deps)).json();
+    assert.equal(builds, 1);
+    assert.equal(starts, 1);
+    assert.deepEqual(json.localEmbeddings, { state: "running", model: "nomic-embed-text", active: false, progress: { stage: "checking" } });
   });
 });

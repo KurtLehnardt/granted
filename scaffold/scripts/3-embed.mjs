@@ -26,6 +26,7 @@
 import "./_loadEnvLocal.mjs"; // honor scaffold/.env.local when run as plain `node`
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { corpusDims, embedOpportunities } from "./lib/embedCorpus.mjs";
 
 const TARGET_LOCAL = process.argv.includes("--target=local");
 const OUT_DIR = TARGET_LOCAL ? "data/local" : "data";
@@ -48,46 +49,21 @@ if (IS_OPENAI && !process.env.EMBEDDINGS_API_KEY && !process.env.OPENAI_API_KEY)
 }
 
 const opps = JSON.parse(await readFile(`${IN_DIR}/opportunities.json`, "utf8"));
-const BATCH = 32;
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-function embedBody(inputs) {
-  return JSON.stringify(
-    DIMENSIONS != null ? { model: MODEL, dimensions: DIMENSIONS, input: inputs } : { model: MODEL, input: inputs },
-  );
-}
-
-/** POST one batch, retrying with exponential backoff on 429/5xx (honors Retry-After). */
-async function embedBatch(inputs, attempt = 0) {
-  const res = await fetch(`${BASE_URL}/embeddings`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${KEY}` },
-    body: embedBody(inputs),
-  });
-
-  if (res.status === 429 || res.status >= 500) {
-    if (attempt >= 7) throw new Error(`Gave up after ${attempt} retries (${res.status}): ${await res.text()}`);
-    const ra = Number(res.headers.get("retry-after"));
-    const wait = Number.isFinite(ra) && ra > 0 ? ra * 1000 : Math.min(60000, 1000 * 2 ** attempt);
-    process.stdout.write(`\n  ${res.status} rate-limited — backing off ${Math.round(wait / 1000)}s (retry ${attempt + 1}/7)`);
-    await sleep(wait);
-    return embedBatch(inputs, attempt + 1);
-  }
-  if (!res.ok) throw new Error(`Embeddings failed (${res.status}) at ${BASE_URL}: ${await res.text()}`);
-  return (await res.json()).data;
-}
-
-let done = 0;
-for (let i = 0; i < opps.length; i += BATCH) {
-  const slice = opps.slice(i, i + BATCH);
-  const data = await embedBatch(slice.map((o) => `${o.program}. ${o.agency}. ${o.description}`.slice(0, 8000)));
-  data.forEach((d, k) => {
-    slice[k].embedding = d.embedding.map((v) => Math.round(v * 1e5) / 1e5);
-  });
-  done += slice.length;
-  process.stdout.write(`\rembedded ${done}/${opps.length}`);
-  if (IS_OPENAI) await sleep(400); // gentle inter-batch pacing for the hosted API; unneeded locally
-}
+// The batch/retry loop lives in scripts/lib/embedCorpus.mjs, shared with the
+// Settings-driven local re-embed (lib/embeddings/localEmbedJob.ts).
+await embedOpportunities(opps, {
+  baseUrl: BASE_URL,
+  model: MODEL,
+  dimensions: DIMENSIONS,
+  key: KEY,
+  batch: 32,
+  interBatchDelayMs: IS_OPENAI ? 400 : 0, // gentle inter-batch pacing for the hosted API; unneeded locally
+  onProgress: (n, total) => process.stdout.write(`\rembedded ${n}/${total}`),
+  onRetry: ({ status, waitMs, attempt }) =>
+    process.stdout.write(`\n  ${status} rate-limited — backing off ${Math.round(waitMs / 1000)}s (retry ${attempt}/7)`),
+});
+const done = opps.length;
 
 if (TARGET_LOCAL) await mkdir(OUT_DIR, { recursive: true });
 await writeFile(`${OUT_DIR}/opportunities.json`, JSON.stringify(opps));
@@ -112,7 +88,7 @@ await writeFile(
         : "When this committed opportunity snapshot was built (written by scripts/3-embed.mjs on every data:embed). Read by lib/corpus/meta.ts to surface an honest 'Opportunities as of <date>' caveat.",
       count: opps.length,
       embeddingModel: MODEL,
-      dims: opps.find((o) => Array.isArray(o.embedding) && o.embedding.length > 0)?.embedding?.length,
+      dims: corpusDims(opps),
     },
     null,
     2,

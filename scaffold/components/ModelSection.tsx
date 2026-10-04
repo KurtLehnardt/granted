@@ -4,6 +4,8 @@ import React, { useEffect, useId, useState } from "react";
 import { getModel, setModel } from "@/lib/searchSettings";
 import type { OllamaModel } from "@/lib/llm/ollamaInfo";
 import { CLOUD_PROVIDERS, isSameCloudTarget, type CloudProviderId } from "@/lib/llm/providers";
+import type { LocalEmbeddingsStatus } from "@/lib/embeddings/localEmbeddings";
+import LocalSearchStatus from "@/components/LocalSearchStatus";
 
 export type KeySourceType = "inline" | "env" | "file";
 export type PublicKeySource = { type: "inline" } | { type: "env"; name: string } | { type: "file"; path: string };
@@ -66,7 +68,8 @@ export type LlmProviderInfo = {
   model?: string;
   models?: OllamaModel[];
   cloud?: CloudInfo;
-  openAiEmbeddings?: boolean;
+  /** Settings → Local's background local-search setup (see lib/embeddings/localEmbeddings.ts). */
+  localEmbeddings?: LocalEmbeddingsStatus;
 };
 
 /** Base URL and, when it should change, key source for a switch to `next`: the saved
@@ -393,11 +396,9 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
               Runs on your own machine via Ollama — nothing leaves your computer.
             </p>
           )}
-          {info?.openAiEmbeddings && (
-            <p className="mt-2 rounded-r-sm border-l-2 border-error bg-canvas-alt px-3 py-2 font-body text-[12px] text-foreground">
-              Search embeddings still use OpenAI, so searches won&apos;t run on Local until embeddings are
-              switched to a local model too (see the README&apos;s &ldquo;Fully offline&rdquo; section).
-            </p>
+          {/* Switching to Local starts the local-search setup server-side; this shows its progress, errors and Retry. */}
+          {activeProvider === "ollama" && (
+            <LocalSearchStatus initialStatus={info?.localEmbeddings} onReady={refresh} autoStart />
           )}
         </div>
       )}

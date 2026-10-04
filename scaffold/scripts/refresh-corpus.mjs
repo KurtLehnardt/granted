@@ -6,7 +6,8 @@ import "./_loadEnvLocal.mjs"; // honor scaffold/.env.local when run as plain `no
 import { spawnSync } from "node:child_process";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { embedBatch, EMBEDDINGS_DIMENSIONS, EMBEDDINGS_MODEL } from "../lib/embed.ts";
+import { embedBatch, envEmbeddingTarget, EMBEDDINGS_DIMENSIONS, EMBEDDINGS_MODEL } from "../lib/embed.ts";
+import { startLocalIndexUpdateIfInUse } from "../lib/embeddings/startLocalEmbeddings.ts";
 import { clampCorpusSize, DEFAULT_CORPUS_SIZE } from "../lib/searchSettings.ts";
 import { dropExpiredOpportunities } from "../lib/corpus/expiry.ts";
 import { dropPastAwards } from "../lib/corpus/pastAwards.ts";
@@ -74,7 +75,8 @@ async function embedAll(toEmbedList, { foundCount, keptCount, allowReembedEscala
 
 async function embedBatchWithRetry(texts, attempt = 0) {
   try {
-    return await embedBatch(texts);
+    // Pinned to the env target: this writes the hosted corpus, never the Settings-built local index.
+    return await embedBatch(texts, undefined, undefined, { target: envEmbeddingTarget(), allowHostedOnLocal: true });
   } catch (e) {
     const status = Number(String(e.message).match(/\((\d+)\)/)?.[1]);
     if (!(status === 429 || status >= 500) || attempt >= 7) throw e;
@@ -330,6 +332,13 @@ async function main() {
         `(+${plan.added} added, ~${plan.updated} updated, -${removed} removed) in ${durationS}s`,
     );
     writeRefreshStatus({ lastCompletedAt: attemptAt });
+    // On Settings -> Local, search uses a separate local index derived from this corpus:
+    // bring it up to date in the background (only new/changed grants are re-embedded).
+    try {
+      if (startLocalIndexUpdateIfInUse()?.started) console.log("-> updating the local search index in the background");
+    } catch (err) {
+      console.error(`(couldn't start the local search index update: ${err.message})`);
+    }
   } catch (e) {
     console.error(`\ndata:refresh FAILED — ${e.message}`);
     writeRefreshStatus({ lastAttemptAt: attemptAt, lastError: e.message });
