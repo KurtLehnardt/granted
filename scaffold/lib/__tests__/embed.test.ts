@@ -1,6 +1,17 @@
 import { test, describe, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { embed, embedBatch, checkEmbeddingsMisconfig, assertEmbeddingDimsMatch } from "../embed";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  embed,
+  embedBatch,
+  checkEmbeddingsMisconfig,
+  assertEmbeddingDimsMatch,
+  activeEmbeddingTarget,
+  envEmbeddingTarget,
+} from "../embed";
+import { resetLlmConfigCache } from "../llm/config";
 
 /**
  * The preflight guard added after a real self-hoster set LLM_PROVIDER=local
@@ -173,5 +184,109 @@ describe("assertEmbeddingDimsMatch — corpus/query embedding-space guard", () =
     assert.doesNotThrow(() => assertEmbeddingDimsMatch(768, null));
     assert.doesNotThrow(() => assertEmbeddingDimsMatch(768, undefined));
     assert.doesNotThrow(() => assertEmbeddingDimsMatch(768, 0));
+  });
+});
+
+/**
+ * Settings → Local's index (lib/embeddings): once it's complete and Local is
+ * selected, query embeddings go to Ollama's nomic-embed-text; on Cloud (or with
+ * EMBEDDINGS_* set in .env.local) they go where they always did.
+ */
+describe("activeEmbeddingTarget — Settings-built local index", () => {
+  const savedPaths = {
+    cfg: process.env.GRANTED_LLM_CONFIG_PATH,
+    base: process.env.GRANTED_LOCAL_EMBEDDINGS_BASE_DIR,
+    llmBase: process.env.LLM_BASE_URL,
+  };
+  let dir = "";
+
+  function setup(provider: "ollama" | "cloud", ready: boolean) {
+    dir = mkdtempSync(join(tmpdir(), "granted-embed-target-"));
+    writeFileSync(join(dir, "llm-config.json"), JSON.stringify({ provider }));
+    process.env.GRANTED_LLM_CONFIG_PATH = join(dir, "llm-config.json");
+    process.env.GRANTED_LOCAL_EMBEDDINGS_BASE_DIR = dir;
+    resetLlmConfigCache();
+    if (ready) {
+      const idx = join(dir, "data", "local", "local-embeddings");
+      mkdirSync(idx, { recursive: true });
+      writeFileSync(join(idx, "opportunities.json"), "[]");
+      writeFileSync(
+        join(idx, "corpus-meta.json"),
+        JSON.stringify({ complete: true, embeddingModel: "nomic-embed-text", dims: 768, count: 4698 }),
+      );
+    }
+  }
+
+  function captureFetch() {
+    const calls: Array<{ url: string; body: any; auth: string }> = [];
+    globalThis.fetch = (async (url: string, init: { body: string; headers: Record<string, string> }) => {
+      calls.push({ url, body: JSON.parse(init.body), auth: init.headers.Authorization });
+      const input = JSON.parse(init.body).input;
+      const n = Array.isArray(input) ? input.length : 1;
+      return { ok: true, json: async () => ({ data: Array.from({ length: n }, (_, index) => ({ index, embedding: [1, 2, 3] })), usage: {} }) };
+    }) as unknown as typeof fetch;
+    return calls;
+  }
+
+  afterEach(() => {
+    for (const [k, v] of [
+      ["GRANTED_LLM_CONFIG_PATH", savedPaths.cfg],
+      ["GRANTED_LOCAL_EMBEDDINGS_BASE_DIR", savedPaths.base],
+      ["LLM_BASE_URL", savedPaths.llmBase],
+    ] as const) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    resetLlmConfigCache();
+    if (dir) rmSync(dir, { recursive: true, force: true });
+    dir = "";
+  });
+
+  test("Local + ready index → Ollama nomic-embed-text, no `dimensions`, never the OpenAI key", async () => {
+    setup("ollama", true);
+    process.env.OPENAI_API_KEY = "sk-proj-abcdefghijklmnopqrstuvwxyz1234567890";
+    delete process.env.LLM_BASE_URL;
+    assert.equal(activeEmbeddingTarget().source, "settings-local");
+    const calls = captureFetch();
+    await embed("rural clinic diagnostics");
+    assert.equal(calls[0].url, "http://localhost:11434/v1/embeddings");
+    assert.deepEqual(calls[0].body, { model: "nomic-embed-text", input: "rural clinic diagnostics" });
+    assert.equal(calls[0].auth, "Bearer local");
+  });
+
+  test("follows LLM_BASE_URL (Ollama on another host) for the query embedder too", async () => {
+    setup("ollama", true);
+    process.env.LLM_BASE_URL = "http://gpu-box:11434";
+    const calls = captureFetch();
+    await embedBatch(["a", "b"]);
+    assert.equal(calls[0].url, "http://gpu-box:11434/v1/embeddings");
+  });
+
+  test("Local but the index isn't finished → still the env target, so the clear 'not ready yet' guard fires (no OpenAI call)", async () => {
+    setup("ollama", false);
+    assert.equal(activeEmbeddingTarget().source, "env");
+    const calls = captureFetch();
+    await assert.rejects(() => embed("x"), /local search isn't ready yet[\s\S]*Settings → Model → Local sets it up/);
+    assert.equal(calls.length, 0);
+  });
+
+  test("switching back to Cloud → hosted OpenAI embeddings again (512 dims), with the index left on disk", async () => {
+    setup("cloud", true);
+    process.env.OPENAI_API_KEY = "sk-proj-abcdefghijklmnopqrstuvwxyz1234567890";
+    assert.equal(activeEmbeddingTarget().source, "env");
+    const calls = captureFetch();
+    await embed("x");
+    assert.equal(calls[0].url, "https://api.openai.com/v1/embeddings");
+    assert.equal(calls[0].body.dimensions, 512);
+  });
+
+  test("an explicitly pinned env target (data:refresh) ignores the local index", async () => {
+    setup("ollama", true);
+    process.env.OPENAI_API_KEY = "sk-proj-abcdefghijklmnopqrstuvwxyz1234567890";
+    delete process.env.LLM_PROVIDER;
+    const target = envEmbeddingTarget();
+    assert.equal(target.source, "env");
+    // Local is selected, so the guard (not a silent OpenAI call) is what a pinned hosted target hits.
+    await assert.rejects(() => embedBatch(["a"], undefined, undefined, { target }), /Local LLM is set/);
   });
 });

@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { isLocalLlm, defaultLocalModel } from "@/lib/llm/client";
 import { listOllamaChatModels } from "@/lib/llm/ollamaInfo";
 import { resolveCloudConfig, resolveCloudApiKey, publicKeySource } from "@/lib/llm/config";
-import { EMBEDDINGS_IS_OPENAI } from "@/lib/embed";
+import { activeEmbeddingTarget } from "@/lib/embed";
+import { buildLocalEmbeddingsStatus } from "@/lib/embeddings/localEmbeddings";
 
 // Next 14 would otherwise prerender this at build time, freezing the backend/model list.
 export const dynamic = "force-dynamic";
@@ -28,6 +29,10 @@ function buildCloudBlock(cfg: NonNullable<ReturnType<typeof resolveCloudConfig>>
 export async function GET() {
   const cfg = resolveCloudConfig();
   const cloud = cfg ? buildCloudBlock(cfg) : undefined;
+  // Whether a search's query embedding goes to OpenAI right now, plus Settings → Local's
+  // background local-search setup (state/progress/error) — see lib/embeddings/localEmbeddings.ts.
+  const openAiEmbeddings = activeEmbeddingTarget().isOpenAi;
+  const localEmbeddings = buildLocalEmbeddingsStatus();
 
   if (isLocalLlm()) {
     return NextResponse.json({
@@ -35,19 +40,21 @@ export async function GET() {
       provider: "ollama" as const,
       model: defaultLocalModel(),
       models: await listOllamaChatModels(),
-      openAiEmbeddings: EMBEDDINGS_IS_OPENAI,
+      openAiEmbeddings,
+      localEmbeddings,
       ...(cloud ? { cloud } : {}),
     });
   }
 
   if (!cfg) {
-    return NextResponse.json({ local: false, provider: "cloud" as const, openAiEmbeddings: EMBEDDINGS_IS_OPENAI });
+    return NextResponse.json({ local: false, provider: "cloud" as const, openAiEmbeddings, localEmbeddings });
   }
 
   return NextResponse.json({
     local: false,
     provider: "cloud" as const,
-    openAiEmbeddings: EMBEDDINGS_IS_OPENAI,
+    openAiEmbeddings,
+    localEmbeddings,
     cloud,
   });
 }

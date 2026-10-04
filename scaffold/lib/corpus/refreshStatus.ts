@@ -21,7 +21,7 @@ function stopRequestPath(baseDir: string): string {
   return join(dir(baseDir), "refresh-stop-request");
 }
 
-function isProcessAlive(pid: number): boolean {
+export function isProcessAlive(pid: number): boolean {
   if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
     process.kill(pid, 0);

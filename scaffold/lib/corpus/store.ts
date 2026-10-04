@@ -2,6 +2,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { Opportunity } from "../types";
 import { dropPastAwards } from "./pastAwards";
+import { localEmbeddingsActive } from "../embeddings/localEmbeddings";
 
 export interface CorpusMeta {
   builtAt?: string;
@@ -9,7 +10,8 @@ export interface CorpusMeta {
   [key: string]: unknown;
 }
 
-type CorpusSource = "local" | "committed";
+/** "local-embeddings": the index Settings → Local built (lib/embeddings), searched only while it's active. */
+type CorpusSource = "local-embeddings" | "local" | "committed";
 
 export interface CorpusInfo {
   opportunities: Opportunity[];
@@ -45,28 +47,51 @@ interface CorpusCache extends CorpusInfo {
   metaMtimeMs: number;
 }
 
-/** Prefers the gitignored `data/local/` refresh over the committed snapshot; reloads on mtime change. */
+export interface CorpusStoreOptions {
+  /** True while search should use the Settings-built local index (its vectors match local query embeddings). */
+  useLocalEmbeddings?: () => boolean;
+}
+
+/**
+ * Prefers the gitignored `data/local/` refresh over the committed snapshot; reloads on mtime change.
+ * While Settings → Local's index is active, serves that instead (same records, local-model vectors).
+ */
 export class CorpusStore {
   private cache: CorpusCache | null = null;
 
-  constructor(private readonly baseDir: string = process.cwd()) {}
+  constructor(
+    private readonly baseDir: string = process.cwd(),
+    private readonly options: CorpusStoreOptions = {},
+  ) {}
 
   private paths(source: CorpusSource) {
-    const dir = source === "local" ? join(this.baseDir, "data", "local") : join(this.baseDir, "data");
+    const dir =
+      source === "local-embeddings"
+        ? join(this.baseDir, "data", "local", "local-embeddings")
+        : source === "local"
+          ? join(this.baseDir, "data", "local")
+          : join(this.baseDir, "data");
     return { oppsPath: join(dir, "opportunities.json"), metaPath: join(dir, "corpus-meta.json") };
   }
 
   load(): CorpusInfo {
     const local = this.paths("local");
-    const key = existsSync(local.oppsPath) ? local.oppsPath : this.paths("committed").oppsPath;
+    const indexed = this.paths("local-embeddings");
+    const useIndexed = Boolean(this.options.useLocalEmbeddings?.()) && existsSync(indexed.oppsPath);
+    const key = useIndexed
+      ? indexed.oppsPath
+      : existsSync(local.oppsPath)
+        ? local.oppsPath
+        : this.paths("committed").oppsPath;
     const keyMtimeMs = mtimeOf(key);
     const cache = this.cache;
     if (cache && cache.key === key && cache.keyMtimeMs === keyMtimeMs && cache.metaMtimeMs === mtimeOf(cache.metaPath)) {
       return { opportunities: cache.opportunities, meta: cache.meta, source: cache.source };
     }
 
-    let source: CorpusSource = key === local.oppsPath ? "local" : "committed";
+    let source: CorpusSource = key === indexed.oppsPath ? "local-embeddings" : key === local.oppsPath ? "local" : "committed";
     let opportunities = tryReadOpportunities(key);
+    // A corrupt local index must not fall back to OpenAI-dim vectors while queries embed locally — serve nothing instead.
     if (opportunities == null && source === "local") {
       source = "committed";
       opportunities = tryReadOpportunities(this.paths(source).oppsPath);
@@ -83,7 +108,7 @@ export class CorpusStore {
   }
 }
 
-const defaultStore = new CorpusStore();
+const defaultStore = new CorpusStore(process.cwd(), { useLocalEmbeddings: () => localEmbeddingsActive() });
 
 export function getCorpusInfo(): CorpusInfo {
   return defaultStore.load();

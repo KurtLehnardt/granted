@@ -34,9 +34,45 @@ describe("ModelSection — renders the right panel per provider", () => {
     assert.match(html, /qwen2\.5:7b/);
   });
 
-  test("provider: ollama with OpenAI embeddings -> warns searches won't run", () => {
-    assert.match(render({ provider: "ollama", local: true, openAiEmbeddings: true }), /run on Local until embeddings/);
-    assert.doesNotMatch(render({ provider: "ollama", local: true, openAiEmbeddings: false }), /run on Local until embeddings/);
+  test("provider: ollama never sends the user to the README/terminal for embeddings any more", () => {
+    const html = render({ provider: "ollama", local: true, openAiEmbeddings: true });
+    assert.doesNotMatch(html, /run on Local until embeddings/);
+    assert.doesNotMatch(html, /README/);
+  });
+
+  test("provider: ollama shows the local search setup status (progress / error + Retry / ready)", () => {
+    const running = render({
+      provider: "ollama",
+      local: true,
+      openAiEmbeddings: true,
+      localEmbeddings: { state: "running", model: "nomic-embed-text", active: false, progress: { stage: "pulling", pct: 30 } },
+    });
+    assert.match(running, /local-search-status/);
+    assert.match(running, /Downloading the local search model \(nomic-embed-text\): 30%/);
+
+    const failed = render({
+      provider: "ollama",
+      local: true,
+      localEmbeddings: { state: "failed", model: "nomic-embed-text", active: false, error: "Couldn't reach Ollama" },
+    });
+    assert.match(failed, />Retry</);
+
+    const ready = render({
+      provider: "ollama",
+      local: true,
+      openAiEmbeddings: false,
+      localEmbeddings: { state: "ready", model: "nomic-embed-text", active: true, count: 12 },
+    });
+    assert.match(ready, /Search runs on this machine/);
+  });
+
+  test("provider: cloud never shows the local search status", () => {
+    const html = render({
+      provider: "cloud",
+      local: false,
+      localEmbeddings: { state: "running", model: "nomic-embed-text", active: false, progress: { stage: "checking" } },
+    });
+    assert.doesNotMatch(html, /local-search-status/);
   });
 
   test("provider: cloud, no key -> cloud panel with a provider select covering every preset", () => {
