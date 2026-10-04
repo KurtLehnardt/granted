@@ -231,7 +231,10 @@ export function normalizeUtRow(p) {
     description,
     eligibility: undefined,
     deadline: undefined,
-    fundingLow: low,
+    // A single parsed figure collapses to fundingHigh-only ("up to $X"), matching
+    // normalizeCaRow/normalizeIlRow's own convention -- otherwise buildFundingRange
+    // renders a redundant "$X-$X" instead of "up to $X".
+    fundingLow: low !== high ? low : undefined,
     fundingHigh: high,
     url: resolveUtUrl(p.url),
     geography: "Utah",

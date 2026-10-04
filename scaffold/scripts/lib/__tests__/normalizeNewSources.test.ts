@@ -310,7 +310,10 @@ test("normalizeUtRow — funding: two dollar figures use min/max", () => {
   assert.equal(o!.fundingHigh, 50_000_000);
 });
 
-test("normalizeUtRow — funding: exactly one dollar figure sets both low and high to it", () => {
+test("normalizeUtRow — funding: exactly one dollar figure collapses to fundingHigh only ('up to $X'), matching CA/IL", () => {
+  // REGRESSION (found in review): fundingLow===fundingHigh used to render as a
+  // redundant "$25K-$25K" via buildFundingRange instead of "up to $25K" -- CA's and
+  // IL's own normalizers already collapse a single figure to fundingHigh-only.
   const o = normalizeUtRow({
     title: "Industrial Assistance Account",
     agency: "Governor's Office of Economic Opportunity",
@@ -319,7 +322,7 @@ test("normalizeUtRow — funding: exactly one dollar figure sets both low and hi
     description: "Provides post-performance grants for the creation of high-paying Utah jobs statewide.",
   });
   assert.ok(o);
-  assert.equal(o!.fundingLow, 25_000);
+  assert.equal(o!.fundingLow, undefined);
   assert.equal(o!.fundingHigh, 25_000);
 });
 

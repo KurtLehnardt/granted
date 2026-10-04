@@ -109,7 +109,11 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
       const res = await fetch("/api/corpus/refresh", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ max: maxCorpusSize, stateSources: getSelectedStateSources() }),
+        // Use the live draft (same as maxCorpusSize below), not a re-read of storage --
+        // otherwise checking a box and clicking this button without hitting "Save"
+        // first silently refreshes using the OLD selection, contradicting what the
+        // checkbox shows checked.
+        body: JSON.stringify({ max: maxCorpusSize, stateSources }),
       });
       if (res.status === 202) {
         setStopPending(false);
