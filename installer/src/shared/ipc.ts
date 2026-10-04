@@ -82,10 +82,58 @@ export function isSupportedPlatform(p: string): p is SupportedPlatform {
   return p === "darwin" || p === "win32" || p === "linux";
 }
 
+/** Where Granted got installed, and how far its first-run setup already got. */
+export interface GrantedSetupState {
+  /** Absolute path of the clone (install-windows.ps1's $TargetDir, resolved). */
+  installDir: string;
+  /** True once the clone's scaffold/package.json exists. */
+  installed: boolean;
+  /** OPENAI_API_KEY and ANTHROPIC_API_KEY are both set to real (non-placeholder) values. */
+  hostedKeysSet: boolean;
+  /** `npm run setup:local` already pointed .env.local at Ollama. */
+  localConfigured: boolean;
+}
+
+/** What the "Use my API keys" form sends. Blank = leave whatever is already there. */
+export interface ApiKeysInput {
+  openaiApiKey: string;
+  anthropicApiKey: string;
+  exaApiKey: string;
+}
+
+export interface ActionResult {
+  ok: boolean;
+  message: string;
+}
+
+/**
+ * Pushed from main → renderer when a long-running "Open Granted" step
+ * finishes: the fully-local setup (`npm run setup:local -- --yes`, which can
+ * take half an hour) or starting the app itself (`npm run dev`, then waiting
+ * for it to answer before opening the browser).
+ */
+export interface TaskStatusEvent {
+  task: "local-setup" | "start-app";
+  state: "done" | "error";
+  message?: string | null;
+  /** start-app only: where Granted is (or would have been) served. */
+  url?: string;
+}
+
 /** contextBridge surface exposed to the renderer as `window.api`. */
 export interface GrantedInstallerApi {
   checkPrereqs: () => Promise<PrereqReport>;
   openInstallTerminal: () => Promise<OpenInstallTerminalResult>;
   /** Subscribe to install-status pushes (see InstallStatusEvent). Returns an unsubscribe function. */
   onInstallStatus: (listener: (status: InstallStatusEvent) => void) => () => void;
+  getSetupState: () => Promise<GrantedSetupState>;
+  /** Writes the keys into scaffold/.env.local (same rules as scaffold/scripts/setup.mjs). */
+  saveApiKeys: (keys: ApiKeysInput) => Promise<ActionResult>;
+  /** Opens a PowerShell window running `npm run setup:local -- --yes`; a TaskStatusEvent follows. */
+  runLocalSetup: () => Promise<ActionResult>;
+  /** Starts `npm run dev` in its own window and opens the browser once it answers; a TaskStatusEvent follows. */
+  startGranted: () => Promise<ActionResult>;
+  onTaskStatus: (listener: (status: TaskStatusEvent) => void) => () => void;
+  /** Closes the installer window. */
+  quit: () => void;
 }

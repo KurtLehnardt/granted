@@ -108,3 +108,142 @@ export function psSingleQuoted(value: string): string {
 export function newInstallStatusPath(): string {
   return join(tmpdir(), `granted-install-status-${randomUUID()}.json`);
 }
+
+// ---------------------------------------------------------------------------
+// "Open Granted" — .env.local handling. Same contract as
+// scaffold/scripts/setup.mjs (re-implemented, not imported, for the same
+// reason NODE_MAJOR_MIN is: installer/ doesn't depend on scaffold/): never
+// overwrite a real value that's already set, and treat .env.example's
+// placeholders as unset.
+// ---------------------------------------------------------------------------
+
+/** Value already set for `key` in env text, or "" if blank/absent. */
+export function currentEnvValue(text: string, key: string): string {
+  const m = text.match(new RegExp(`^${key}=(.*)$`, "m"));
+  return m ? m[1].trim() : "";
+}
+
+/** Replace `key=...` in place, or append it if the key isn't present. */
+export function upsertEnv(text: string, key: string, value: string): string {
+  const line = `${key}=${value}`;
+  if (new RegExp(`^${key}=.*$`, "m").test(text)) {
+    return text.replace(new RegExp(`^${key}=.*$`, "m"), () => line);
+  }
+  return `${text.replace(/\s*$/, "")}\n${line}\n`;
+}
+
+/** .env.example ships `sk-...` / `sk-ant-...` as placeholders — those count as unset. */
+export function isRealKey(value: string): boolean {
+  return value !== "" && !value.startsWith("sk-...") && value !== "sk-ant-...";
+}
+
+export function envHasHostedKeys(text: string): boolean {
+  return isRealKey(currentEnvValue(text, "OPENAI_API_KEY")) && isRealKey(currentEnvValue(text, "ANTHROPIC_API_KEY"));
+}
+
+/** What `npm run setup:local` writes once it has finished successfully. */
+export function envIsLocalConfigured(text: string): boolean {
+  return currentEnvValue(text, "LLM_PROVIDER") === "ollama" && currentEnvValue(text, "EMBEDDINGS_BASE_URL") !== "";
+}
+
+/**
+ * Merge the form's keys into env text. A key that already holds a real value
+ * is kept (reported in `kept`), exactly like setup.mjs; a blank input is
+ * skipped. `missing` lists required keys that are still unset afterwards, so
+ * the caller can refuse to start an app that can't work yet.
+ */
+export function applyApiKeys(
+  text: string,
+  keys: { OPENAI_API_KEY: string; ANTHROPIC_API_KEY: string; EXA_API_KEY: string },
+): { text: string; written: string[]; kept: string[]; missing: string[] } {
+  let out = text;
+  const written: string[] = [];
+  const kept: string[] = [];
+  for (const [key, raw] of Object.entries(keys)) {
+    const value = raw.trim();
+    if (isRealKey(currentEnvValue(out, key))) {
+      kept.push(key);
+      continue;
+    }
+    if (value === "") continue;
+    out = upsertEnv(out, key, value);
+    written.push(key);
+  }
+  const missing = ["OPENAI_API_KEY", "ANTHROPIC_API_KEY"].filter((k) => !isRealKey(currentEnvValue(out, k)));
+  return { text: out, written, kept, missing };
+}
+
+// ---------------------------------------------------------------------------
+// "Open Granted" — running scaffold commands in their own console window.
+// ---------------------------------------------------------------------------
+
+/**
+ * The .ps1 that runs one scaffold command in its own visible PowerShell
+ * window and reports the outcome through a status file, in the same
+ * {"state": ...} format install-windows.ps1 writes (so
+ * parseInstallStatusJson reads both). Everything interpolated is
+ * single-quoted (psSingleQuoted), so a `$` or backtick in a path is taken
+ * literally. `command` is only ever a fixed string chosen by the main
+ * process, never user input.
+ */
+export function buildTaskScript(opts: {
+  title: string;
+  cwd: string;
+  statusPath: string;
+  command: string;
+  failureMessage: string;
+  /** Extra environment variables for the command (e.g. PORT for `npm run dev`). */
+  env?: Record<string, string>;
+}): string {
+  const envLines = Object.entries(opts.env ?? {}).map(([key, value]) => {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) throw new Error(`Invalid environment variable name: ${key}`);
+    return `$env:${key} = ${psSingleQuoted(value)}`;
+  });
+  return [
+    `$Host.UI.RawUI.WindowTitle = ${psSingleQuoted(opts.title)}`,
+    `$StatusPath = ${psSingleQuoted(opts.statusPath)}`,
+    ...envLines,
+    "function Write-Status($state, $message) {",
+    "  try {",
+    "    @{ state = $state; message = $message } | ConvertTo-Json -Compress | Set-Content -Path $StatusPath -Encoding utf8 -ErrorAction Stop",
+    "  } catch {",
+    '    Write-Host "  [!] Couldn\'t write status to $StatusPath -- $($_.Exception.Message)" -ForegroundColor Yellow',
+    "  }",
+    "}",
+    'Write-Status "running" $null',
+    `Set-Location -LiteralPath ${psSingleQuoted(opts.cwd)}`,
+    opts.command,
+    "if ($LASTEXITCODE -eq 0) {",
+    '  Write-Status "done" $null',
+    "} else {",
+    `  Write-Status "error" ${psSingleQuoted(opts.failureMessage)}`,
+    `  Write-Host "\`n  [x] " -NoNewline -ForegroundColor Red; Write-Host ${psSingleQuoted(opts.failureMessage)} -ForegroundColor Red`,
+    "}",
+    "",
+  ].join("\r\n");
+}
+
+/** A fresh, unique status-file path for one "Open Granted" step (see newInstallStatusPath). */
+export function newTaskStatusPath(task: string): string {
+  return join(tmpdir(), `granted-${task}-status-${randomUUID()}.json`);
+}
+
+/**
+ * The port Granted's `npm run dev` serves on: 3000 (Next's default, what the
+ * README documents) unless GRANTED_PORT overrides it — which lets the
+ * end-to-end tests run on a machine where a real Granted is already up.
+ */
+export function grantedPort(envValue: string | undefined): number {
+  const n = Number(envValue);
+  return Number.isInteger(n) && n > 0 && n < 65536 ? n : 3000;
+}
+
+/**
+ * Whether an HTTP response body is Granted's own page — the app's <title> is
+ * "<brand> — federal funding intelligence for everyone". Checked before
+ * opening the browser so that some OTHER app already holding port 3000 is
+ * never presented as Granted.
+ */
+export function looksLikeGranted(html: string): boolean {
+  return /federal funding intelligence/i.test(html);
+}

@@ -140,6 +140,66 @@ button.link:disabled {
   padding: 10px 12px;
 }
 
+.status-note.error {
+  background: #fdecee;
+  color: #a1141e;
+}
+
+.question {
+  font-weight: 600;
+  margin: 0 0 12px;
+}
+
+.detail {
+  color: #666;
+  font-size: 12px;
+}
+
+.actions.spaced {
+  margin-top: 16px;
+}
+
+.choices {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+button.choice {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+  background: #fff;
+  border: 1px solid #d9d9de;
+  padding: 12px 14px;
+}
+
+button.choice:hover {
+  border-color: #0a66ff;
+}
+
+button.choice span {
+  color: #555;
+  font-size: 13px;
+}
+
+.keys-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+  font-size: 14px;
+}
+
+.keys-form input {
+  font: inherit;
+  padding: 8px 10px;
+  border: 1px solid #d9d9de;
+  border-radius: 6px;
+}
+
 code.command {
   display: block;
   margin-top: 8px;

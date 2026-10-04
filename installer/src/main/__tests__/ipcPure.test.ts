@@ -1,12 +1,19 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
+  applyApiKeys,
+  buildTaskScript,
+  envHasHostedKeys,
+  envIsLocalConfigured,
   escapeForAppleScript,
+  grantedPort,
+  looksLikeGranted,
   mergeRegistryPath,
   newInstallStatusPath,
   parseInstallStatusJson,
   parseVersionFromOutput,
   psSingleQuoted,
+  upsertEnv,
 } from "../ipcPure";
 
 describe("parseVersionFromOutput", () => {
@@ -164,5 +171,134 @@ describe("newInstallStatusPath", () => {
     for (const p of [a, b]) {
       assert.match(p, /granted-install-status-[0-9a-f-]{36}\.json$/i);
     }
+  });
+});
+
+// scaffold/.env.example's real shape (the placeholders are what a fresh copy holds).
+const ENV_EXAMPLE = [
+  "# comment",
+  "OPENAI_API_KEY=sk-...",
+  "ANTHROPIC_API_KEY=sk-ant-...",
+  "EXA_API_KEY=",
+  "NEXT_PUBLIC_FLAG_R5_DEEP_ANALYSIS=true",
+  "",
+].join("\n");
+
+describe("applyApiKeys", () => {
+  test("fills .env.example's placeholders and leaves the rest of the file alone", () => {
+    const r = applyApiKeys(ENV_EXAMPLE, { OPENAI_API_KEY: "sk-real", ANTHROPIC_API_KEY: "sk-ant-real", EXA_API_KEY: "" });
+    assert.match(r.text, /^OPENAI_API_KEY=sk-real$/m);
+    assert.match(r.text, /^ANTHROPIC_API_KEY=sk-ant-real$/m);
+    assert.match(r.text, /^EXA_API_KEY=$/m);
+    assert.match(r.text, /^# comment$/m);
+    assert.deepEqual(r.written, ["OPENAI_API_KEY", "ANTHROPIC_API_KEY"]);
+    assert.deepEqual(r.missing, []);
+  });
+
+  test("never overwrites a real key that's already set (setup.mjs's contract)", () => {
+    const existing = ENV_EXAMPLE.replace("OPENAI_API_KEY=sk-...", "OPENAI_API_KEY=sk-keep-me");
+    const r = applyApiKeys(existing, { OPENAI_API_KEY: "sk-new", ANTHROPIC_API_KEY: "sk-ant-x", EXA_API_KEY: "" });
+    assert.match(r.text, /^OPENAI_API_KEY=sk-keep-me$/m);
+    assert.deepEqual(r.kept, ["OPENAI_API_KEY"]);
+  });
+
+  test("reports required keys still missing, and trims pasted whitespace", () => {
+    const r = applyApiKeys(ENV_EXAMPLE, { OPENAI_API_KEY: "  sk-real \n", ANTHROPIC_API_KEY: "   ", EXA_API_KEY: "" });
+    assert.match(r.text, /^OPENAI_API_KEY=sk-real$/m);
+    assert.deepEqual(r.missing, ["ANTHROPIC_API_KEY"]);
+  });
+
+  test("a key containing $ is written literally (String.replace's $-patterns must not apply)", () => {
+    const r = applyApiKeys(ENV_EXAMPLE, { OPENAI_API_KEY: "sk-a$&b$1", ANTHROPIC_API_KEY: "sk-ant-x", EXA_API_KEY: "" });
+    assert.match(r.text, /^OPENAI_API_KEY=sk-a\$&b\$1$/m);
+  });
+});
+
+describe("upsertEnv", () => {
+  test("appends a key that isn't present", () => {
+    assert.equal(upsertEnv("A=1\n", "B", "2"), "A=1\nB=2\n");
+  });
+});
+
+describe("envHasHostedKeys / envIsLocalConfigured", () => {
+  test("placeholders don't count as configured", () => {
+    assert.equal(envHasHostedKeys(ENV_EXAMPLE), false);
+    assert.equal(envIsLocalConfigured(ENV_EXAMPLE), false);
+  });
+
+  test("real keys, and setup:local's output, do", () => {
+    assert.equal(envHasHostedKeys("OPENAI_API_KEY=sk-a\nANTHROPIC_API_KEY=sk-ant-b\n"), true);
+    assert.equal(envIsLocalConfigured("LLM_PROVIDER=ollama\nEMBEDDINGS_BASE_URL=http://localhost:11434/v1\n"), true);
+  });
+});
+
+describe("buildTaskScript", () => {
+  const script = buildTaskScript({
+    title: "Granted",
+    cwd: "C:\\Users\\O'Brien\\granted\\scaffold",
+    statusPath: "C:\\Temp\\$x\\s.json",
+    command: "npm.cmd run dev",
+    failureMessage: "It didn't work.",
+  });
+
+  test("single-quotes every interpolated path/message (no $ or backtick expansion; ' doubled)", () => {
+    assert.match(script, /Set-Location -LiteralPath 'C:\\Users\\O''Brien\\granted\\scaffold'/);
+    assert.match(script, /\$StatusPath = 'C:\\Temp\\\$x\\s\.json'/);
+    assert.match(script, /Write-Status "error" 'It didn''t work\.'/);
+  });
+
+  test("reports running before the command and done/error from its exit code after", () => {
+    const running = script.indexOf('Write-Status "running"');
+    const command = script.indexOf("npm.cmd run dev");
+    const exitCheck = script.indexOf("if ($LASTEXITCODE -eq 0)");
+    assert.ok(running > -1 && running < command && command < exitCheck);
+  });
+
+  test("uses CRLF line endings", () => {
+    assert.ok(script.includes("\r\n"));
+    assert.ok(!/[^\r]\n/.test(script));
+  });
+});
+
+describe("buildTaskScript env", () => {
+  test("sets each variable single-quoted, before the command runs", () => {
+    const script = buildTaskScript({
+      title: "t",
+      cwd: "C:\\x",
+      statusPath: "C:\\s.json",
+      command: "npm.cmd run dev",
+      failureMessage: "f",
+      env: { PORT: "3000", ODD: "it's $x" },
+    });
+    assert.match(script, /^\$env:PORT = '3000'$/m);
+    assert.match(script, /^\$env:ODD = 'it''s \$x'$/m);
+    assert.ok(script.indexOf("$env:PORT") < script.indexOf("npm.cmd run dev"));
+  });
+
+  test("refuses a variable name that isn't a plain identifier (it's interpolated unquoted)", () => {
+    assert.throws(() =>
+      buildTaskScript({ title: "t", cwd: "c", statusPath: "s", command: "c", failureMessage: "f", env: { "X; rm": "1" } }),
+    );
+  });
+});
+
+describe("grantedPort", () => {
+  test("defaults to 3000 (Next's default, what the README documents)", () => {
+    assert.equal(grantedPort(undefined), 3000);
+    assert.equal(grantedPort(""), 3000);
+  });
+
+  test("honours a valid GRANTED_PORT and ignores junk", () => {
+    assert.equal(grantedPort("3987"), 3987);
+    assert.equal(grantedPort("abc"), 3000);
+    assert.equal(grantedPort("70000"), 3000);
+    assert.equal(grantedPort("-1"), 3000);
+  });
+});
+
+describe("looksLikeGranted", () => {
+  test("matches Granted's own <title>, not some other app on port 3000", () => {
+    assert.equal(looksLikeGranted("<title>Granted — federal funding intelligence for everyone</title>"), true);
+    assert.equal(looksLikeGranted("<title>My other dev server</title>"), false);
   });
 });
