@@ -6,6 +6,7 @@ import { WelcomeGuideProvider } from "@/components/WelcomeGuide";
 import { SearchDraftProvider } from "@/components/SearchDraftProvider";
 import { AnalyticsProvider } from "@/components/AnalyticsProvider";
 import CorpusAutoUpdate from "@/components/CorpusAutoUpdate";
+import UpdateBanner from "@/components/UpdateBanner";
 import { BRAND } from "@/lib/brand";
 import "./globals.css";
 
@@ -51,11 +52,20 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           `r10_analytics` flag is on (gating lives in track()), so mounting it
           unconditionally does not change flag-off behavior.
         */}
+        {/*
+          UPD — UpdateBanner is mounted unconditionally like CorpusAutoUpdate
+          just below it, but it is NOT passive/no-UI the same way: it's
+          always-on and self-gating (checks the `update_check` flag and the
+          /api/updates response itself before rendering anything), so it stays
+          invisible until there's an update to report, same "no UI until
+          relevant" posture as CorpusAutoUpdate.
+        */}
         <AuthProvider>
           <SearchDraftProvider>
             <WelcomeGuideProvider>
               <SettingsPanelProvider>
                 <AnalyticsProvider>
+                  <UpdateBanner />
                   <CorpusAutoUpdate />
                   {children}
                 </AnalyticsProvider>

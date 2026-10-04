@@ -15,6 +15,8 @@ import { stageLabel } from "@/lib/corpus/refreshProgress";
 import type { RefreshProgress } from "@/lib/corpus/refreshStatus";
 import { useReplayWelcomeGuide } from "@/components/WelcomeGuide";
 import ModelSection from "@/components/ModelSection";
+import type { CheckResponse } from "@/components/UpdateBanner";
+import { isFlagEnabled } from "@/lib/flags";
 
 interface CorpusStatus {
   builtAt: string | null;
@@ -61,6 +63,8 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
   const [corpusStatus, setCorpusStatus] = useState<CorpusStatus | null>(null);
   const [stopPending, setStopPending] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [updateStatus, setUpdateStatus] = useState<CheckResponse | null>(null);
+  const updatePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   async function fetchCorpusStatus() {
     try {
@@ -99,6 +103,74 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
     if (corpusStatus?.stopRequested) setStopPending(true);
     else if (!corpusStatus?.refreshing) setStopPending(false);
   }, [corpusStatus?.stopRequested, corpusStatus?.refreshing]);
+
+  // App updates (UPD) — independent of UpdateBanner.tsx's own poll/fetch; both reflect the same
+  // server-side applyState, same posture as this component and CorpusAutoUpdate independently
+  // polling /api/corpus today.
+  async function fetchUpdateStatus() {
+    try {
+      const res = await fetch("/api/updates");
+      if (res.ok) setUpdateStatus(await res.json());
+    } catch {
+      /* offline / unreachable — leave the last known status showing */
+    }
+  }
+
+  useEffect(() => {
+    if (!isFlagEnabled("update_check")) return;
+    fetchUpdateStatus();
+    return () => {
+      if (updatePollRef.current) clearInterval(updatePollRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (updateStatus?.state !== "applying") {
+      if (updatePollRef.current) {
+        clearInterval(updatePollRef.current);
+        updatePollRef.current = null;
+      }
+      return;
+    }
+    if (updatePollRef.current) return;
+    updatePollRef.current = setInterval(fetchUpdateStatus, 3000);
+    return () => {
+      if (updatePollRef.current) clearInterval(updatePollRef.current);
+      updatePollRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [updateStatus?.state]);
+
+  async function handleApplyUpdate() {
+    try {
+      await fetch("/api/updates/apply", { method: "POST" });
+    } catch {
+      /* best-effort — the follow-up fetchUpdateStatus() below reflects the real server state */
+    }
+    await fetchUpdateStatus();
+  }
+
+  function updateStatusMessage(): string {
+    if (updateStatus == null) return "Checking…";
+    switch (updateStatus.state) {
+      case "up-to-date":
+        return "Up to date.";
+      case "update-available":
+        return "An update is available.";
+      case "applying":
+        return updateStatus.phase === "installing" ? "Installing dependencies…" : "Pulling the latest code…";
+      case "applied":
+        return "Updated. Restart the server (Ctrl+C, then `npm start`) to use it.";
+      case "apply-failed":
+        return `Update failed: ${updateStatus.message}`;
+      case "error":
+        return `Couldn't check for updates: ${updateStatus.message}`;
+      case "unknown":
+      default:
+        return "Unable to determine the update status.";
+    }
+  }
 
   async function handleRefreshCorpus() {
     try {
@@ -302,6 +374,34 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
           </span>
         </label>
       </div>
+
+      {isFlagEnabled("update_check") && (
+        <div className={fieldWrapClass} data-testid="app-updates-section">
+          <span className={legendClass}>App updates</span>
+          <p className="mt-1.5 font-body text-[12px] text-foreground opacity-80">{updateStatusMessage()}</p>
+
+          <div className="mt-2 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={fetchUpdateStatus}
+              disabled={updateStatus?.state === "applying"}
+              className={`${saveBtnClass} disabled:opacity-50`}
+            >
+              Check for updates
+            </button>
+            {updateStatus?.state === "update-available" && (
+              <button type="button" onClick={handleApplyUpdate} className={saveBtnClass}>
+                Update now
+              </button>
+            )}
+            {updateStatus?.state === "apply-failed" && (
+              <button type="button" onClick={handleApplyUpdate} className={saveBtnClass}>
+                Try again
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="mt-6 flex flex-wrap items-center gap-4">
         <button type="submit" className={saveBtnClass}>

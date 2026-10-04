@@ -52,6 +52,7 @@ describe("FLAG_REGISTRY", () => {
       "discernment_layer",
       "commercial_ui",
       "match_filters",
+      "update_check",
     ];
     assert.deepEqual(Object.keys(FLAG_REGISTRY).sort(), expected.slice().sort());
   });

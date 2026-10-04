@@ -198,6 +198,7 @@ Everything risky ships **default-OFF** so a fresh clone is safe and boring. Flip
 |---|---|
 | `NEXT_PUBLIC_FLAG_DISCERNMENT_LAYER=true` | Per-match **recommend / verify / do-not-recommend** verdicts, a whole-map verdict, and rubric-anchored scoring. |
 | `NEXT_PUBLIC_MOCK_AUTH=true` | A localStorage-only **mock** sign-in, to demo the login loop without real OAuth. |
+| `NEXT_PUBLIC_FLAG_UPDATE_CHECK=true` | A "check for updates" banner + Settings control that compares your local git checkout against GitHub's `main` and offers a one-click `git pull` + `npm ci`. |
 
 **Competitor & market analysis** (`/api/competitors`) is **on by default** in the template — add `EXA_API_KEY` for richer web competitors, or set `NEXT_PUBLIC_FLAG_R5_DEEP_ANALYSIS=false` to turn it off.
 

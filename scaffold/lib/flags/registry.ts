@@ -42,7 +42,8 @@ export type FlagName =
   | "e3_two_pass"
   | "discernment_layer"
   | "commercial_ui"
-  | "match_filters";
+  | "match_filters"
+  | "update_check";
 
 export interface FlagDefinition {
   /** Stable identifier. Matches the key it's stored under in FLAG_REGISTRY. */
@@ -219,5 +220,14 @@ export const FLAG_REGISTRY: Record<FlagName, FlagDefinition> = {
       "— 'added to Granted,' not 'posted by the agency'). Default OFF: on day one only a few hundred " +
       "records carry geography, so the control's usefulness grows with the corpus.",
     envVar: "NEXT_PUBLIC_FLAG_MATCH_FILTERS",
+  },
+  update_check: {
+    name: "update_check",
+    requirement: "UPD",
+    description:
+      "Banner + Settings control that checks the local git checkout against GitHub's main branch " +
+      "and offers a one-click git pull + npm ci update. Gates UI visibility only — the check/apply " +
+      "routes are loopback-gated like corpus/refresh, independent of this flag.",
+    envVar: "NEXT_PUBLIC_FLAG_UPDATE_CHECK",
   },
 };
