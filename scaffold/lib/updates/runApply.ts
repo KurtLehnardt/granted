@@ -84,8 +84,25 @@ export async function runApplyInBackground(deps: Partial<RunApplyDeps> = {}): Pr
     // here since this server process was itself started via `npm run dev`/`start`, so re-invoke
     // through that same script via node (d.execPath) instead of guessing the npm binary name.
     const npmExecpath = d.env.npm_execpath;
-    const npmCommand = npmExecpath ? d.execPath : d.platform === "win32" ? "npm.cmd" : "npm";
-    const npmArgs = npmExecpath ? [npmExecpath, "ci"] : ["ci"];
+    let npmCommand: string;
+    let npmArgs: string[];
+    if (npmExecpath) {
+      npmCommand = d.execPath;
+      npmArgs = [npmExecpath, "ci"];
+    } else if (d.platform === "win32") {
+      // Fallback for the rare case npm_execpath is unset on Windows (e.g. the server was
+      // started some other way than `npm run dev`/`start`). spawn("npm.cmd", ...) still fails
+      // with ENOENT here: CreateProcess (what spawn uses without shell: true) can't execute a
+      // .cmd file directly. cmd.exe CAN resolve "npm" through PATHEXT, so route through it
+      // explicitly instead -- this keeps every arg a literal, controlled string (no untrusted
+      // input), it's just cmd.exe itself acting as the one unavoidable indirection, not a
+      // shell-interpreted command string.
+      npmCommand = "cmd.exe";
+      npmArgs = ["/c", "npm", "ci"];
+    } else {
+      npmCommand = "npm";
+      npmArgs = ["ci"];
+    }
 
     const npm = await runCommand(npmCommand, npmArgs, d.cwd, d.spawn);
     if (npm.code !== 0) {

@@ -123,11 +123,16 @@ describe("runApplyInBackground", () => {
     assert.deepEqual(calls[1].args, ["/usr/local/lib/node_modules/npm/bin/npm-cli.js", "ci"]);
   });
 
-  test("npm_execpath absent + win32 -> falls back to npm.cmd", async () => {
+  test("npm_execpath absent + win32 -> routes through cmd.exe, never a bare npm.cmd spawn", async () => {
+    // REGRESSION: spawn("npm.cmd", ["ci"], {}) with no shell:true fails with ENOENT on real
+    // Windows -- CreateProcess (what spawn uses without shell:true) can't execute a .cmd file
+    // directly. Only cmd.exe /c can resolve "npm" through PATHEXT, so that's the one acceptable
+    // fallback command here.
     const { spawn, calls } = makeSpawn([{ code: 0 }, { code: 0 }]);
     await runApplyInBackground({ ...BASE_DEPS, env: { NODE_ENV: "test" }, platform: "win32", spawn });
-    assert.equal(calls[1].command, "npm.cmd");
-    assert.deepEqual(calls[1].args, ["ci"]);
+    assert.equal(calls[1].command, "cmd.exe");
+    assert.deepEqual(calls[1].args, ["/c", "npm", "ci"]);
+    assert.notEqual(calls[1].command, "npm.cmd", "a bare npm.cmd spawn with no shell can never succeed on real Windows");
   });
 
   test("npm_execpath absent + non-win32 -> falls back to plain npm", async () => {
