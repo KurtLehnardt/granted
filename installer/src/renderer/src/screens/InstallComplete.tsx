@@ -74,7 +74,21 @@ export default function InstallComplete(): React.JSX.Element {
 
       {step.id === "loading" && <p>Just a moment…</p>}
 
-      {step.id === "ask" && (
+      {step.id === "ask" && setup && !setup.installed && (
+        <>
+          <div className="status-note error">
+            Couldn't find Granted in {installDir} — the install may not have finished. Check the PowerShell window it ran
+            in for errors.
+          </div>
+          <div className="actions spaced">
+            <button type="button" className="primary" onClick={() => window.api.quit()}>
+              Close installer
+            </button>
+          </div>
+        </>
+      )}
+
+      {step.id === "ask" && (!setup || setup.installed) && (
         <>
           <p className="question">Open Granted now?</p>
           <div className="actions">
@@ -110,19 +124,27 @@ export default function InstallComplete(): React.JSX.Element {
         </>
       )}
 
-      {step.id === "keys" && <ApiKeysForm onSaved={start} onBack={() => setStep({ id: "choose" })} />}
+      {step.id === "keys" && (
+        <ApiKeysForm
+          openaiKeySet={setup?.openaiKeySet ?? false}
+          anthropicKeySet={setup?.anthropicKeySet ?? false}
+          onSaved={start}
+          onBack={() => setStep({ id: "choose" })}
+        />
+      )}
 
       {step.id === "local-setup" && (
         <div className="status-note">
           Setting up the local AI model in a separate PowerShell window. This can take up to half an hour — Granted will
-          open in your browser by itself when it's done.
+          open in your browser by itself when it's done. To cancel, close that window.
         </div>
       )}
 
       {step.id === "starting" && (
         <div className="status-note">
           Starting Granted… A PowerShell window titled <strong>Granted</strong> opened — keep it open while you use
-          Granted. Your browser will open when it's ready (the first start can take a minute or two).
+          Granted. Your browser will open when it's ready (the first start can take a minute or two). To cancel, close
+          that window.
         </div>
       )}
 
@@ -175,7 +197,19 @@ npm run dev                    # then open http://localhost:3000`}</code>
   );
 }
 
-function ApiKeysForm({ onSaved, onBack }: { onSaved: () => void; onBack: () => void }): React.JSX.Element {
+const KEEP_EXISTING = "Already set — leave blank to keep it";
+
+function ApiKeysForm({
+  openaiKeySet,
+  anthropicKeySet,
+  onSaved,
+  onBack,
+}: {
+  openaiKeySet: boolean;
+  anthropicKeySet: boolean;
+  onSaved: () => void;
+  onBack: () => void;
+}): React.JSX.Element {
   const [openaiApiKey, setOpenai] = useState("");
   const [anthropicApiKey, setAnthropic] = useState("");
   const [exaApiKey, setExa] = useState("");
@@ -201,13 +235,20 @@ function ApiKeysForm({ onSaved, onBack }: { onSaved: () => void; onBack: () => v
       <p className="detail">Saved only on this computer, in Granted's .env.local file.</p>
       <label>
         OpenAI API key <span className="detail">(platform.openai.com/api-keys)</span>
-        <input type="password" autoComplete="off" value={openaiApiKey} onChange={(e) => setOpenai(e.target.value)} />
+        <input
+          type="password"
+          autoComplete="off"
+          placeholder={openaiKeySet ? KEEP_EXISTING : undefined}
+          value={openaiApiKey}
+          onChange={(e) => setOpenai(e.target.value)}
+        />
       </label>
       <label>
         Anthropic API key <span className="detail">(console.anthropic.com/settings/keys)</span>
         <input
           type="password"
           autoComplete="off"
+          placeholder={anthropicKeySet ? KEEP_EXISTING : undefined}
           value={anthropicApiKey}
           onChange={(e) => setAnthropic(e.target.value)}
         />

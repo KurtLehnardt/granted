@@ -12,25 +12,42 @@
 import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { ActionResult, ApiKeysInput, GrantedSetupState, InstallStatusEvent } from "../shared/ipc";
-import { applyApiKeys, envHasHostedKeys, envIsLocalConfigured, looksLikeGranted, parseInstallStatusJson } from "./ipcPure";
+import type { ActionResult, ApiKeysInput, GrantedSetupState } from "../shared/ipc";
+import {
+  applyApiKeys,
+  currentEnvValue,
+  envIsLocalConfigured,
+  isRealKey,
+  looksLikeGranted,
+  parseStatusFile,
+  resolveTaskStatus,
+  type StatusFile,
+} from "./ipcPure";
 
-export async function readEnvLocal(scaffoldDir: string): Promise<string | null> {
+async function readTextOrNull(path: string): Promise<string | null> {
   try {
-    return await readFile(join(scaffoldDir, ".env.local"), "utf8");
+    return await readFile(path, "utf8");
   } catch {
     return null;
   }
 }
 
+export function readEnvLocal(scaffoldDir: string): Promise<string | null> {
+  return readTextOrNull(join(scaffoldDir, ".env.local"));
+}
+
 export async function getSetupState(installDir: string): Promise<GrantedSetupState> {
   const scaffoldDir = join(installDir, "scaffold");
   const env = (await readEnvLocal(scaffoldDir)) ?? "";
+  const openaiKeySet = isRealKey(currentEnvValue(env, "OPENAI_API_KEY"));
+  const anthropicKeySet = isRealKey(currentEnvValue(env, "ANTHROPIC_API_KEY"));
   return {
     installDir,
     installed: existsSync(join(scaffoldDir, "package.json")),
-    hostedKeysSet: envHasHostedKeys(env),
-    localConfigured: envIsLocalConfigured(env),
+    openaiKeySet,
+    anthropicKeySet,
+    hostedKeysSet: openaiKeySet && anthropicKeySet,
+    localConfigured: envIsLocalConfigured(env, await readTextOrNull(join(scaffoldDir, "data", "local", "corpus-meta.json"))),
   };
 }
 
@@ -62,39 +79,62 @@ export async function saveApiKeys(scaffoldDir: string, keys: ApiKeysInput): Prom
   }
 }
 
-/** A status file's current content, or null if it's missing/unreadable/not yet valid. */
-export async function readStatusFile(statusPath: string): Promise<InstallStatusEvent | null> {
+/** Whether a process is still running (signal 0 only checks; EPERM means it exists but isn't ours). */
+export function isProcessAlive(pid: number): boolean {
   try {
-    return parseInstallStatusJson(await readFile(statusPath, "utf8"));
-  } catch {
-    return null;
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === "EPERM";
   }
 }
 
-/** "granted" = Granted answered; "other" = something else answered; "down" = nothing answered. */
-export type ProbeResult = "granted" | "other" | "down";
+/** A status file's current content, or null if it's missing/unreadable/not yet valid. */
+export async function readStatusFile(statusPath: string): Promise<StatusFile | null> {
+  const raw = await readTextOrNull(statusPath);
+  return raw === null ? null : parseStatusFile(raw);
+}
+
+/** readStatusFile, with a closed task window turned into an error (see resolveTaskStatus). */
+export async function readTaskStatus(statusPath: string): Promise<StatusFile | null> {
+  return resolveTaskStatus(await readStatusFile(statusPath), isProcessAlive);
+}
+
+/**
+ * "granted" = Granted's page answered; "other" = something answered with a
+ * different page (another app — or Granted's own error page); "busy" =
+ * something accepted the connection but didn't answer in time (e.g. Next.js
+ * still compiling the first request); "down" = nothing is listening.
+ */
+export type ProbeResult = "granted" | "other" | "busy" | "down";
 
 export async function probeGranted(url: string, timeoutMs: number): Promise<ProbeResult> {
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
     return looksLikeGranted(await res.text()) ? "granted" : "other";
-  } catch {
+  } catch (err) {
+    const name = (err as Error)?.name;
+    if (name === "TimeoutError" || name === "AbortError") return "busy";
     return "down";
   }
 }
 
-export type StartOutcome = { ok: true } | { ok: false; reason: "exited" | "timeout" };
+export type StartOutcome =
+  | { ok: true }
+  | { ok: false; reason: "exited" }
+  | { ok: false; reason: "timeout"; lastProbe: ProbeResult | null };
 
 /**
- * Waits for a just-launched `npm run dev` to serve Granted's page. Its
- * console window's status file only ever leaves "running" if the server
- * process exits — which, before it ever answered, means it failed — so
- * that's checked first on every round. Everything time-related is
- * injectable so tests don't wait for real.
+ * Waits for Granted to serve its page. `readStatus` reports the server's
+ * console window (null when there's no window to watch — e.g. waiting on a
+ * server that was already starting); its status only leaves "running" if
+ * the server exits or its window is closed, which — before it ever
+ * answered — means it failed. Everything time-related is injectable so
+ * tests don't wait for real.
  */
 export async function waitForGrantedToStart(opts: {
   probe: () => Promise<ProbeResult>;
-  readStatus: () => Promise<InstallStatusEvent | null>;
+  readStatus: () => Promise<StatusFile | null>;
   timeoutMs: number;
   intervalMs: number;
   now?: () => number;
@@ -103,11 +143,13 @@ export async function waitForGrantedToStart(opts: {
   const now = opts.now ?? Date.now;
   const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const startedAt = now();
+  let lastProbe: ProbeResult | null = null;
   while (now() - startedAt < opts.timeoutMs) {
     const status = await opts.readStatus();
     if (status?.state === "done" || status?.state === "error") return { ok: false, reason: "exited" };
-    if ((await opts.probe()) === "granted") return { ok: true };
+    lastProbe = await opts.probe();
+    if (lastProbe === "granted") return { ok: true };
     await sleep(opts.intervalMs);
   }
-  return { ok: false, reason: "timeout" };
+  return { ok: false, reason: "timeout", lastProbe };
 }

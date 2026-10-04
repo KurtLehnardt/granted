@@ -88,9 +88,13 @@ export interface GrantedSetupState {
   installDir: string;
   /** True once the clone's scaffold/package.json exists. */
   installed: boolean;
-  /** OPENAI_API_KEY and ANTHROPIC_API_KEY are both set to real (non-placeholder) values. */
+  /** OPENAI_API_KEY is set to a real (non-placeholder) value. */
+  openaiKeySet: boolean;
+  /** ANTHROPIC_API_KEY is set to a real (non-placeholder) value. */
+  anthropicKeySet: boolean;
+  /** Both of the above. */
   hostedKeysSet: boolean;
-  /** `npm run setup:local` already pointed .env.local at Ollama. */
+  /** `npm run setup:local` finished: .env.local points at Ollama AND the corpus was re-embedded to match. */
   localConfigured: boolean;
 }
 

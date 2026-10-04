@@ -15,8 +15,17 @@ import {
   newTaskStatusPath,
   parseVersionFromOutput,
   psSingleQuoted,
+  TASK_WINDOW_CLOSED_MESSAGE,
+  type StatusFile,
 } from "./ipcPure";
-import { getSetupState, probeGranted, readStatusFile, saveApiKeys, waitForGrantedToStart } from "./openGranted";
+import {
+  getSetupState,
+  probeGranted,
+  readStatusFile,
+  readTaskStatus,
+  saveApiKeys,
+  waitForGrantedToStart,
+} from "./openGranted";
 import {
   INSTALL_ONE_LINERS,
   NODE_MAJOR_MIN,
@@ -204,43 +213,54 @@ interface StatusPollOptions {
   overallTimeoutMs: number;
   notStartedMessage: string;
   timedOutMessage: string;
+  /** How to read the file — defaults to readStatusFile; task windows use readTaskStatus (closed-window detection). */
+  read?: (statusPath: string) => Promise<InstallStatusEvent | null>;
 }
 
 /**
  * Polls a status file (install-windows.ps1's, or a buildTaskScript one)
  * until it reports "done"/"error", never reports "running" within
  * startedTimeoutMs, or overallTimeoutMs passes — then calls onFinish
- * exactly once.
+ * exactly once. A tick is skipped while the previous one's read is still in
+ * flight (a slow read under AV/disk contention can outlast the interval),
+ * so two ticks can never both see "done" and finish twice.
  */
 function pollStatusFile(
   statusPath: string,
   opts: StatusPollOptions,
   onFinish: (status: InstallStatusEvent) => void,
 ): void {
+  const read = opts.read ?? readStatusFile;
   const startedAt = Date.now();
   let sawRunning = false;
+  let reading = false;
+  let finished = false;
+
+  const finish = (status: InstallStatusEvent): void => {
+    if (finished) return;
+    finished = true;
+    clearInterval(timer);
+    onFinish(status);
+  };
 
   const timer = setInterval(() => {
+    if (reading || finished) return;
+    reading = true;
     void (async (): Promise<void> => {
-      const elapsed = Date.now() - startedAt;
-      const status = await readStatusFile(statusPath);
-      if (status?.state === "running") sawRunning = true;
+      try {
+        const elapsed = Date.now() - startedAt;
+        const status = await read(statusPath);
+        if (status?.state === "running") sawRunning = true;
 
-      if (status?.state === "done" || status?.state === "error") {
-        clearInterval(timer);
-        onFinish(status);
-        return;
-      }
-
-      if (!sawRunning && elapsed > opts.startedTimeoutMs) {
-        clearInterval(timer);
-        onFinish({ state: "error", message: opts.notStartedMessage });
-        return;
-      }
-
-      if (elapsed > opts.overallTimeoutMs) {
-        clearInterval(timer);
-        onFinish({ state: "error", message: opts.timedOutMessage });
+        if (status?.state === "done" || status?.state === "error") {
+          finish({ state: status.state, message: status.message ?? null });
+        } else if (!sawRunning && elapsed > opts.startedTimeoutMs) {
+          finish({ state: "error", message: opts.notStartedMessage });
+        } else if (elapsed > opts.overallTimeoutMs) {
+          finish({ state: "error", message: opts.timedOutMessage });
+        }
+      } finally {
+        reading = false;
       }
     })();
   }, STATUS_POLL_INTERVAL_MS);
@@ -411,21 +431,39 @@ const GRANTED_PROBE_URL = `http://127.0.0.1:${GRANTED_PORT}/`;
 const LOCAL_SETUP_TIMEOUT_MS = 2 * 60 * 60_000; // model pull + corpus re-embed: "a few minutes to a half hour", more on slow links
 const APP_START_TIMEOUT_MS = 5 * 60_000; // first `next dev` compile of the home page
 const PROBE_TIMEOUT_MS = 60_000;
+// Long enough that a Granted busy compiling its first request reads as
+// "busy" rather than "down" — "down" starts a second server.
+const ALREADY_RUNNING_PROBE_TIMEOUT_MS = 10_000;
 const NOT_WINDOWS: ActionResult = {
   ok: false,
   message: "Opening Granted from the installer is only available on Windows so far.",
 };
 
+type GrantedTask = "local-setup" | "start-app";
+
 // One "Open Granted" step at a time — same reasoning as installInFlight.
 let grantedTaskInFlight = false;
+
+// The status file of the most recent window launched for each task. If an
+// earlier attempt was given up on (timeout) but its window is in fact still
+// running, a retry re-attaches to it instead of starting a second copy.
+const lastTaskStatusPath: Partial<Record<GrantedTask, string>> = {};
 
 function scaffoldDir(): string {
   return join(installDir(), "scaffold");
 }
 
+/** The previous attempt's status file, if that window is still running. */
+async function stillRunningTask(task: GrantedTask): Promise<string | null> {
+  const statusPath = lastTaskStatusPath[task];
+  if (!statusPath) return null;
+  const status = await readTaskStatus(statusPath);
+  return status?.state === "running" ? statusPath : null;
+}
+
 /** Writes a buildTaskScript .ps1 and runs it in its own console window in scaffold/. */
 async function launchScaffoldTask(opts: {
-  task: string;
+  task: GrantedTask;
   title: string;
   command: string;
   failureMessage: string;
@@ -449,11 +487,23 @@ async function launchScaffoldTask(opts: {
     "utf8",
   );
   await launchConsoleWindow(scriptPath, scaffoldDir());
+  lastTaskStatusPath[opts.task] = statusPath;
   return statusPath;
 }
 
 function sendTaskStatus(sender: WebContents, status: TaskStatusEvent): void {
   if (!sender.isDestroyed()) sender.send("granted:task-status", status);
+}
+
+/** shell.openExternal, reporting failure (no default browser, policy, …) instead of throwing. */
+async function openInBrowser(url: string): Promise<boolean> {
+  try {
+    await shell.openExternal(url);
+    return true;
+  } catch (err) {
+    console.error("openExternal failed:", err);
+    return false;
+  }
 }
 
 async function runLocalSetup(sender: WebContents): Promise<ActionResult> {
@@ -464,12 +514,14 @@ async function runLocalSetup(sender: WebContents): Promise<ActionResult> {
     // --yes: unattended defaults (recommended model for this machine's
     // memory, plus the corpus re-embed) — the wizard has already asked the
     // one question that matters.
-    const statusPath = await launchScaffoldTask({
-      task: "local-setup",
-      title: "Granted - local setup (Ollama)",
-      command: "npm.cmd run setup:local -- --yes",
-      failureMessage: "The local setup didn't finish. The error is shown above in this window.",
-    });
+    const statusPath =
+      (await stillRunningTask("local-setup")) ??
+      (await launchScaffoldTask({
+        task: "local-setup",
+        title: "Granted - local setup (Ollama)",
+        command: "npm.cmd run setup:local -- --yes",
+        failureMessage: "The local setup didn't finish. The error is shown above in this window.",
+      }));
     pollStatusFile(
       statusPath,
       {
@@ -477,13 +529,19 @@ async function runLocalSetup(sender: WebContents): Promise<ActionResult> {
         overallTimeoutMs: LOCAL_SETUP_TIMEOUT_MS,
         notStartedMessage: "Couldn't confirm the local setup started — check whether a PowerShell window opened.",
         timedOutMessage: "The local setup is taking much longer than expected — check its PowerShell window.",
+        read: readTaskStatus,
       },
       (status) => {
         grantedTaskInFlight = false;
         sendTaskStatus(sender, {
           task: "local-setup",
           state: status.state === "done" ? "done" : "error",
-          message: status.state === "done" ? null : (status.message ?? "The local setup didn't finish."),
+          message:
+            status.state === "done"
+              ? null
+              : status.message === TASK_WINDOW_CLOSED_MESSAGE
+                ? "The local setup window was closed before it finished."
+                : (status.message ?? "The local setup didn't finish."),
         });
       },
     );
@@ -505,20 +563,66 @@ async function startGranted(sender: WebContents): Promise<ActionResult> {
     sendTaskStatus(sender, { task: "start-app", state, message, url: GRANTED_URL });
   };
 
+  const openAndFinish = async (message: string | null): Promise<void> => {
+    if (await openInBrowser(GRANTED_URL)) finish("done", message);
+    else finish("done", `Granted is running, but your browser couldn't be opened automatically — go to ${GRANTED_URL} yourself.`);
+  };
+
+  // Shared by "just launched it" and "it was already starting": wait for
+  // Granted's page, then open the browser or report why not.
+  const waitThenOpen = (readStatus: () => Promise<StatusFile | null>): void => {
+    void waitForGrantedToStart({
+      probe: () => probeGranted(GRANTED_PROBE_URL, PROBE_TIMEOUT_MS),
+      readStatus,
+      timeoutMs: APP_START_TIMEOUT_MS,
+      intervalMs: 2000,
+    })
+      .then(async (outcome) => {
+        if (outcome.ok) {
+          await openAndFinish(null);
+        } else if (outcome.reason === "exited") {
+          finish("error", "Granted stopped before it finished starting — the error is in its PowerShell window (if it's still open).");
+        } else if (outcome.lastProbe === "other") {
+          finish(
+            "error",
+            `Something is answering on port ${GRANTED_PORT}, but not with Granted's home page — if that's Granted, its PowerShell window will show the error.`,
+          );
+        } else {
+          finish("error", `Granted didn't answer within ${APP_START_TIMEOUT_MS / 60_000} minutes — check its PowerShell window.`);
+        }
+      })
+      .catch((err: unknown) => {
+        console.error("waiting for Granted failed:", err);
+        finish("error", "Something went wrong while waiting for Granted to start.");
+      });
+  };
+
   try {
-    // Already running (e.g. "Open Granted" clicked a second time) — don't
-    // start a second server, which `next dev` would quietly put on 3001.
-    const before = await probeGranted(GRANTED_PROBE_URL, 3000);
+    // A window from an earlier attempt that's still running: wait on it
+    // rather than starting a second server on the same port.
+    const existing = await stillRunningTask("start-app");
+    if (existing) {
+      waitThenOpen(() => readTaskStatus(existing));
+      return { ok: true, message: "Granted is already starting…" };
+    }
+
+    const before = await probeGranted(GRANTED_PROBE_URL, ALREADY_RUNNING_PROBE_TIMEOUT_MS);
     if (before === "granted") {
-      await shell.openExternal(GRANTED_URL);
-      finish("done", "Granted was already running — opened it in your browser.");
+      await openAndFinish("Granted was already running — opened it in your browser.");
       return { ok: true, message: "Granted is already running." };
+    }
+    if (before === "busy") {
+      // Something holds the port but is slow to answer — most likely a
+      // Granted that's still compiling. Wait for it instead of launching a
+      // second server that would just fail on the busy port.
+      waitThenOpen(async () => null);
+      return { ok: true, message: "Waiting for Granted…" };
     }
     if (before === "other") {
       grantedTaskInFlight = false;
       return {
         ok: false,
-        message: `Another program is already using port ${GRANTED_PORT}, so Granted can't start there. Close it and try again.`,
+        message: `Something is already using port ${GRANTED_PORT} and isn't showing Granted's home page. If it's another program, close it and try again; if it's Granted showing an error, its PowerShell window has the details.`,
       };
     }
 
@@ -528,25 +632,10 @@ async function startGranted(sender: WebContents): Promise<ActionResult> {
       command: "npm.cmd run dev",
       failureMessage: "Granted stopped. The error is shown above in this window.",
       // Next.js reads PORT; set it explicitly so the server is always where
-      // the probe below looks, whatever PORT the user's environment has.
+      // the probe looks, whatever PORT the user's environment has.
       env: { PORT: String(GRANTED_PORT) },
     });
-
-    void waitForGrantedToStart({
-      probe: () => probeGranted(GRANTED_PROBE_URL, PROBE_TIMEOUT_MS),
-      readStatus: () => readStatusFile(statusPath),
-      timeoutMs: APP_START_TIMEOUT_MS,
-      intervalMs: 2000,
-    }).then(async (outcome) => {
-      if (outcome.ok) {
-        await shell.openExternal(GRANTED_URL);
-        finish("done", null);
-      } else if (outcome.reason === "exited") {
-        finish("error", "Granted stopped before it finished starting — the error is in its PowerShell window.");
-      } else {
-        finish("error", `Granted didn't answer within ${APP_START_TIMEOUT_MS / 60_000} minutes — check its PowerShell window.`);
-      }
-    });
+    waitThenOpen(() => readTaskStatus(statusPath));
     return { ok: true, message: "Starting Granted…" };
   } catch (err) {
     grantedTaskInFlight = false;

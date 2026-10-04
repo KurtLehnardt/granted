@@ -148,7 +148,9 @@ test("another app on Granted's port is reported, never opened as if it were Gran
   try {
     const a = await start();
     await page.getByRole("button", { name: "Yes, open Granted" }).click();
-    await expect(page.getByText(`Another program is already using port ${TEST_PORT}`, { exact: false })).toBeVisible();
+    await expect(
+      page.getByText(`Something is already using port ${TEST_PORT} and isn't showing Granted's home page`, { exact: false }),
+    ).toBeVisible();
     await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
     expect(await openedUrls(a)).toEqual([]);
     expect(newWindows()).toHaveLength(0);
@@ -164,6 +166,45 @@ test("run everything on this computer: runs setup:local --yes, then starts Grant
   await expect(page.getByText(/Setting up the local AI model/)).toBeVisible();
   await expect(page.getByText(/Granted is open in your browser/)).toBeVisible({ timeout: 60_000 });
   expect(readFileSync(join(install.scaffoldDir, ".env.local"), "utf8")).toMatch(/^LLM_PROVIDER=ollama$/m);
+  expect(await openedUrls(a)).toEqual([TEST_URL]);
+});
+
+test("closing the local setup window mid-way is reported right away, and Try again works", async () => {
+  await start({ FAKE_SETUP_LOCAL_HANG: "1" });
+  await page.getByRole("button", { name: "Yes, open Granted" }).click();
+  await page.getByRole("button", { name: /Run everything on this computer/ }).click();
+  await expect(page.getByText(/To cancel, close that window/)).toBeVisible();
+
+  // Wait for its window, then close it the way a user would (PowerShell dies mid-command).
+  await expect.poll(() => newWindows().length, { timeout: 30_000 }).toBe(1);
+  killWindowsOpenedSince(windowsBefore);
+  await expect(page.getByText("The local setup window was closed before it finished.")).toBeVisible({ timeout: 15_000 });
+
+  // The wizard isn't stuck: Try again starts a fresh window.
+  await page.getByRole("button", { name: "Try again" }).click();
+  await expect.poll(() => newWindows().length, { timeout: 30_000 }).toBe(1);
+});
+
+test("an install folder that doesn't exist says so instead of offering to open Granted", async () => {
+  ({ app, page } = await launchInstaller(`${install.installDir}-missing`));
+  await reachInstallComplete(app, page);
+  await expect(page.getByText(/Couldn't find Granted in/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Yes, open Granted" })).toHaveCount(0);
+});
+
+test("API keys form: a key that's already set is marked, and leaving it blank keeps it", async () => {
+  writeFileSync(join(install.scaffoldDir, ".env.local"), "OPENAI_API_KEY=sk-existing\nANTHROPIC_API_KEY=sk-ant-...\n");
+  const a = await start();
+  await page.getByRole("button", { name: "Yes, open Granted" }).click();
+  await page.getByRole("button", { name: /Use my API keys/ }).click();
+  await expect(page.getByLabel(/OpenAI API key/)).toHaveAttribute("placeholder", /Already set/);
+  await expect(page.getByLabel(/Anthropic API key/)).not.toHaveAttribute("placeholder", /Already set/);
+  await page.getByLabel(/Anthropic API key/).fill("sk-ant-new");
+  await page.getByRole("button", { name: "Save and open Granted" }).click();
+  await expect(page.getByText(/Granted is open in your browser/)).toBeVisible();
+  const env = readFileSync(join(install.scaffoldDir, ".env.local"), "utf8");
+  expect(env).toMatch(/^OPENAI_API_KEY=sk-existing$/m);
+  expect(env).toMatch(/^ANTHROPIC_API_KEY=sk-ant-new$/m);
   expect(await openedUrls(a)).toEqual([TEST_URL]);
 });
 

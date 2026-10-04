@@ -82,7 +82,29 @@ describe("waitForGrantedToStart", () => {
       intervalMs: 2000,
       ...fakeClock(),
     });
-    assert.deepEqual(outcome, { ok: false, reason: "timeout" });
+    assert.deepEqual(outcome, { ok: false, reason: "timeout", lastProbe: "down" });
     assert.equal(probed, 5);
+  });
+
+  test("a timeout reports that something non-Granted was answering, so the message can say so", async () => {
+    const outcome = await waitForGrantedToStart({
+      probe: async () => "other",
+      readStatus: async () => null,
+      timeoutMs: 6000,
+      intervalMs: 2000,
+      ...fakeClock(),
+    });
+    assert.deepEqual(outcome, { ok: false, reason: "timeout", lastProbe: "other" });
+  });
+
+  test("with no window to watch (readStatus → null), only the probe decides", async () => {
+    const outcome = await waitForGrantedToStart({
+      probe: sequence<ProbeResult>("busy", "busy", "granted"),
+      readStatus: async () => null,
+      timeoutMs: 60_000,
+      intervalMs: 2000,
+      ...fakeClock(),
+    });
+    assert.deepEqual(outcome, { ok: true });
   });
 });

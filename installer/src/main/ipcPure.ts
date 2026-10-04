@@ -137,40 +137,47 @@ export function isRealKey(value: string): boolean {
   return value !== "" && !value.startsWith("sk-...") && value !== "sk-ant-...";
 }
 
-export function envHasHostedKeys(text: string): boolean {
-  return isRealKey(currentEnvValue(text, "OPENAI_API_KEY")) && isRealKey(currentEnvValue(text, "ANTHROPIC_API_KEY"));
-}
-
-/** What `npm run setup:local` writes once it has finished successfully. */
-export function envIsLocalConfigured(text: string): boolean {
-  return currentEnvValue(text, "LLM_PROVIDER") === "ollama" && currentEnvValue(text, "EMBEDDINGS_BASE_URL") !== "";
+/**
+ * Whether `npm run setup:local` got all the way through. Its env lines alone
+ * aren't proof: setup-local.mjs writes them (step 6) BEFORE the corpus
+ * re-embed (step 7), which can still fail — leaving an .env.local that
+ * points at Ollama with a corpus whose vectors don't match (broken
+ * retrieval). The re-embed's very last write is data/local/corpus-meta.json,
+ * stamped with the model it used, so that must exist and match too.
+ */
+export function envIsLocalConfigured(text: string, localCorpusMetaJson: string | null): boolean {
+  if (currentEnvValue(text, "LLM_PROVIDER") !== "ollama" || currentEnvValue(text, "EMBEDDINGS_BASE_URL") === "") {
+    return false;
+  }
+  try {
+    const raw = localCorpusMetaJson ?? "";
+    const meta = JSON.parse(raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw) as { embeddingModel?: unknown; dims?: unknown };
+    const model = currentEnvValue(text, "EMBEDDINGS_MODEL");
+    return model !== "" && meta.embeddingModel === model && typeof meta.dims === "number" && meta.dims > 0;
+  } catch {
+    return false;
+  }
 }
 
 /**
- * Merge the form's keys into env text. A key that already holds a real value
- * is kept (reported in `kept`), exactly like setup.mjs; a blank input is
- * skipped. `missing` lists required keys that are still unset afterwards, so
+ * Merge the form's keys into env text. A key the user typed replaces
+ * whatever was there — they asked for it explicitly (setup.mjs's "never
+ * overwrite" rule exists because it never re-prompts for a key that's
+ * already set; this form does show those fields). A blank field keeps the
+ * existing value. `missing` lists required keys still unset afterwards, so
  * the caller can refuse to start an app that can't work yet.
  */
 export function applyApiKeys(
   text: string,
   keys: { OPENAI_API_KEY: string; ANTHROPIC_API_KEY: string; EXA_API_KEY: string },
-): { text: string; written: string[]; kept: string[]; missing: string[] } {
+): { text: string; missing: string[] } {
   let out = text;
-  const written: string[] = [];
-  const kept: string[] = [];
   for (const [key, raw] of Object.entries(keys)) {
     const value = raw.trim();
-    if (isRealKey(currentEnvValue(out, key))) {
-      kept.push(key);
-      continue;
-    }
-    if (value === "") continue;
-    out = upsertEnv(out, key, value);
-    written.push(key);
+    if (value !== "") out = upsertEnv(out, key, value);
   }
   const missing = ["OPENAI_API_KEY", "ANTHROPIC_API_KEY"].filter((k) => !isRealKey(currentEnvValue(out, k)));
-  return { text: out, written, kept, missing };
+  return { text: out, missing };
 }
 
 // ---------------------------------------------------------------------------
@@ -181,10 +188,12 @@ export function applyApiKeys(
  * The .ps1 that runs one scaffold command in its own visible PowerShell
  * window and reports the outcome through a status file, in the same
  * {"state": ...} format install-windows.ps1 writes (so
- * parseInstallStatusJson reads both). Everything interpolated is
- * single-quoted (psSingleQuoted), so a `$` or backtick in a path is taken
- * literally. `command` is only ever a fixed string chosen by the main
- * process, never user input.
+ * parseInstallStatusJson reads both) plus the window's own `pid` — so the
+ * app can tell "still running" from "the user closed the window", which
+ * otherwise looks identical (nothing ever writes done/error). Everything
+ * interpolated is single-quoted (psSingleQuoted), so a `$` or backtick in a
+ * path is taken literally. `command` is only ever a fixed string chosen by
+ * the main process, never user input.
  */
 export function buildTaskScript(opts: {
   title: string;
@@ -205,7 +214,7 @@ export function buildTaskScript(opts: {
     ...envLines,
     "function Write-Status($state, $message) {",
     "  try {",
-    "    @{ state = $state; message = $message } | ConvertTo-Json -Compress | Set-Content -Path $StatusPath -Encoding utf8 -ErrorAction Stop",
+    "    @{ state = $state; message = $message; pid = $PID } | ConvertTo-Json -Compress | Set-Content -Path $StatusPath -Encoding utf8 -ErrorAction Stop",
     "  } catch {",
     '    Write-Host "  [!] Couldn\'t write status to $StatusPath -- $($_.Exception.Message)" -ForegroundColor Yellow',
     "  }",
@@ -221,6 +230,36 @@ export function buildTaskScript(opts: {
     "}",
     "",
   ].join("\r\n");
+}
+
+/** A status file's content: install-windows.ps1's fields, plus the window's pid when buildTaskScript wrote it. */
+export type StatusFile = InstallStatusEvent & { pid?: number };
+
+/** parseInstallStatusJson, keeping buildTaskScript's `pid` too. */
+export function parseStatusFile(raw: string): StatusFile | null {
+  const status = parseInstallStatusJson(raw);
+  if (!status) return null;
+  try {
+    const withoutBom = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
+    const pid = (JSON.parse(withoutBom) as { pid?: unknown }).pid;
+    return Number.isInteger(pid) && (pid as number) > 0 ? { ...status, pid: pid as number } : status;
+  } catch {
+    return status;
+  }
+}
+
+export const TASK_WINDOW_CLOSED_MESSAGE = "Its PowerShell window was closed before it finished.";
+
+/**
+ * A "running" status whose window process is gone means the user closed the
+ * window (PowerShell died before it could write done/error) — report that
+ * as an error now, rather than waiting out a timeout of up to two hours.
+ */
+export function resolveTaskStatus(status: StatusFile | null, isAlive: (pid: number) => boolean): StatusFile | null {
+  if (status?.state === "running" && status.pid !== undefined && !isAlive(status.pid)) {
+    return { state: "error", message: TASK_WINDOW_CLOSED_MESSAGE, pid: status.pid };
+  }
+  return status;
 }
 
 /** A fresh, unique status-file path for one "Open Granted" step (see newInstallStatusPath). */
@@ -242,7 +281,8 @@ export function grantedPort(envValue: string | undefined): number {
  * Whether an HTTP response body is Granted's own page — the app's <title> is
  * "<brand> — federal funding intelligence for everyone". Checked before
  * opening the browser so that some OTHER app already holding port 3000 is
- * never presented as Granted.
+ * never presented as Granted. (Granted's own dev error page doesn't match
+ * either — callers word their messages to allow for that.)
  */
 export function looksLikeGranted(html: string): boolean {
   return /federal funding intelligence/i.test(html);

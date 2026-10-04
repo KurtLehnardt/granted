@@ -6,7 +6,7 @@
  */
 import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
@@ -14,8 +14,16 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { buildTaskScript } from "../ipcPure";
-import { getSetupState, probeGranted, readStatusFile, saveApiKeys, waitForGrantedToStart } from "../openGranted";
+import { buildTaskScript, TASK_WINDOW_CLOSED_MESSAGE } from "../ipcPure";
+import {
+  getSetupState,
+  isProcessAlive,
+  probeGranted,
+  readStatusFile,
+  readTaskStatus,
+  saveApiKeys,
+  waitForGrantedToStart,
+} from "../openGranted";
 
 const execFileAsync = promisify(execFile);
 
@@ -27,6 +35,11 @@ const ENV_EXAMPLE = [
   "NEXT_PUBLIC_FLAG_R5_DEEP_ANALYSIS=true",
   "",
 ].join("\n");
+
+// What setup-local.mjs writes to .env.local (before its re-embed step)...
+const LOCAL_ENV = "LLM_PROVIDER=ollama\nEMBEDDINGS_BASE_URL=http://localhost:11434/v1\nEMBEDDINGS_MODEL=nomic-embed-text\n";
+// ...and what 3-embed.mjs --target=local writes last, once the re-embed succeeded.
+const LOCAL_META = JSON.stringify({ count: 3, embeddingModel: "nomic-embed-text", dims: 768 });
 
 const GRANTED_HTML = "<html><head><title>Granted — federal funding intelligence for everyone</title></head></html>";
 
@@ -41,16 +54,20 @@ async function makeInstall(): Promise<{ root: string; installDir: string; scaffo
   return { root, installDir, scaffoldDir };
 }
 
-function serve(body: string): Promise<{ server: Server; url: string }> {
+function serve(handler: Parameters<typeof createServer>[1]): Promise<{ server: Server; url: string }> {
   return new Promise((resolveServe) => {
-    const server = createServer((_req, res) => {
-      res.writeHead(200, { "Content-Type": "text/html" });
-      res.end(body);
-    });
+    const server = createServer(handler);
     server.listen(0, "127.0.0.1", () => {
       const { port } = server.address() as AddressInfo;
       resolveServe({ server, url: `http://127.0.0.1:${port}/` });
     });
+  });
+}
+
+function serveHtml(body: string): Promise<{ server: Server; url: string }> {
+  return serve((_req, res) => {
+    res.writeHead(200, { "Content-Type": "text/html" });
+    res.end(body);
   });
 }
 
@@ -67,6 +84,8 @@ describe("getSetupState / saveApiKeys against a real install folder", () => {
     assert.deepEqual(await getSetupState(install.installDir), {
       installDir: install.installDir,
       installed: true,
+      openaiKeySet: false,
+      anthropicKeySet: false,
       hostedKeysSet: false,
       localConfigured: false,
     });
@@ -95,29 +114,29 @@ describe("getSetupState / saveApiKeys against a real install folder", () => {
     assert.match(env, /^OPENAI_API_KEY=sk-test-openai$/m);
     assert.match(env, /^ANTHROPIC_API_KEY=sk-ant-test$/m);
     assert.match(env, /^NEXT_PUBLIC_FLAG_R5_DEEP_ANALYSIS=true$/m, "the rest of .env.example is carried over");
-    assert.equal((await getSetupState(install.installDir)).hostedKeysSet, true);
+    const state = await getSetupState(install.installDir);
+    assert.equal(state.hostedKeysSet, true);
+    assert.equal(state.openaiKeySet && state.anthropicKeySet, true);
   });
 
-  test("saving again never overwrites keys already in .env.local", async () => {
-    const result = await saveApiKeys(install.scaffoldDir, {
-      openaiApiKey: "sk-different",
-      anthropicApiKey: "sk-ant-different",
-      exaApiKey: "exa-new",
-    });
+  test("saving again: blank fields keep the existing keys, a typed key replaces its old value", async () => {
+    const result = await saveApiKeys(install.scaffoldDir, { openaiApiKey: "", anthropicApiKey: "sk-ant-new", exaApiKey: "exa-new" });
     assert.equal(result.ok, true);
     const env = await readFile(join(install.scaffoldDir, ".env.local"), "utf8");
     assert.match(env, /^OPENAI_API_KEY=sk-test-openai$/m);
-    assert.match(env, /^ANTHROPIC_API_KEY=sk-ant-test$/m);
-    assert.match(env, /^EXA_API_KEY=exa-new$/m, "a blank optional key is still filled in");
+    assert.match(env, /^ANTHROPIC_API_KEY=sk-ant-new$/m);
+    assert.match(env, /^EXA_API_KEY=exa-new$/m);
   });
 
-  test("an .env.local written by `npm run setup:local` reads as locally configured", async () => {
+  test("local setup only counts as configured once its corpus re-embed finished", async () => {
     const other = await makeInstall();
     try {
-      await writeFile(
-        join(other.scaffoldDir, ".env.local"),
-        "LLM_PROVIDER=ollama\nEMBEDDINGS_BASE_URL=http://localhost:11434/v1\n",
-      );
+      await writeFile(join(other.scaffoldDir, ".env.local"), LOCAL_ENV);
+      // setup:local failed during the re-embed: env written, no local corpus.
+      assert.equal((await getSetupState(other.installDir)).localConfigured, false);
+
+      await mkdir(join(other.scaffoldDir, "data", "local"), { recursive: true });
+      await writeFile(join(other.scaffoldDir, "data", "local", "corpus-meta.json"), LOCAL_META);
       const state = await getSetupState(other.installDir);
       assert.equal(state.localConfigured, true);
       assert.equal(state.hostedKeysSet, false);
@@ -139,7 +158,7 @@ describe("getSetupState / saveApiKeys against a real install folder", () => {
 
 describe("probeGranted / waitForGrantedToStart against a real HTTP server", () => {
   test("recognises Granted's page", async () => {
-    const { server, url } = await serve(GRANTED_HTML);
+    const { server, url } = await serveHtml(GRANTED_HTML);
     try {
       assert.equal(await probeGranted(url, 5000), "granted");
     } finally {
@@ -148,7 +167,7 @@ describe("probeGranted / waitForGrantedToStart against a real HTTP server", () =
   });
 
   test("tells some other app on the port apart from Granted", async () => {
-    const { server, url } = await serve("<title>Some other dev server</title>");
+    const { server, url } = await serveHtml("<title>Some other dev server</title>");
     try {
       assert.equal(await probeGranted(url, 5000), "other");
     } finally {
@@ -156,15 +175,26 @@ describe("probeGranted / waitForGrantedToStart against a real HTTP server", () =
     }
   });
 
+  test("a server that accepts but doesn't answer in time is 'busy', not 'down' (so no second server is started)", async () => {
+    const pending: import("node:http").ServerResponse[] = [];
+    const { server, url } = await serve((_req, res) => void pending.push(res));
+    try {
+      assert.equal(await probeGranted(url, 500), "busy");
+    } finally {
+      for (const res of pending) res.end();
+      server.close();
+    }
+  });
+
   test("reports 'down' when nothing is listening", async () => {
-    const { server, url } = await serve("");
+    const { server, url } = await serveHtml("");
     await new Promise<void>((r) => server.close(() => r()));
     assert.equal(await probeGranted(url, 2000), "down");
   });
 
   test("waits for a server that only starts listening after a while", async () => {
     // Reserve a free port, release it, then bring Granted up on it ~1.5s later.
-    const { server: reserve, url } = await serve("");
+    const { server: reserve, url } = await serveHtml("");
     const { port } = reserve.address() as AddressInfo;
     await new Promise<void>((r) => reserve.close(() => r()));
     let late: Server | undefined;
@@ -186,6 +216,15 @@ describe("probeGranted / waitForGrantedToStart against a real HTTP server", () =
   });
 });
 
+describe("isProcessAlive", () => {
+  test("is true for this process and false for one that has exited", async () => {
+    assert.equal(isProcessAlive(process.pid), true);
+    const child = spawn(process.execPath, ["-e", "0"]);
+    await new Promise((r) => child.once("exit", r));
+    assert.equal(isProcessAlive(child.pid!), false);
+  });
+});
+
 describe("buildTaskScript run by a real powershell.exe", { skip: process.platform !== "win32" && "Windows only" }, () => {
   let dir: string;
   before(async () => {
@@ -196,32 +235,66 @@ describe("buildTaskScript run by a real powershell.exe", { skip: process.platfor
     await rm(dir, { recursive: true, force: true });
   });
 
-  async function runTask(command: string): Promise<{ status: Awaited<ReturnType<typeof readStatusFile>>; stdout: string }> {
-    const statusPath = join(dir, `status-${Math.random().toString(36).slice(2)}.json`);
-    const scriptPath = join(dir, `task-${Math.random().toString(36).slice(2)}.ps1`);
+  async function writeTask(command: string): Promise<{ statusPath: string; scriptPath: string }> {
+    const id = Math.random().toString(36).slice(2);
+    const statusPath = join(dir, `status-${id}.json`);
+    const scriptPath = join(dir, `task-${id}.ps1`);
     await writeFile(
       scriptPath,
       buildTaskScript({ title: "Granted test", cwd: dir, statusPath, command, failureMessage: "It didn't work." }),
       "utf8",
     );
-    const { stdout } = await execFileAsync(
-      "powershell.exe",
-      ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", scriptPath],
-      { windowsHide: true, timeout: 60_000 },
-    );
+    return { statusPath, scriptPath };
+  }
+
+  const PS_ARGS = ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File"];
+
+  async function runTask(command: string): Promise<{ status: Awaited<ReturnType<typeof readStatusFile>>; stdout: string }> {
+    const { statusPath, scriptPath } = await writeTask(command);
+    const { stdout } = await execFileAsync("powershell.exe", [...PS_ARGS, scriptPath], { windowsHide: true, timeout: 60_000 });
     return { status: await readStatusFile(statusPath), stdout };
   }
 
-  test("a command that exits 0 reports done, and runs in the requested folder", async () => {
-    const { status } = await runTask("cmd.exe /c \"cd > where.txt\"");
-    assert.deepEqual(status, { state: "done", message: null });
+  test("a command that exits 0 reports done (with the window's pid), and runs in the requested folder", async () => {
+    const { status } = await runTask('cmd.exe /c "cd > where.txt"');
+    assert.equal(status?.state, "done");
+    assert.equal(status?.message, null);
+    assert.ok(Number.isInteger(status?.pid) && status!.pid! > 0, "pid recorded");
     const where = (await readFile(join(dir, "where.txt"), "utf8")).trim();
     assert.equal(where.toLowerCase(), dir.toLowerCase());
   });
 
   test("a command that exits non-zero reports error with the failure message, and says so in the window", async () => {
     const { status, stdout } = await runTask("cmd.exe /c exit 3");
-    assert.deepEqual(status, { state: "error", message: "It didn't work." });
+    assert.equal(status?.state, "error");
+    assert.equal(status?.message, "It didn't work.");
     assert.match(stdout, /\[x\] It didn't work\./);
+  });
+
+  test("closing the window mid-command reads as an error, not as still running", async () => {
+    // A command that runs until killed, standing in for a long setup:local.
+    const { statusPath, scriptPath } = await writeTask("ping.exe -n 120 127.0.0.1 | Out-Null");
+    const window = spawn("powershell.exe", [...PS_ARGS, scriptPath], { windowsHide: true, stdio: "ignore" });
+    try {
+      let running = null;
+      for (let i = 0; i < 100 && running?.state !== "running"; i++) {
+        await new Promise((r) => setTimeout(r, 200));
+        running = await readTaskStatus(statusPath);
+      }
+      assert.equal(running?.state, "running", "the window reported running");
+      assert.equal(running?.pid, window.pid, "with its own pid");
+
+      // "The user closes the window": PowerShell dies without writing done/error.
+      await execFileAsync("taskkill.exe", ["/PID", String(window.pid), "/T", "/F"]);
+      await new Promise((r) => setTimeout(r, 500));
+      assert.equal((await readStatusFile(statusPath))?.state, "running", "the file itself still says running");
+      assert.deepEqual(await readTaskStatus(statusPath), {
+        state: "error",
+        message: TASK_WINDOW_CLOSED_MESSAGE,
+        pid: window.pid,
+      });
+    } finally {
+      window.kill();
+    }
   });
 });
