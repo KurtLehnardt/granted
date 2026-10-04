@@ -69,3 +69,63 @@ jobs:
 
       - name: Unit tests
         run: npm test
+
+  # The GUI installer (installer/) is its own npm project. Its unit +
+  # integration tests are hermetic (temp folders, a 127.0.0.1 HTTP server,
+  # no keys); the ones that drive a real powershell.exe skip themselves off
+  # Windows, so Linux covers typecheck + everything portable...
+  installer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: installer
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: installer/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit + integration tests
+        run: npm test
+
+  # ...and Windows runs the Windows-only half: the PowerShell integration
+  # tests and the Playwright end-to-end tests, which drive the built
+  # Electron app and the real console windows it opens. Windows is the only
+  # platform with the "Installation complete" screen they cover.
+  installer-windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: installer
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: installer/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Unit + integration tests
+        run: npm test
+
+      - name: End-to-end tests
+        run: npm run e2e
