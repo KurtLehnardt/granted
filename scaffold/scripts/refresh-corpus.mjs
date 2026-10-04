@@ -16,6 +16,7 @@ import {
   countBySource,
   countRemoved,
   dedupeById,
+  excludeDeselectedSources,
   findUnhealthySources,
   opportunityEmbedText,
   planEmbedding,
@@ -71,6 +72,7 @@ const SELECTED_STATE_SOURCES = stateSourcesFlag
   ? stateSourcesFlag.slice("--state-sources=".length).split(",").filter(Boolean)
   : ["ca-grants", "il-grants", "nc-grants"];
 const wantsSource = (id) => SELECTED_STATE_SOURCES.includes(id);
+const TOGGLEABLE_STATE_SOURCES = ["ca-grants", "il-grants", "nc-grants", "ut-grants"];
 
 /** `{ escalate: true }` when the first batch's real dims differ from priorDims (EMBEDDINGS_DIMENSIONS is unset off OpenAI). */
 async function embedAll(toEmbedList, { foundCount, keptCount, allowReembedEscalation, priorDims }) {
@@ -255,8 +257,18 @@ async function main() {
     console.log(`\nAssembled ${foundCount} open records (expired deadlines dropped).`);
     reportProgress("selecting", { foundCount });
 
-    // Legacy past awards in `existing` aren't a source outage.
-    const unhealthy = findUnhealthySources(countBySource(dropPastAwards(existing)), countBySource(fresh));
+    // Legacy past awards in `existing` aren't a source outage. Neither is a state
+    // source the user deliberately deselected this run (Settings' state-sources
+    // toggle) -- excludeDeselectedSources drops it from the prior-count baseline so
+    // its intentional 0 isn't read as the kind of unexplained drop this guard exists
+    // to catch. Every source that IS selected (or isn't toggleable at all, e.g.
+    // grants.gov/SBIR/SAM) stays fully covered, unchanged.
+    const priorCounts = excludeDeselectedSources(
+      countBySource(dropPastAwards(existing)),
+      TOGGLEABLE_STATE_SOURCES,
+      SELECTED_STATE_SOURCES,
+    );
+    const unhealthy = findUnhealthySources(priorCounts, countBySource(fresh));
     if (unhealthy.length) {
       throw new Error(`refresh aborted — source count dropped sharply: ${unhealthy.join("; ")}`);
     }

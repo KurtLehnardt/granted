@@ -66,6 +66,27 @@ export function countBySource(records: { source: string }[]): Record<string, num
   return counts;
 }
 
+/**
+ * Strips sources the user deliberately deselected this run (Settings' per-source
+ * toggle, e.g. unchecking Utah) out of a prior-count baseline before it's passed to
+ * `findUnhealthySources`. A deselected source's fresh count is intentionally 0 — not
+ * a scrape break — so comparing against its old count would otherwise read as exactly
+ * the kind of sharp, unexplained drop that guard exists to catch, and abort the whole
+ * refresh (including every other source that fetched fine) the first time anyone
+ * unchecks a source with 5+ existing records.
+ */
+export function excludeDeselectedSources(
+  priorCounts: Record<string, number>,
+  toggleableSources: readonly string[],
+  selectedSources: readonly string[],
+): Record<string, number> {
+  const filtered = { ...priorCounts };
+  for (const source of toggleableSources) {
+    if (!selectedSources.includes(source)) delete filtered[source];
+  }
+  return filtered;
+}
+
 /** Flags sources (of 5+ prior records) that shrank below `dropThreshold`, e.g. a fetcher that swallowed an outage. */
 export function findUnhealthySources(
   prior: Record<string, number>,
