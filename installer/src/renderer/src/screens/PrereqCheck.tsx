@@ -51,6 +51,16 @@ export default function PrereqCheck({ onInstallComplete }: PrereqCheckProps): Re
   // invite running the whole install again.
   useEffect(() => {
     return window.api.onInstallStatus((status: InstallStatusEvent) => {
+      if (status.state === "running") {
+        // A progress notice (e.g. "still waiting at a UAC prompt"), not an
+        // outcome: show it, and keep the button disabled — the install is
+        // still going, and a second click would start a concurrent one.
+        if (status.message) {
+          const notice = status.message;
+          setTerminalResult((prev) => (prev ? { ...prev, message: notice } : prev));
+        }
+        return;
+      }
       setWaitingForInstall(false);
       if (status.state === "done") {
         onInstallComplete();

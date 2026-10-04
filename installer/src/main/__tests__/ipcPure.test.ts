@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   applyApiKeys,
   buildTaskScript,
+  decideStatusPoll,
   envIsLocalConfigured,
   escapeForAppleScript,
   grantedPort,
@@ -15,6 +16,9 @@ import {
   parseVersionFromOutput,
   psSingleQuoted,
   resolveTaskStatus,
+  shouldReattach,
+  STATUS_LOCK_LINE,
+  statusLockPath,
   TASK_WINDOW_CLOSED_MESSAGE,
   upsertEnv,
 } from "../ipcPure";
@@ -285,6 +289,7 @@ describe("parseStatusFile / resolveTaskStatus", () => {
       state: "error",
       message: TASK_WINDOW_CLOSED_MESSAGE,
       pid: 4242,
+      closed: true,
     });
   });
 
@@ -316,6 +321,13 @@ describe("buildTaskScript", () => {
     assert.match(script, /@\{ state = \$state; message = \$message; pid = \$PID \}/);
   });
 
+  test("takes the window's exclusive status lock right after $StatusPath is set, before anything runs", () => {
+    const lock = script.indexOf(STATUS_LOCK_LINE);
+    assert.ok(lock > script.indexOf("$StatusPath = "), "after $StatusPath");
+    assert.ok(lock < script.indexOf('Write-Status "running"'), "before the first status write");
+    assert.equal(statusLockPath("C:\\t\\s.json"), "C:\\t\\s.json.lock");
+  });
+
   test("reports running before the command and done/error from its exit code after", () => {
     const running = script.indexOf('Write-Status "running"');
     const command = script.indexOf("npm.cmd run dev");
@@ -326,6 +338,111 @@ describe("buildTaskScript", () => {
   test("uses CRLF line endings", () => {
     assert.ok(script.includes("\r\n"));
     assert.ok(!/[^\r]\n/.test(script));
+  });
+});
+
+describe("decideStatusPoll", () => {
+  const OPTS = {
+    startedTimeoutMs: 10_000,
+    overallTimeoutMs: 600_000,
+    notStartedMessage: "not started",
+    timedOutMessage: "timed out",
+  };
+  const INSTALL = { ...OPTS, waitWhileAlive: true, closedMessage: "install window closed" };
+  const MINUTE = 60_000;
+  const RUNNING = { state: "running" as const, message: null, pid: 4242 };
+
+  test("finishes with done/error as soon as the file says so", () => {
+    assert.deepEqual(
+      decideStatusPoll({ ...OPTS, status: { state: "done", message: null, pid: 5 }, elapsedMs: 1000, sawRunning: true }),
+      { finish: { state: "done", message: null } },
+    );
+    assert.deepEqual(
+      decideStatusPoll({ ...OPTS, status: { state: "error", message: "boom" }, elapsedMs: 1000, sawRunning: true }),
+      { finish: { state: "error", message: "boom" } },
+    );
+  });
+
+  test("keeps waiting (null) while running and inside every limit", () => {
+    assert.equal(decideStatusPoll({ ...INSTALL, status: RUNNING, elapsedMs: 9 * MINUTE, sawRunning: true }), null);
+  });
+
+  test("REGRESSION (real Windows 11 run): an install window alive past 10 minutes at a UAC prompt is NOT given up on", () => {
+    // The old fixed 10-minute limit fired here, re-enabled the button, and a
+    // second click started a concurrent install. Now: a "still waiting"
+    // notice (so a genuinely stuck window isn't silent either), never a finish.
+    for (const minutes of [11, 30, 120]) {
+      assert.deepEqual(
+        decideStatusPoll({ ...INSTALL, status: RUNNING, elapsedMs: minutes * MINUTE, sawRunning: true }),
+        { stillWaiting: true },
+        `still waiting at ${minutes} min`,
+      );
+    }
+  });
+
+  test("tasks without waitWhileAlive keep their hard limit even with a live pid", () => {
+    assert.deepEqual(decideStatusPoll({ ...OPTS, status: RUNNING, elapsedMs: 11 * MINUTE, sawRunning: true }), {
+      finish: { state: "error", message: "timed out" },
+    });
+  });
+
+  test("a status with no pid (an older install-windows.ps1) can't be checked, so it keeps the 10-minute limit", () => {
+    assert.deepEqual(
+      decideStatusPoll({ ...INSTALL, status: { state: "running", message: null }, elapsedMs: 11 * MINUTE, sawRunning: true }),
+      { finish: { state: "error", message: "timed out" } },
+    );
+  });
+
+  test("never reporting running within startedTimeoutMs is reported as not started", () => {
+    assert.equal(decideStatusPoll({ ...OPTS, status: null, elapsedMs: 5000, sawRunning: false }), null);
+    assert.deepEqual(decideStatusPoll({ ...OPTS, status: null, elapsedMs: 11_000, sawRunning: false }), {
+      finish: { state: "error", message: "not started" },
+    });
+  });
+
+  test("a window closed mid-run finishes immediately, worded by the caller's closedMessage", () => {
+    const closed = resolveTaskStatus(RUNNING, () => false);
+    assert.deepEqual(decideStatusPoll({ ...INSTALL, status: closed, elapsedMs: 2000, sawRunning: true }), {
+      finish: { state: "error", message: "install window closed" },
+    });
+    // Without a closedMessage, the generic text.
+    assert.deepEqual(decideStatusPoll({ ...OPTS, status: closed, elapsedMs: 2000, sawRunning: true }), {
+      finish: { state: "error", message: TASK_WINDOW_CLOSED_MESSAGE },
+    });
+  });
+
+  test("closedMessage only replaces a real closed-window error, not a script's own error text", () => {
+    assert.deepEqual(
+      decideStatusPoll({ ...INSTALL, status: { state: "error", message: TASK_WINDOW_CLOSED_MESSAGE }, elapsedMs: 2000, sawRunning: true }),
+      { finish: { state: "error", message: TASK_WINDOW_CLOSED_MESSAGE } },
+    );
+  });
+});
+
+describe("shouldReattach", () => {
+  const RECENT = { recentLaunchMs: 60_000, acceptDone: true };
+
+  test("re-attaches to a previous attempt that's still running (has a pid to keep checking)", () => {
+    assert.equal(shouldReattach({ state: "running", message: null, pid: 7 }, { ...RECENT, launchedMsAgo: 900_000 }), true);
+  });
+
+  test("never re-attaches to a pid-less 'running' file — it can't tell a closed window from a live one", () => {
+    assert.equal(shouldReattach({ state: "running", message: null }, { ...RECENT, launchedMsAgo: 5_000 }), false);
+  });
+
+  test("a slow start (nothing reported yet) re-attaches only if it was launched moments ago", () => {
+    assert.equal(shouldReattach(null, { ...RECENT, launchedMsAgo: 15_000 }), true, "AV-slow start: don't race it");
+    assert.equal(shouldReattach(null, { ...RECENT, launchedMsAgo: 120_000 }), false, "it never started: launch anew");
+  });
+
+  test("a finished 'done' attempt re-attaches (report the success) only where that makes sense", () => {
+    const done = { state: "done" as const, message: null, pid: 7 };
+    assert.equal(shouldReattach(done, { ...RECENT, launchedMsAgo: 900_000 }), true);
+    assert.equal(shouldReattach(done, { ...RECENT, acceptDone: false, launchedMsAgo: 900_000 }), false);
+  });
+
+  test("an error (including a closed window) never re-attaches — the retry should start fresh", () => {
+    assert.equal(shouldReattach({ state: "error", message: "x", closed: true }, { ...RECENT, launchedMsAgo: 1_000 }), false);
   });
 });
 

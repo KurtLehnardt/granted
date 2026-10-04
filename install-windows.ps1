@@ -23,10 +23,20 @@ $ErrorActionPreference = "Stop"
 # STATUS_FILE is set by the GUI to a path that matches what it's polling;
 # falls back to a fixed name so this script still no-ops safely when run
 # standalone (copy-pasted into a terminal by hand, as the README documents).
+# While this console window is alive the GUI keeps waiting however long a UAC
+# prompt sits unanswered; once it's gone without a done/error the GUI knows
+# the window was closed (a real Windows 11 run went past the GUI's old fixed
+# 10-minute limit at a UAC prompt, and a second click then started a
+# concurrent install). "Alive" = this window still holds an exclusive lock on
+# "<status>.lock" (Windows releases it the moment the process exits, and
+# unlike a PID it can't be inherited by an unrelated process); `pid` in each
+# status write is the fallback. The lock line must stay identical to
+# STATUS_LOCK_LINE in installer/src/main/ipcPure.ts -- a test checks.
 $StatusPath = if ($env:GRANTED_STATUS_FILE) { $env:GRANTED_STATUS_FILE } else { Join-Path $env:TEMP "granted-install-status.json" }
+try { $global:GrantedStatusLock = [System.IO.File]::Open("$StatusPath.lock", 'OpenOrCreate', 'ReadWrite', 'None') } catch { }
 function Write-Status($state, $message) {
   try {
-    $payload = @{ state = $state; message = $message } | ConvertTo-Json -Compress
+    $payload = @{ state = $state; message = $message; pid = $PID } | ConvertTo-Json -Compress
     Set-Content -Path $StatusPath -Value $payload -Encoding utf8 -ErrorAction Stop
   } catch {
     # Never let status reporting itself break the install -- but don't go

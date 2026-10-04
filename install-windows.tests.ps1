@@ -132,6 +132,14 @@ function Run-Case {
         if ($ExpectedMessageSubstring -and ($parsed.message -notlike "*$ExpectedMessageSubstring*")) {
           $problems += "message did not contain expected substring '$ExpectedMessageSubstring' (got: '$($parsed.message)')"
         }
+        # Every write carries the writing window's own PID (the GUI's
+        # closed-window detection depends on it) -- the child shell's, so
+        # never this test runner's.
+        if (-not ($parsed.pid -is [int] -or $parsed.pid -is [long]) -or $parsed.pid -le 0) {
+          $problems += "pid: expected a positive integer, got '$($parsed.pid)'"
+        } elseif ($parsed.pid -eq $PID) {
+          $problems += "pid: got the test runner's own PID ($PID), not the child shell's"
+        }
       }
     }
   }
