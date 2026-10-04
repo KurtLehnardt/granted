@@ -59,6 +59,15 @@ export function activeEmbeddingTarget(): EmbeddingTarget {
 }
 
 /**
+ * The target whose vectors match a loaded corpus (lib/corpus/store.ts's CorpusInfo.source).
+ * A search embeds its query with THIS, not a second, separate readiness check, so the
+ * query and the corpus it's compared against always share one embedding space.
+ */
+export function embeddingTargetForCorpus(source: "local-embeddings" | "local" | "committed"): EmbeddingTarget {
+  return source === "local-embeddings" ? settingsLocalEmbeddingTarget() : envEmbeddingTarget();
+}
+
+/**
  * Conservative placeholder detector: real `sk-`/`sk-proj-` keys are dozens of
  * characters, so this only rejects the literal `.env.example` placeholders
  * (or an obviously truncated string) — it must never reject a genuine key.
@@ -107,9 +116,19 @@ export function checkEmbeddingsMisconfig(
   }
 }
 
-/** Preflight check called at the top of embed()/embedBatch(), before any network call. */
-function assertEmbeddingsConfigured(target: EmbeddingTarget): void {
-  checkEmbeddingsMisconfig(target.isOpenAi, isLocalLlm(), process.env.EMBEDDINGS_API_KEY || process.env.OPENAI_API_KEY);
+/**
+ * Preflight check called at the top of embed()/embedBatch(), before any network call.
+ * `pinned`: the caller chose the target explicitly (data:refresh writing the hosted
+ * corpus with the env embedder, or a search embedding for the corpus it loaded), so
+ * "Local is selected but this targets OpenAI" is intended, not a misconfiguration;
+ * only the missing/placeholder-key check still applies.
+ */
+function assertEmbeddingsConfigured(target: EmbeddingTarget, pinned: boolean): void {
+  checkEmbeddingsMisconfig(
+    target.isOpenAi,
+    pinned ? false : isLocalLlm(),
+    process.env.EMBEDDINGS_API_KEY || process.env.OPENAI_API_KEY,
+  );
 }
 
 function embeddingKey(target: EmbeddingTarget): string {
@@ -129,8 +148,14 @@ function embedBody(target: EmbeddingTarget, input: string | string[]): string {
 }
 
 export interface EmbedOptions {
-  /** Pin a target instead of the active one. data:refresh pins the env target: it writes the hosted corpus. */
+  /** Pin a target instead of the active one (a search pins the target matching the corpus it loaded). */
   target?: EmbeddingTarget;
+  /**
+   * With a pinned hosted target: skip the "Local is selected but embeddings target OpenAI"
+   * guard. Only data:refresh sets this: it must embed the HOSTED corpus with the env
+   * embedder even while Settings is on Local (the local index is updated from it after).
+   */
+  allowHostedOnLocal?: boolean;
 }
 
 export async function embed(
@@ -140,7 +165,7 @@ export async function embed(
   opts: EmbedOptions = {},
 ): Promise<number[]> {
   const target = opts.target ?? activeEmbeddingTarget();
-  assertEmbeddingsConfigured(target);
+  assertEmbeddingsConfigured(target, opts.target != null && opts.allowHostedOnLocal === true);
   const key = embeddingKey(target);
   const t0 = performance.now();
   const res = await fetch(`${target.baseUrl}/embeddings`, {
@@ -188,7 +213,7 @@ export async function embedBatch(
 ): Promise<number[][]> {
   if (texts.length === 0) return [];
   const target = opts.target ?? activeEmbeddingTarget();
-  assertEmbeddingsConfigured(target);
+  assertEmbeddingsConfigured(target, opts.target != null && opts.allowHostedOnLocal === true);
   const key = embeddingKey(target);
 
   const CHUNK = 128;

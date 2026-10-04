@@ -35,7 +35,7 @@ describe("ModelSection — renders the right panel per provider", () => {
   });
 
   test("provider: ollama never sends the user to the README/terminal for embeddings any more", () => {
-    const html = render({ provider: "ollama", local: true, openAiEmbeddings: true });
+    const html = render({ provider: "ollama", local: true });
     assert.doesNotMatch(html, /run on Local until embeddings/);
     assert.doesNotMatch(html, /README/);
   });
@@ -44,7 +44,6 @@ describe("ModelSection — renders the right panel per provider", () => {
     const running = render({
       provider: "ollama",
       local: true,
-      openAiEmbeddings: true,
       localEmbeddings: { state: "running", model: "nomic-embed-text", active: false, progress: { stage: "pulling", pct: 30 } },
     });
     assert.match(running, /local-search-status/);
@@ -60,7 +59,6 @@ describe("ModelSection — renders the right panel per provider", () => {
     const ready = render({
       provider: "ollama",
       local: true,
-      openAiEmbeddings: false,
       localEmbeddings: { state: "ready", model: "nomic-embed-text", active: true, count: 12 },
     });
     assert.match(ready, /Search runs on this machine/);

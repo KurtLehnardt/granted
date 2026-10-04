@@ -32,14 +32,19 @@ const REAL_DEPS: LlmConfigDeps = {
   },
 };
 
-/** After a switch to Local: start the local-search setup if it has work to do. Never fails the switch itself. */
+/**
+ * After a switch to Local: start the local-search setup if it has work to do. Never fails
+ * the switch itself. Builds the status once; a just-started job is reported as running
+ * (its "checking" stage) rather than re-reading everything from disk.
+ */
 function autoStartLocalEmbeddings(d: LlmConfigDeps): LocalEmbeddingsStatus | undefined {
   try {
     const status = d.localEmbeddingsStatus();
     if (!status) return undefined;
     if (!shouldAutoStart(status, "ollama")) return status;
     d.startLocalEmbeddings();
-    return d.localEmbeddingsStatus() ?? status;
+    const { error: _e, errorKind: _k, ...rest } = status;
+    return { ...rest, state: "running", progress: { stage: "checking" } };
   } catch {
     return undefined; // Settings shows the status (and a Retry) from GET /api/llm/embeddings
   }

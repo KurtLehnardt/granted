@@ -1,6 +1,6 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { corpusDims, corpusEmbedText, embedOpportunities, embeddingsBody, postEmbeddings } from "../embedCorpus.mjs";
+import { corpusDims, corpusEmbedText, embedOpportunities, embeddingsBody, postEmbeddings, EmbeddingsTimeoutError } from "../embedCorpus.mjs";
 import { opportunityEmbedText } from "../../../lib/corpus/refresh";
 
 /** The corpus-embedding loop shared by 3-embed.mjs and the Settings-driven local re-embed. No network: fetch is injected. */
@@ -118,5 +118,30 @@ describe("embedCorpus", () => {
       /Stopped/,
     );
     assert.equal(calls.length, 1);
+  });
+});
+
+describe("embedCorpus — timeouts", () => {
+  test("timeoutMs aborts a request that never answers with an EmbeddingsTimeoutError", { timeout: 5000 }, async () => {
+    let sawSignal = false;
+    const hang = (async (_url: string, init: { signal?: AbortSignal }) => {
+      sawSignal = Boolean(init.signal);
+      return new Promise((_, reject) => init.signal?.addEventListener("abort", () => reject(new Error("aborted"))));
+    }) as unknown as typeof fetch;
+    await assert.rejects(
+      postEmbeddings({ baseUrl: "http://x/v1", model: "m", inputs: ["a"], fetchFn: hang, timeoutMs: 50 }),
+      (e: unknown) => e instanceof EmbeddingsTimeoutError && /didn't answer within/.test((e as Error).message),
+    );
+    assert.equal(sawSignal, true);
+  });
+
+  test("without timeoutMs no signal is attached (3-embed.mjs's behaviour is unchanged)", async () => {
+    let signal: unknown = "unset";
+    const ok = (async (_url: string, init: { signal?: AbortSignal; body: string }) => {
+      signal = init.signal;
+      return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ data: [{ embedding: [1] }] }) };
+    }) as unknown as typeof fetch;
+    await postEmbeddings({ baseUrl: "http://x/v1", model: "m", inputs: ["a"], fetchFn: ok });
+    assert.equal(signal, undefined);
   });
 });

@@ -1,13 +1,16 @@
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { embedOpportunities, corpusDims } from "../../scripts/lib/embedCorpus.mjs";
+import { mkdirSync } from "node:fs";
+import { embedOpportunities, corpusDims, EmbeddingsTimeoutError } from "../../scripts/lib/embedCorpus.mjs";
 import { embedWithRetry } from "../../scripts/setup-local.mjs";
 import { opportunityEmbedText, planEmbedding, type PriorEmbeddingEntry } from "../corpus/refresh";
+import { readJsonFile, writeFileAtomic } from "../fs/atomicFile";
 import type { Opportunity } from "../types";
 import {
   LOCAL_EMBED_MODEL,
+  MANUAL_EMBEDDINGS_MESSAGE,
   isLocalIndexReady,
   localEmbeddingsPaths,
   localOllamaUrls,
+  localServerIsOllama,
   readLocalEmbeddingsJob,
   sourceCorpusPaths,
   writeLocalEmbeddingsJob,
@@ -19,16 +22,19 @@ import {
 /**
  * The background job behind Settings → Local: make search run on a local
  * embedding model with no terminal. Run by scripts/local-embeddings-job.mjs in a
- * detached child (spawned by POST /api/llm/embeddings or a switch to Local), so
- * it survives dev-server reloads and never blocks a request.
+ * detached child (spawned by POST /api/llm/embeddings, a switch to Local, or the
+ * end of data:refresh), so it survives dev-server reloads and never blocks a request.
  *
- *   1. checking  — is Ollama reachable, and is nomic-embed-text already pulled?
+ *   1. checking  — is the local server Ollama, is it reachable, is nomic-embed-text pulled?
  *   2. pulling   — if not, pull it via Ollama's /api/pull (streamed progress)
  *   3. embedding — warm the model, then re-embed the hosted corpus with it,
  *                  reusing vectors from a previous local index for unchanged
  *                  records (lib/corpus/refresh.ts's planEmbedding)
  *   4. saving    — write data/local/local-embeddings/opportunities.json, then
  *                  corpus-meta.json LAST (`complete: true` is the ready signal)
+ *
+ * Every network step has a timeout, so a stalled Ollama ends in a Retry-able
+ * "timeout" error (and releases the lock) instead of "running" forever.
  *
  * Progress and plain-language failures go to data/local/local-embeddings-job.json.
  * Nothing the hosted path reads is ever written, so a failure at any step leaves
@@ -44,8 +50,14 @@ export interface LocalEmbedJobDeps {
   now?: () => Date;
   model?: string;
   ollama?: { openAiBaseUrl: string; nativeBaseUrl: string };
+  /** Defaults to localServerIsOllama(): false (LLM_PROVIDER=openai/local) fails fast with the manual-setup message. */
+  ollamaBackend?: boolean;
   batch?: number;
   retryDelayMs?: number;
+  /** No bytes from /api/pull for this long ends the pull with a "timeout" error. Default 2 min. */
+  pullIdleTimeoutMs?: number;
+  /** Per /v1/embeddings request (one batch). Default 3 min, generous for a slow CPU. */
+  embedRequestTimeoutMs?: number;
   writeJob?: (job: LocalEmbeddingsJob) => void;
 }
 
@@ -63,6 +75,8 @@ function brief(detail: unknown): string {
   return s.length > 200 ? `${s.slice(0, 197)}...` : s;
 }
 
+const minutes = (ms: number) => (ms >= 60_000 ? `${Math.round(ms / 60_000)} minute${ms >= 120_000 ? "s" : ""}` : `${Math.max(1, Math.round(ms / 1000))} seconds`);
+
 async function withTimeout<T>(ms: number, fn: (signal: AbortSignal) => Promise<T>): Promise<T> {
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), ms);
@@ -73,14 +87,18 @@ async function withTimeout<T>(ms: number, fn: (signal: AbortSignal) => Promise<T
   }
 }
 
-/** Names of the models Ollama has pulled, or throws "ollama-unreachable". */
+/**
+ * Names of the models Ollama has pulled. Throws "ollama-unreachable" when nothing
+ * answers, and "not-ollama" when something answers but has no /api/tags (LM Studio etc.).
+ */
 export async function listOllamaModels(nativeBaseUrl: string, fetchFn: typeof fetch = fetch): Promise<string[]> {
+  let res: Response;
   let json: any;
   try {
-    json = await withTimeout(5000, async (signal) => {
-      const res = await fetchFn(`${nativeBaseUrl}/api/tags`, { signal });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return res.json();
+    res = await withTimeout(5000, async (signal) => {
+      const r = await fetchFn(`${nativeBaseUrl}/api/tags`, { signal });
+      json = r.ok ? await r.json().catch(() => undefined) : undefined;
+      return r;
     });
   } catch {
     throw new LocalEmbedJobError(
@@ -88,8 +106,13 @@ export async function listOllamaModels(nativeBaseUrl: string, fetchFn: typeof fe
       `Couldn't reach Ollama at ${nativeBaseUrl}. Make sure Ollama is installed and running (open the Ollama app), then click Retry.`,
     );
   }
-  const models = Array.isArray(json?.models) ? json.models : [];
-  return models.map((m: { name?: unknown; model?: unknown }) => String(m?.name ?? m?.model ?? "")).filter(Boolean);
+  if (!res.ok || !Array.isArray(json?.models)) {
+    if (res.status >= 500) {
+      throw new LocalEmbedJobError("ollama-unreachable", `Ollama at ${nativeBaseUrl} returned an error (HTTP ${res.status}). Click Retry.`);
+    }
+    throw new LocalEmbedJobError("not-ollama", MANUAL_EMBEDDINGS_MESSAGE);
+  }
+  return json.models.map((m: { name?: unknown; model?: unknown }) => String(m?.name ?? m?.model ?? "")).filter(Boolean);
 }
 
 /** Ollama names a pulled model "nomic-embed-text:latest"; a bare tag means :latest. */
@@ -104,86 +127,103 @@ export function pullLinePct(line: { total?: number; completed?: number }): numbe
   return Math.max(0, Math.min(100, Math.round((line.completed / line.total) * 100)));
 }
 
-/** Pull `model` through Ollama's /api/pull, reporting progress; throws "pull-failed". */
+/**
+ * Pull `model` through Ollama's /api/pull, reporting progress. Throws "pull-failed",
+ * or "timeout" when Ollama sends nothing (no response, or no new bytes on the
+ * stream) for `idleTimeoutMs`.
+ */
 export async function pullOllamaModel(
   nativeBaseUrl: string,
   model: string,
   onProgress: (pct: number | undefined) => void,
   fetchFn: typeof fetch = fetch,
+  idleTimeoutMs: number = 120_000,
 ): Promise<void> {
   const fail = (detail: unknown) =>
     new LocalEmbedJobError(
       "pull-failed",
       `Couldn't download the local search model (${model}) through Ollama${detail ? `: ${brief(detail)}` : ""}. Check your internet connection and that Ollama is running, then click Retry.`,
     );
-  let res: Response;
-  try {
-    res = await fetchFn(`${nativeBaseUrl}/api/pull`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model, stream: true }),
-    });
-  } catch (e) {
-    throw fail(e);
-  }
-  if (!res.ok) throw fail(`HTTP ${res.status} ${await res.text().catch(() => "")}`);
-
-  let sawSuccess = false;
-  const handleLine = (raw: string) => {
-    const text = raw.trim();
-    if (!text) return;
-    let line: { status?: string; error?: string; total?: number; completed?: number };
-    try {
-      line = JSON.parse(text);
-    } catch {
-      return;
-    }
-    if (line.error) throw fail(line.error);
-    if (line.status === "success") sawSuccess = true;
-    onProgress(pullLinePct(line));
+  const ac = new AbortController();
+  let timedOut = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const armIdleTimer = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      timedOut = true;
+      ac.abort();
+    }, idleTimeoutMs);
   };
+  const stalled = () =>
+    new LocalEmbedJobError(
+      "timeout",
+      `Ollama stopped responding while downloading the local search model (${model}): nothing arrived for ${minutes(idleTimeoutMs)}. Click Retry; Ollama resumes the download where it left off.`,
+    );
 
-  if (res.body && typeof (res.body as ReadableStream).getReader === "function") {
-    const reader = (res.body as ReadableStream<Uint8Array>).getReader();
-    const decoder = new TextDecoder();
-    let buf = "";
-    for (;;) {
-      let chunk: ReadableStreamReadResult<Uint8Array>;
-      try {
-        chunk = await reader.read();
-      } catch (e) {
-        throw fail(e);
-      }
-      if (chunk.done) break;
-      buf += decoder.decode(chunk.value, { stream: true });
-      const lines = buf.split("\n");
-      buf = lines.pop() ?? "";
-      lines.forEach(handleLine);
+  armIdleTimer();
+  try {
+    let res: Response;
+    try {
+      res = await fetchFn(`${nativeBaseUrl}/api/pull`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model, stream: true }),
+        signal: ac.signal,
+      });
+    } catch (e) {
+      throw timedOut ? stalled() : fail(e);
     }
-    handleLine(buf + decoder.decode());
-  } else {
-    (await res.text()).split("\n").forEach(handleLine);
-  }
-  if (!sawSuccess) throw fail("the download ended before Ollama reported success");
-}
+    if (!res.ok) throw fail(`HTTP ${res.status} ${await res.text().catch(() => "")}`);
 
-function readJsonFile<T>(path: string): T | null {
-  try {
-    return JSON.parse(readFileSync(path, "utf8")) as T;
-  } catch {
-    return null;
-  }
-}
+    let sawSuccess = false;
+    const handleLine = (raw: string) => {
+      const text = raw.trim();
+      if (!text) return;
+      let line: { status?: string; error?: string; total?: number; completed?: number };
+      try {
+        line = JSON.parse(text);
+      } catch {
+        return;
+      }
+      if (line.error) throw fail(line.error);
+      if (line.status === "success") sawSuccess = true;
+      onProgress(pullLinePct(line));
+    };
 
-/** temp + rename; on Windows a reader holding the target open makes rename fail, so fall back to a plain write. */
-function writeAtomic(path: string, body: string): void {
-  const tmp = `${path}.tmp-${process.pid}`;
-  writeFileSync(tmp, body);
-  try {
-    renameSync(tmp, path);
-  } catch {
-    rmSync(tmp, { force: true });
-    writeFileSync(path, body);
+    if (res.body && typeof (res.body as ReadableStream).getReader === "function") {
+      const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+      // Some fetch implementations don't abort a body read on signal; cancel the reader too.
+      ac.signal.addEventListener("abort", () => void reader.cancel().catch(() => {}), { once: true });
+      const decoder = new TextDecoder();
+      let buf = "";
+      for (;;) {
+        let chunk: ReadableStreamReadResult<Uint8Array>;
+        try {
+          chunk = await reader.read();
+        } catch (e) {
+          throw timedOut ? stalled() : fail(e);
+        }
+        if (timedOut) throw stalled();
+        if (chunk.done) break;
+        armIdleTimer(); // bytes arrived: Ollama is alive
+        buf += decoder.decode(chunk.value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+        lines.forEach(handleLine);
+      }
+      handleLine(buf + decoder.decode());
+    } else {
+      let text: string;
+      try {
+        text = await res.text();
+      } catch (e) {
+        throw timedOut ? stalled() : fail(e);
+      }
+      text.split("\n").forEach(handleLine);
+    }
+    if (!sawSuccess) throw fail("the download ended before Ollama reported success");
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -194,6 +234,7 @@ export async function runLocalEmbedJob(deps: LocalEmbedJobDeps): Promise<boolean
   const now = deps.now ?? (() => new Date());
   const model = deps.model ?? LOCAL_EMBED_MODEL;
   const ollama = deps.ollama ?? localOllamaUrls();
+  const embedTimeoutMs = deps.embedRequestTimeoutMs ?? 180_000;
   const writeJob = deps.writeJob ?? ((job: LocalEmbeddingsJob) => writeLocalEmbeddingsJob(job, deps.baseDir));
   const paths = localEmbeddingsPaths(deps.baseDir);
   const previous = readLocalEmbeddingsJob(deps.baseDir);
@@ -210,6 +251,7 @@ export async function runLocalEmbedJob(deps: LocalEmbedJobDeps): Promise<boolean
 
   try {
     report({ stage: "checking" });
+    if (!(deps.ollamaBackend ?? localServerIsOllama())) throw new LocalEmbedJobError("not-ollama", MANUAL_EMBEDDINGS_MESSAGE);
     const installed = await listOllamaModels(ollama.nativeBaseUrl, fetchFn);
 
     if (!hasModel(installed, model)) {
@@ -224,6 +266,7 @@ export async function runLocalEmbedJob(deps: LocalEmbedJobDeps): Promise<boolean
           report({ stage: "pulling", pct });
         },
         fetchFn,
+        deps.pullIdleTimeoutMs,
       );
     }
 
@@ -243,8 +286,15 @@ export async function runLocalEmbedJob(deps: LocalEmbedJobDeps): Promise<boolean
     const plan = planEmbedding(incoming, priorById, priorById.size ? model : undefined, model, priorMeta?.dims, priorMeta?.dims);
     const total = incoming.length;
     const reusedCount = plan.reused.length;
-    report({ stage: "embedding", done: reusedCount, total, pct: Math.round((reusedCount / total) * 100) });
+    // Records embedded so far IN THIS JOB: a retry only embeds the rest, and progress never goes backwards.
+    const embeddedNow = new Set<Opportunity>();
+    const progressReport = () => {
+      const done = reusedCount + embeddedNow.size;
+      report({ stage: "embedding", done, total, pct: Math.round((done / total) * 100) });
+    };
+    progressReport();
 
+    let lastFailure: unknown;
     const result = await embedWithRetry({
       waitFn: sleepFn,
       retryDelayMs: deps.retryDelayMs ?? 5000,
@@ -265,8 +315,9 @@ export async function runLocalEmbedJob(deps: LocalEmbedJobDeps): Promise<boolean
         }
       },
       runFn: async () => {
+        const remaining = plan.toEmbed.filter((o) => !embeddedNow.has(o));
         try {
-          await embedOpportunities(plan.toEmbed, {
+          await embedOpportunities(remaining, {
             baseUrl: ollama.openAiBaseUrl,
             model,
             key: "local",
@@ -274,18 +325,28 @@ export async function runLocalEmbedJob(deps: LocalEmbedJobDeps): Promise<boolean
             fetchFn,
             sleepFn,
             maxRetries: 3,
+            timeoutMs: embedTimeoutMs,
             onProgress: (n: number) => {
-              const done = reusedCount + n;
-              report({ stage: "embedding", done, total, pct: Math.round((done / total) * 100) });
+              // embedOpportunities finishes records in order: the first n of `remaining` are done.
+              for (const o of remaining.slice(0, n)) embeddedNow.add(o);
+              progressReport();
             },
           });
           return { ok: true, output: "" };
         } catch (e) {
+          lastFailure = e;
           return { ok: false, output: brief(e) };
         }
       },
     });
     if (!result.ok) {
+      if (lastFailure instanceof EmbeddingsTimeoutError) {
+        throw new LocalEmbedJobError(
+          "timeout",
+          `Ollama stopped responding while building the local search index (a batch took longer than ${minutes(embedTimeoutMs)}). ` +
+            "Make sure Ollama is still running, then click Retry; your current search setup is unchanged.",
+        );
+      }
       throw new LocalEmbedJobError(
         "embed-failed",
         `Building the local search index failed${result.output ? `: ${result.output}` : ""}. Click Retry; your current search setup is unchanged.`,
@@ -302,7 +363,8 @@ export async function runLocalEmbedJob(deps: LocalEmbedJobDeps): Promise<boolean
     }
 
     mkdirSync(paths.dir, { recursive: true });
-    writeAtomic(paths.oppsPath, JSON.stringify(out));
+    // fallback "throw": the store must never read a half-written index (a failed write is a Retry-able error).
+    writeFileAtomic(paths.oppsPath, JSON.stringify(out), { fallback: "throw" });
     const finishedAt = now().toISOString();
     const meta: LocalIndexMeta = {
       complete: true,
@@ -316,7 +378,7 @@ export async function runLocalEmbedJob(deps: LocalEmbedJobDeps): Promise<boolean
       reused: reusedCount,
       note: "Local search index built from Settings → Local (lib/embeddings/localEmbedJob.ts). Gitignored. builtAt is carried over from the source corpus.",
     };
-    writeAtomic(paths.metaPath, JSON.stringify(meta, null, 2) + "\n"); // LAST: the ready signal
+    writeFileAtomic(paths.metaPath, JSON.stringify(meta, null, 2) + "\n", { fallback: "throw" }); // LAST: the ready signal
     try {
       writeJob({ startedAt, finishedAt });
     } catch {

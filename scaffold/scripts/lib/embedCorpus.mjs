@@ -26,21 +26,42 @@ export function roundVector(v) {
 /**
  * POST one batch to `${baseUrl}/embeddings`, retrying with exponential backoff on
  * 429/5xx (honors Retry-After). Returns the response's `data` array sorted by index.
+ * `timeoutMs` (optional) bounds each request, body included; a stalled server then
+ * fails with an EmbeddingsTimeoutError instead of hanging forever.
  *
  * @param {{
  *   baseUrl: string, model: string, dimensions?: number, key?: string, inputs: string[],
  *   fetchFn?: typeof fetch, sleepFn?: (ms: number) => Promise<void>,
  *   onRetry?: (info: { status: number, waitMs: number, attempt: number }) => void,
- *   maxRetries?: number,
+ *   maxRetries?: number, timeoutMs?: number,
  * }} opts
  */
 export async function postEmbeddings(opts, attempt = 0) {
-  const { baseUrl, model, dimensions, key = "local", inputs, fetchFn = fetch, maxRetries = 7 } = opts;
+  const { baseUrl, model, dimensions, key = "local", inputs, fetchFn = fetch, maxRetries = 7, timeoutMs } = opts;
   const sleep = opts.sleepFn || ((ms) => new Promise((r) => setTimeout(r, ms)));
+  const ac = timeoutMs ? new AbortController() : null;
+  let timedOut = false;
+  const timer = ac
+    ? setTimeout(() => {
+        timedOut = true;
+        ac.abort();
+      }, timeoutMs)
+    : null;
+  try {
+    return await postOnce();
+  } catch (e) {
+    if (timedOut) throw new EmbeddingsTimeoutError(timeoutMs, baseUrl);
+    throw e;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+
+  async function postOnce() {
   const res = await fetchFn(`${baseUrl}/embeddings`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
     body: embeddingsBody(model, dimensions, inputs),
+    ...(ac ? { signal: ac.signal } : {}),
   });
 
   if (res.status === 429 || res.status >= 500) {
@@ -48,6 +69,7 @@ export async function postEmbeddings(opts, attempt = 0) {
     const ra = Number(res.headers?.get?.("retry-after"));
     const waitMs = Number.isFinite(ra) && ra > 0 ? ra * 1000 : Math.min(60000, 1000 * 2 ** attempt);
     opts.onRetry?.({ status: res.status, waitMs, attempt: attempt + 1 });
+    if (timer) clearTimeout(timer); // this attempt answered; the retry gets its own timeout
     await sleep(waitMs);
     return postEmbeddings(opts, attempt + 1);
   }
@@ -59,6 +81,16 @@ export async function postEmbeddings(opts, attempt = 0) {
   }
   if (data.every((d) => typeof d?.index === "number")) data.sort((a, b) => a.index - b.index);
   return data;
+  }
+}
+
+/** A request to the embedder took longer than its `timeoutMs`. */
+export class EmbeddingsTimeoutError extends Error {
+  constructor(timeoutMs, baseUrl) {
+    super(`The embedding server at ${baseUrl} didn't answer within ${Math.round(timeoutMs / 1000)}s`);
+    this.name = "EmbeddingsTimeoutError";
+    this.timeoutMs = timeoutMs;
+  }
 }
 
 /**
@@ -70,7 +102,7 @@ export async function postEmbeddings(opts, attempt = 0) {
  * @param {{
  *   baseUrl: string, model: string, dimensions?: number, key?: string, batch?: number,
  *   interBatchDelayMs?: number, fetchFn?: typeof fetch, sleepFn?: (ms: number) => Promise<void>,
- *   maxRetries?: number,
+ *   maxRetries?: number, timeoutMs?: number,
  *   onProgress?: (done: number, total: number) => void,
  *   onRetry?: (info: { status: number, waitMs: number, attempt: number }) => void,
  *   shouldStop?: () => boolean,

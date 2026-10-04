@@ -1,10 +1,10 @@
-import { embed, cosine, assertEmbeddingDimsMatch } from "./embed";
+import { embed, cosine, assertEmbeddingDimsMatch, embeddingTargetForCorpus, type EmbedOptions } from "./embed";
 import { extractProfile, explainMatches, explainMatchesTwoPass, explainWeakField, type Assessment, type TwoPassProgressDetail } from "./claude";
 import type { Opportunity, OpportunityMap, StartupProfile, Match, Tier, AwardHistory } from "./types";
 import { screen } from "./eligibility/screen";
 import { annotateFreshness } from "./eligibility/freshness";
 import { toCompanyProfile, toScreenableOpportunity, type KnownCompanyFacts } from "./eligibility/bridge";
-import { getCorpus } from "./corpus/store";
+import { getCorpusInfo } from "./corpus/store";
 import { dropExpiredOpportunities } from "./corpus/expiry";
 import type { EligibilityDetermination } from "./contracts/eligibilityDetermination";
 import { scoreOnlyAssessment } from "./scoring/twoPass";
@@ -388,7 +388,14 @@ export async function buildOpportunityMap(
   // exactly like `onMatch`: never affects the authoritative returned map.
   onProvisional?: (o: Opportunity) => void,
 ): Promise<OpportunityMap> {
-  const d: BuildDeps = { ...REAL_DEPS, ...deps, corpus: deps.corpus ?? dropExpiredOpportunities(getCorpus()) };
+  // Load the corpus ONCE per search, and embed the query with the target matching the corpus
+  // actually loaded (Settings -> Local's index or the hosted one): one decision, so a 768-dim
+  // local query can never meet the 512-dim hosted corpus mid-switch. Injected corpora (tests)
+  // keep the default (active) target.
+  const corpusInfo = deps.corpus ? null : getCorpusInfo();
+  const fullCorpus = deps.corpus ?? corpusInfo!.opportunities;
+  const embedOpts: EmbedOptions = corpusInfo ? { target: embeddingTargetForCorpus(corpusInfo.source) } : {};
+  const d: BuildDeps = { ...REAL_DEPS, ...deps, corpus: deps.corpus ?? dropExpiredOpportunities(fullCorpus) };
   // Progress is best-effort: a reporting error must never fail the search.
   const step = (e: StepEvent) => { try { onStep?.(e); } catch { /* ignore */ } };
   step({ key: "start", label: "Reading the federal register…", pct: 5 });
@@ -423,7 +430,7 @@ export async function buildOpportunityMap(
   // BM25 supplement, over whatever query text/vector is passed in. Used twice
   // — once instantly on the raw description (below), and again once the
   // profile resolves (further down) — so both passes share one implementation.
-  const bm25Index = getBM25Index(deps.corpus ?? getCorpus());
+  const bm25Index = getBM25Index(fullCorpus);
   const bm25Ids = new Set(d.corpus.map((o) => o.id));
   // `sim`/`rank`/the global top-N cut/the per-type quota mirror main's
   // cosine+quota selection exactly (`rank` folds in the B2 boost, 0 when off).
@@ -499,7 +506,7 @@ export async function buildOpportunityMap(
 
   // 3. Instant retrieval — embed the RAW description directly (sub-second),
   //    so a provisional candidate set can stream before the profile resolves.
-  const rawQueryVec = await d.embed(description, meter, signal);
+  const rawQueryVec = await d.embed(description, meter, signal, embedOpts);
   // Fail loudly if the live query and the committed corpus don't share an
   // embedding space (switched EMBEDDINGS_MODEL without re-embedding) — otherwise
   // cosine() silently returns NaN for every opp and the run looks like a weak
@@ -555,7 +562,7 @@ export async function buildOpportunityMap(
     (profile.expandedTerms ?? []).join(", "),
     enrich ? enrichmentQueryTerms(enrich).join(", ") : "",
   ].filter(Boolean).join("\n");
-  const queryVec = await d.embed(queryText, meter, signal);
+  const queryVec = await d.embed(queryText, meter, signal, embedOpts);
   assertEmbeddingDimsMatch(queryVec.length, corpusDim);
   const { scored: profileScored, quotaOnlyIds, bm25OnlyIds } = retrieve(queryVec, queryText, enrich);
 

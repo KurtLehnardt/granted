@@ -49,6 +49,11 @@ export function describeLocalSearchStatus(s: LocalEmbeddingsStatus | undefined |
     };
   }
 
+  if (s.state === "manual") {
+    // Local runs on a non-Ollama server: the app can't pull a model there, so say how to do it by hand.
+    return { tone: "info", title: s.error ?? "Set up embeddings for your local model server in .env.local." };
+  }
+
   if (s.state === "needed") {
     return {
       tone: "info",

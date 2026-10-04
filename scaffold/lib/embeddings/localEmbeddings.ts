@@ -1,9 +1,10 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import os from "node:os";
 import { join } from "node:path";
 import { normalizeOpenAiBaseUrl } from "../llm/baseUrl";
 import { resolveProvider } from "../llm/config";
-import { isProcessAlive } from "../corpus/refreshStatus";
+import { readJsonFile, writeFileAtomic } from "../fs/atomicFile";
+import { createPidLock } from "../fs/pidLock";
 
 /**
  * Settings-driven local embeddings.
@@ -45,6 +46,8 @@ export function localEmbeddingsPaths(baseDir: string = localEmbeddingsBaseDir())
     metaPath: join(dir, "corpus-meta.json"),
     jobPath: join(localDir, "local-embeddings-job.json"),
     lockPath: join(localDir, "local-embeddings.lock"),
+    /** The detached job's stdout/stderr, so an early crash (e.g. tsx missing) can be shown. */
+    logPath: join(localDir, "local-embeddings-job.log"),
   };
 }
 
@@ -61,6 +64,23 @@ export function localOllamaUrls(llmBaseUrl: string | undefined = process.env.LLM
   const nativeBaseUrl = openAiBaseUrl.replace(/\/v1$/i, "");
   return { openAiBaseUrl, nativeBaseUrl };
 }
+
+/**
+ * Is the local model server Ollama? Settings' "Local (Ollama)" and LLM_PROVIDER=ollama
+ * (or unset) mean yes. LLM_PROVIDER=openai/local means a generic OpenAI-compatible
+ * server (LM Studio, vLLM, llama.cpp), which has no /api/tags or /api/pull, so the
+ * app can't set up embeddings there and says so instead of a misleading
+ * "couldn't reach Ollama".
+ */
+export function localServerIsOllama(llmProviderEnv: string | undefined = process.env.LLM_PROVIDER): boolean {
+  const v = (llmProviderEnv ?? "").trim().toLowerCase();
+  return v === "" || v === "ollama" || v === "anthropic";
+}
+
+export const MANUAL_EMBEDDINGS_MESSAGE =
+  "Your local model server isn't Ollama, so Granted can't set up local search for you. Point EMBEDDINGS_BASE_URL and " +
+  "EMBEDDINGS_MODEL in scaffold/.env.local at an embedding model on that server, then run `npm run data:embed:local` " +
+  "(see the README's 'Fully offline' section).";
 
 /** True when .env.local doesn't point EMBEDDINGS_BASE_URL anywhere but OpenAI — i.e. the app, not the user, decides where embeddings run. */
 export function envEmbeddingsAreHosted(embeddingsBaseUrl: string | undefined = process.env.EMBEDDINGS_BASE_URL): boolean {
@@ -83,14 +103,6 @@ export interface LocalIndexMeta {
   [key: string]: unknown;
 }
 
-function readJson<T>(path: string): T | null {
-  try {
-    return JSON.parse(readFileSync(path, "utf8")) as T;
-  } catch {
-    return null;
-  }
-}
-
 function mtimeOf(path: string): number {
   try {
     return statSync(path).mtimeMs;
@@ -111,7 +123,7 @@ export function readLocalIndexMeta(baseDir: string = localEmbeddingsBaseDir()): 
   }
   const cached = metaCache.get(metaPath);
   if (cached && cached.mtimeMs === mtimeMs) return cached.meta;
-  const meta = readJson<LocalIndexMeta>(metaPath);
+  const meta = readJsonFile<LocalIndexMeta>(metaPath);
   metaCache.set(metaPath, { mtimeMs, meta });
   return meta;
 }
@@ -149,12 +161,16 @@ export function shouldUseLocalIndex(input: { provider: "ollama" | "cloud"; envIs
   return input.provider === "ollama" && input.envIsHosted && input.ready;
 }
 
-/** Live check used by lib/embed.ts (query embeddings) and lib/corpus/store.ts (which corpus to search). */
+/**
+ * THE one readiness decision for search: lib/corpus/store.ts picks the corpus with it,
+ * and lib/match.ts embeds the query with the target matching whichever corpus was
+ * actually loaded. Ready = a complete meta AND the index file present, both under `baseDir`.
+ */
 export function localEmbeddingsActive(baseDir: string = localEmbeddingsBaseDir()): boolean {
   return shouldUseLocalIndex({
     provider: resolveProvider(),
     envIsHosted: envEmbeddingsAreHosted(),
-    ready: isLocalIndexReady(readLocalIndexMeta(baseDir)),
+    ready: isLocalIndexReady(readLocalIndexMeta(baseDir)) && existsSync(localEmbeddingsPaths(baseDir).oppsPath),
   });
 }
 
@@ -163,7 +179,14 @@ export function localEmbeddingsActive(baseDir: string = localEmbeddingsBaseDir()
 // ---------------------------------------------------------------------------
 
 export type LocalEmbeddingsStage = "checking" | "pulling" | "embedding" | "saving";
-export type LocalEmbeddingsErrorKind = "ollama-unreachable" | "pull-failed" | "embed-failed" | "unknown";
+export type LocalEmbeddingsErrorKind =
+  | "ollama-unreachable"
+  | "not-ollama"
+  | "pull-failed"
+  | "embed-failed"
+  | "timeout"
+  | "crashed"
+  | "unknown";
 
 export interface LocalEmbeddingsJob {
   stage?: LocalEmbeddingsStage;
@@ -178,83 +201,46 @@ export interface LocalEmbeddingsJob {
 }
 
 export function readLocalEmbeddingsJob(baseDir: string = localEmbeddingsBaseDir()): LocalEmbeddingsJob {
-  return readJson<LocalEmbeddingsJob>(localEmbeddingsPaths(baseDir).jobPath) ?? {};
+  return readJsonFile<LocalEmbeddingsJob>(localEmbeddingsPaths(baseDir).jobPath) ?? {};
 }
 
 export function writeLocalEmbeddingsJob(job: LocalEmbeddingsJob, baseDir: string = localEmbeddingsBaseDir()): void {
-  const { localDir, jobPath } = localEmbeddingsPaths(baseDir);
-  mkdirSync(localDir, { recursive: true });
-  const body = JSON.stringify(job, null, 2);
-  const tmp = `${jobPath}.tmp-${process.pid}`;
-  writeFileSync(tmp, body);
-  try {
-    renameSync(tmp, jobPath);
-  } catch {
-    // Windows refuses to rename over a file a reader has open (same fallback as refreshStatus).
-    rmSync(tmp, { force: true });
-    writeFileSync(jobPath, body);
-  }
+  // Cosmetic progress file: a Windows reader holding it open falls back to a direct write.
+  writeFileAtomic(localEmbeddingsPaths(baseDir).jobPath, JSON.stringify(job, null, 2), { fallback: "direct" });
+}
+
+/** Single-flight lock (lib/fs/pidLock.ts): an unreadable lock counts as held, never deleted. */
+function jobLock(baseDir: string) {
+  return createPidLock(localEmbeddingsPaths(baseDir).lockPath);
 }
 
 export function isLocalEmbeddingsRunning(baseDir: string = localEmbeddingsBaseDir()): boolean {
-  const { lockPath } = localEmbeddingsPaths(baseDir);
-  if (!existsSync(lockPath)) return false;
-  const info = readJson<{ pid?: number }>(lockPath);
-  if (typeof info?.pid === "number" && isProcessAlive(info.pid)) return true;
-  try {
-    unlinkSync(lockPath); // stale: its owner died (hard kill, reboot)
-  } catch {
-    /* already gone */
-  }
-  return false;
+  return jobLock(baseDir).isHeld();
 }
 
 export function acquireLocalEmbeddingsLock(baseDir: string = localEmbeddingsBaseDir(), pid: number = process.pid): boolean {
-  const { localDir, lockPath } = localEmbeddingsPaths(baseDir);
-  mkdirSync(localDir, { recursive: true });
-  const body = JSON.stringify({ pid, startedAt: Date.now() });
-  try {
-    writeFileSync(lockPath, body, { flag: "wx" });
-    return true;
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
-  }
-  if (isLocalEmbeddingsRunning(baseDir)) return false;
-  try {
-    writeFileSync(lockPath, body, { flag: "wx" });
-    return true;
-  } catch {
-    return false;
-  }
+  return jobLock(baseDir).acquire(pid);
 }
 
 export function transferLocalEmbeddingsLock(pid: number, baseDir: string = localEmbeddingsBaseDir()): void {
-  const { lockPath } = localEmbeddingsPaths(baseDir);
-  const info = readJson<Record<string, unknown>>(lockPath);
-  if (!info) return;
-  try {
-    writeFileSync(lockPath, JSON.stringify({ ...info, pid }));
-  } catch {
-    /* released meanwhile */
-  }
+  jobLock(baseDir).transfer(pid);
 }
 
 export function releaseLocalEmbeddingsLock(baseDir: string = localEmbeddingsBaseDir()): void {
-  try {
-    unlinkSync(localEmbeddingsPaths(baseDir).lockPath);
-  } catch {
-    /* already gone */
-  }
+  jobLock(baseDir).release();
 }
 
 // ---------------------------------------------------------------------------
 // Public status (GET /api/llm, GET /api/llm/embeddings)
 // ---------------------------------------------------------------------------
 
-export type LocalEmbeddingsState = "not-applicable" | "ready" | "needed" | "running" | "failed";
+export type LocalEmbeddingsState = "not-applicable" | "manual" | "ready" | "needed" | "running" | "failed";
 
 export interface LocalEmbeddingsStatus {
-  /** "not-applicable": embeddings are configured in .env.local, so the app leaves them alone. */
+  /**
+   * "not-applicable": embeddings are configured in .env.local, so the app leaves them alone.
+   * "manual": Local runs on a non-Ollama server; embeddings must be set up by hand (`error` says how).
+   */
   state: LocalEmbeddingsState;
   model: string;
   /** Search is using the local index right now. */
@@ -272,6 +258,8 @@ export interface LocalEmbeddingsStatus {
 export function deriveLocalEmbeddingsStatus(input: {
   provider: "ollama" | "cloud";
   envIsHosted: boolean;
+  /** Defaults to true. False: Local runs on a non-Ollama server (see localServerIsOllama). */
+  ollamaBackend?: boolean;
   meta: LocalIndexMeta | null;
   sourceMeta: { builtAt?: unknown; count?: unknown } | null;
   running: boolean;
@@ -280,6 +268,9 @@ export function deriveLocalEmbeddingsStatus(input: {
 }): LocalEmbeddingsStatus {
   const model = input.model ?? LOCAL_EMBED_MODEL;
   if (!input.envIsHosted) return { state: "not-applicable", model, active: false };
+  if (input.provider === "ollama" && input.ollamaBackend === false) {
+    return { state: "manual", model, active: false, error: MANUAL_EMBEDDINGS_MESSAGE };
+  }
 
   const ready = isLocalIndexReady(input.meta, model);
   const base: LocalEmbeddingsStatus = {
@@ -303,6 +294,18 @@ export function deriveLocalEmbeddingsStatus(input: {
       },
     };
   }
+  // Started (stage written) but no longer running, with no outcome recorded: the job died
+  // (import crash, tsx missing under `next start`, killed). Never silently fall back to "needed".
+  if (input.job.stage && !input.job.lastError) {
+    return {
+      ...base,
+      state: "failed",
+      errorKind: "crashed",
+      error:
+        "Local search setup stopped unexpectedly before finishing. Click Retry. If it keeps happening, " +
+        "scaffold/data/local/local-embeddings-job.log has the details.",
+    };
+  }
   // A failed attempt is only news while there's no finished index to fall back on, or when it's newer than that index.
   const failedAfterReady = input.job.lastError && (!ready || (input.job.lastFailedAt ?? "") > (input.meta?.embeddedAt ?? ""));
   if (input.job.lastError && failedAfterReady) {
@@ -316,8 +319,9 @@ export function buildLocalEmbeddingsStatus(baseDir: string = localEmbeddingsBase
   return deriveLocalEmbeddingsStatus({
     provider: resolveProvider(),
     envIsHosted: envEmbeddingsAreHosted(),
+    ollamaBackend: localServerIsOllama(),
     meta: readLocalIndexMeta(baseDir),
-    sourceMeta: readJson(sourceCorpusPaths(baseDir).metaPath),
+    sourceMeta: readJsonFile(sourceCorpusPaths(baseDir).metaPath),
     running: isLocalEmbeddingsRunning(baseDir),
     job: readLocalEmbeddingsJob(baseDir),
   });

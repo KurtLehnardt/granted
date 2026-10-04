@@ -68,7 +68,6 @@ export type LlmProviderInfo = {
   model?: string;
   models?: OllamaModel[];
   cloud?: CloudInfo;
-  openAiEmbeddings?: boolean;
   /** Settings → Local's background local-search setup (see lib/embeddings/localEmbeddings.ts). */
   localEmbeddings?: LocalEmbeddingsStatus;
 };

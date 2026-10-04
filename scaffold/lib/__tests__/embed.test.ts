@@ -280,13 +280,30 @@ describe("activeEmbeddingTarget — Settings-built local index", () => {
     assert.equal(calls[0].body.dimensions, 512);
   });
 
-  test("an explicitly pinned env target (data:refresh) ignores the local index", async () => {
+  test("data:refresh on Local: the env-pinned target with allowHostedOnLocal embeds the hosted corpus (no 'Local LLM is set' throw)", async () => {
     setup("ollama", true);
     process.env.OPENAI_API_KEY = "sk-proj-abcdefghijklmnopqrstuvwxyz1234567890";
-    delete process.env.LLM_PROVIDER;
-    const target = envEmbeddingTarget();
-    assert.equal(target.source, "env");
-    // Local is selected, so the guard (not a silent OpenAI call) is what a pinned hosted target hits.
-    await assert.rejects(() => embedBatch(["a"], undefined, undefined, { target }), /Local LLM is set/);
+    const calls = captureFetch();
+    const vecs = await embedBatch(["a", "b"], undefined, undefined, { target: envEmbeddingTarget(), allowHostedOnLocal: true });
+    assert.equal(vecs.length, 2);
+    assert.equal(calls[0].url, "https://api.openai.com/v1/embeddings", "the hosted corpus stays OpenAI-embedded");
+    assert.equal(calls[0].body.dimensions, 512);
+  });
+
+  test("...but still refuses a missing/placeholder OpenAI key", async () => {
+    setup("ollama", true);
+    process.env.OPENAI_API_KEY = "sk-...";
+    await assert.rejects(
+      () => embedBatch(["a"], undefined, undefined, { target: envEmbeddingTarget(), allowHostedOnLocal: true }),
+      /OPENAI_API_KEY is missing or still the \.env\.example placeholder/,
+    );
+  });
+
+  test("a search pinning the hosted target while Local is selected still gets the 'not ready yet' guard", async () => {
+    setup("ollama", false);
+    process.env.OPENAI_API_KEY = "sk-proj-abcdefghijklmnopqrstuvwxyz1234567890";
+    const calls = captureFetch();
+    await assert.rejects(() => embed("x", undefined, undefined, { target: envEmbeddingTarget() }), /Local LLM is set/);
+    assert.equal(calls.length, 0);
   });
 });

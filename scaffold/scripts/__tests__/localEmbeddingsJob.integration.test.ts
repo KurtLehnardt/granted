@@ -131,7 +131,7 @@ describe("Settings → Local: background job → local search, end to end (fake 
     assert.equal(status.state, "ready");
     assert.equal(status.active, true);
     assert.equal(localEmbeddingsActive(baseDir), true);
-    const store = new CorpusStore(baseDir, { useLocalEmbeddings: () => localEmbeddingsActive(baseDir) });
+    const store = new CorpusStore(baseDir, { localIndexDir: () => (localEmbeddingsActive(baseDir) ? localEmbeddingsPaths(baseDir).dir : null) });
     const corpus = store.load();
     assert.equal(corpus.source, "local-embeddings");
     const q = await embed("rural clinics");
@@ -163,6 +163,26 @@ describe("Settings → Local: background job → local search, end to end (fake 
     assert.equal(status.errorKind, "ollama-unreachable");
     assert.match(status.error!, /Couldn't reach Ollama/);
     assert.equal(status.active, false);
-    assert.equal(new CorpusStore(baseDir, { useLocalEmbeddings: () => localEmbeddingsActive(baseDir) }).load().source, "committed");
+    assert.equal(new CorpusStore(baseDir, { localIndexDir: () => (localEmbeddingsActive(baseDir) ? localEmbeddingsPaths(baseDir).dir : null) }).load().source, "committed");
+  });
+});
+
+describe("a job process that dies on startup is reported, not silently dropped (real spawn)", () => {
+  test("startLocalEmbeddingsJob from a dir where the script can't load → 'crashed' with the child's own error, lock released", { timeout: 30_000 }, async () => {
+    const { startLocalEmbeddingsJob } = await import("../../lib/embeddings/startLocalEmbeddings");
+    const { readLocalEmbeddingsJob, isLocalEmbeddingsRunning } = await import("../../lib/embeddings/localEmbeddings");
+    // No scripts/ and no node_modules here: like `next start` without devDependencies (tsx).
+    const baseDir = mkdtempSync(join(tmpdir(), "granted-job-crash-"));
+    cleanup.push(() => rmSync(baseDir, { recursive: true, force: true }));
+
+    assert.deepEqual(startLocalEmbeddingsJob({ baseDir }), { started: true });
+    const deadline = Date.now() + 20_000;
+    while (!readLocalEmbeddingsJob(baseDir).lastError && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
+
+    const job = readLocalEmbeddingsJob(baseDir);
+    assert.equal(job.errorKind, "crashed");
+    assert.match(job.lastError!, /stopped unexpectedly \(exit code \d+\): .*(tsx|Cannot find|ERR_MODULE_NOT_FOUND).*Click Retry/);
+    assert.equal(isLocalEmbeddingsRunning(baseDir), false);
+    assert.match(readFileSync(localEmbeddingsPaths(baseDir).logPath, "utf8"), /tsx|Cannot find/);
   });
 });

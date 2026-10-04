@@ -76,3 +76,12 @@ describe("LocalSearchStatus — render", () => {
     assert.equal(render(null), "");
   });
 });
+
+describe("describeLocalSearchStatus — non-Ollama server", () => {
+  test("manual: the how-to, no button", () => {
+    const v = describeLocalSearchStatus(s({ state: "manual", error: "Your local model server isn't Ollama, so ..." }))!;
+    assert.equal(v.tone, "info");
+    assert.match(v.title, /isn't Ollama/);
+    assert.equal(v.action, undefined);
+  });
+});

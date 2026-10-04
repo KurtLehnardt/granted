@@ -247,3 +247,98 @@ describe("helpers", () => {
     assert.equal(pullLinePct({ total: 0, completed: 0 }), undefined);
   });
 });
+
+/** A fetch that answers /api/tags normally but stalls the given path(s) until aborted. */
+function stallingOllama(opts: { stallPull?: boolean; stallEmbedAfter?: number; installed?: string[] }) {
+  let embedCalls = 0;
+  const fetchFn = (async (url: string, init?: { body?: string; signal?: AbortSignal }) => {
+    const path = url.replace(/^http:\/\/ollama\.test/, "");
+    const hang = () =>
+      new Promise<Response>((_, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true });
+      });
+    if (path === "/api/tags") return new Response(JSON.stringify({ models: (opts.installed ?? []).map((name) => ({ name })) }));
+    if (path === "/api/pull" && opts.stallPull) {
+      // Headers + one progress line arrive, then Ollama goes silent forever.
+      const enc = new TextEncoder();
+      const body = new ReadableStream<Uint8Array>({
+        start(c) {
+          c.enqueue(enc.encode(JSON.stringify({ status: "pulling x", total: 100, completed: 10 }) + "\n"));
+        },
+      });
+      return new Response(body);
+    }
+    if (path === "/v1/embeddings") {
+      const body = JSON.parse(init!.body!);
+      if (body.input === "warmup") return new Response(JSON.stringify({ data: [{ embedding: [0] }] }));
+      embedCalls++;
+      if (opts.stallEmbedAfter != null && embedCalls > opts.stallEmbedAfter) return hang();
+      return new Response(JSON.stringify({ data: body.input.map((_: string, i: number) => ({ index: i, embedding: Array(DIMS).fill(0.5) })) }));
+    }
+    return new Response("not found", { status: 404 });
+  }) as unknown as typeof fetch;
+  return { fetchFn, get embedCalls() { return embedCalls; } };
+}
+
+describe("runLocalEmbedJob — a stalled Ollama ends in a Retry-able timeout, never 'running' forever", () => {
+  test("pull stream goes silent → 'timeout' after the idle window", { timeout: 10_000 }, async () => {
+    const baseDir = seed();
+    const { d } = deps(baseDir, stallingOllama({ stallPull: true }).fetchFn, { pullIdleTimeoutMs: 150 });
+    const t0 = Date.now();
+    assert.equal(await runLocalEmbedJob(d), false);
+    assert.ok(Date.now() - t0 < 5000);
+    const job = readLocalEmbeddingsJob(baseDir);
+    assert.equal(job.errorKind, "timeout");
+    assert.match(job.lastError!, /Ollama stopped responding while downloading the local search model.*Click Retry/);
+  });
+
+  test("an embedding request that never answers → 'timeout' (after the one retry), nothing written", { timeout: 10_000 }, async () => {
+    const baseDir = seed();
+    const ollama = stallingOllama({ installed: ["nomic-embed-text:latest"], stallEmbedAfter: 1 });
+    const { d } = deps(baseDir, ollama.fetchFn, { embedRequestTimeoutMs: 100 });
+    assert.equal(await runLocalEmbedJob(d), false);
+    const job = readLocalEmbeddingsJob(baseDir);
+    assert.equal(job.errorKind, "timeout");
+    assert.match(job.lastError!, /Ollama stopped responding while building the local search index.*click Retry/i);
+    assert.equal(existsSync(localEmbeddingsPaths(baseDir).metaPath), false);
+  });
+});
+
+describe("runLocalEmbedJob — the retry resumes instead of starting over", () => {
+  test("a failure mid-run: the retry only embeds what's left, and progress never goes backwards", async () => {
+    const baseDir = seed();
+    // 5 grants, batch 2: call 1 ok (g1,g2), call 2 fails, then the retry must embed only g3..g5.
+    const ollama = fakeOllama({ installed: ["nomic-embed-text:latest"], embedFail: (n) => (n === 2 ? 400 : undefined) });
+    const { d, jobs } = deps(baseDir, ollama.fetchFn);
+    assert.equal(await runLocalEmbedJob(d), true);
+    assert.deepEqual(ollama.embeddedInputs, ["P1. A. D", "P2. A. D", "P3. A. D", "P4. A. D", "P5. A. D"], "each grant embedded once");
+    const done = jobs.filter((j) => j.stage === "embedding").map((j) => j.done!);
+    assert.deepEqual(done, [...done].sort((a, b) => a - b), `monotonic: ${done.join(",")}`);
+    assert.equal(done.at(-1), 5);
+    const out = JSON.parse(readFileSync(localEmbeddingsPaths(baseDir).oppsPath, "utf8"));
+    assert.ok(out.every((o: { embedding: number[] }) => o.embedding.length === DIMS));
+  });
+});
+
+describe("runLocalEmbedJob — only sets up Ollama", () => {
+  test("LLM_PROVIDER=openai/local (not Ollama) → fails fast with the manual-setup message, no Ollama calls", async () => {
+    const baseDir = seed();
+    const ollama = fakeOllama({ installed: ["nomic-embed-text:latest"] });
+    const { d } = deps(baseDir, ollama.fetchFn, { ollamaBackend: false });
+    assert.equal(await runLocalEmbedJob(d), false);
+    assert.deepEqual(ollama.log, []);
+    const job = readLocalEmbeddingsJob(baseDir);
+    assert.equal(job.errorKind, "not-ollama");
+    assert.match(job.lastError!, /isn't Ollama.*EMBEDDINGS_BASE_URL.*data:embed:local/);
+  });
+
+  test("a server that answers but has no /api/tags (LM Studio) → 'not-ollama', not a misleading 'couldn't reach Ollama'", async () => {
+    const baseDir = seed();
+    const lmStudio = (async () => new Response("Unexpected endpoint", { status: 404 })) as unknown as typeof fetch;
+    const { d } = deps(baseDir, lmStudio);
+    assert.equal(await runLocalEmbedJob(d), false);
+    const job = readLocalEmbeddingsJob(baseDir);
+    assert.equal(job.errorKind, "not-ollama");
+    assert.doesNotMatch(job.lastError!, /Couldn't reach Ollama/);
+  });
+});

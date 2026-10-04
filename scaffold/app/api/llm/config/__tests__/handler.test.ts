@@ -457,3 +457,21 @@ describe("POST /api/llm/config — switching to Local starts local search setup"
     assert.equal(starts(), 0);
   });
 });
+
+describe("POST /api/llm/config — status is built once per switch", () => {
+  test("auto-start reports the started job as running without re-reading the status", async () => {
+    let builds = 0;
+    let starts = 0;
+    const deps = fakeDeps({
+      localEmbeddingsStatus: () => {
+        builds++;
+        return { state: "failed", model: "nomic-embed-text", active: false, error: "old", errorKind: "embed-failed" };
+      },
+      startLocalEmbeddings: () => void starts++,
+    });
+    const json = await (await handleLlmConfigPost(fakeReq({ provider: "ollama" }), deps)).json();
+    assert.equal(builds, 1);
+    assert.equal(starts, 1);
+    assert.deepEqual(json.localEmbeddings, { state: "running", model: "nomic-embed-text", active: false, progress: { stage: "checking" } });
+  });
+});

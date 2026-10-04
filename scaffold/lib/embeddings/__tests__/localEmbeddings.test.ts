@@ -16,6 +16,7 @@ import {
   localEmbeddingsBaseDir,
   localEmbeddingsPaths,
   localOllamaUrls,
+  localServerIsOllama,
   readLocalEmbeddingsJob,
   readLocalIndexMeta,
   releaseLocalEmbeddingsLock,
@@ -189,7 +190,7 @@ describe("on-disk state: job file, lock, meta cache", () => {
     assert.equal(acquireLocalEmbeddingsLock(b), false);
     transferLocalEmbeddingsLock(2 ** 30, b); // a pid that isn't alive
     assert.equal(isLocalEmbeddingsRunning(b), false);
-    assert.equal(existsSync(localEmbeddingsPaths(b).lockPath), false);
+    assert.equal(existsSync(localEmbeddingsPaths(b).lockPath), true, "a reader never deletes the lock; only acquire reclaims it");
     assert.equal(acquireLocalEmbeddingsLock(b), true);
     releaseLocalEmbeddingsLock(b);
     assert.equal(isLocalEmbeddingsRunning(b), false);
@@ -260,5 +261,57 @@ describe("localEmbeddingsActive / buildLocalEmbeddingsStatus (real config file +
     writeLocalEmbeddingsJob({ stage: "embedding", done: 5, total: 10, pct: 50 }, b);
     assert.equal(buildLocalEmbeddingsStatus(b).state, "running");
     releaseLocalEmbeddingsLock(b);
+  });
+});
+
+describe("non-Ollama local servers (LM Studio, vLLM, llama.cpp)", () => {
+  test("localServerIsOllama: unset/ollama → yes; openai/local → no", () => {
+    assert.equal(localServerIsOllama(undefined), true);
+    assert.equal(localServerIsOllama("ollama"), true);
+    assert.equal(localServerIsOllama("OpenAI"), false);
+    assert.equal(localServerIsOllama("local"), false);
+  });
+
+  test("Local on a non-Ollama server → 'manual' with how-to, never auto-started", () => {
+    const s = deriveLocalEmbeddingsStatus({
+      provider: "ollama",
+      envIsHosted: true,
+      ollamaBackend: false,
+      meta: null,
+      sourceMeta: null,
+      running: false,
+      job: {},
+    });
+    assert.equal(s.state, "manual");
+    assert.match(s.error!, /isn't Ollama.*EMBEDDINGS_BASE_URL/);
+    assert.equal(shouldAutoStart(s, "ollama"), false);
+  });
+
+  test("buildLocalEmbeddingsStatus reads LLM_PROVIDER for it", () => {
+    const b = tmpBase();
+    delete process.env.EMBEDDINGS_BASE_URL;
+    const p = join(b, "llm-config.json");
+    writeFileSync(p, JSON.stringify({ provider: "ollama" }));
+    process.env.GRANTED_LLM_CONFIG_PATH = p;
+    resetLlmConfigCache();
+    process.env.LLM_PROVIDER = "openai";
+    assert.equal(buildLocalEmbeddingsStatus(b).state, "manual");
+    process.env.LLM_PROVIDER = "ollama";
+    assert.equal(buildLocalEmbeddingsStatus(b).state, "needed");
+  });
+});
+
+describe("one readiness decision", () => {
+  test("localEmbeddingsActive needs the index file as well as a complete meta", () => {
+    const b = tmpBase();
+    delete process.env.EMBEDDINGS_BASE_URL;
+    const p = join(b, "llm-config.json");
+    writeFileSync(p, JSON.stringify({ provider: "ollama" }));
+    process.env.GRANTED_LLM_CONFIG_PATH = p;
+    resetLlmConfigCache();
+    writeIndex(b, READY);
+    assert.equal(localEmbeddingsActive(b), true);
+    rmSync(localEmbeddingsPaths(b).oppsPath);
+    assert.equal(localEmbeddingsActive(b), false, "meta alone isn't enough: the store would have nothing to serve");
   });
 });

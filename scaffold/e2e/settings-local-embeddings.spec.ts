@@ -25,8 +25,8 @@ async function stubLlm(page: Page) {
     route.fulfill({
       json:
         provider === "ollama"
-          ? { local: true, provider, model: "llama3.2:1b", models: [], openAiEmbeddings: true, localEmbeddings: current }
-          : { local: false, provider, openAiEmbeddings: true, localEmbeddings: current },
+          ? { local: true, provider, model: "llama3.2:1b", models: [], localEmbeddings: current }
+          : { local: false, provider, localEmbeddings: current },
     }),
   );
   await page.route("**/api/llm/config", async (route) => {
