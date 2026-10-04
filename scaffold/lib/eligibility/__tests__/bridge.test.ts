@@ -50,6 +50,18 @@ const sbirOpp: Opportunity = {
   program: "SBIR Phase I — Digital Health",
 };
 
+/** A real California state grant shape (ca-184092) — the exact real-bug
+ *  fixture: this used to get a federal SAM.gov/UEI registration step it
+ *  should never get. */
+const caGrantOpp: Opportunity = {
+  source: "ca-grants",
+  kind: "grant",
+  agency: "Public Utilities Commission",
+  description: "2026-27 Digital Divide Grant Program Round 4.",
+  id: "ca-184092",
+  program: "2026-27 Digital Divide Grant Program Round 4",
+};
+
 // --- toCompanyProfile -------------------------------------------------------
 
 test("toCompanyProfile maps employees → employee_count as model_inferred", () => {
@@ -97,6 +109,11 @@ test("toScreenableOpportunity falls back title → program so SBIR detection fir
   assert.equal(s.title, "SBIR Phase I — Digital Health");
 });
 
+test("toScreenableOpportunity passes source through (real bug: universalRules needs it to exclude state grants)", () => {
+  const s = toScreenableOpportunity(caGrantOpp);
+  assert.equal(s.source, "ca-grants");
+});
+
 // --- The wired composition (what buildOpportunityMap runs per match) --------
 
 test("bridge + screen attaches a schema-valid determination (non-SBIR → conditionally_eligible)", () => {
@@ -113,6 +130,22 @@ test("bridge + screen attaches a schema-valid determination (non-SBIR → condit
   const wrapped = annotateFreshness(determination);
   assert.equal(wrapped.determination, determination);
   assert.equal(typeof wrapped.freshness.is_stale, "boolean");
+});
+
+test("REGRESSION (real reported bug): a CA state grant gets NO SAM.gov registration step, through the full real pipeline", () => {
+  const cp = toCompanyProfile(startupProfile);
+  const determination = screen(cp, toScreenableOpportunity(caGrantOpp));
+
+  assert.doesNotThrow(() => EligibilityDeterminationSchema.parse(determination));
+  assert.equal(determination.opportunity_id, "ca-184092");
+  // No universal rules apply at all (ca-grants is not federal) -- with no
+  // per-opportunity rules supplied either, this is a clean "eligible" with
+  // zero required steps, not "conditionally_eligible pending SAM.gov."
+  assert.equal(determination.required_steps.length, 0);
+  assert.ok(
+    !determination.required_steps.some((s) => /SAM\.gov|UEI/i.test(s.step)),
+    "a CA state grant must never show a SAM.gov/UEI step",
+  );
 });
 
 test("SBIR opp with an unset ownership gate → unknown, never a guess", () => {

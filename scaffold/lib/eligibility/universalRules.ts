@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { EligibilityRuleCategorySchema } from "../contracts/opportunity";
-import type { OpportunityKind } from "../contracts/opportunity";
+import { EligibilityRuleCategorySchema, FEDERAL_SOURCES } from "../contracts/opportunity";
+import type { OpportunityKind, OpportunitySource } from "../contracts/opportunity";
 import { CitationSchema } from "../contracts/primitives";
 import type { CanonOpportunity } from "./CanonOpportunity";
 
@@ -236,10 +236,27 @@ export function getUniversalRules(): UniversalRule[] {
 export type UniversalRuleOpportunity = Pick<CanonOpportunity, "title" | "program"> & {
   /** Instrument kind. Optional so legacy callers (title/program only) still work. */
   kind?: OpportunityKind;
+  /**
+   * Optional so legacy callers (title/program/kind only) still work — but
+   * when present, gates EVERY rule in this file, regardless of `applies_to`.
+   * This whole module is a FEDERAL regulatory overlay (2 CFR, the FAR, 13
+   * CFR, 34 CFR); a state program (ca-grants/il-grants/nc-grants) must never
+   * be told to register in SAM.gov, be "organized for profit" per SBA rules,
+   * etc. — those gates are categorically inapplicable, not just unlikely.
+   * See FEDERAL_SOURCES's own doc comment for why this is a real, previously
+   * reported bug, not a hypothetical.
+   */
+  source?: OpportunitySource;
 };
 
 /** Whether a single universal rule applies to `opp`, honoring its `applies_to` scope. */
 function ruleAppliesToOpportunity(rule: UniversalRule, opp: UniversalRuleOpportunity): boolean {
+  // A known non-federal source (currently: ca-grants/il-grants/nc-grants)
+  // never gets ANY universal rule here, regardless of kind — see
+  // UniversalRuleOpportunity's `source` field doc above. Legacy callers that
+  // don't pass `source` at all keep their pre-existing behavior unchanged.
+  if (opp.source !== undefined && !FEDERAL_SOURCES.has(opp.source)) return false;
+
   switch (rule.applies_to) {
     case "all":
       return true;

@@ -132,4 +132,55 @@ describe("universalRulesForOpportunity", () => {
       }
     }
   });
+
+  // --- source-scoped overlay: federal-only (real reported bug) -------------
+  // A real California grant (ca-184092, "2026-27 Digital Divide Grant Program
+  // Round 4") was shown "Register the entity in SAM.gov and obtain a UEI" as
+  // its eligibility-screening "authority" requirement — wrong, since that's a
+  // 2 CFR federal gate and this is a CPUC state program with its own entirely
+  // different eligibility (must be an established CBO partnered with a
+  // beneficiary school). Root cause: this file's rules were never
+  // source-aware at all. These tests lock in the fix.
+
+  test("a ca-grants/il-grants/nc-grants opportunity gets NO universal rules, regardless of kind", () => {
+    for (const source of ["ca-grants", "il-grants", "nc-grants"] as const) {
+      for (const kind of ["grant", "loan", "rd", "assistance"] as const) {
+        const rules = universalRulesForOpportunity({ title: "X", program: "X", kind, source });
+        assert.deepEqual(rules, [], `source=${source} kind=${kind} should get zero universal rules`);
+      }
+    }
+  });
+
+  test("the exact real-bug shape: a CA grant-kind opportunity gets no SAM.gov registration gate", () => {
+    const rules = universalRulesForOpportunity({
+      title: "2026-27 Digital Divide Grant Program Round 4",
+      program: "2026-27 Digital Divide Grant Program Round 4",
+      kind: "grant",
+      source: "ca-grants",
+    });
+    assert.ok(
+      !rules.some((r) => r.id === "universal-sam-registration"),
+      "a CA state grant must never get the federal SAM.gov/UEI gate",
+    );
+  });
+
+  test("a federal source still gets its universal rules — the fix doesn't over-correct", () => {
+    for (const source of ["grants.gov", "sbir", "sbir.gov", "assistance-listings", "sam.gov", "sam-contracts", "usaspending"] as const) {
+      const rules = universalRulesForOpportunity({ title: "X", program: "X", kind: "grant", source });
+      assert.deepEqual(rules.map((r) => r.id), ["universal-sam-registration"], `source=${source} is federal and should still get the SAM gate`);
+    }
+  });
+
+  test("source omitted entirely (legacy callers) keeps the pre-fix behavior unchanged", () => {
+    const rules = universalRulesForOpportunity({ title: "X", program: "X", kind: "grant" });
+    assert.deepEqual(rules.map((r) => r.id), ["universal-sam-registration"]);
+  });
+
+  test("an unrecognized/forward-compatible source (agency-feed) fails safe: no federal rule applied", () => {
+    // agency-feed's federal-ness is unconfirmed (§4.2 placeholder) -- the
+    // safe failure direction is under-applying a federal rule, never
+    // over-applying one to a program that might not be federal.
+    const rules = universalRulesForOpportunity({ title: "X", program: "X", kind: "grant", source: "agency-feed" });
+    assert.deepEqual(rules, []);
+  });
 });

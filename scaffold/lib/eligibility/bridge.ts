@@ -123,5 +123,9 @@ export function toScreenableOpportunity(opp: Opportunity): ScreenableOpportunity
     title: opp.title ?? opp.program,
     program: opp.program,
     kind: opp.kind,
+    // So the universal overlay's federal-only gates (SAM.gov/UEI, SBA
+    // "organized for profit," etc.) never apply to a state grant — see
+    // lib/eligibility/universalRules.ts's UniversalRuleOpportunity.source.
+    source: opp.source,
   };
 }

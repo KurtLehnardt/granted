@@ -5,6 +5,7 @@
 // and needs `React` in scope to call React.createElement).
 import React from "react";
 import type { Match, Opportunity } from "@/lib/types";
+import { FEDERAL_SOURCES } from "@/lib/contracts/opportunity";
 import { isDeadlinePassed, isForecasted } from "@/lib/ui/opportunitySummary";
 
 /**
@@ -88,22 +89,17 @@ export function buildFundingRange(opportunity: Opportunity): string | null {
   return null;
 }
 
-/** Sources whose apply path genuinely runs through SAM.gov/grants.gov-style
- *  federal registration (UEI, AOR, E-Biz POC) — state-grant portals (CA/IL
- *  CSFA/NC) have their own, different registration requirements (or none
- *  centrally at all, per their own listing), so this terminology would be
- *  actively wrong there, not just generic. Shared by the document checklist,
- *  the questions, and the next-steps below — every place in this file that
- *  otherwise assumed every opportunity is federal. */
-const FEDERAL_SOURCES = new Set<Opportunity["source"]>([
-  "grants.gov",
-  "sbir",
-  "sbir.gov",
-  "assistance-listings",
-  "sam.gov",
-  "sam-contracts",
-  "usaspending",
-]);
+// FEDERAL_SOURCES (imported above, from lib/contracts/opportunity.ts): sources
+// whose apply path genuinely runs through SAM.gov/grants.gov-style federal
+// registration (UEI, AOR, E-Biz POC) — state-grant portals (CA/IL CSFA/NC)
+// have their own, different registration requirements (or none centrally at
+// all, per their own listing), so this terminology would be actively wrong
+// there, not just generic. Shared by the document checklist, the questions,
+// and the next-steps below — every place in this file that otherwise
+// assumed every opportunity is federal — AND by lib/eligibility/
+// universalRules.ts's eligibility-screening engine, a sibling surface that
+// independently had the same federal-only assumption baked in (see that
+// file's own comment for the bug this single source of truth fixed).
 
 const BASE_DOCUMENTS = [
   "SF-424 (Application for Federal Assistance) or the program's equivalent cover form",

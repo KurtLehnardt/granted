@@ -127,7 +127,7 @@ export interface ScreeningRule {
  * (an unknown kind is treated as federal financial assistance).
  */
 export type ScreenableOpportunity = Pick<Opportunity, "id"> &
-  Partial<Pick<Opportunity, "program" | "title" | "eligibility_rules" | "kind">>;
+  Partial<Pick<Opportunity, "program" | "title" | "eligibility_rules" | "kind" | "source">>;
 
 // ---------------------------------------------------------------------------
 // SAM.gov registration lead time (R8.2 "show the lead time it needs")
@@ -363,6 +363,10 @@ export function screen(
     program: opportunity.program ?? "",
     // Kind routes the kind-scoped universal gates (loan/scholarship/procurement).
     kind: opportunity.kind,
+    // Source gates ALL universal rules to federal opportunities only (see
+    // UniversalRuleOpportunity's `source` doc) — a state grant must never
+    // get a SAM.gov/UEI or SBA "organized for profit" requirement.
+    source: opportunity.source,
   }).map(universalToScreeningRule);
 
   const allRules: ScreeningRule[] = [...universal, ...perOpp];
