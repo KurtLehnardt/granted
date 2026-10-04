@@ -340,11 +340,16 @@ async function openInstallTerminal(sender: WebContents): Promise<OpenInstallTerm
     // linux: no uniform way to detect/launch a specific terminal emulator
     // across desktop environments. Clipboard + clear instructions is the
     // honest M1-scope answer rather than guessing at gnome-terminal/konsole/
-    // xterm/etc.
+    // xterm/etc. A real validation pass confirmed the clipboard write
+    // itself genuinely works (X11, verified byte-exact in both CLIPBOARD
+    // and PRIMARY) -- but it's X11 selection ownership, not a system
+    // clipboard history: closing this window before pasting can silently
+    // lose it on a desktop with no clipboard manager running. Said
+    // explicitly rather than assuming the user already knows that.
     return {
       ok: true,
       message:
-        "The install command has been copied to your clipboard. Open a terminal and paste it (Ctrl+Shift+V in most terminal emulators) to run it.",
+        "The install command has been copied to your clipboard. Open a terminal and paste it (Ctrl+Shift+V in most terminal emulators) to run it — do this before closing this window, since some Linux desktops clear the clipboard once the app that copied it exits.",
       command,
       pollingStarted: false,
     };
