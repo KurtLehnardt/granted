@@ -2,6 +2,23 @@
 
 <img width="979" height="965" alt="image" src="https://github.com/user-attachments/assets/2c3b54ae-9e96-4436-881f-cd691c1e774b" />
 
+## New: a GUI installer wizard (preview)
+
+`installer/` is a small Electron app that walks you through getting your machine ready to run Granted. There's no packaged download yet — no `.dmg`/`.exe`/`.AppImage` — so running it today still means cloning the repo and building from source, the same prerequisites as everything else on this page. What it buys you once you're there: a two-screen wizard (**Welcome** → a **prerequisite check** showing real ✓/✗ status for git and Node) with an **"Open a terminal for me"** button that runs the exact one-liner below *for* you — it opens Terminal.app and runs it on macOS, opens a new PowerShell window and runs it on Windows, and on Linux copies it to your clipboard (there's no single way to auto-launch a terminal across every Linux desktop, so you paste it in yourself).
+
+```bash
+git clone https://github.com/KurtLehnardt/granted.git
+cd granted/installer
+npm install
+npm run dev
+```
+
+*Tested end-to-end on macOS, Windows, and Linux — including a real Ubuntu 24.04+ launch bug found and fixed along the way. Windows testing so far is on Windows Server; a pass on an actual Windows 10/11 machine is still pending.*
+
+The one-liner instructions in **Run it yourself** below are still the primary, most-reliable path — this wizard is a friendlier front end for that same step, not a replacement for it yet.
+
+---
+
 **Granted** turns a description of your business or research into a list of real **government funding opportunities** — federal grants, SBIR/STTR R&D, procurement, loans, assistance, scholarships, plus state grant programs in California, Illinois, and North Carolina. Each match is scored for fit on the criteria a program officer would apply, and screened for eligibility.
 
 Run it with your own API keys or a fully local model — see **Run it yourself** below.
