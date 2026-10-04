@@ -4,7 +4,9 @@
 # installer/src/main/ipcPure.ts's parseInstallStatusJson, which reads what
 # this writes).
 #
-# Run:  pwsh -NoProfile -File install-windows.tests.ps1
+# Run (either shell):
+#   powershell.exe -NoProfile -File install-windows.tests.ps1
+#   pwsh           -NoProfile -File install-windows.tests.ps1
 # Exit code 0 = all passed, 1 = at least one failed (CI-friendly).
 #
 # install-windows.ps1 is deliberately a single, self-contained file — it's
@@ -18,9 +20,29 @@
 # large enough to break the extraction below will make this test error
 # loudly, not silently pass against a stale copy.
 #
-# Each case runs in its own `pwsh` subprocess: `exit` terminates the whole
-# process (not just a function/scriptblock scope), so cases that trigger
-# Die()/the trap can't share a process with any other case.
+# Each case runs in its own CHILD-SHELL subprocess: `exit` terminates the
+# whole process (not just a function/scriptblock scope), so cases that
+# trigger Die()/the trap can't share a process with any other case.
+#
+# The child shell is `powershell.exe` 5.1 when available, falling back to
+# `pwsh` (PowerShell Core) otherwise -- deliberately, not arbitrarily: real
+# Windows (including every Windows Server image this script is validated
+# against) ships only `powershell.exe` 5.1, which is what install-windows.ps1
+# actually runs under in production and whose `Set-Content -Encoding utf8`
+# writes a UTF-8 BOM that `pwsh` does not. A prior version of this suite
+# hardcoded `pwsh`, which meant it silently validated the one shell that
+# does NOT reproduce that BOM behavior -- on a stock Windows box with no
+# PowerShell 7 installed, it didn't run at all (CommandNotFoundException).
+# `pwsh` is kept as a fallback only so this suite still runs somewhere on a
+# machine with no `powershell.exe` at all (e.g. a non-Windows dev machine).
+$ChildShell = if (Get-Command "powershell.exe" -ErrorAction SilentlyContinue) { "powershell.exe" }
+  elseif (Get-Command "pwsh" -ErrorAction SilentlyContinue) {
+    Write-Host "[SETUP WARNING] powershell.exe not found -- falling back to pwsh. This will NOT exercise the UTF-8 BOM behavior that's the actual reason this test suite exists (see parseInstallStatusJson's comment in installer/src/main/ipcPure.ts); only trust a run of this suite under powershell.exe as validating the BOM path." -ForegroundColor Yellow
+    "pwsh"
+  } else {
+    Write-Host "[SETUP FAILED] Neither powershell.exe nor pwsh is available on PATH." -ForegroundColor Red
+    exit 1
+  }
 
 $ErrorActionPreference = "Stop"
 $RealScriptPath = Join-Path $PSScriptRoot "install-windows.ps1"
@@ -68,7 +90,7 @@ function Run-Case {
   Set-Content -Path $caseScriptPath -Value ($HeaderBlock + "`n" + $ActionSource) -Encoding utf8
 
   $env:GRANTED_STATUS_FILE = $statusPath
-  & pwsh -NoProfile -File $caseScriptPath *> $outputPath
+  & $ChildShell -NoProfile -File $caseScriptPath *> $outputPath
   $actualExitCode = $LASTEXITCODE
   Remove-Item Env:\GRANTED_STATUS_FILE -ErrorAction SilentlyContinue
   $capturedOutput = if (Test-Path $outputPath) { Get-Content -Path $outputPath -Raw } else { "" }
@@ -94,7 +116,8 @@ function Run-Case {
       $raw = Get-Content -Path $statusPath -Raw
       # Mirrors parseInstallStatusJson's own BOM handling (installer/src/main/ipcPure.ts)
       # -- Set-Content -Encoding utf8 under real Windows PowerShell 5.1 writes one;
-      # this test's own pwsh may or may not, so strip defensively either way.
+      # $ChildShell is pwsh (no BOM) on a box with no powershell.exe, so strip
+      # defensively either way rather than assuming which shell actually ran.
       $withoutBom = $raw -replace "^\xEF\xBB\xBF", ""
       try {
         $parsed = $withoutBom | ConvertFrom-Json
