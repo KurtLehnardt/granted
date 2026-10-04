@@ -2,22 +2,16 @@ import { app, BrowserWindow, shell } from "electron";
 import { join } from "node:path";
 import { registerIpcHandlers } from "./ipc";
 
-// Linux only, unpacked (dev/source) runs only. A real Windows-VM-style
-// validation pass on Ubuntu 24.04 found the app can't even launch from
-// source there: `npm install` extracts chrome-sandbox as 755/non-root,
-// but Ubuntu 24.04+ also restricts unprivileged user namespaces, so
-// Chromium can't fall back to that sandboxing path either and aborts
-// with a fatal SUID-sandbox error instead of showing a window. The
-// correct fix for a REAL release is a properly packaged build (an
-// electron-builder/etc. package sets chrome-sandbox's ownership/mode
-// correctly at build time) — that doesn't exist yet, and until it does,
-// `app.isPackaged` is false for every real user of this app, so this
-// line would need to be revisited (not just left in place unexamined)
-// once real Linux packaging lands. Must run before app.whenReady() —
-// Chromium reads this switch during its own early startup.
-if (process.platform === "linux" && !app.isPackaged) {
-  app.commandLine.appendSwitch("no-sandbox");
-}
+// Ubuntu 24.04+'s chrome-sandbox / unpacked-run issue (see installer's
+// scripts/run-electron-vite.mjs for the full explanation) is NOT fixable
+// here. A real validation pass proved Electron's native sandbox check
+// aborts the process before any main-process JavaScript — including this
+// file — ever runs, so an app.commandLine.appendSwitch("no-sandbox") call
+// (tried first, here) can never execute in time. The actual fix has to
+// set ELECTRON_DISABLE_SANDBOX in the environment the electron binary
+// itself is launched with, before it starts — done in
+// scripts/run-electron-vite.mjs, which `npm run dev`/`preview` now go
+// through instead of calling electron-vite directly.
 
 function createWindow(): void {
   const win = new BrowserWindow({
