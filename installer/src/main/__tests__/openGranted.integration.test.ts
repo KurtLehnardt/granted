@@ -7,7 +7,7 @@
 import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -262,7 +262,10 @@ describe("buildTaskScript run by a real powershell.exe", { skip: process.platfor
     assert.equal(status?.message, null);
     assert.ok(Number.isInteger(status?.pid) && status!.pid! > 0, "pid recorded");
     const where = (await readFile(join(dir, "where.txt"), "utf8")).trim();
-    assert.equal(where.toLowerCase(), dir.toLowerCase());
+    // Through realpathSync.native: %TEMP% can be an 8.3 short path (e.g.
+    // C:\Users\RUNNER~1\... on GitHub's Windows runners) while `cd` reports
+    // the long form — same folder, different spelling.
+    assert.equal(realpathSync.native(where).toLowerCase(), realpathSync.native(dir).toLowerCase());
   });
 
   test("a command that exits non-zero reports error with the failure message, and says so in the window", async () => {
