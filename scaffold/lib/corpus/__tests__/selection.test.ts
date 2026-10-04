@@ -1,6 +1,6 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { allocateCap, selectCorpusWithinCap, DEFAULT_SOURCE_WEIGHTS } from "../selection";
+import { allocateCap, selectCorpusWithinCap, sortWithinSource, DEFAULT_SOURCE_WEIGHTS } from "../selection";
 import type { Opportunity } from "../../types";
 
 function opp(over: Partial<Opportunity> & { id: string; source: string }): Opportunity {
@@ -147,5 +147,66 @@ describe("selectCorpusWithinCap", () => {
     ];
     const out = selectCorpusWithinCap(records, 1);
     assert.deepEqual(out.map((o) => o.id), ["relevant"]);
+  });
+
+  test("ca-grants: soonest deadline first, through the full cap path (DEFAULT_SOURCE_WEIGHTS, weight 1)", () => {
+    // 3 records, cap 2: selectCorpusWithinCap only sorts-and-trims when
+    // over cap (records.length <= cap is a pure pass-through) -- the
+    // other two sort-order tests above (grants.gov, sbir) use the same
+    // "one more record than the cap" shape for the same reason.
+    const soon = new Date(Date.now() + 10 * 864e5).toISOString().slice(0, 10);
+    const later = new Date(Date.now() + 90 * 864e5).toISOString().slice(0, 10);
+    const latest = new Date(Date.now() + 200 * 864e5).toISOString().slice(0, 10);
+    const records = [
+      opp({ id: "latest", source: "ca-grants", deadline: latest }),
+      opp({ id: "later", source: "ca-grants", deadline: later }),
+      opp({ id: "soon", source: "ca-grants", deadline: soon }),
+    ];
+    const out = selectCorpusWithinCap(records, 2, DEFAULT_SOURCE_WEIGHTS);
+    assert.deepEqual(out.map((o) => o.id), ["soon", "later"]);
+  });
+
+  test("il-grants: no deadline sorts after one that has a real deadline", () => {
+    const soon = new Date(Date.now() + 10 * 864e5).toISOString().slice(0, 10);
+    const later = new Date(Date.now() + 90 * 864e5).toISOString().slice(0, 10);
+    const records = [
+      opp({ id: "no-deadline", source: "il-grants" }),
+      opp({ id: "later", source: "il-grants", deadline: later }),
+      opp({ id: "soon", source: "il-grants", deadline: soon }),
+    ];
+    const out = selectCorpusWithinCap(records, 2, DEFAULT_SOURCE_WEIGHTS);
+    assert.deepEqual(out.map((o) => o.id), ["soon", "later"]);
+  });
+});
+
+describe("sortWithinSource", () => {
+  test("ca-grants and il-grants: both sort by soonest deadline first (same rule, two sources)", () => {
+    const soon = new Date(Date.now() + 10 * 864e5).toISOString().slice(0, 10);
+    const later = new Date(Date.now() + 90 * 864e5).toISOString().slice(0, 10);
+    for (const source of ["ca-grants", "il-grants"] as const) {
+      const records = [opp({ id: "later", source, deadline: later }), opp({ id: "soon", source, deadline: soon })];
+      const out = sortWithinSource(source, records);
+      assert.deepEqual(out.map((o) => o.id), ["soon", "later"], `source=${source}`);
+    }
+  });
+
+  test("nc-grants: no date signal to sort on -- falls through unchanged (raw order preserved)", () => {
+    const records = [
+      opp({ id: "z", source: "nc-grants" }),
+      opp({ id: "a", source: "nc-grants" }),
+      opp({ id: "m", source: "nc-grants" }),
+    ];
+    const out = sortWithinSource("nc-grants", records);
+    // Deliberately NOT sorted alphabetically or by id -- this asserts the
+    // input order survives untouched, since nc-grants carries no deadline
+    // (confirmed at the normalizer level) for sortWithinSource to use.
+    assert.deepEqual(out.map((o) => o.id), ["z", "a", "m"]);
+  });
+
+  test("does not mutate the input array (slice(), not sort() in place)", () => {
+    const records = [opp({ id: "b", source: "ca-grants", deadline: "2030-01-01" }), opp({ id: "a", source: "ca-grants", deadline: "2020-01-01" })];
+    const original = records.map((o) => o.id);
+    sortWithinSource("ca-grants", records);
+    assert.deepEqual(records.map((o) => o.id), original);
   });
 });

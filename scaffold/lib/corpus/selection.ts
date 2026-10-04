@@ -83,7 +83,10 @@ function keywordScore(o: Opportunity): number {
   return BUSINESS_KEYWORDS.reduce((s, kw) => s + (text.includes(kw) ? 1 : 0), 0);
 }
 
-function sortWithinSource(source: string, records: Opportunity[]): Opportunity[] {
+/** Per-source within-cap ordering. Exported for direct unit testing (see
+ * lib/embed.ts's checkEmbeddingsMisconfig for the same pattern) — the real
+ * behavior lives here, selectCorpusWithinCap just calls it once per source. */
+export function sortWithinSource(source: string, records: Opportunity[]): Opportunity[] {
   const sorted = records.slice();
   if (source === "grants.gov") {
     // Open before forecasted, then soonest deadline.

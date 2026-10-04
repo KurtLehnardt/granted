@@ -34,6 +34,14 @@ const SORT_LABEL: Record<SortKey, string> = {
   recency: "Recently added",
 };
 
+/** If the selected location is no longer present (e.g. `matches` prop
+ * changed under the user), fall back to "Any" (`null`) rather than holding
+ * a stale/invalid filter. Exported for direct unit testing — pure, no
+ * React dependency. */
+export function resolveEffectiveLocation(selected: string | null, available: string[]): string | null {
+  return selected && available.includes(selected) ? selected : null;
+}
+
 export default function OpportunityFilters({
   matches,
   startupProfile,
@@ -46,8 +54,7 @@ export default function OpportunityFilters({
   const [location, setLocation] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>("match");
 
-  // If the selected location is no longer present (props changed), fall back to "Any".
-  const effectiveLocation = location && locations.includes(location) ? location : null;
+  const effectiveLocation = resolveEffectiveLocation(location, locations);
 
   const filtered = useMemo(() => filterByLocation(matches, effectiveLocation), [matches, effectiveLocation]);
   const sorted = useMemo(() => sortMatches(filtered, sortKey), [filtered, sortKey]);
