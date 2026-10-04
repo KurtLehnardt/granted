@@ -190,10 +190,12 @@ export function applyApiKeys(
  * {"state": ...} format install-windows.ps1 writes (so
  * parseInstallStatusJson reads both) plus the window's own `pid` — so the
  * app can tell "still running" from "the user closed the window", which
- * otherwise looks identical (nothing ever writes done/error). Everything
- * interpolated is single-quoted (psSingleQuoted), so a `$` or backtick in a
- * path is taken literally. `command` is only ever a fixed string chosen by
- * the main process, never user input.
+ * otherwise looks identical (nothing ever writes done/error). Like
+ * install-windows.ps1 it also holds an exclusive lock on `<status>.lock` for
+ * the window's lifetime (see STATUS_LOCK_LINE). Everything interpolated is
+ * single-quoted (psSingleQuoted), so a `$` or backtick in a path is taken
+ * literally. `command` is only ever a fixed string chosen by the main
+ * process, never user input.
  */
 export function buildTaskScript(opts: {
   title: string;
@@ -211,6 +213,7 @@ export function buildTaskScript(opts: {
   return [
     `$Host.UI.RawUI.WindowTitle = ${psSingleQuoted(opts.title)}`,
     `$StatusPath = ${psSingleQuoted(opts.statusPath)}`,
+    STATUS_LOCK_LINE,
     ...envLines,
     "function Write-Status($state, $message) {",
     "  try {",
@@ -232,8 +235,30 @@ export function buildTaskScript(opts: {
   ].join("\r\n");
 }
 
-/** A status file's content: install-windows.ps1's fields, plus the window's pid when buildTaskScript wrote it. */
-export type StatusFile = InstallStatusEvent & { pid?: number };
+/**
+ * Opened once at the top of every status-reporting script (this one and
+ * install-windows.ps1, which carries an identical line): an exclusive
+ * (FileShare None) handle on `<status>.lock`, held in a global for as long
+ * as the PowerShell window lives and released by Windows the moment it
+ * exits. "Is the window still alive?" is then "can't I open the lock?" —
+ * which, unlike checking whether the recorded PID exists, can't be fooled
+ * by Windows handing that PID to an unrelated process after the window
+ * closed. Best-effort: if it can't be created, the PID check is the fallback.
+ */
+export const STATUS_LOCK_LINE =
+  "try { $global:GrantedStatusLock = [System.IO.File]::Open(\"$StatusPath.lock\", 'OpenOrCreate', 'ReadWrite', 'None') } catch { }";
+
+/** The lock file a status-reporting window holds open for its lifetime (see STATUS_LOCK_LINE). */
+export function statusLockPath(statusPath: string): string {
+  return `${statusPath}.lock`;
+}
+
+/**
+ * A status file's content: install-windows.ps1's fields, plus the writing
+ * window's pid, plus `closed` once resolveTaskStatus has found that window
+ * gone without a done/error.
+ */
+export type StatusFile = InstallStatusEvent & { pid?: number; closed?: true };
 
 /** parseInstallStatusJson, keeping buildTaskScript's `pid` too. */
 export function parseStatusFile(raw: string): StatusFile | null {
@@ -251,28 +276,37 @@ export function parseStatusFile(raw: string): StatusFile | null {
 export const TASK_WINDOW_CLOSED_MESSAGE = "Its PowerShell window was closed before it finished.";
 
 /**
- * A "running" status whose window process is gone means the user closed the
- * window (PowerShell died before it could write done/error) — report that
- * as an error now, rather than waiting out a timeout of up to two hours.
+ * A "running" status whose window is gone means the user closed the window
+ * (PowerShell died before it could write done/error) — report that as an
+ * error now, flagged `closed` so callers can word it for their context,
+ * rather than waiting out a timeout. `isAlive` is asked about the recorded
+ * pid; the real check (openGranted.ts's isStatusWindowAlive) uses the
+ * window's lock file and only falls back to the pid.
  */
 export function resolveTaskStatus(status: StatusFile | null, isAlive: (pid: number) => boolean): StatusFile | null {
   if (status?.state === "running" && status.pid !== undefined && !isAlive(status.pid)) {
-    return { state: "error", message: TASK_WINDOW_CLOSED_MESSAGE, pid: status.pid };
+    return { state: "error", message: TASK_WINDOW_CLOSED_MESSAGE, pid: status.pid, closed: true };
   }
   return status;
 }
 
+/** finish: stop polling with this event. stillWaiting: keep polling, but tell the user it's taking a while. null: keep polling. */
+export type PollDecision = { finish: InstallStatusEvent } | { stillWaiting: true } | null;
+
 /**
- * One tick of a status-file poll (ipc.ts's pollStatusFile): the event to
- * finish with, or null to keep waiting. `status` should already have been
- * through resolveTaskStatus, so a closed window arrives here as an error.
+ * One tick of a status-file poll (ipc.ts's pollStatusFile). `status` should
+ * already have been through resolveTaskStatus, so a closed window arrives
+ * here as an error flagged `closed` (reported with `closedMessage`).
  *
- * The overall timeout only applies when there's no pid to watch (a status
- * file from an older install-windows.ps1). While a window that reports its
- * pid is alive, it's genuinely still working — a real Windows 11 run sat at
- * a UAC prompt for 12+ minutes — so giving up would be wrong, and worse:
- * it re-enabled the button, and a second click started a concurrent
- * install. Closing the window is how a user cancels.
+ * `waitWhileAlive` (the install): past overallTimeoutMs, a window that's
+ * still alive is NOT given up on — a real Windows 11 run sat at a UAC
+ * prompt for 12+ minutes, and giving up re-enabled the button, so a second
+ * click started a concurrent install. Instead the caller shows a one-off
+ * "still waiting — answer the prompt, or close the window to cancel" notice
+ * (the window may also be genuinely stuck, and closing it is then the way
+ * out). Without a pid to watch (an older install-windows.ps1), or for
+ * tasks that keep their hard limit, overallTimeoutMs finishes with
+ * timedOutMessage.
  */
 export function decideStatusPoll(opts: {
   status: StatusFile | null;
@@ -282,16 +316,42 @@ export function decideStatusPoll(opts: {
   overallTimeoutMs: number;
   notStartedMessage: string;
   timedOutMessage: string;
-}): InstallStatusEvent | null {
+  closedMessage?: string;
+  waitWhileAlive?: boolean;
+}): PollDecision {
   const { status } = opts;
-  if (status?.state === "done" || status?.state === "error") return { state: status.state, message: status.message ?? null };
-  if (!opts.sawRunning && status?.state !== "running" && opts.elapsedMs > opts.startedTimeoutMs) {
-    return { state: "error", message: opts.notStartedMessage };
+  if (status?.state === "done" || status?.state === "error") {
+    const message = status.closed && opts.closedMessage ? opts.closedMessage : (status.message ?? null);
+    return { finish: { state: status.state, message } };
   }
-  if (opts.elapsedMs > opts.overallTimeoutMs && status?.pid === undefined) {
-    return { state: "error", message: opts.timedOutMessage };
+  if (!opts.sawRunning && opts.elapsedMs > opts.startedTimeoutMs) {
+    return { finish: { state: "error", message: opts.notStartedMessage } };
+  }
+  if (opts.elapsedMs > opts.overallTimeoutMs) {
+    if (opts.waitWhileAlive && status?.pid !== undefined) return { stillWaiting: true };
+    return { finish: { state: "error", message: opts.timedOutMessage } };
   }
   return null;
+}
+
+/**
+ * Whether a click should re-attach to the previous attempt's window rather
+ * than start a new one: it's still running; or it finished "done" after the
+ * poll gave up on it (when `acceptDone` — report that success instead of
+ * redoing the work); or it hasn't reported anything yet but was launched
+ * only moments ago (a slow, AV-heavy start — launching a second one now
+ * would race it). A "running" status with no pid (an older script) can't
+ * be checked for liveness, so it never re-attaches: that could wait on a
+ * dead window forever.
+ */
+export function shouldReattach(
+  status: StatusFile | null,
+  opts: { launchedMsAgo: number; recentLaunchMs: number; acceptDone: boolean },
+): boolean {
+  if (status === null) return opts.launchedMsAgo < opts.recentLaunchMs;
+  if (status.state === "running") return status.pid !== undefined;
+  if (status.state === "done") return opts.acceptDone;
+  return false;
 }
 
 /** A fresh, unique status-file path for one "Open Granted" step (see newInstallStatusPath). */

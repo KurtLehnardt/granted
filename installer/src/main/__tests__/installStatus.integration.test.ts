@@ -17,7 +17,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { decideStatusPoll, TASK_WINDOW_CLOSED_MESSAGE } from "../ipcPure";
+import { decideStatusPoll, STATUS_LOCK_LINE, TASK_WINDOW_CLOSED_MESSAGE } from "../ipcPure";
 import { readStatusFile, readTaskStatus } from "../openGranted";
 
 const execFileAsync = promisify(execFile);
@@ -34,12 +34,22 @@ function realHeaderBlock(): string {
   return source.slice(0, at);
 }
 
+// The install's real poll options (see ipc.ts's pollInstallStatus).
 const POLL_OPTS = {
   startedTimeoutMs: 10_000,
   overallTimeoutMs: 10 * 60_000,
   notStartedMessage: "not started",
   timedOutMessage: "timed out",
+  closedMessage: "install window closed",
+  waitWhileAlive: true,
 };
+
+test("install-windows.ps1 takes the same exclusive status lock as the app's own task scripts", { skip: !existsSync(INSTALL_SCRIPT) && "run from installer/" }, () => {
+  // The two copies must not drift: the app's liveness check reads this lock.
+  const header = realHeaderBlock();
+  assert.ok(header.includes(STATUS_LOCK_LINE), "install-windows.ps1 must contain STATUS_LOCK_LINE verbatim");
+  assert.ok(header.indexOf(STATUS_LOCK_LINE) > header.indexOf("$StatusPath = "), "after $StatusPath is set");
+});
 
 describe(
   "install-windows.ps1's status file, read by the app",
@@ -89,17 +99,19 @@ describe(
         }
         assert.equal(running?.state, "running");
         assert.equal(running?.pid, window.pid);
-        // Alive: no verdict even "30 minutes" in — the GUI keeps waiting.
-        assert.equal(decideStatusPoll({ ...POLL_OPTS, status: running, elapsedMs: 30 * 60_000, sawRunning: true }), null);
+        assert.ok(existsSync(`${status}.lock`), "the real script took its status lock");
+        // Alive "30 minutes" in: a still-waiting notice, never a give-up.
+        assert.deepEqual(decideStatusPoll({ ...POLL_OPTS, status: running, elapsedMs: 30 * 60_000, sawRunning: true }), {
+          stillWaiting: true,
+        });
 
         // The user closes the window: PowerShell dies without writing done/error.
         await execFileAsync("taskkill.exe", ["/PID", String(window.pid), "/T", "/F"]);
         await new Promise((r) => setTimeout(r, 500));
         const closed = await readTaskStatus(status);
-        assert.deepEqual(closed, { state: "error", message: TASK_WINDOW_CLOSED_MESSAGE, pid: window.pid });
+        assert.deepEqual(closed, { state: "error", message: TASK_WINDOW_CLOSED_MESSAGE, pid: window.pid, closed: true });
         assert.deepEqual(decideStatusPoll({ ...POLL_OPTS, status: closed, elapsedMs: 31 * 60_000, sawRunning: true }), {
-          state: "error",
-          message: TASK_WINDOW_CLOSED_MESSAGE,
+          finish: { state: "error", message: "install window closed" },
         });
       } finally {
         window.kill();

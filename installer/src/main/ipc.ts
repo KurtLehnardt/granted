@@ -16,7 +16,7 @@ import {
   newTaskStatusPath,
   parseVersionFromOutput,
   psSingleQuoted,
-  TASK_WINDOW_CLOSED_MESSAGE,
+  shouldReattach,
   type StatusFile,
 } from "./ipcPure";
 import {
@@ -157,11 +157,15 @@ async function checkPrereqs(): Promise<PrereqReport> {
 // than leaving it alone — tracked as a follow-up, not silently assumed
 // covered.
 const STATUS_STARTED_TIMEOUT_MS = 10_000;
-// Only applies to a status file with no pid in it (an older
-// install-windows.ps1) — while the window that reports its pid is alive,
-// the poll keeps waiting however long it takes (see decideStatusPoll).
+// For the install, past this a still-open window is NOT given up on — the
+// user gets a one-off "still waiting" notice instead (see decideStatusPoll).
+// It's only a hard limit for a status file with no pid (an older
+// install-windows.ps1), where liveness can't be checked.
 const STATUS_OVERALL_TIMEOUT_MS = 10 * 60_000;
 const STATUS_POLL_INTERVAL_MS = 1_000;
+// How recently an attempt that hasn't reported anything yet counts as
+// "still starting" (re-attach to it) rather than "never started" (launch anew).
+const RECENT_LAUNCH_MS = 60_000;
 
 // Guards the escape hatch end-to-end on Windows — set the instant a launch
 // is attempted, cleared only once the real outcome is known (or given up
@@ -170,25 +174,50 @@ const STATUS_POLL_INTERVAL_MS = 1_000;
 // soon as `spawn` resolved (tens of ms), not when the install finished.
 let installInFlight = false;
 
-// The most recent install attempt's status file. If the poll gave up on it
-// (e.g. it didn't report "running" within STATUS_STARTED_TIMEOUT_MS on a
-// slow, AV-heavy machine) but that window turns out to be running after
-// all, the next click re-attaches to it instead of starting a second,
-// concurrent install into the same folder.
-let lastInstallStatusPath: string | null = null;
-
 const INSTALL_WINDOW_CLOSED_MESSAGE =
   "The installer's PowerShell window was closed before it finished. Click \"Open a terminal for me\" to start it again.";
+const INSTALL_STILL_WAITING_MESSAGE =
+  "The installer is still running in its PowerShell window. If it's waiting for you — a Windows permission (UAC) prompt, which may be behind other windows or flashing in the taskbar — answer it. If it's stuck, close that window to cancel.";
+
+/** Every console window this app launches that reports through a status file. */
+type WindowTask = "install" | "local-setup" | "start-app";
+
+// The most recent attempt for each task. If a poll gave up on one (e.g. no
+// "running" within STATUS_STARTED_TIMEOUT_MS on a slow, AV-heavy machine)
+// but its window turns out to be alive after all — or it finished — the
+// next click re-attaches to it (shouldReattach) instead of starting a
+// second, concurrent copy.
+const lastAttempt: Partial<Record<WindowTask, { statusPath: string; launchedAt: number }>> = {};
+
+function rememberLaunch(task: WindowTask, statusPath: string): void {
+  lastAttempt[task] = { statusPath, launchedAt: Date.now() };
+}
+
+/** The previous attempt's status file, if a click should re-attach to it rather than launch anew. */
+async function reattachablePath(task: WindowTask, acceptDone: boolean): Promise<string | null> {
+  const attempt = lastAttempt[task];
+  if (!attempt) return null;
+  const status = await readTaskStatus(attempt.statusPath);
+  const reattach = shouldReattach(status, {
+    launchedMsAgo: Date.now() - attempt.launchedAt,
+    recentLaunchMs: RECENT_LAUNCH_MS,
+    acceptDone,
+  });
+  return reattach ? attempt.statusPath : null;
+}
 
 /**
- * Polls statusPath until install-windows.ps1 reports "done"/"error", or we
- * give up — then sends exactly one `terminal:install-status` event to the
- * renderer and releases `installInFlight`. Leaves the status file in place
- * (each attempt already has its own unique path, so there's nothing to
- * clean up for correctness, and it's a real diagnostic trail). Never
- * awaited by the IPC handler: the install can take minutes (observed up to
- * ~280s from a pristine machine), far longer than it's reasonable to hold
- * an `ipcMain.handle` call open.
+ * Polls statusPath until install-windows.ps1 reports "done"/"error", its
+ * window is closed, or it never starts — then sends exactly one final
+ * `terminal:install-status` event to the renderer and releases
+ * `installInFlight`. (Past STATUS_OVERALL_TIMEOUT_MS it also sends one
+ * non-final "running" notice, but keeps waiting while the window is open.)
+ * Leaves the status file in place (each attempt already has its own unique
+ * path, so there's nothing to clean up for correctness, and it's a real
+ * diagnostic trail). Never awaited by the IPC handler: the install can take
+ * minutes (observed up to ~280s from a pristine machine, far longer while a
+ * UAC prompt waits), far longer than it's reasonable to hold an
+ * `ipcMain.handle` call open.
  */
 function pollInstallStatus(sender: WebContents, statusPath: string): void {
   // Closing the installer app mid-install is explicitly supported (the
@@ -205,6 +234,9 @@ function pollInstallStatus(sender: WebContents, statusPath: string): void {
   // actually report?) that an immediate delete would erase. A real-VM
   // validation pass also found that deleting it right after reading made
   // external verification of a "done" state racy for no benefit.
+  const send = (status: InstallStatusEvent): void => {
+    if (!sender.isDestroyed()) sender.send("terminal:install-status", status);
+  };
   pollStatusFile(
     statusPath,
     {
@@ -213,14 +245,13 @@ function pollInstallStatus(sender: WebContents, statusPath: string): void {
       notStartedMessage:
         "Couldn't confirm the installer actually started — a security policy on this machine may have blocked it. Paste the command from your clipboard into PowerShell yourself to see the real error.",
       timedOutMessage: "The installer is taking much longer than expected — check the PowerShell window directly.",
+      closedMessage: INSTALL_WINDOW_CLOSED_MESSAGE,
+      waitWhileAlive: true,
+      onStillWaiting: () => send({ state: "running", message: INSTALL_STILL_WAITING_MESSAGE }),
     },
     (status) => {
       installInFlight = false;
-      const event =
-        status.state === "error" && status.message === TASK_WINDOW_CLOSED_MESSAGE
-          ? { state: "error" as const, message: INSTALL_WINDOW_CLOSED_MESSAGE }
-          : status;
-      if (!sender.isDestroyed()) sender.send("terminal:install-status", event);
+      send(status);
     },
   );
 }
@@ -230,6 +261,12 @@ interface StatusPollOptions {
   overallTimeoutMs: number;
   notStartedMessage: string;
   timedOutMessage: string;
+  /** Used instead of the generic text when the window was closed mid-run. */
+  closedMessage?: string;
+  /** Keep waiting past overallTimeoutMs while the window is alive (see decideStatusPoll). */
+  waitWhileAlive?: boolean;
+  /** Called once when waitWhileAlive keeps a poll going past overallTimeoutMs. */
+  onStillWaiting?: () => void;
 }
 
 /**
@@ -249,6 +286,7 @@ function pollStatusFile(
   let sawRunning = false;
   let reading = false;
   let finished = false;
+  let notifiedStillWaiting = false;
 
   const finish = (status: InstallStatusEvent): void => {
     if (finished) return;
@@ -264,8 +302,13 @@ function pollStatusFile(
       try {
         const status = await readTaskStatus(statusPath);
         if (status?.state === "running") sawRunning = true;
-        const outcome = decideStatusPoll({ ...opts, status, elapsedMs: Date.now() - startedAt, sawRunning });
-        if (outcome) finish(outcome);
+        const decision = decideStatusPoll({ ...opts, status, elapsedMs: Date.now() - startedAt, sawRunning });
+        if (decision && "finish" in decision) {
+          finish(decision.finish);
+        } else if (decision && !notifiedStillWaiting) {
+          notifiedStillWaiting = true;
+          opts.onStillWaiting?.();
+        }
       } finally {
         reading = false;
       }
@@ -353,11 +396,13 @@ async function openInstallTerminal(sender: WebContents): Promise<OpenInstallTerm
     if (platform === "win32") {
       installInFlight = true;
 
-      // An earlier attempt the poll gave up on, whose window is in fact
-      // still running: watch that one again rather than launching a second
-      // install into the same folder.
-      if (lastInstallStatusPath && (await readTaskStatus(lastInstallStatusPath))?.state === "running") {
-        pollInstallStatus(sender, lastInstallStatusPath);
+      // An earlier attempt the poll gave up on whose window is in fact still
+      // running (or still starting, or that has since finished): watch that
+      // one again rather than launching a second install into the same
+      // folder. A finished one is then reported straight away.
+      const previous = await reattachablePath("install", true);
+      if (previous) {
+        pollInstallStatus(sender, previous);
         return {
           ok: true,
           message:
@@ -368,7 +413,6 @@ async function openInstallTerminal(sender: WebContents): Promise<OpenInstallTerm
       }
 
       const statusPath = newInstallStatusPath();
-      lastInstallStatusPath = statusPath;
 
       // The one-liner must NOT appear on powershell.exe's command line:
       // Microsoft Defender's cloud ML flags `-Command "irm <url> | iex"` as
@@ -385,9 +429,14 @@ async function openInstallTerminal(sender: WebContents): Promise<OpenInstallTerm
       // report its real outcome. Single-quoted so the path is taken
       // completely literally: a double-quoted PowerShell string would
       // expand a `$` or backtick if the path ever contained one.
-      const scriptPath = join(tmpdir(), "granted-install.ps1");
+      //
+      // A unique file per attempt (not one fixed name): a window that's slow
+      // to start reads its script late, and a fixed path could by then hold
+      // a LATER attempt's status path — two windows reporting into one file.
+      const scriptPath = join(tmpdir(), `granted-install-${randomUUID()}.ps1`);
       const scriptContents = `$env:GRANTED_STATUS_FILE = ${psSingleQuoted(statusPath)}\r\n${command}\r\n`;
       await writeFile(scriptPath, scriptContents, "utf8");
+      rememberLaunch("install", statusPath);
       // install-windows.ps1 clones into .\granted relative to its working
       // directory. Without an explicit cwd it inherits ours — the app's own
       // folder (or wherever it was launched from) — so start in the user's
@@ -462,26 +511,13 @@ const NOT_WINDOWS: ActionResult = {
   message: "Opening Granted from the installer is only available on Windows so far.",
 };
 
-type GrantedTask = "local-setup" | "start-app";
+type GrantedTask = Exclude<WindowTask, "install">;
 
 // One "Open Granted" step at a time — same reasoning as installInFlight.
 let grantedTaskInFlight = false;
 
-// The status file of the most recent window launched for each task. If an
-// earlier attempt was given up on (timeout) but its window is in fact still
-// running, a retry re-attaches to it instead of starting a second copy.
-const lastTaskStatusPath: Partial<Record<GrantedTask, string>> = {};
-
 function scaffoldDir(): string {
   return join(installDir(), "scaffold");
-}
-
-/** The previous attempt's status file, if that window is still running. */
-async function stillRunningTask(task: GrantedTask): Promise<string | null> {
-  const statusPath = lastTaskStatusPath[task];
-  if (!statusPath) return null;
-  const status = await readTaskStatus(statusPath);
-  return status?.state === "running" ? statusPath : null;
 }
 
 /** Writes a buildTaskScript .ps1 and runs it in its own console window in scaffold/. */
@@ -509,8 +545,8 @@ async function launchScaffoldTask(opts: {
     }),
     "utf8",
   );
+  rememberLaunch(opts.task, statusPath);
   await launchConsoleWindow(scriptPath, scaffoldDir());
-  lastTaskStatusPath[opts.task] = statusPath;
   return statusPath;
 }
 
@@ -538,7 +574,10 @@ async function runLocalSetup(sender: WebContents): Promise<ActionResult> {
     // memory, plus the corpus re-embed) — the wizard has already asked the
     // one question that matters.
     const statusPath =
-      (await stillRunningTask("local-setup")) ??
+      // A finished ("done") earlier attempt counts too: the poll below then
+      // reports it at once and Granted starts, instead of redoing a
+      // half-hour model pull and re-embed.
+      (await reattachablePath("local-setup", true)) ??
       (await launchScaffoldTask({
         task: "local-setup",
         title: "Granted - local setup (Ollama)",
@@ -552,18 +591,16 @@ async function runLocalSetup(sender: WebContents): Promise<ActionResult> {
         overallTimeoutMs: LOCAL_SETUP_TIMEOUT_MS,
         notStartedMessage: "Couldn't confirm the local setup started — check whether a PowerShell window opened.",
         timedOutMessage: "The local setup is taking much longer than expected — check its PowerShell window.",
+        closedMessage: "The local setup window was closed before it finished.",
+        // No waitWhileAlive: LOCAL_SETUP_TIMEOUT_MS stays a hard limit (the
+        // window itself says what it's doing; a retry re-attaches to it).
       },
       (status) => {
         grantedTaskInFlight = false;
         sendTaskStatus(sender, {
           task: "local-setup",
           state: status.state === "done" ? "done" : "error",
-          message:
-            status.state === "done"
-              ? null
-              : status.message === TASK_WINDOW_CLOSED_MESSAGE
-                ? "The local setup window was closed before it finished."
-                : (status.message ?? "The local setup didn't finish."),
+          message: status.state === "done" ? null : (status.message ?? "The local setup didn't finish."),
         });
       },
     );
@@ -622,7 +659,8 @@ async function startGranted(sender: WebContents): Promise<ActionResult> {
   try {
     // A window from an earlier attempt that's still running: wait on it
     // rather than starting a second server on the same port.
-    const existing = await stillRunningTask("start-app");
+    // (A "done" server window means the server exited — never re-attach to that.)
+    const existing = await reattachablePath("start-app", false);
     if (existing) {
       waitThenOpen(() => readTaskStatus(existing));
       return { ok: true, message: "Granted is already starting…" };

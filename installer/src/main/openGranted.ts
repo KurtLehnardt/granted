@@ -9,7 +9,7 @@
  * temp folder and a real HTTP server. ipc.ts does only the Electron glue
  * (IPC handlers, opening console windows, shell.openExternal).
  */
-import { existsSync } from "node:fs";
+import { closeSync, existsSync, openSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ActionResult, ApiKeysInput, GrantedSetupState } from "../shared/ipc";
@@ -21,6 +21,7 @@ import {
   looksLikeGranted,
   parseStatusFile,
   resolveTaskStatus,
+  statusLockPath,
   type StatusFile,
 } from "./ipcPure";
 
@@ -95,9 +96,32 @@ export async function readStatusFile(statusPath: string): Promise<StatusFile | n
   return raw === null ? null : parseStatusFile(raw);
 }
 
+/**
+ * Whether the window that writes `statusPath` is still open. Primary check:
+ * its exclusive lock on `<status>.lock` (STATUS_LOCK_LINE) — Node's open
+ * fails with EBUSY while that window holds it, and succeeds once Windows
+ * has released it at process exit. That can't be fooled by PID reuse.
+ * Fallback when there's no lock file (it couldn't be created, or an older
+ * script): whether the recorded pid exists.
+ */
+export function isStatusWindowAlive(statusPath: string, pid: number): boolean {
+  const lockPath = statusLockPath(statusPath);
+  if (existsSync(lockPath)) {
+    try {
+      closeSync(openSync(lockPath, "r+"));
+      return false;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === "EBUSY" || code === "EPERM" || code === "EACCES") return true;
+      // Anything else (it vanished between the checks, …): fall through to the pid.
+    }
+  }
+  return isProcessAlive(pid);
+}
+
 /** readStatusFile, with a closed task window turned into an error (see resolveTaskStatus). */
 export async function readTaskStatus(statusPath: string): Promise<StatusFile | null> {
-  return resolveTaskStatus(await readStatusFile(statusPath), isProcessAlive);
+  return resolveTaskStatus(await readStatusFile(statusPath), (pid) => isStatusWindowAlive(statusPath, pid));
 }
 
 /**

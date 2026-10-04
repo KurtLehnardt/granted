@@ -18,6 +18,7 @@ import { buildTaskScript, TASK_WINDOW_CLOSED_MESSAGE } from "../ipcPure";
 import {
   getSetupState,
   isProcessAlive,
+  isStatusWindowAlive,
   probeGranted,
   readStatusFile,
   readTaskStatus,
@@ -292,9 +293,39 @@ describe("buildTaskScript run by a real powershell.exe", { skip: process.platfor
         state: "error",
         message: TASK_WINDOW_CLOSED_MESSAGE,
         pid: window.pid,
+        closed: true,
       });
     } finally {
       window.kill();
+    }
+  });
+
+  test("PID reuse can't fake a live window: a released lock means closed, even if that pid now belongs to a running process", async () => {
+    // Simulates Windows handing the closed window's PID to an unrelated
+    // process: the recorded pid is alive (it's this test runner), but the
+    // window's lock file exists and nobody holds it.
+    const statusPath = join(dir, "reused-pid-status.json");
+    await writeFile(statusPath, JSON.stringify({ state: "running", message: null, pid: process.pid }));
+    await writeFile(`${statusPath}.lock`, "");
+    assert.equal(isProcessAlive(process.pid), true, "the pid itself is alive");
+    assert.equal(isStatusWindowAlive(statusPath, process.pid), false, "but the window is not");
+    assert.equal((await readTaskStatus(statusPath))?.closed, true);
+  });
+
+  test("while a real window holds its lock it reads as alive", async () => {
+    const { statusPath, scriptPath } = await writeTask("ping.exe -n 120 127.0.0.1 | Out-Null");
+    const window = spawn("powershell.exe", [...PS_ARGS, scriptPath], { windowsHide: true, stdio: "ignore" });
+    try {
+      let status = null;
+      for (let i = 0; i < 100 && status?.state !== "running"; i++) {
+        await new Promise((r) => setTimeout(r, 200));
+        status = await readTaskStatus(statusPath);
+      }
+      assert.equal(status?.state, "running");
+      assert.equal(existsSync(`${statusPath}.lock`), true, "the window created its lock");
+      assert.equal(isStatusWindowAlive(statusPath, window.pid!), true);
+    } finally {
+      await execFileAsync("taskkill.exe", ["/PID", String(window.pid), "/T", "/F"]).catch(() => {});
     }
   });
 });
