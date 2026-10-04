@@ -6,10 +6,11 @@
   "main": "./out/main/index.js",
   "scripts": {
     "postinstall": "node -e \"console.log('Fetching the Electron binary (~100 MB download on first install, can take a minute)...')\" && install-electron",
-    "dev": "electron-vite dev",
+    "dev": "node scripts/run-electron-vite.mjs dev",
     "build": "electron-vite build",
-    "preview": "electron-vite preview",
-    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json"
+    "preview": "node scripts/run-electron-vite.mjs preview",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "test": "tsx --test \"src/**/__tests__/**/*.test.ts\""
   },
   "engines": {
     "node": ">=22"
@@ -25,6 +26,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "electron": "^44.5.1",
     "electron-vite": "^5.0.0",
+    "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "vite": "^7.0.0"
   }

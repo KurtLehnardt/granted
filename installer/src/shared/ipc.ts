@@ -41,6 +41,27 @@ export interface OpenInstallTerminalResult {
   message: string;
   /** The one-liner command that was run/copied, so the UI can also show it. */
   command: string;
+  /**
+   * Whether a `terminal:install-status` event will eventually follow this
+   * call (currently: only a successful Windows launch). The renderer uses
+   * this — rather than re-deriving "is this Windows" from separately
+   * fetched prereq-check state — to decide whether to keep its UI in a
+   * waiting state until that event arrives.
+   */
+  pollingStarted: boolean;
+}
+
+/**
+ * Pushed from main → renderer once the escape-hatch's spawned install
+ * actually finishes (or is given up on) — see ipc.ts's `pollInstallStatus`.
+ * Currently only ever sent on win32: install-windows.ps1 is the only script
+ * that reports a real sentinel back (macOS/Linux weren't found to have the
+ * same false-success gap in validation, and extending this there is
+ * unverified, not silently assumed done).
+ */
+export interface InstallStatusEvent {
+  state: "running" | "done" | "error";
+  message?: string | null;
 }
 
 /**
@@ -65,4 +86,6 @@ export function isSupportedPlatform(p: string): p is SupportedPlatform {
 export interface GrantedInstallerApi {
   checkPrereqs: () => Promise<PrereqReport>;
   openInstallTerminal: () => Promise<OpenInstallTerminalResult>;
+  /** Subscribe to install-status pushes (see InstallStatusEvent). Returns an unsubscribe function. */
+  onInstallStatus: (listener: (status: InstallStatusEvent) => void) => () => void;
 }
