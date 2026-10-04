@@ -12,7 +12,12 @@ const PLATFORM_LABEL: Record<string, string> = {
   linux: "Linux",
 };
 
-export default function PrereqCheck(): React.JSX.Element {
+interface PrereqCheckProps {
+  /** Called once a Windows install reports it finished successfully. */
+  onInstallComplete: () => void;
+}
+
+export default function PrereqCheck({ onInstallComplete }: PrereqCheckProps): React.JSX.Element {
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [terminalResult, setTerminalResult] = useState<OpenInstallTerminalResult | null>(null);
   const [openingTerminal, setOpeningTerminal] = useState(false);
@@ -40,22 +45,22 @@ export default function PrereqCheck(): React.JSX.Element {
     refreshPrereqs();
   }, [refreshPrereqs]);
 
-  // Automatically re-checks once Windows's install actually finishes, so a
-  // user who just watched "Done." in the console doesn't come back to this
-  // screen and still see two stale red marks with no way to clear them.
+  // Once Windows's install actually finishes, move straight on to the
+  // "Installation complete" screen — the console's "Done. Next steps:" is
+  // otherwise the only sign it worked, and this screen's button would just
+  // invite running the whole install again.
   useEffect(() => {
     return window.api.onInstallStatus((status: InstallStatusEvent) => {
       setWaitingForInstall(false);
       if (status.state === "done") {
-        setTerminalResult((prev) => (prev ? { ...prev, message: "Install finished — re-checking…" } : prev));
-        refreshPrereqs();
+        onInstallComplete();
       } else if (status.state === "error") {
         setTerminalResult((prev) =>
           prev ? { ...prev, ok: false, message: status.message ?? "The install didn't finish successfully." } : prev,
         );
       }
     });
-  }, [refreshPrereqs]);
+  }, [onInstallComplete]);
 
   const handleOpenTerminal = (): void => {
     setOpeningTerminal(true);

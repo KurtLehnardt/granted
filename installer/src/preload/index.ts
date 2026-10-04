@@ -1,10 +1,14 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { IpcRendererEvent } from "electron";
 import type {
+  ActionResult,
+  ApiKeysInput,
   GrantedInstallerApi,
+  GrantedSetupState,
   InstallStatusEvent,
   OpenInstallTerminalResult,
   PrereqReport,
+  TaskStatusEvent,
 } from "../shared/ipc";
 
 /**
@@ -21,6 +25,16 @@ const api: GrantedInstallerApi = {
     ipcRenderer.on("terminal:install-status", handler);
     return () => ipcRenderer.removeListener("terminal:install-status", handler);
   },
+  getSetupState: (): Promise<GrantedSetupState> => ipcRenderer.invoke("granted:get-setup-state"),
+  saveApiKeys: (keys: ApiKeysInput): Promise<ActionResult> => ipcRenderer.invoke("granted:save-api-keys", keys),
+  runLocalSetup: (): Promise<ActionResult> => ipcRenderer.invoke("granted:run-local-setup"),
+  startGranted: (): Promise<ActionResult> => ipcRenderer.invoke("granted:start"),
+  onTaskStatus: (listener: (status: TaskStatusEvent) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, status: TaskStatusEvent): void => listener(status);
+    ipcRenderer.on("granted:task-status", handler);
+    return () => ipcRenderer.removeListener("granted:task-status", handler);
+  },
+  quit: (): void => ipcRenderer.send("app:quit"),
 };
 
 contextBridge.exposeInMainWorld("api", api);

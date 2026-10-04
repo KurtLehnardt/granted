@@ -1,12 +1,22 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
+  applyApiKeys,
+  buildTaskScript,
+  envIsLocalConfigured,
   escapeForAppleScript,
+  grantedPort,
+  isRealKey,
+  looksLikeGranted,
   mergeRegistryPath,
   newInstallStatusPath,
   parseInstallStatusJson,
+  parseStatusFile,
   parseVersionFromOutput,
   psSingleQuoted,
+  resolveTaskStatus,
+  TASK_WINDOW_CLOSED_MESSAGE,
+  upsertEnv,
 } from "../ipcPure";
 
 describe("parseVersionFromOutput", () => {
@@ -164,5 +174,200 @@ describe("newInstallStatusPath", () => {
     for (const p of [a, b]) {
       assert.match(p, /granted-install-status-[0-9a-f-]{36}\.json$/i);
     }
+  });
+});
+
+// scaffold/.env.example's real shape (the placeholders are what a fresh copy holds).
+const ENV_EXAMPLE = [
+  "# comment",
+  "OPENAI_API_KEY=sk-...",
+  "ANTHROPIC_API_KEY=sk-ant-...",
+  "EXA_API_KEY=",
+  "NEXT_PUBLIC_FLAG_R5_DEEP_ANALYSIS=true",
+  "",
+].join("\n");
+
+describe("applyApiKeys", () => {
+  test("fills .env.example's placeholders and leaves the rest of the file alone", () => {
+    const r = applyApiKeys(ENV_EXAMPLE, { OPENAI_API_KEY: "sk-real", ANTHROPIC_API_KEY: "sk-ant-real", EXA_API_KEY: "" });
+    assert.match(r.text, /^OPENAI_API_KEY=sk-real$/m);
+    assert.match(r.text, /^ANTHROPIC_API_KEY=sk-ant-real$/m);
+    assert.match(r.text, /^EXA_API_KEY=$/m);
+    assert.match(r.text, /^# comment$/m);
+    assert.deepEqual(r.missing, []);
+  });
+
+  test("a blank field keeps the key already set", () => {
+    const existing = ENV_EXAMPLE.replace("OPENAI_API_KEY=sk-...", "OPENAI_API_KEY=sk-keep-me");
+    const r = applyApiKeys(existing, { OPENAI_API_KEY: "", ANTHROPIC_API_KEY: "sk-ant-x", EXA_API_KEY: "" });
+    assert.match(r.text, /^OPENAI_API_KEY=sk-keep-me$/m);
+    assert.deepEqual(r.missing, []);
+  });
+
+  test("a key the user typed replaces the one already set (never silently dropped)", () => {
+    const existing = ENV_EXAMPLE.replace("OPENAI_API_KEY=sk-...", "OPENAI_API_KEY=sk-stale");
+    const r = applyApiKeys(existing, { OPENAI_API_KEY: "sk-new", ANTHROPIC_API_KEY: "sk-ant-x", EXA_API_KEY: "" });
+    assert.match(r.text, /^OPENAI_API_KEY=sk-new$/m);
+    assert.doesNotMatch(r.text, /sk-stale/);
+  });
+
+  test("reports required keys still missing, and trims pasted whitespace", () => {
+    const r = applyApiKeys(ENV_EXAMPLE, { OPENAI_API_KEY: "  sk-real \n", ANTHROPIC_API_KEY: "   ", EXA_API_KEY: "" });
+    assert.match(r.text, /^OPENAI_API_KEY=sk-real$/m);
+    assert.deepEqual(r.missing, ["ANTHROPIC_API_KEY"]);
+  });
+
+  test("a key containing $ is written literally (String.replace's $-patterns must not apply)", () => {
+    const r = applyApiKeys(ENV_EXAMPLE, { OPENAI_API_KEY: "sk-a$&b$1", ANTHROPIC_API_KEY: "sk-ant-x", EXA_API_KEY: "" });
+    assert.match(r.text, /^OPENAI_API_KEY=sk-a\$&b\$1$/m);
+  });
+});
+
+describe("upsertEnv", () => {
+  test("appends a key that isn't present", () => {
+    assert.equal(upsertEnv("A=1\n", "B", "2"), "A=1\nB=2\n");
+  });
+});
+
+describe("isRealKey", () => {
+  test(".env.example's placeholders and blanks don't count as set", () => {
+    assert.equal(isRealKey(""), false);
+    assert.equal(isRealKey("sk-..."), false);
+    assert.equal(isRealKey("sk-ant-..."), false);
+    assert.equal(isRealKey("sk-real"), true);
+  });
+});
+
+describe("envIsLocalConfigured", () => {
+  // What setup-local.mjs writes (step 6) — BEFORE the corpus re-embed (step 7).
+  const LOCAL_ENV =
+    "LLM_PROVIDER=ollama\nEMBEDDINGS_BASE_URL=http://localhost:11434/v1\nEMBEDDINGS_MODEL=nomic-embed-text\n";
+  // What 3-embed.mjs --target=local writes last, on success.
+  const LOCAL_META = JSON.stringify({ count: 4698, embeddingModel: "nomic-embed-text", dims: 768 });
+
+  test("needs the env lines AND a finished local re-embed with the same model", () => {
+    assert.equal(envIsLocalConfigured(LOCAL_ENV, LOCAL_META), true);
+    assert.equal(envIsLocalConfigured(LOCAL_ENV, "﻿" + LOCAL_META), true, "BOM tolerated");
+  });
+
+  test("a setup:local that failed during the re-embed (env written, no local corpus) does NOT count", () => {
+    assert.equal(envIsLocalConfigured(LOCAL_ENV, null), false);
+  });
+
+  test("a local corpus embedded with a different model (dims mismatch) does NOT count", () => {
+    assert.equal(
+      envIsLocalConfigured(LOCAL_ENV, JSON.stringify({ embeddingModel: "text-embedding-3-small", dims: 512 })),
+      false,
+    );
+  });
+
+  test("hosted env, or junk corpus metadata, does not count", () => {
+    assert.equal(envIsLocalConfigured(ENV_EXAMPLE, LOCAL_META), false);
+    assert.equal(envIsLocalConfigured(LOCAL_ENV, "not json"), false);
+  });
+});
+
+describe("parseStatusFile / resolveTaskStatus", () => {
+  test("keeps buildTaskScript's pid alongside install-windows.ps1's fields", () => {
+    assert.deepEqual(parseStatusFile('{"state":"running","message":null,"pid":4242}'), {
+      state: "running",
+      message: null,
+      pid: 4242,
+    });
+    assert.deepEqual(parseStatusFile('﻿{"state":"done"}'), { state: "done", message: null });
+    assert.equal(parseStatusFile("garbage"), null);
+  });
+
+  test("a running status whose window process is gone means the window was closed", () => {
+    const running = { state: "running" as const, message: null, pid: 4242 };
+    assert.deepEqual(resolveTaskStatus(running, () => true), running);
+    assert.deepEqual(resolveTaskStatus(running, () => false), {
+      state: "error",
+      message: TASK_WINDOW_CLOSED_MESSAGE,
+      pid: 4242,
+    });
+  });
+
+  test("finished statuses, statuses without a pid (install-windows.ps1's) and null pass through", () => {
+    const done = { state: "done" as const, message: null, pid: 1 };
+    assert.deepEqual(resolveTaskStatus(done, () => false), done);
+    const noPid = { state: "running" as const, message: null };
+    assert.deepEqual(resolveTaskStatus(noPid, () => false), noPid);
+    assert.equal(resolveTaskStatus(null, () => false), null);
+  });
+});
+
+describe("buildTaskScript", () => {
+  const script = buildTaskScript({
+    title: "Granted",
+    cwd: "C:\\Users\\O'Brien\\granted\\scaffold",
+    statusPath: "C:\\Temp\\$x\\s.json",
+    command: "npm.cmd run dev",
+    failureMessage: "It didn't work.",
+  });
+
+  test("single-quotes every interpolated path/message (no $ or backtick expansion; ' doubled)", () => {
+    assert.match(script, /Set-Location -LiteralPath 'C:\\Users\\O''Brien\\granted\\scaffold'/);
+    assert.match(script, /\$StatusPath = 'C:\\Temp\\\$x\\s\.json'/);
+    assert.match(script, /Write-Status "error" 'It didn''t work\.'/);
+  });
+
+  test("records the window's own pid in every status write (closed-window detection)", () => {
+    assert.match(script, /@\{ state = \$state; message = \$message; pid = \$PID \}/);
+  });
+
+  test("reports running before the command and done/error from its exit code after", () => {
+    const running = script.indexOf('Write-Status "running"');
+    const command = script.indexOf("npm.cmd run dev");
+    const exitCheck = script.indexOf("if ($LASTEXITCODE -eq 0)");
+    assert.ok(running > -1 && running < command && command < exitCheck);
+  });
+
+  test("uses CRLF line endings", () => {
+    assert.ok(script.includes("\r\n"));
+    assert.ok(!/[^\r]\n/.test(script));
+  });
+});
+
+describe("buildTaskScript env", () => {
+  test("sets each variable single-quoted, before the command runs", () => {
+    const script = buildTaskScript({
+      title: "t",
+      cwd: "C:\\x",
+      statusPath: "C:\\s.json",
+      command: "npm.cmd run dev",
+      failureMessage: "f",
+      env: { PORT: "3000", ODD: "it's $x" },
+    });
+    assert.match(script, /^\$env:PORT = '3000'$/m);
+    assert.match(script, /^\$env:ODD = 'it''s \$x'$/m);
+    assert.ok(script.indexOf("$env:PORT") < script.indexOf("npm.cmd run dev"));
+  });
+
+  test("refuses a variable name that isn't a plain identifier (it's interpolated unquoted)", () => {
+    assert.throws(() =>
+      buildTaskScript({ title: "t", cwd: "c", statusPath: "s", command: "c", failureMessage: "f", env: { "X; rm": "1" } }),
+    );
+  });
+});
+
+describe("grantedPort", () => {
+  test("defaults to 3000 (Next's default, what the README documents)", () => {
+    assert.equal(grantedPort(undefined), 3000);
+    assert.equal(grantedPort(""), 3000);
+  });
+
+  test("honours a valid GRANTED_PORT and ignores junk", () => {
+    assert.equal(grantedPort("3987"), 3987);
+    assert.equal(grantedPort("abc"), 3000);
+    assert.equal(grantedPort("70000"), 3000);
+    assert.equal(grantedPort("-1"), 3000);
+  });
+});
+
+describe("looksLikeGranted", () => {
+  test("matches Granted's own <title>, not some other app on port 3000", () => {
+    assert.equal(looksLikeGranted("<title>Granted — federal funding intelligence for everyone</title>"), true);
+    assert.equal(looksLikeGranted("<title>My other dev server</title>"), false);
   });
 });

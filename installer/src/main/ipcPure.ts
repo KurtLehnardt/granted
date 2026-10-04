@@ -108,3 +108,182 @@ export function psSingleQuoted(value: string): string {
 export function newInstallStatusPath(): string {
   return join(tmpdir(), `granted-install-status-${randomUUID()}.json`);
 }
+
+// ---------------------------------------------------------------------------
+// "Open Granted" — .env.local handling. Same contract as
+// scaffold/scripts/setup.mjs (re-implemented, not imported, for the same
+// reason NODE_MAJOR_MIN is: installer/ doesn't depend on scaffold/): never
+// overwrite a real value that's already set, and treat .env.example's
+// placeholders as unset.
+// ---------------------------------------------------------------------------
+
+/** Value already set for `key` in env text, or "" if blank/absent. */
+export function currentEnvValue(text: string, key: string): string {
+  const m = text.match(new RegExp(`^${key}=(.*)$`, "m"));
+  return m ? m[1].trim() : "";
+}
+
+/** Replace `key=...` in place, or append it if the key isn't present. */
+export function upsertEnv(text: string, key: string, value: string): string {
+  const line = `${key}=${value}`;
+  if (new RegExp(`^${key}=.*$`, "m").test(text)) {
+    return text.replace(new RegExp(`^${key}=.*$`, "m"), () => line);
+  }
+  return `${text.replace(/\s*$/, "")}\n${line}\n`;
+}
+
+/** .env.example ships `sk-...` / `sk-ant-...` as placeholders — those count as unset. */
+export function isRealKey(value: string): boolean {
+  return value !== "" && !value.startsWith("sk-...") && value !== "sk-ant-...";
+}
+
+/**
+ * Whether `npm run setup:local` got all the way through. Its env lines alone
+ * aren't proof: setup-local.mjs writes them (step 6) BEFORE the corpus
+ * re-embed (step 7), which can still fail — leaving an .env.local that
+ * points at Ollama with a corpus whose vectors don't match (broken
+ * retrieval). The re-embed's very last write is data/local/corpus-meta.json,
+ * stamped with the model it used, so that must exist and match too.
+ */
+export function envIsLocalConfigured(text: string, localCorpusMetaJson: string | null): boolean {
+  if (currentEnvValue(text, "LLM_PROVIDER") !== "ollama" || currentEnvValue(text, "EMBEDDINGS_BASE_URL") === "") {
+    return false;
+  }
+  try {
+    const raw = localCorpusMetaJson ?? "";
+    const meta = JSON.parse(raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw) as { embeddingModel?: unknown; dims?: unknown };
+    const model = currentEnvValue(text, "EMBEDDINGS_MODEL");
+    return model !== "" && meta.embeddingModel === model && typeof meta.dims === "number" && meta.dims > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Merge the form's keys into env text. A key the user typed replaces
+ * whatever was there — they asked for it explicitly (setup.mjs's "never
+ * overwrite" rule exists because it never re-prompts for a key that's
+ * already set; this form does show those fields). A blank field keeps the
+ * existing value. `missing` lists required keys still unset afterwards, so
+ * the caller can refuse to start an app that can't work yet.
+ */
+export function applyApiKeys(
+  text: string,
+  keys: { OPENAI_API_KEY: string; ANTHROPIC_API_KEY: string; EXA_API_KEY: string },
+): { text: string; missing: string[] } {
+  let out = text;
+  for (const [key, raw] of Object.entries(keys)) {
+    const value = raw.trim();
+    if (value !== "") out = upsertEnv(out, key, value);
+  }
+  const missing = ["OPENAI_API_KEY", "ANTHROPIC_API_KEY"].filter((k) => !isRealKey(currentEnvValue(out, k)));
+  return { text: out, missing };
+}
+
+// ---------------------------------------------------------------------------
+// "Open Granted" — running scaffold commands in their own console window.
+// ---------------------------------------------------------------------------
+
+/**
+ * The .ps1 that runs one scaffold command in its own visible PowerShell
+ * window and reports the outcome through a status file, in the same
+ * {"state": ...} format install-windows.ps1 writes (so
+ * parseInstallStatusJson reads both) plus the window's own `pid` — so the
+ * app can tell "still running" from "the user closed the window", which
+ * otherwise looks identical (nothing ever writes done/error). Everything
+ * interpolated is single-quoted (psSingleQuoted), so a `$` or backtick in a
+ * path is taken literally. `command` is only ever a fixed string chosen by
+ * the main process, never user input.
+ */
+export function buildTaskScript(opts: {
+  title: string;
+  cwd: string;
+  statusPath: string;
+  command: string;
+  failureMessage: string;
+  /** Extra environment variables for the command (e.g. PORT for `npm run dev`). */
+  env?: Record<string, string>;
+}): string {
+  const envLines = Object.entries(opts.env ?? {}).map(([key, value]) => {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) throw new Error(`Invalid environment variable name: ${key}`);
+    return `$env:${key} = ${psSingleQuoted(value)}`;
+  });
+  return [
+    `$Host.UI.RawUI.WindowTitle = ${psSingleQuoted(opts.title)}`,
+    `$StatusPath = ${psSingleQuoted(opts.statusPath)}`,
+    ...envLines,
+    "function Write-Status($state, $message) {",
+    "  try {",
+    "    @{ state = $state; message = $message; pid = $PID } | ConvertTo-Json -Compress | Set-Content -Path $StatusPath -Encoding utf8 -ErrorAction Stop",
+    "  } catch {",
+    '    Write-Host "  [!] Couldn\'t write status to $StatusPath -- $($_.Exception.Message)" -ForegroundColor Yellow',
+    "  }",
+    "}",
+    'Write-Status "running" $null',
+    `Set-Location -LiteralPath ${psSingleQuoted(opts.cwd)}`,
+    opts.command,
+    "if ($LASTEXITCODE -eq 0) {",
+    '  Write-Status "done" $null',
+    "} else {",
+    `  Write-Status "error" ${psSingleQuoted(opts.failureMessage)}`,
+    `  Write-Host "\`n  [x] " -NoNewline -ForegroundColor Red; Write-Host ${psSingleQuoted(opts.failureMessage)} -ForegroundColor Red`,
+    "}",
+    "",
+  ].join("\r\n");
+}
+
+/** A status file's content: install-windows.ps1's fields, plus the window's pid when buildTaskScript wrote it. */
+export type StatusFile = InstallStatusEvent & { pid?: number };
+
+/** parseInstallStatusJson, keeping buildTaskScript's `pid` too. */
+export function parseStatusFile(raw: string): StatusFile | null {
+  const status = parseInstallStatusJson(raw);
+  if (!status) return null;
+  try {
+    const withoutBom = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
+    const pid = (JSON.parse(withoutBom) as { pid?: unknown }).pid;
+    return Number.isInteger(pid) && (pid as number) > 0 ? { ...status, pid: pid as number } : status;
+  } catch {
+    return status;
+  }
+}
+
+export const TASK_WINDOW_CLOSED_MESSAGE = "Its PowerShell window was closed before it finished.";
+
+/**
+ * A "running" status whose window process is gone means the user closed the
+ * window (PowerShell died before it could write done/error) — report that
+ * as an error now, rather than waiting out a timeout of up to two hours.
+ */
+export function resolveTaskStatus(status: StatusFile | null, isAlive: (pid: number) => boolean): StatusFile | null {
+  if (status?.state === "running" && status.pid !== undefined && !isAlive(status.pid)) {
+    return { state: "error", message: TASK_WINDOW_CLOSED_MESSAGE, pid: status.pid };
+  }
+  return status;
+}
+
+/** A fresh, unique status-file path for one "Open Granted" step (see newInstallStatusPath). */
+export function newTaskStatusPath(task: string): string {
+  return join(tmpdir(), `granted-${task}-status-${randomUUID()}.json`);
+}
+
+/**
+ * The port Granted's `npm run dev` serves on: 3000 (Next's default, what the
+ * README documents) unless GRANTED_PORT overrides it — which lets the
+ * end-to-end tests run on a machine where a real Granted is already up.
+ */
+export function grantedPort(envValue: string | undefined): number {
+  const n = Number(envValue);
+  return Number.isInteger(n) && n > 0 && n < 65536 ? n : 3000;
+}
+
+/**
+ * Whether an HTTP response body is Granted's own page — the app's <title> is
+ * "<brand> — federal funding intelligence for everyone". Checked before
+ * opening the browser so that some OTHER app already holding port 3000 is
+ * never presented as Granted. (Granted's own dev error page doesn't match
+ * either — callers word their messages to allow for that.)
+ */
+export function looksLikeGranted(html: string): boolean {
+  return /federal funding intelligence/i.test(html);
+}
