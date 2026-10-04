@@ -262,6 +262,38 @@ export function resolveTaskStatus(status: StatusFile | null, isAlive: (pid: numb
   return status;
 }
 
+/**
+ * One tick of a status-file poll (ipc.ts's pollStatusFile): the event to
+ * finish with, or null to keep waiting. `status` should already have been
+ * through resolveTaskStatus, so a closed window arrives here as an error.
+ *
+ * The overall timeout only applies when there's no pid to watch (a status
+ * file from an older install-windows.ps1). While a window that reports its
+ * pid is alive, it's genuinely still working — a real Windows 11 run sat at
+ * a UAC prompt for 12+ minutes — so giving up would be wrong, and worse:
+ * it re-enabled the button, and a second click started a concurrent
+ * install. Closing the window is how a user cancels.
+ */
+export function decideStatusPoll(opts: {
+  status: StatusFile | null;
+  elapsedMs: number;
+  sawRunning: boolean;
+  startedTimeoutMs: number;
+  overallTimeoutMs: number;
+  notStartedMessage: string;
+  timedOutMessage: string;
+}): InstallStatusEvent | null {
+  const { status } = opts;
+  if (status?.state === "done" || status?.state === "error") return { state: status.state, message: status.message ?? null };
+  if (!opts.sawRunning && status?.state !== "running" && opts.elapsedMs > opts.startedTimeoutMs) {
+    return { state: "error", message: opts.notStartedMessage };
+  }
+  if (opts.elapsedMs > opts.overallTimeoutMs && status?.pid === undefined) {
+    return { state: "error", message: opts.timedOutMessage };
+  }
+  return null;
+}
+
 /** A fresh, unique status-file path for one "Open Granted" step (see newInstallStatusPath). */
 export function newTaskStatusPath(task: string): string {
   return join(tmpdir(), `granted-${task}-status-${randomUUID()}.json`);

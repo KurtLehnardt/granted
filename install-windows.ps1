@@ -23,10 +23,15 @@ $ErrorActionPreference = "Stop"
 # STATUS_FILE is set by the GUI to a path that matches what it's polling;
 # falls back to a fixed name so this script still no-ops safely when run
 # standalone (copy-pasted into a terminal by hand, as the README documents).
+# `pid` is this console window's own PowerShell process: while it's alive the
+# GUI keeps waiting however long a UAC prompt sits unanswered, and once it's
+# gone without a done/error the GUI knows the window was closed (a real
+# Windows 11 run went past the GUI's old fixed 10-minute limit at a UAC
+# prompt, and a second click then started a concurrent install).
 $StatusPath = if ($env:GRANTED_STATUS_FILE) { $env:GRANTED_STATUS_FILE } else { Join-Path $env:TEMP "granted-install-status.json" }
 function Write-Status($state, $message) {
   try {
-    $payload = @{ state = $state; message = $message } | ConvertTo-Json -Compress
+    $payload = @{ state = $state; message = $message; pid = $PID } | ConvertTo-Json -Compress
     Set-Content -Path $StatusPath -Value $payload -Encoding utf8 -ErrorAction Stop
   } catch {
     # Never let status reporting itself break the install -- but don't go

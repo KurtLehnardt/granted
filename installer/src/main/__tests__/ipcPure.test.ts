@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   applyApiKeys,
   buildTaskScript,
+  decideStatusPoll,
   envIsLocalConfigured,
   escapeForAppleScript,
   grantedPort,
@@ -326,6 +327,71 @@ describe("buildTaskScript", () => {
   test("uses CRLF line endings", () => {
     assert.ok(script.includes("\r\n"));
     assert.ok(!/[^\r]\n/.test(script));
+  });
+});
+
+describe("decideStatusPoll", () => {
+  const OPTS = {
+    startedTimeoutMs: 10_000,
+    overallTimeoutMs: 600_000,
+    notStartedMessage: "not started",
+    timedOutMessage: "timed out",
+  };
+  const MINUTE = 60_000;
+
+  test("finishes with done/error as soon as the file says so", () => {
+    assert.deepEqual(
+      decideStatusPoll({ ...OPTS, status: { state: "done", message: null, pid: 5 }, elapsedMs: 1000, sawRunning: true }),
+      { state: "done", message: null },
+    );
+    assert.deepEqual(
+      decideStatusPoll({ ...OPTS, status: { state: "error", message: "boom" }, elapsedMs: 1000, sawRunning: true }),
+      { state: "error", message: "boom" },
+    );
+  });
+
+  test("REGRESSION (real Windows 11 run): a live window sat at a UAC prompt for 12+ minutes is NOT given up on", () => {
+    // The old fixed 10-minute limit fired here, re-enabled the button, and a
+    // second click started a concurrent install.
+    for (const minutes of [11, 30, 120]) {
+      assert.equal(
+        decideStatusPoll({
+          ...OPTS,
+          status: { state: "running", message: null, pid: 4242 },
+          elapsedMs: minutes * MINUTE,
+          sawRunning: true,
+        }),
+        null,
+        `still waiting at ${minutes} min`,
+      );
+    }
+  });
+
+  test("a status with no pid (an older install-windows.ps1) keeps the old 10-minute limit", () => {
+    assert.equal(
+      decideStatusPoll({ ...OPTS, status: { state: "running", message: null }, elapsedMs: 9 * MINUTE, sawRunning: true }),
+      null,
+    );
+    assert.deepEqual(
+      decideStatusPoll({ ...OPTS, status: { state: "running", message: null }, elapsedMs: 11 * MINUTE, sawRunning: true }),
+      { state: "error", message: "timed out" },
+    );
+  });
+
+  test("never reporting running within startedTimeoutMs is reported as not started", () => {
+    assert.equal(decideStatusPoll({ ...OPTS, status: null, elapsedMs: 5000, sawRunning: false }), null);
+    assert.deepEqual(decideStatusPoll({ ...OPTS, status: null, elapsedMs: 11_000, sawRunning: false }), {
+      state: "error",
+      message: "not started",
+    });
+  });
+
+  test("a window closed mid-run (resolved to an error by resolveTaskStatus) finishes immediately", () => {
+    const closed = resolveTaskStatus({ state: "running", message: null, pid: 4242 }, () => false);
+    assert.deepEqual(decideStatusPoll({ ...OPTS, status: closed, elapsedMs: 2000, sawRunning: true }), {
+      state: "error",
+      message: TASK_WINDOW_CLOSED_MESSAGE,
+    });
   });
 });
 

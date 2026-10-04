@@ -8,6 +8,7 @@ import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import {
   buildTaskScript,
+  decideStatusPoll,
   escapeForAppleScript,
   grantedPort,
   mergeRegistryPath,
@@ -21,7 +22,6 @@ import {
 import {
   getSetupState,
   probeGranted,
-  readStatusFile,
   readTaskStatus,
   saveApiKeys,
   waitForGrantedToStart,
@@ -157,6 +157,9 @@ async function checkPrereqs(): Promise<PrereqReport> {
 // than leaving it alone — tracked as a follow-up, not silently assumed
 // covered.
 const STATUS_STARTED_TIMEOUT_MS = 10_000;
+// Only applies to a status file with no pid in it (an older
+// install-windows.ps1) — while the window that reports its pid is alive,
+// the poll keeps waiting however long it takes (see decideStatusPoll).
 const STATUS_OVERALL_TIMEOUT_MS = 10 * 60_000;
 const STATUS_POLL_INTERVAL_MS = 1_000;
 
@@ -166,6 +169,16 @@ const STATUS_POLL_INTERVAL_MS = 1_000;
 // against the same target directory: the old code re-enabled its button as
 // soon as `spawn` resolved (tens of ms), not when the install finished.
 let installInFlight = false;
+
+// The most recent install attempt's status file. If the poll gave up on it
+// (e.g. it didn't report "running" within STATUS_STARTED_TIMEOUT_MS on a
+// slow, AV-heavy machine) but that window turns out to be running after
+// all, the next click re-attaches to it instead of starting a second,
+// concurrent install into the same folder.
+let lastInstallStatusPath: string | null = null;
+
+const INSTALL_WINDOW_CLOSED_MESSAGE =
+  "The installer's PowerShell window was closed before it finished. Click \"Open a terminal for me\" to start it again.";
 
 /**
  * Polls statusPath until install-windows.ps1 reports "done"/"error", or we
@@ -203,7 +216,11 @@ function pollInstallStatus(sender: WebContents, statusPath: string): void {
     },
     (status) => {
       installInFlight = false;
-      if (!sender.isDestroyed()) sender.send("terminal:install-status", status);
+      const event =
+        status.state === "error" && status.message === TASK_WINDOW_CLOSED_MESSAGE
+          ? { state: "error" as const, message: INSTALL_WINDOW_CLOSED_MESSAGE }
+          : status;
+      if (!sender.isDestroyed()) sender.send("terminal:install-status", event);
     },
   );
 }
@@ -213,24 +230,21 @@ interface StatusPollOptions {
   overallTimeoutMs: number;
   notStartedMessage: string;
   timedOutMessage: string;
-  /** How to read the file — defaults to readStatusFile; task windows use readTaskStatus (closed-window detection). */
-  read?: (statusPath: string) => Promise<InstallStatusEvent | null>;
 }
 
 /**
- * Polls a status file (install-windows.ps1's, or a buildTaskScript one)
- * until it reports "done"/"error", never reports "running" within
- * startedTimeoutMs, or overallTimeoutMs passes — then calls onFinish
- * exactly once. A tick is skipped while the previous one's read is still in
- * flight (a slow read under AV/disk contention can outlast the interval),
- * so two ticks can never both see "done" and finish twice.
+ * Polls a status file (install-windows.ps1's, or a buildTaskScript one) —
+ * through readTaskStatus, so a window that was closed mid-run reads as an
+ * error at once — until decideStatusPoll says it's finished, then calls
+ * onFinish exactly once. A tick is skipped while the previous one's read is
+ * still in flight (a slow read under AV/disk contention can outlast the
+ * interval), so two ticks can never both see "done" and finish twice.
  */
 function pollStatusFile(
   statusPath: string,
   opts: StatusPollOptions,
   onFinish: (status: InstallStatusEvent) => void,
 ): void {
-  const read = opts.read ?? readStatusFile;
   const startedAt = Date.now();
   let sawRunning = false;
   let reading = false;
@@ -248,17 +262,10 @@ function pollStatusFile(
     reading = true;
     void (async (): Promise<void> => {
       try {
-        const elapsed = Date.now() - startedAt;
-        const status = await read(statusPath);
+        const status = await readTaskStatus(statusPath);
         if (status?.state === "running") sawRunning = true;
-
-        if (status?.state === "done" || status?.state === "error") {
-          finish({ state: status.state, message: status.message ?? null });
-        } else if (!sawRunning && elapsed > opts.startedTimeoutMs) {
-          finish({ state: "error", message: opts.notStartedMessage });
-        } else if (elapsed > opts.overallTimeoutMs) {
-          finish({ state: "error", message: opts.timedOutMessage });
-        }
+        const outcome = decideStatusPoll({ ...opts, status, elapsedMs: Date.now() - startedAt, sawRunning });
+        if (outcome) finish(outcome);
       } finally {
         reading = false;
       }
@@ -345,7 +352,23 @@ async function openInstallTerminal(sender: WebContents): Promise<OpenInstallTerm
 
     if (platform === "win32") {
       installInFlight = true;
+
+      // An earlier attempt the poll gave up on, whose window is in fact
+      // still running: watch that one again rather than launching a second
+      // install into the same folder.
+      if (lastInstallStatusPath && (await readTaskStatus(lastInstallStatusPath))?.state === "running") {
+        pollInstallStatus(sender, lastInstallStatusPath);
+        return {
+          ok: true,
+          message:
+            "The installer from before is still running in its PowerShell window — this screen will update on its own once it finishes.",
+          command,
+          pollingStarted: true,
+        };
+      }
+
       const statusPath = newInstallStatusPath();
+      lastInstallStatusPath = statusPath;
 
       // The one-liner must NOT appear on powershell.exe's command line:
       // Microsoft Defender's cloud ML flags `-Command "irm <url> | iex"` as
@@ -529,7 +552,6 @@ async function runLocalSetup(sender: WebContents): Promise<ActionResult> {
         overallTimeoutMs: LOCAL_SETUP_TIMEOUT_MS,
         notStartedMessage: "Couldn't confirm the local setup started — check whether a PowerShell window opened.",
         timedOutMessage: "The local setup is taking much longer than expected — check its PowerShell window.",
-        read: readTaskStatus,
       },
       (status) => {
         grantedTaskInFlight = false;
