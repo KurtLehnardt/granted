@@ -1,11 +1,18 @@
 import { clipboard, ipcMain } from "electron";
 import type { WebContents } from "electron";
 import { execFile, spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
+import {
+  escapeForAppleScript,
+  mergeRegistryPath,
+  newInstallStatusPath,
+  parseInstallStatusJson,
+  parseVersionFromOutput,
+  psSingleQuoted,
+} from "./ipcPure";
 import {
   INSTALL_ONE_LINERS,
   NODE_MAJOR_MIN,
@@ -21,21 +28,15 @@ const execFileAsync = promisify(execFile);
 /**
  * Runs `<cmd> --version` via array-arg execFile (never a shell string), and
  * extracts the first `major.minor.patch`-shaped version number it can find
- * in stdout. Missing binaries / non-zero exits are reported as
- * `present: false`, not thrown — a prereq check must never crash the UI.
+ * in stdout (parseVersionFromOutput, in ./ipcPure). Missing binaries /
+ * non-zero exits are reported as `present: false`, not thrown — a prereq
+ * check must never crash the UI.
  */
 async function checkVersionedTool(cmd: string, args: string[]): Promise<ToolCheckResult> {
   try {
     const { stdout } = await execFileAsync(cmd, args, { timeout: 5000, windowsHide: true });
-    const match = stdout.match(/(\d+)\.(\d+)\.(\d+)/);
-    if (!match) {
-      return { present: true, version: stdout.trim() || null, major: null };
-    }
-    return {
-      present: true,
-      version: match[0],
-      major: Number.parseInt(match[1], 10),
-    };
+    const { version, major } = parseVersionFromOutput(stdout);
+    return { present: true, version, major };
   } catch (err) {
     const code = (err as NodeJS.ErrnoException)?.code;
     if (code === "ENOENT") {
@@ -66,9 +67,11 @@ async function checkVersionedTool(cmd: string, args: string[]): Promise<ToolChec
 // exist there too (e.g. a Homebrew install in a separate Terminal, then
 // "Check again" without relaunching the GUI), but that's unverified, not
 // assumed safe — a follow-up, like the InstallStatusEvent scoping note
-// above for the separate false-success gap.
+// below for the separate false-success gap.
 // Fixed at module load, before anything can refresh/mutate process.env.PATH
-// — the pristine baseline refreshWindowsPathEnv always rebuilds from below.
+// — the pristine baseline refreshWindowsPathEnv always rebuilds from below
+// (see mergeRegistryPath, in ./ipcPure, for the actual merge/dedupe logic
+// and its real-bug history).
 const ORIGINAL_PATH = process.env["PATH"] ?? "";
 
 async function refreshWindowsPathEnv(): Promise<void> {
@@ -83,34 +86,8 @@ async function refreshWindowsPathEnv(): Promise<void> {
       ],
       { timeout: 5000, windowsHide: true },
     );
-    // Rebuilds from ORIGINAL_PATH every call rather than appending to
-    // whatever process.env.PATH currently is. A real validation pass
-    // caught the append version growing unbounded: every failed check
-    // re-ran this and tacked on a full fresh copy of the registry PATH,
-    // eventually saturating Windows's 32,767-char env-var limit (measured:
-    // ~16-120 failed checks depending on how long the real machine's PATH
-    // already is) — at which point SetEnvironmentVariableW silently stops
-    // applying further changes, and the exact bug this function exists to
-    // fix comes back. Rebuilding from a fixed origin makes repeated calls
-    // idempotent: the result stabilizes after the first call and never
-    // grows again, regardless of how many times a user clicks "Check
-    // again." Deduped case-insensitively since Windows paths are.
-    const registryEntries = stdout
-      .trim()
-      .split(";")
-      .filter((entry) => entry.length > 0);
-    if (registryEntries.length === 0) return;
-    const originalEntries = ORIGINAL_PATH.split(";").filter((entry) => entry.length > 0);
-    const seen = new Set<string>();
-    const merged: string[] = [];
-    for (const entry of [...originalEntries, ...registryEntries]) {
-      const key = entry.toLowerCase();
-      if (!seen.has(key)) {
-        seen.add(key);
-        merged.push(entry);
-      }
-    }
-    process.env["PATH"] = merged.join(";");
+    const merged = mergeRegistryPath(ORIGINAL_PATH, stdout);
+    if (merged !== null) process.env["PATH"] = merged;
   } catch (err) {
     // Best-effort: on failure, checks just run against whatever PATH the
     // process already had — the pre-fix behavior, not something worse.
@@ -152,30 +129,17 @@ async function checkPrereqs(): Promise<PrereqReport> {
   return report;
 }
 
-/** AppleScript string-literal escaping (backslashes and double quotes only). */
-function escapeForAppleScript(value: string): string {
-  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-}
-
 // Windows only: install-windows.ps1 writes
 // {"state":"running"|"done"|"error","message"?} to a temp file unique to
-// this one launch attempt. Without this the GUI can't see past
-// `cmd /c start` to know whether the detached PowerShell actually ran the
-// install — it was reporting "Opened PowerShell and started the installer"
-// even when the script never started (blocked by policy) or failed
-// immediately (bad target dir). macOS/Linux don't have this yet:
-// validation didn't find the same false-success gap there, and extending
-// it unverified would be worse than leaving it alone — tracked as a
-// follow-up, not silently assumed covered.
-//
-// The path is generated fresh per attempt (not a fixed name) specifically
-// so a prior attempt this code gave up on (timed out, but still actually
-// running in its own detached, unref'd process) can never have its later
-// writes land in the file THIS attempt is polling — a fixed shared path
-// would let an abandoned install's late "done" mislead a subsequent one.
-function newInstallStatusPath(): string {
-  return join(tmpdir(), `granted-install-status-${randomUUID()}.json`);
-}
+// this one launch attempt (newInstallStatusPath, in ./ipcPure). Without
+// this the GUI can't see past `cmd /c start` to know whether the detached
+// PowerShell actually ran the install — it was reporting "Opened
+// PowerShell and started the installer" even when the script never
+// started (blocked by policy) or failed immediately (bad target dir).
+// macOS/Linux don't have this yet: validation didn't find the same
+// false-success gap there, and extending it unverified would be worse
+// than leaving it alone — tracked as a follow-up, not silently assumed
+// covered.
 const STATUS_STARTED_TIMEOUT_MS = 10_000;
 const STATUS_OVERALL_TIMEOUT_MS = 10 * 60_000;
 const STATUS_POLL_INTERVAL_MS = 1_000;
@@ -190,17 +154,7 @@ let installInFlight = false;
 async function readInstallStatus(statusPath: string): Promise<InstallStatusEvent | null> {
   try {
     const raw = await readFile(statusPath, "utf8");
-    // Windows PowerShell 5.1's `Set-Content -Encoding utf8` (unlike
-    // PowerShell Core's `pwsh`) writes a UTF-8 BOM. JSON.parse rejects a
-    // leading U+FEFF, and powershell.exe 5.1 — not pwsh — is what this
-    // script actually runs under in production, so this strip is required
-    // for every real run, not a defensive nicety.
-    const withoutBom = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
-    const parsed = JSON.parse(withoutBom) as Partial<InstallStatusEvent>;
-    if (parsed.state === "running" || parsed.state === "done" || parsed.state === "error") {
-      return { state: parsed.state, message: parsed.message ?? null };
-    }
-    return null;
+    return parseInstallStatusJson(raw);
   } catch {
     return null;
   }
@@ -273,14 +227,6 @@ function pollInstallStatus(sender: WebContents, statusPath: string): void {
       }
     })();
   }, STATUS_POLL_INTERVAL_MS);
-}
-
-/** Single-quoted PowerShell string literal — safe against `$`/backtick
- * expansion regardless of what the path contains (a double-quoted PS
- * string would expand both). Only a literal single quote needs escaping,
- * by doubling it. */
-function psSingleQuoted(value: string): string {
-  return `'${value.replace(/'/g, "''")}'`;
 }
 
 async function openInstallTerminal(sender: WebContents): Promise<OpenInstallTerminalResult> {
