@@ -22,7 +22,7 @@ Every OS below ends up running the exact same `npm` commands — the setup scrip
 ```bash
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/KurtLehnardt/granted/main/install-macos.sh)"
 ```
-Installs Node 22+ and git if missing — via Homebrew where available, otherwise the Xcode Command Line Tools for git and the official nodejs.org `.pkg` for Node — clones the repo into `./granted`, runs `npm install`, and installs Ollama with the method your macOS version actually supports (see the note below). Safe to re-run.
+Installs Node 22+ and git if missing — via Homebrew where available, otherwise the Xcode Command Line Tools for git and the official nodejs.org `.pkg` for Node — clones the repo into `./granted`, runs `npm ci`, and installs Ollama with the method your macOS version actually supports (see the note below). Safe to re-run.
 
 Prefer to do it by hand?
 ```bash
@@ -63,7 +63,7 @@ npm run dev
 ```powershell
 irm https://raw.githubusercontent.com/KurtLehnardt/granted/main/install-windows.ps1 | iex
 ```
-Installs Node 22+ and git if missing — via `winget` where available, otherwise a direct official-installer download (winget isn't present on every Windows box, notably Windows Server, which this was verified against) — clones the repo into `.\granted`, and runs `npm install`. Safe to re-run.
+Installs Node 22+ and git if missing — via `winget` where available, otherwise a direct official-installer download (winget isn't present on every Windows box, notably Windows Server, which this was verified against) — clones the repo into `.\granted`, and runs `npm ci`. Safe to re-run.
 
 Prefer to do it by hand?
 ```powershell
@@ -94,7 +94,7 @@ npm run dev
 ```bash
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/KurtLehnardt/granted/main/install-linux.sh)"
 ```
-Installs git and Node 22+ if missing (supports `apt`, `dnf`, and `yum` — verified end to end on both Ubuntu and Amazon Linux 2023), clones the repo into `./granted`, and runs `npm install`. Safe to re-run.
+Installs git and Node 22+ if missing (supports `apt`, `dnf`, and `yum` — verified end to end on both Ubuntu and Amazon Linux 2023), clones the repo into `./granted`, and runs `npm ci`. Safe to re-run.
 
 On a distro it doesn't cover, or prefer to do it by hand?
 ```bash
