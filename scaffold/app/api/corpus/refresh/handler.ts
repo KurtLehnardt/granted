@@ -41,9 +41,14 @@ export async function handleRefreshPost(
   }
 
   let max: number | undefined;
+  let stateSources: string[] | undefined;
   try {
-    const n = Number(((await req.json?.()) as { max?: unknown } | undefined)?.max);
+    const body = (await req.json?.()) as { max?: unknown; stateSources?: unknown } | undefined;
+    const n = Number(body?.max);
     if (Number.isFinite(n)) max = clampCorpusSize(n);
+    if (Array.isArray(body?.stateSources) && body.stateSources.every((s) => typeof s === "string")) {
+      stateSources = body.stateSources;
+    }
   } catch {
     /* no body: script default */
   }
@@ -55,6 +60,7 @@ export async function handleRefreshPost(
   d.clearStopRequest();
   const args = ["--import", "tsx", "scripts/refresh-corpus.mjs"];
   if (max != null) args.push("--max", String(max));
+  if (stateSources != null) args.push(`--state-sources=${stateSources.join(",")}`);
 
   let child: ChildProcess;
   try {

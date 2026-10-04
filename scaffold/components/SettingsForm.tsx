@@ -5,9 +5,11 @@ import {
   getAutoUpdateCorpus,
   getMaxCandidates,
   getMaxCorpusSize,
+  getSelectedStateSources,
   setAutoUpdateCorpus,
   setMaxCandidates,
   setMaxCorpusSize,
+  setSelectedStateSources,
   MIN_CORPUS_SIZE,
   MAX_CORPUS_SIZE,
 } from "@/lib/searchSettings";
@@ -15,6 +17,7 @@ import { stageLabel } from "@/lib/corpus/refreshProgress";
 import type { RefreshProgress } from "@/lib/corpus/refreshStatus";
 import { useReplayWelcomeGuide } from "@/components/WelcomeGuide";
 import ModelSection from "@/components/ModelSection";
+import StateSourcesSection from "@/components/StateSourcesSection";
 
 interface CorpusStatus {
   builtAt: string | null;
@@ -58,6 +61,7 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [autoUpdate, setAutoUpdate] = useState(() => getAutoUpdateCorpus());
   const [maxCorpusSize, setMaxCorpusSizeState] = useState(() => getMaxCorpusSize());
+  const [stateSources, setStateSourcesState] = useState<string[]>(() => getSelectedStateSources());
   const [corpusStatus, setCorpusStatus] = useState<CorpusStatus | null>(null);
   const [stopPending, setStopPending] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -105,7 +109,7 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
       const res = await fetch("/api/corpus/refresh", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ max: maxCorpusSize }),
+        body: JSON.stringify({ max: maxCorpusSize, stateSources: getSelectedStateSources() }),
       });
       if (res.status === 202) {
         setStopPending(false);
@@ -142,6 +146,7 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
     setMaxCandidates(maxCandidates);
     setAutoUpdateCorpus(autoUpdate);
     setMaxCorpusSize(maxCorpusSize);
+    setSelectedStateSources(stateSources);
     setSavedAt(Date.now());
   }
 
@@ -301,6 +306,14 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
             on the next refresh.
           </span>
         </label>
+
+        <StateSourcesSection
+          selected={stateSources}
+          onChange={(next) => {
+            setSavedAt(null);
+            setStateSourcesState(next);
+          }}
+        />
       </div>
 
       <div className="mt-6 flex flex-wrap items-center gap-4">

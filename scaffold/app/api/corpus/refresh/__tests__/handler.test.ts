@@ -195,6 +195,42 @@ describe("POST /api/corpus/refresh (handler)", () => {
     assert.ok(!(spawnedWith as string[] | null)?.includes("--max"));
   });
 
+  test("a stateSources array in the body produces the matching --state-sources=... flag", async () => {
+    let spawnedWith: string[] | null = null;
+    await handleRefreshPost(fakeReq({ stateSources: ["ca-grants", "ut-grants"] }), {
+      isLoopbackRequest: () => true,
+      acquireRefreshLock: () => true,
+      clearStopRequest: () => {},
+      releaseRefreshLock: () => {},
+      transferRefreshLock: () => {},
+      writeRefreshStatus: () => {},
+      spawn: (_command: string, args: string[]) => {
+        spawnedWith = args;
+        return fakeChild();
+      },
+    });
+    const args = spawnedWith as string[] | null;
+    assert.ok(args);
+    assert.ok(args.includes("--state-sources=ca-grants,ut-grants"));
+  });
+
+  test("no body / no stateSources omits --state-sources entirely, letting the script use its own default", async () => {
+    let spawnedWith: string[] | null = null;
+    await handleRefreshPost(fakeReq(), {
+      isLoopbackRequest: () => true,
+      acquireRefreshLock: () => true,
+      clearStopRequest: () => {},
+      releaseRefreshLock: () => {},
+      transferRefreshLock: () => {},
+      writeRefreshStatus: () => {},
+      spawn: (_command: string, args: string[]) => {
+        spawnedWith = args;
+        return fakeChild();
+      },
+    });
+    assert.ok(!(spawnedWith as string[] | null)?.some((a) => a.startsWith("--state-sources")));
+  });
+
   test("records lastAttemptAt synchronously when the refresh starts, before the child can fail", async () => {
     let recordedStatus: unknown = null;
     await handleRefreshPost(fakeReq(), {

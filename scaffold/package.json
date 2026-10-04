@@ -26,6 +26,7 @@
     "data:fetch:ca": "node scripts/1-fetch-ca-grants.mjs",
     "data:fetch:il": "node scripts/1-fetch-il-grants.mjs",
     "data:fetch:nc": "node scripts/1-fetch-nc-grants.mjs",
+    "data:fetch:ut": "node scripts/1-fetch-ut-grants.mjs",
     "data:assemble": "node scripts/assemble-mvp-corpus.mjs",
     "data:mvp": "npm run data:fetch:sam && npm run data:assemble",
     "data:refresh": "node --import tsx scripts/refresh-corpus.mjs",
