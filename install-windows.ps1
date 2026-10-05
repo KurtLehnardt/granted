@@ -215,23 +215,78 @@ if (-not $nodeOk) {
 # that doesn't exist yet. If $TargetDir exists but isn't a finished clone,
 # `git clone` below fails with its own clear error rather than this script
 # guessing whether it's safe to delete.
-if (Test-Path "$TargetDir\scaffold\package.json") {
+# Quits Granted if it's running from this folder -- its background tray
+# (which stops its server) and any node.exe running from in here, e.g. a
+# `npm run dev` in a terminal -- and WAITS until it has: an update replaces
+# files a running server holds open (npm ci would fail with EBUSY/EPERM).
+# It starts again the next time Granted is opened.
+function Stop-GrantedIn([string]$dir) {
+  $full = (Get-Item -LiteralPath $dir).FullName.TrimEnd('\')
+  $tray = Join-Path $full "scaffold\scripts\windows\granted-tray.ps1"
+  $trays = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object {
+    $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine.IndexOf($tray, [StringComparison]::OrdinalIgnoreCase) -ge 0
+  })
+  foreach ($t in $trays) {
+    # Its port: its own -Port, else GRANTED_PORT (as the tray reads it), else 3000.
+    $port = if ($t.CommandLine -match '-Port\s+(\d+)') { [int]$Matches[1] } elseif ($env:GRANTED_PORT -match '^\d+$') { [int]$env:GRANTED_PORT } else { 3000 }
+    try { & $tray -Stop -Port $port | Out-Null } catch { }
+  }
+  $deadline = (Get-Date).AddSeconds(30)
+  while ((Get-Date) -lt $deadline -and @($trays | Where-Object { Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue }).Count -gt 0) {
+    Start-Sleep -Milliseconds 500
+  }
+  $node = @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object {
+    $_.CommandLine -and $_.CommandLine.IndexOf("$full\", [StringComparison]::OrdinalIgnoreCase) -ge 0
+  })
+  # Anything still running: stopped outright. taskkill via Start-Process --
+  # never PowerShell's native-command handling, which turns its stderr (a
+  # process already gone) into a terminating error here.
+  foreach ($p in @($trays | Where-Object { Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue }) + $node) {
+    Start-Process -FilePath (Join-Path $env:SystemRoot "System32\taskkill.exe") -ArgumentList "/PID $($p.ProcessId) /T /F" -WindowStyle Hidden -Wait
+  }
+  if ($trays.Count -gt 0 -or $node.Count -gt 0) { Ok "stopped the Granted that was running (it starts again when you open it)" }
+}
+
+# "1.2.3" (or "v1.2.3", "1.2.3-dev") -> [version] 1.2.3, for comparing.
+function Get-VersionNumber([string]$text) {
+  if ($text -match '(\d+)\.(\d+)\.(\d+)') { return [version]"$($Matches[1]).$($Matches[2]).$($Matches[3])" }
+  return $null
+}
+
+$existingInstall = Test-Path "$TargetDir\scaffold\package.json"
+if ($existingInstall) {
   Ok "$TargetDir already cloned"
   # Asked for a specific release: move an install THIS script made to it (an
-  # update) -- never someone's own checkout (no marker), and never over
-  # changes made in the folder.
+  # update) -- never someone's own checkout (no marker), never over changes
+  # made in the folder, and never backwards: an older installer run again
+  # (or one whose update check failed) must not replace newer code.
   if ($Ref) {
     if (-not (Test-Path -LiteralPath (Join-Path $TargetDir ".git\granted-installer"))) {
       Warn "Not changing $TargetDir to $Ref -- it wasn't installed by this installer (your own checkout?)."
     } elseif (git -C $TargetDir status --porcelain) {
       Warn "Not changing $TargetDir to $Ref -- it has local changes."
     } else {
-      Log "Switching $TargetDir to Granted $Ref ..."
-      git -C $TargetDir fetch --quiet --tags origin
+      # Just this tag, forced: a release tag that was moved on GitHub (re-tagged
+      # after a fix) must not break updates, and a stale local copy of it must
+      # not be what's installed.
+      git -C $TargetDir fetch --quiet --force origin "+refs/tags/${Ref}:refs/tags/${Ref}"
       Assert-LastExitCode "Couldn't download Granted $Ref (git fetch failed)."
-      git -C $TargetDir -c advice.detachedHead=false checkout --quiet $Ref
-      Assert-LastExitCode "Couldn't switch $TargetDir to $Ref (git checkout failed)."
-      Ok "now at $Ref"
+      git -C $TargetDir merge-base --is-ancestor "refs/tags/$Ref" HEAD
+      if ($LASTEXITCODE -eq 0) {
+        Ok "already includes Granted $Ref -- nothing to update"
+      } else {
+        $have = Get-VersionNumber ((Get-Content -LiteralPath "$TargetDir\scaffold\package.json" -Raw | ConvertFrom-Json).version)
+        $want = Get-VersionNumber $Ref
+        if ($have -and $want -and $have -gt $want -and $env:GRANTED_ALLOW_DOWNGRADE -ne "1") {
+          Warn "Not changing $TargetDir to $Ref -- it already has a newer Granted ($have)."
+        } else {
+          Log "Updating $TargetDir to Granted $Ref ..."
+          Stop-GrantedIn $TargetDir
+          git -C $TargetDir -c advice.detachedHead=false checkout --quiet "refs/tags/$Ref"
+          Assert-LastExitCode "Couldn't switch $TargetDir to $Ref (git checkout failed)."
+          Ok "now at $Ref"
+        }
+      }
     }
   }
 } else {
@@ -252,13 +307,10 @@ if (Test-Path "$TargetDir\scaffold\package.json") {
 
 # 4) npm ci -- installs exactly what package-lock.json pins, and never rewrites it
 # (unlike `npm install`, which can touch the lockfile on a version/registry mismatch).
+# A re-run (an update, say) while Granted is running: quit it first -- its
+# server holds files in node_modules that npm ci is about to replace.
+if ($existingInstall) { Stop-GrantedIn $TargetDir }
 Set-Location "$TargetDir\scaffold"
-# A re-run (an update, say) while Granted is running in the background:
-# quit it first -- its server holds files in node_modules that npm ci is
-# about to replace. (Exit 1 = it wasn't running.)
-if (Test-Path -LiteralPath "scripts\windows\granted-tray.ps1") {
-  try { & ".\scripts\windows\granted-tray.ps1" -Stop | Out-Null } catch { }
-}
 Log "Installing npm dependencies..."
 npm ci
 Assert-LastExitCode "npm ci failed -- see the output above for the underlying error."

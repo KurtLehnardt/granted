@@ -124,17 +124,37 @@ describe("the update check against a real HTTP server", () => {
 
   test("the planner asks GitHub once per run after a success, and retries after a failure", async () => {
     const ok = await serve(200, { tag_name: "v0.3.0" });
-    const plan = createVersionPlanner({ pinned: "v0.2.0", latestUrl: ok.url });
-    assert.equal((await plan(true)).ref, "v0.3.0");
-    assert.equal((await plan(false)).ref, "v0.2.0");
-    assert.equal((await plan(true)).ref, "v0.3.0");
+    const planner = createVersionPlanner({ pinned: "v0.2.0", latestUrl: ok.url });
+    assert.equal((await planner.plan(true)).ref, "v0.3.0");
+    assert.equal((await planner.plan(false)).ref, "v0.2.0");
+    assert.equal((await planner.plan(true)).ref, "v0.3.0");
     assert.equal(ok.hits(), 1);
 
     const failing = await serve(500, {});
     const retrying = createVersionPlanner({ pinned: "v0.2.0", latestUrl: failing.url });
-    assert.equal((await retrying(true)).checkFailed, true);
-    await retrying(true);
+    assert.equal((await retrying.plan(true)).checkFailed, true);
+    await retrying.plan(true);
     assert.equal(failing.hits(), 2);
+  });
+
+  test("REGRESSION (review): the install uses what the screen last showed, never a fresh check", async () => {
+    const ok = await serve(200, { tag_name: "v0.3.0" });
+    const planner = createVersionPlanner({ pinned: "v0.2.0", latestUrl: ok.url });
+    // Before the screen planned: no newer release is assumed (and nothing is fetched).
+    assert.deepEqual(planner.current(true), { pinned: "v0.2.0", latest: null, ref: "v0.2.0", checkForUpdates: true, checkFailed: true });
+    assert.equal(ok.hits(), 0);
+    await planner.plan(true);
+    assert.equal(planner.current(true).ref, "v0.3.0", "what the screen showed");
+    assert.equal(planner.current(false).ref, "v0.2.0", "unticked: this installer's own");
+    assert.equal(ok.hits(), 1);
+  });
+
+  test("a failed check shown on screen stays the plan for the install", async () => {
+    const failing = await serve(500, {});
+    const planner = createVersionPlanner({ pinned: "v0.2.0", latestUrl: failing.url });
+    assert.equal((await planner.plan(true)).checkFailed, true);
+    assert.equal(planner.current(true).ref, "v0.2.0");
+    assert.equal(failing.hits(), 1, "current() never retries behind the screen's back");
   });
 
   test("pinnedReleaseTag: GRANTED_RELEASE_TAG when it's a release tag, else none (a dev build has nothing baked in)", () => {

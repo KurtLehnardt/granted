@@ -195,7 +195,8 @@ describe("uninstall.ps1: the Installed apps entry, and uninstalling", { skip: (p
 
   after(async () => {
     for (const c of started) if (c.exitCode === null) c.kill();
-    await ps(`Remove-Item -Path ${psq(testKeyParent)} -Recurse -Force -ErrorAction SilentlyContinue; if (-not (Get-ChildItem 'HKCU:\\Software\\GrantedTests' -ErrorAction SilentlyContinue)) { Remove-Item 'HKCU:\\Software\\GrantedTests' -Force -ErrorAction SilentlyContinue }`);
+    // (A run filtered to tests that never register has no key to remove: fine.)
+    await ps(`Remove-Item -Path ${psq(testKeyParent)} -Recurse -Force -ErrorAction SilentlyContinue; if (-not (Get-ChildItem 'HKCU:\\Software\\GrantedTests' -ErrorAction SilentlyContinue)) { Remove-Item 'HKCU:\\Software\\GrantedTests' -Force -ErrorAction SilentlyContinue }; exit 0`).catch(() => {});
     await rm(root, { recursive: true, force: true }).catch(() => {});
   });
 
@@ -360,6 +361,33 @@ describe("uninstall.ps1: the Installed apps entry, and uninstalling", { skip: (p
     assert.equal(existsSync(join(box.scaffold, "fake-dev.js")), true, "nothing deleted");
     assert.equal((await uninstall(box, ["-Quiet", "-Force"])).code, 0);
     assert.equal(existsSync(box.installDir), false);
+  });
+
+  test("REGRESSION (review): on a release install (a tag, no branch: detached HEAD) a commit counts as unsaved work; the tag itself doesn't", async () => {
+    /** A box whose folder is a real git repo checked out the way a release install is: on tag v0.1.0, no branch. */
+    function releaseBox(): Box {
+      const box = makeBox();
+      execFileSync("cmd.exe", ["/d", "/c", "rd", "/s", "/q", join(box.installDir, ".git")], { windowsHide: true });
+      writeFileSync(join(box.installDir, ".gitignore"), "node_modules/\n.env.local\ndata/\n");
+      git(box.installDir, "init", "-q", "-b", "main");
+      git(box.installDir, "add", "-A");
+      git(box.installDir, "commit", "-q", "-m", "release");
+      git(box.installDir, "tag", "v0.1.0");
+      git(box.installDir, "checkout", "-q", "--detach", "v0.1.0");
+      git(box.installDir, "branch", "-q", "-D", "main");
+      writeFileSync(join(box.installDir, ".git", "granted-installer"), "test");
+      return box;
+    }
+    const clean = releaseBox();
+    assert.equal((await uninstall(clean, ["-Quiet"])).code, 0, "just the release: nothing to lose");
+
+    const edited = releaseBox();
+    writeFileSync(join(edited.scaffold, "fake-dev.js"), "// my change\n");
+    git(edited.installDir, "commit", "-q", "-am", "my change, on no branch");
+    const { code, result } = await uninstall(edited, ["-Quiet"]);
+    assert.equal(code, 4, JSON.stringify(result));
+    assert.match(JSON.stringify(result["unsaved"]), /commits that aren't pushed \(1\)/);
+    assert.equal(existsSync(join(edited.scaffold, "fake-dev.js")), true);
   });
 
   test("REGRESSION (review): a folder deleted by hand can still be removed from Installed apps — its uninstaller lives outside it", async () => {

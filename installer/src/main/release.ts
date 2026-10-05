@@ -36,22 +36,39 @@ export async function fetchLatestReleaseTag(url: string, timeoutMs: number): Pro
   }
 }
 
-/**
- * Decides which Granted to install. Asks GitHub at most once per run when it
- * succeeds (the screen re-plans as the box is ticked and unticked); a failed
- * check is retried next time.
- */
-export function createVersionPlanner(opts: {
-  pinned: string | null;
-  latestUrl: string;
-  timeoutMs?: number;
-}): (checkForUpdates: boolean) => Promise<InstallVersionPlan> {
+export interface VersionPlanner {
+  /**
+   * For the screen: decides which Granted to install, asking GitHub when
+   * needed — at most once per run once that succeeds (the screen re-plans as
+   * the box is ticked and unticked); a failed check is retried next time.
+   */
+  plan: (checkForUpdates: boolean) => Promise<InstallVersionPlan>;
+  /**
+   * For the install itself: the same decision from what the screen last
+   * learned, never asking GitHub again — so what's installed is what the
+   * screen said would be (a retry succeeding in between must not swap a
+   * different release in after the user read the note).
+   */
+  current: (checkForUpdates: boolean) => InstallVersionPlan;
+}
+
+export function createVersionPlanner(opts: { pinned: string | null; latestUrl: string; timeoutMs?: number }): VersionPlanner {
   let latest: { tag: string | null; failed: boolean } | null = null;
-  return async (checkForUpdates) => {
-    if (!opts.pinned || !checkForUpdates) {
-      return chooseInstallRef({ pinned: opts.pinned, checkForUpdates, latest: null, checkFailed: false });
-    }
-    if (!latest || latest.failed) latest = await fetchLatestReleaseTag(opts.latestUrl, opts.timeoutMs ?? 8000);
-    return chooseInstallRef({ pinned: opts.pinned, checkForUpdates, latest: latest.tag, checkFailed: latest.failed });
+  const decide = (checkForUpdates: boolean): InstallVersionPlan =>
+    chooseInstallRef({
+      pinned: opts.pinned,
+      checkForUpdates,
+      latest: checkForUpdates ? (latest?.tag ?? null) : null,
+      // Never asked (the screen hadn't planned yet): treated as a failed check.
+      checkFailed: checkForUpdates && (latest === null || latest.failed),
+    });
+  return {
+    plan: async (checkForUpdates) => {
+      if (opts.pinned && checkForUpdates && (!latest || latest.failed)) {
+        latest = await fetchLatestReleaseTag(opts.latestUrl, opts.timeoutMs ?? 8000);
+      }
+      return decide(checkForUpdates);
+    },
+    current: decide,
   };
 }

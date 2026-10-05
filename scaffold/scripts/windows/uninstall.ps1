@@ -282,7 +282,9 @@ function Invoke-Git([string[]]$gitArgs) {
 $unsaved = @()
 $changes = Invoke-Git @("status", "--porcelain")
 if ($changes) { $unsaved += "changed or new files ($($changes.Count))" }
-$unpushed = Invoke-Git @("log", "--branches", "--not", "--remotes", "--oneline")
+# HEAD as well as branches: a release install sits on a tag with no branch
+# ("detached"), and a commit made there is on no branch at all.
+$unpushed = Invoke-Git @("log", "HEAD", "--branches", "--not", "--remotes", "--tags", "--oneline")
 if ($unpushed) { $unsaved += "commits that aren't pushed ($($unpushed.Count))" }
 $stashes = Invoke-Git @("stash", "list")
 if ($stashes) { $unsaved += "stashed changes ($($stashes.Count))" }

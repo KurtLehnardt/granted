@@ -369,8 +369,10 @@ function installDir(): string {
 
 // Which Granted to install (src/main/release.ts). GRANTED_RELEASES_API:
 // tests point the update check at a local server.
-const planInstallVersion = createVersionPlanner({
-  pinned: pinnedReleaseTag(),
+// Windows only: the macOS/Linux one-liners always install main, so a pinned
+// release (and the update check) would only be a misleading note there.
+const versionPlanner = createVersionPlanner({
+  pinned: process.platform === "win32" ? pinnedReleaseTag() : null,
   latestUrl: process.env["GRANTED_RELEASES_API"] || LATEST_RELEASE_API,
 });
 
@@ -386,19 +388,23 @@ async function openInstallTerminal(sender: WebContents, checkForUpdates: boolean
     };
   }
 
+  // Windows installs the release the screen showed (this installer's own, or
+  // a newer one if the user asked to check) -- decided from what the screen
+  // already learned, with no new request to GitHub, so it's exactly what the
+  // note said, and nothing is awaited between the in-flight check below and
+  // claiming it. The macOS/Linux scripts install main.
+  const plan = platform === "win32" ? versionPlanner.current(checkForUpdates) : null;
+  const command = plan ? windowsInstallCommand(plan.ref) : INSTALL_ONE_LINERS[platform];
+
   if (installInFlight) {
     return {
       ok: false,
       message: "An install is already running in a terminal window — look for it before starting another.",
-      command: INSTALL_ONE_LINERS[platform],
+      command,
       pollingStarted: false,
     };
   }
 
-  // Windows installs the planned release (this installer's own, or a newer
-  // one if the user asked to check); the macOS/Linux scripts install main.
-  const plan = platform === "win32" ? await planInstallVersion(checkForUpdates) : null;
-  const command = plan ? windowsInstallCommand(plan.ref) : INSTALL_ONE_LINERS[platform];
   clipboard.writeText(command);
 
   try {
@@ -847,7 +853,7 @@ async function createShortcuts(choice: ShortcutChoice): Promise<ShortcutsResult>
 
 export function registerIpcHandlers(): void {
   ipcMain.handle("prereqs:check", () => checkPrereqs());
-  ipcMain.handle("install:plan-version", (_event, checkForUpdates: unknown) => planInstallVersion(checkForUpdates === true));
+  ipcMain.handle("install:plan-version", (_event, checkForUpdates: unknown) => versionPlanner.plan(checkForUpdates === true));
   ipcMain.handle("terminal:open-install", (event, checkForUpdates: unknown) => openInstallTerminal(event.sender, checkForUpdates === true));
   ipcMain.handle("granted:get-setup-state", () => getSetupState(installDir(), settingsPath()));
   ipcMain.handle("granted:set-open-in", (_event, openIn: OpenIn) =>
