@@ -53,7 +53,7 @@ describe("install-windows.ps1 with GRANTED_REF (a pinned release)", { skip: (pro
     if (extraFile) writeFileSync(join(scaffold, extraFile), extraFile);
     git(source, "add", "-A");
     git(source, "commit", "-q", "-m", `version ${version}`);
-    if (tag) git(source, "tag", "-f", tag);
+    if (tag) git(source, "tag", "-f", "-a", tag, "-m", tag); // annotated, as real releases are
   }
 
   /** A stand-in for the GitHub repo: v0.1.0, v0.2.0, then main moved on to 0.3.0-dev. */
@@ -138,6 +138,9 @@ describe("install-windows.ps1 with GRANTED_REF (a pinned release)", { skip: (pro
     assert.equal(versionIn(home), "0.1.0");
     assert.equal(git(join(home, "granted"), "describe", "--tags", "--exact-match"), "v0.1.0");
     assert.ok(existsSync(join(home, "granted", ".git", "granted-installer")), "marked as made by the installer");
+    assert.doesNotMatch(r.output, /is not a commit/, "no scary git warning for the (annotated) release tag");
+    assert.match(r.output, /carry on in the Granted installer/, "run by the installer app: no terminal next steps");
+    assert.doesNotMatch(r.output, /npm run setup/);
     assert.equal(listedVersion(), "0.1.0");
 
     const update = await runInstall(home, source, "v0.2.0");
@@ -232,6 +235,18 @@ describe("install-windows.ps1 with GRANTED_REF (a pinned release)", { skip: (pro
     const r = await runInstall(home, source, "v0.2.0");
     assert.equal(r.state, "done", r.output);
     assert.match(r.output, /wasn't installed by this installer/);
+    assert.equal(versionIn(home), "0.1.0");
+  });
+
+  test("REGRESSION (review): a release that can't be checked out leaves no half-made folder behind, so a re-run works", async () => {
+    const source = makeSource();
+    const home = freshHome();
+    const r = await runInstall(home, source, "v0.9.9"); // no such release
+    assert.equal(r.state, "error");
+    assert.match(r.message ?? "", /Couldn't check out Granted v0\.9\.9/);
+    assert.equal(existsSync(join(home, "granted")), false, "the clone it just made is gone");
+    const retry = await runInstall(home, source, "v0.1.0");
+    assert.equal(retry.state, "done", retry.output);
     assert.equal(versionIn(home), "0.1.0");
   });
 

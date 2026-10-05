@@ -282,6 +282,39 @@ export function openGrantedWindowPids(): number[] {
  * Granted the developer has running is left alone.
  */
 export function killWindowsOpenedSince(before: number[]): void {
+  killNewWindows(before);
+}
+
+/**
+ * Teardown that can't hang: closes the windows opened since `before` — again
+ * and again for a few seconds, since one launched just as the test ended may
+ * only now be appearing (a window still starting up isn't found by the
+ * first sweep, yet already holds the app's inherited pipe handles) — then
+ * closes the app, killing it outright if close() still doesn't return.
+ */
+export async function closeEverything(app: ElectronApplication | undefined, before: number[]): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  do {
+    killNewWindows(before);
+    await new Promise((r) => setTimeout(r, 500));
+  } while (Date.now() < deadline && openGrantedWindowPids().some((p) => !before.includes(p)));
+  killNewWindows(before);
+  if (!app) return;
+  const pid = app.process().pid;
+  const closed = await Promise.race([
+    app.close().then(() => true, () => true),
+    new Promise<boolean>((r) => setTimeout(() => r(false), 15_000)),
+  ]);
+  if (!closed && pid) {
+    try {
+      execFileSync("taskkill.exe", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore" });
+    } catch {
+      /* already gone */
+    }
+  }
+}
+
+function killNewWindows(before: number[]): void {
   for (const pid of openGrantedWindowPids().filter((p) => !before.includes(p))) {
     try {
       execFileSync("taskkill.exe", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore" });

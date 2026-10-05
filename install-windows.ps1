@@ -316,11 +316,22 @@ if ($existingInstall) {
 } else {
   Log "Cloning $RepoUrl into .\$TargetDir ..."
   if ($Ref) {
-    git -c advice.detachedHead=false clone --branch $Ref $RepoUrl $TargetDir
+    # Clone, then check out the release tag -- not `clone --branch <tag>`,
+    # which prints a scary (harmless) "refs/tags/vX is not a commit!" for an
+    # annotated tag, as releases are.
+    git clone --no-checkout $RepoUrl $TargetDir
+    Assert-LastExitCode "git clone failed. If $TargetDir was partially created, remove it before re-running."
+    git -C $TargetDir -c advice.detachedHead=false checkout --quiet "refs/tags/$Ref"
+    if ($LASTEXITCODE -ne 0) {
+      # This run just created the folder (it held no install): remove it, so a
+      # re-run isn't blocked by a half-made clone.
+      Remove-Item -LiteralPath $TargetDir -Recurse -Force -ErrorAction SilentlyContinue
+      Die "Couldn't check out Granted $Ref (is it a published release?)."
+    }
   } else {
     git clone $RepoUrl $TargetDir
+    Assert-LastExitCode "git clone failed. If $TargetDir was partially created, remove it before re-running."
   }
-  Assert-LastExitCode "git clone failed. If $TargetDir was partially created, remove it before re-running."
   # Marks this clone as made by the installer (inside .git, so git never
   # sees it): only such clones are listed in Installed apps -- a folder that
   # was already here may be someone's own checkout, which Settings must never
@@ -336,7 +347,8 @@ if ($existingInstall) {
 if ($existingInstall) { Stop-GrantedIn $TargetDir }
 Set-Location "$TargetDir\scaffold"
 Log "Installing npm dependencies..."
-npm ci
+# No audit/funding summaries: advice for a developer, not someone installing an app.
+npm ci --no-audit --no-fund
 Assert-LastExitCode "npm ci failed -- see the output above for the underlying error."
 Ok "dependencies installed"
 
@@ -362,6 +374,12 @@ if (Test-Path -LiteralPath $uninstallScript) {
 }
 
 Write-Status "done" $null
+# Run by the Granted installer app (it set GRANTED_STATUS_FILE): it takes it
+# from here -- keys, local models, opening Granted -- so no terminal commands.
+if ($env:GRANTED_STATUS_FILE) {
+  Log "Done. Granted is installed -- carry on in the Granted installer."
+  return
+}
 Log "Done. Next steps:"
 Write-Host "  cd $TargetDir\scaffold"
 Write-Host "  npm run setup                  # hosted API key (OpenAI; Claude optional), or"
