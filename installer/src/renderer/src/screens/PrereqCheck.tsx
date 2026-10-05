@@ -98,6 +98,9 @@ export default function PrereqCheck({ onInstallComplete }: PrereqCheckProps): Re
   };
 
   const busy = openingTerminal || waitingForInstall;
+  // Git and Node are both already there: the button only installs Granted
+  // itself, so say that rather than "Open a terminal for me".
+  const satisfied = state.status === "loaded" && state.report.allSatisfied;
 
   return (
     <main className="screen">
@@ -123,17 +126,24 @@ export default function PrereqCheck({ onInstallComplete }: PrereqCheckProps): Re
           <button type="button" className="link" onClick={refreshPrereqs} disabled={busy}>
             Check again
           </button>
+          {satisfied && <p className="satisfied">✓ Node and Git dependencies satisfied.</p>}
         </>
       )}
 
       <div className="actions">
         <button
           type="button"
-          className="secondary"
+          className={satisfied ? "primary" : "secondary"}
           onClick={handleOpenTerminal}
           disabled={busy}
         >
-          {openingTerminal ? "Opening…" : waitingForInstall ? "Installing…" : "Open a terminal for me"}
+          {openingTerminal
+            ? "Opening…"
+            : waitingForInstall
+              ? "Installing…"
+              : satisfied
+                ? "Continue with installing the application"
+                : "Open a terminal for me"}
         </button>
       </div>
 

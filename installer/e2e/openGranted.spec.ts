@@ -29,6 +29,10 @@ import {
 
 test.skip(process.platform !== "win32", "The Installation complete screen is Windows-only");
 
+// The check screen's install button: "Continue with installing the
+// application" when Git and Node are already there, else "Open a terminal for me".
+const INSTALL_BUTTON = /^(Continue with installing the application|Open a terminal for me)$/;
+
 let install: FakeInstall;
 let app: ElectronApplication | undefined;
 let page: Page;
@@ -81,7 +85,7 @@ test("a finished install shows Installation complete and asks to open Granted", 
 });
 
 test("a failed install stays on the check screen, never Installation complete", async () => {
-  // Deliberately NOT clicking "Open a terminal for me" — that would run the
+  // Deliberately NOT clicking the install button — that would run the
   // real published install script. The event is what the main process
   // sends when install-windows.ps1 reports an error.
   const a = await launch();
@@ -91,7 +95,19 @@ test("a failed install stays on the check screen, never Installation complete", 
   await page.waitForTimeout(500);
   await expect(page.getByRole("heading", { name: "Checking your computer" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Installation complete" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Open a terminal for me" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: INSTALL_BUTTON })).toBeEnabled();
+});
+
+// Git and Node are installed wherever these tests run (they run under Node,
+// and CI's Windows runner has git), so the check screen shows the satisfied state.
+test("with Git and Node already installed, the check screen says so and the button continues with installing Granted", async () => {
+  await launch();
+  await page.getByRole("button", { name: "Get Started" }).click();
+  await expect(page.getByText("✓ Node and Git dependencies satisfied.")).toBeVisible();
+  const button = page.getByRole("button", { name: "Continue with installing the application" });
+  await expect(button).toBeEnabled();
+  await expect(button).toHaveClass(/primary/);
+  await expect(page.getByRole("button", { name: "Open a terminal for me" })).toHaveCount(0);
 });
 
 test("Not now still adds the ticked shortcuts, says where they are, and Close installer closes the app", async () => {

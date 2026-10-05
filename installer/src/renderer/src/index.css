@@ -120,6 +120,13 @@ button.link:disabled {
   color: #d3232f;
 }
 
+p.satisfied {
+  margin: 12px 0 0;
+  color: #1a9c4a;
+  font-weight: 600;
+  font-size: 14px;
+}
+
 .check-list .detail {
   color: #666;
   font-size: 12px;
