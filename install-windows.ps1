@@ -220,11 +220,35 @@ if (-not $nodeOk) {
 # `npm run dev` in a terminal -- and WAITS until it has: an update replaces
 # files a running server holds open (npm ci would fail with EBUSY/EPERM).
 # It starts again the next time Granted is opened.
+#
+# Paths are compared in their LONG form: the same folder can also be named by
+# its 8.3 short form (C:\Users\JOSMIT~1\...; %TEMP% often is), even mixed
+# with long names, in a command line -- so each path is converted first.
+function Get-LongPath([string]$path) {
+  if (-not ("GrantedInstall.Paths" -as [type])) {
+    Add-Type -Namespace GrantedInstall -Name Paths -MemberDefinition @'
+[System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+public static extern uint GetLongPathName(string path, System.Text.StringBuilder buffer, uint size);
+'@
+  }
+  $buffer = New-Object System.Text.StringBuilder 32768
+  $n = [GrantedInstall.Paths]::GetLongPathName($path, $buffer, 32768)
+  if ($n -gt 0 -and $n -lt 32768) { return $buffer.ToString() }
+  return $path
+}
+# The absolute paths in a command line, each in its long form.
+function Get-LongPathsIn([string]$text) {
+  if (-not $text) { return @() }
+  return @([regex]::Matches($text, '"([A-Za-z]:\\[^"]+)"|([A-Za-z]:\\[^\s"]+)') | ForEach-Object {
+    $p = if ($_.Groups[1].Success) { $_.Groups[1].Value } else { $_.Groups[2].Value }
+    try { Get-LongPath ([System.IO.Path]::GetFullPath($p)) } catch { $p }
+  })
+}
 function Stop-GrantedIn([string]$dir) {
-  $full = (Get-Item -LiteralPath $dir).FullName.TrimEnd('\')
+  $full = (Get-LongPath (Get-Item -LiteralPath $dir).FullName).TrimEnd('\')
   $tray = Join-Path $full "scaffold\scripts\windows\granted-tray.ps1"
   $trays = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object {
-    $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine.IndexOf($tray, [StringComparison]::OrdinalIgnoreCase) -ge 0
+    $_.ProcessId -ne $PID -and @(Get-LongPathsIn $_.CommandLine | Where-Object { $_ -ieq $tray }).Count -gt 0
   })
   foreach ($t in $trays) {
     # Its port: its own -Port, else GRANTED_PORT (as the tray reads it), else 3000.
@@ -236,7 +260,7 @@ function Stop-GrantedIn([string]$dir) {
     Start-Sleep -Milliseconds 500
   }
   $node = @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object {
-    $_.CommandLine -and $_.CommandLine.IndexOf("$full\", [StringComparison]::OrdinalIgnoreCase) -ge 0
+    @(Get-LongPathsIn $_.CommandLine | Where-Object { $_.StartsWith("$full\", [StringComparison]::OrdinalIgnoreCase) }).Count -gt 0
   })
   # Anything still running: stopped outright. taskkill via Start-Process --
   # never PowerShell's native-command handling, which turns its stderr (a
