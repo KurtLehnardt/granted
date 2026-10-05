@@ -362,7 +362,10 @@ if ($windowItem) {
   $menu.add_Opening({ $windowItem.Checked = ((Get-OpenInPreference) -ne "browser") })
   $windowItem.add_Click({
     $mode = if ($windowItem.Checked) { "window" } else { "browser" }
-    try { & $OpenScript -SetOpenIn $mode } catch { }
+    try { & $OpenScript -SetOpenIn $mode } catch {
+      $windowItem.Checked = -not $windowItem.Checked
+      $icon.ShowBalloonTip(5000, "Granted", "Couldn't save that setting -- Granted will keep opening the way it did.", [System.Windows.Forms.ToolTipIcon]::Warning)
+    }
   })
 }
 

@@ -148,7 +148,7 @@ export function appWindowUrls(install: FakeInstall): string[] {
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter(Boolean)
-    .map((l) => l.replace(/^--app=/, ""));
+    .map((l) => l.replace(/^--app="?([^"]*)"?$/, "$1"));
 }
 
 /**

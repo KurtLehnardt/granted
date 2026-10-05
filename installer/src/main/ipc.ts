@@ -586,8 +586,10 @@ async function openInBrowser(url: string): Promise<boolean> {
  * mode, via scripts/windows/open-granted.ps1 — the same script the tray and
  * shortcuts use) or a browser tab. The browser-tab part stays here
  * (shell.openExternal), so an install without the script, a machine with no
- * app-mode browser, or a script failure all still open Granted.
- * Returns how it opened, or null if nothing could be opened.
+ * app-mode browser, or a script that failed all still open Granted.
+ * Returns how it opened, or null if nothing could be opened — including when
+ * the script timed out: it may already have started the window, and a tab on
+ * top of that would open Granted twice (the caller then shows the URL).
  */
 async function openGrantedPage(url: string): Promise<OpenIn | null> {
   const script = windowsScriptPath(scaffoldDir(), "open-granted.ps1");
@@ -598,9 +600,14 @@ async function openGrantedPage(url: string): Promise<OpenIn | null> {
         ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script, "-Url", url, "-NoBrowserFallback"],
         { windowsHide: true, timeout: 30_000 },
       );
-      if (parseOpenGrantedOutput(stdout) === "window") return "window";
+      const opened = parseOpenGrantedOutput(stdout);
+      if (opened === "window") return "window";
+      // Unreadable output after a clean exit: it may have launched the window — don't risk a second one.
+      if (opened !== "none") return null;
     } catch (err) {
       console.error("open-granted.ps1 failed:", err);
+      if ((err as { killed?: boolean }).killed) return null;
+      // Otherwise it failed before launching anything (e.g. PowerShell couldn't run it): a tab it is.
     }
   }
   return (await openInBrowser(url)) ? "browser" : null;
@@ -673,7 +680,7 @@ async function startGranted(sender: WebContents): Promise<StartResult> {
   const openAndFinish = async (message: string | null): Promise<void> => {
     const openedIn = await openGrantedPage(GRANTED_URL);
     if (openedIn) finish("done", message, openedIn);
-    else finish("done", `Granted is running, but your browser couldn't be opened automatically — go to ${GRANTED_URL} yourself.`);
+    else finish("done", `Granted is running, but it couldn't be opened automatically — if it hasn't opened, go to ${GRANTED_URL} yourself.`);
   };
 
   // Shared by "just launched it" and "it was already starting": wait for
@@ -727,7 +734,7 @@ async function startGranted(sender: WebContents): Promise<StartResult> {
 
     const before = await probeGranted(GRANTED_PROBE_URL, ALREADY_RUNNING_PROBE_TIMEOUT_MS);
     if (before === "granted") {
-      await openAndFinish("Granted was already running, so it was opened.");
+      await openAndFinish("Granted was already running. It's open now.");
       return { ok: true, message: "Granted is already running.", background };
     }
     if (before === "busy") {

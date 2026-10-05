@@ -42,7 +42,11 @@ function Read-Settings {
 }
 
 function Get-OpenIn {
-  if ((Read-Settings).openIn -eq "browser") { return "browser" }
+  # Exactly the installer's rule (parseOpenInSetting): only the string
+  # "browser", case-sensitively -- no PowerShell array filtering or
+  # case-folding, so the two never disagree about a hand-edited file.
+  $v = (Read-Settings).PSObject.Properties | Where-Object { $_.Name -ceq "openIn" } | Select-Object -First 1
+  if ($v -and $v.Value -is [string] -and $v.Value -ceq "browser") { return "browser" }
   return "window"
 }
 
@@ -76,7 +80,8 @@ function Find-AppBrowser {
 # a freshly started browser lives on, and must not hold the caller's stdout
 # pipe open (the installer waits for this script's output).
 function Open-AppWindow([string]$Browser) {
-  $arg = "--app=$Url"
+  # Quoted, though Test-GrantedUrl already refuses spaces and quotes.
+  $arg = "--app=`"$Url`""
   if ($Browser -match '\.(cmd|bat)$') {
     # The tests' stand-in browser is a batch file: no console window for it.
     Start-Process -FilePath $Browser -ArgumentList $arg -WindowStyle Hidden
@@ -91,7 +96,8 @@ if ($SetOpenIn) {
   $dir = Split-Path -Parent $SettingsPath
   if ($dir) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
   # No BOM: the installer reads this file with JSON.parse.
-  [System.IO.File]::WriteAllText($SettingsPath, ($s | ConvertTo-Json -Compress), (New-Object System.Text.UTF8Encoding $false))
+  # -Depth: PowerShell 5.1's default (2) would flatten any nested setting.
+  [System.IO.File]::WriteAllText($SettingsPath, ($s | ConvertTo-Json -Depth 20 -Compress), (New-Object System.Text.UTF8Encoding $false))
   exit 0
 }
 
@@ -100,7 +106,12 @@ if ($GetOpenIn) {
   exit 0
 }
 
-if ($Url -notmatch '^https?://') { throw "open-granted.ps1: -Url must be an http(s) URL" }
+# A whole, absolute http(s) URL with nothing that could split it into more
+# browser arguments.
+$parsed = $null
+if ($Url -match '[\s"]' -or -not [System.Uri]::TryCreate($Url, [System.UriKind]::Absolute, [ref]$parsed) -or $parsed.Scheme -notin @("http", "https")) {
+  throw "open-granted.ps1: -Url must be an http(s) URL"
+}
 
 $openedIn = "none"
 $browser = $null

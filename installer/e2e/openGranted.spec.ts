@@ -382,4 +382,5 @@ test("with no Edge or Chrome on the machine, Granted still opens, in a browser t
   await page.getByRole("button", { name: "Yes, open Granted" }).click();
   await expect(page.getByText(/Granted is open in your browser/)).toBeVisible();
   expect(await openedUrls(a)).toEqual([TEST_URL]);
+  expect(appWindowUrls(install)).toEqual([]);
 });

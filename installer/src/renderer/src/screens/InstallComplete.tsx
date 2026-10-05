@@ -29,6 +29,7 @@ export default function InstallComplete(): React.JSX.Element {
   const [applying, setApplying] = useState(false);
   // Ticked = open Granted in its own window (Edge/Chrome app mode), not a browser tab.
   const [ownWindow, setOwnWindow] = useState(true);
+  const [openInNote, setOpenInNote] = useState<string | null>(null);
 
   useEffect(() => {
     window.api
@@ -90,7 +91,9 @@ export default function InstallComplete(): React.JSX.Element {
   const applyOpenIn = async (): Promise<void> => {
     if (!setup?.appWindowAvailable) return;
     const openIn: OpenIn = ownWindow ? "window" : "browser";
-    if (openIn !== setup.openIn) await window.api.setOpenIn(openIn).catch(() => undefined);
+    if (openIn === setup.openIn) return;
+    const result = await window.api.setOpenIn(openIn).catch(() => ({ ok: false, message: "Couldn't save where Granted opens." }));
+    setOpenInNote(result.ok ? null : `${result.message} It will open the way it did before.`);
   };
 
   const continueWith = (next: () => void): void => {
@@ -187,6 +190,7 @@ export default function InstallComplete(): React.JSX.Element {
       {shortcutsNote && step.id !== "ask" && (
         <div className={`status-note${shortcutsNote.ok ? "" : " error"}`}>{shortcutsNote.message}</div>
       )}
+      {openInNote && step.id !== "ask" && <div className="status-note error">{openInNote}</div>}
 
       {step.id === "choose" && (
         <>
@@ -313,7 +317,7 @@ function openedText(openedIn: OpenIn): string {
   return openedIn === "window" ? "Granted is open in its own window." : "Granted is open in your browser.";
 }
 
-const KEEP_EXISTING ="Already set — leave blank to keep it";
+const KEEP_EXISTING = "Already set — leave blank to keep it";
 
 function ApiKeysForm({
   openaiKeySet,
