@@ -9,7 +9,7 @@
 import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
@@ -304,7 +304,9 @@ describe("granted-tray.ps1 and shortcuts.ps1, run for real", { skip: (process.pl
     const lnk = JSON.parse(lnkJson) as { t: string; a: string; w: string; i: string };
     assert.match(lnk.t, /\\System32\\conhost\.exe$/i);
     assert.match(lnk.a, /^--headless ".*\\powershell\.exe" -NoProfile -STA -ExecutionPolicy Bypass -File ".*granted-tray\.ps1" -OpenBrowser$/);
-    assert.equal(lnk.w.toLowerCase(), scaffold.toLowerCase());
+    // Through realpathSync.native: %TEMP% can be an 8.3 short path (C:\Users\RUNNER~1\... on
+    // GitHub's Windows runners) while the shortcut stores the long form — same folder.
+    assert.equal(realpathSync.native(lnk.w).toLowerCase(), realpathSync.native(scaffold).toLowerCase());
     assert.match(lnk.i, /granted\.ico,0$/);
   });
 
