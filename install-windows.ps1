@@ -224,6 +224,19 @@ npm ci
 Assert-LastExitCode "npm ci failed -- see the output above for the underlying error."
 Ok "dependencies installed"
 
+# 5) List Granted in Settings -> Apps -> Installed apps (per-user, no admin),
+# so it can be uninstalled from there like any other app. Never fails the
+# install: Granted works the same without the entry.
+$uninstallScript = Join-Path (Get-Location) "scripts\windows\uninstall.ps1"
+if (Test-Path $uninstallScript) {
+  try {
+    & $uninstallScript -Register -InstallDir (Resolve-Path "..").Path | Out-Null
+    Ok "added to Installed apps (uninstall it from Settings -> Apps)"
+  } catch {
+    Warn "Couldn't add Granted to Installed apps ($($_.Exception.Message)). Granted still works."
+  }
+}
+
 Write-Status "done" $null
 Log "Done. Next steps:"
 Write-Host "  cd $TargetDir\scaffold"
