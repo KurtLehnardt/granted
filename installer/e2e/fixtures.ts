@@ -214,6 +214,14 @@ export function testTrayRunning(): boolean {
   return Number(out.trim()) > 0;
 }
 
+/** Whether any process's command line mentions `needle` (e.g. a fake script's file name). */
+export function processRunning(needle: string): boolean {
+  const out = powershell(
+    `@(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.CommandLine.Contains('${needle.replace(/'/g, "''")}') }).Count`,
+  );
+  return Number(out.trim()) > 0;
+}
+
 /** Reads a .lnk back through the same COM object Explorer uses. */
 export function readShortcut(path: string): { target: string; args: string; icon: string } {
   const out = powershell(

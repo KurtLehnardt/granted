@@ -183,7 +183,7 @@ const RECENT_LAUNCH_MS = 60_000;
 let installInFlight = false;
 
 const INSTALL_WINDOW_CLOSED_MESSAGE =
-  "The installer's PowerShell window was closed before it finished. Click \"Open a terminal for me\" to start it again.";
+  "The installer's PowerShell window was closed before it finished. Click the button below to start it again.";
 const INSTALL_STILL_WAITING_MESSAGE =
   "The installer is still running in its PowerShell window. If it's waiting for you — a Windows permission (UAC) prompt, which may be behind other windows or flashing in the taskbar — answer it. If it's stuck, close that window to cancel.";
 
