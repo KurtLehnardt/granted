@@ -12,7 +12,7 @@
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join, win32 } from "node:path";
-import type { InstallStatusEvent } from "../shared/ipc";
+import type { InstallStatusEvent, OpenIn } from "../shared/ipc";
 
 /** The regex-extraction half of checkVersionedTool. */
 export function parseVersionFromOutput(stdout: string): { version: string | null; major: number | null } {
@@ -464,6 +464,47 @@ export function parseShortcutsOutput(stdout: string): string[] | null {
     if (created === undefined || created === null) return [];
     const list = Array.isArray(created) ? created : [created]; // PS 5.1 can flatten a 1-item array
     return list.every((p) => typeof p === "string") ? (list as string[]) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The per-user settings file open-granted.ps1 and the tray read and write:
+ * %LOCALAPPDATA%\Granted\settings.json (GRANTED_SETTINGS_PATH overrides it,
+ * for tests).
+ */
+export function grantedSettingsPath(env: Record<string, string | undefined>, home: string): string {
+  if (env["GRANTED_SETTINGS_PATH"]) return env["GRANTED_SETTINGS_PATH"];
+  return win32.join(env["LOCALAPPDATA"] || win32.join(home, "AppData", "Local"), "Granted", "settings.json");
+}
+
+function parseSettingsObject(text: string | null): Record<string, unknown> {
+  if (!text) return {};
+  try {
+    const parsed: unknown = JSON.parse(text.replace(/^﻿/, ""));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** The saved "open in" preference — its own window unless the file says browser (same rule as open-granted.ps1). */
+export function parseOpenInSetting(text: string | null): OpenIn {
+  return parseSettingsObject(text)["openIn"] === "browser" ? "browser" : "window";
+}
+
+/** The settings file's new contents with openIn set, keeping anything else in it. */
+export function withOpenInSetting(text: string | null, openIn: OpenIn): string {
+  return JSON.stringify({ ...parseSettingsObject(text), openIn });
+}
+
+/** open-granted.ps1's JSON output → how it opened Granted ("none": it left that to the caller), or null if unreadable. */
+export function parseOpenGrantedOutput(stdout: string): "window" | "browser" | "none" | null {
+  try {
+    const line = stdout.trim().split(/\r?\n/).filter(Boolean).pop() ?? "";
+    const openedIn = (JSON.parse(line) as { openedIn?: unknown }).openedIn;
+    return openedIn === "window" || openedIn === "browser" || openedIn === "none" ? openedIn : null;
   } catch {
     return null;
   }

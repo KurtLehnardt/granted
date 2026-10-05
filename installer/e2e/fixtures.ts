@@ -7,7 +7,7 @@
  */
 import { _electron as electron, type ElectronApplication, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -56,6 +56,11 @@ export interface FakeInstall {
   /** Where the installer is told to put the Desktop / Start menu shortcuts (never the real ones). */
   desktopDir: string;
   startMenuDir: string;
+  /** The settings file (open in a window / a browser tab) the installer and scripts are pointed at. */
+  settingsPath: string;
+  /** A stand-in for Edge's app mode: a batch file that logs its arguments to browserLog. */
+  fakeBrowser: string;
+  browserLog: string;
   cleanup: () => void;
 }
 
@@ -84,12 +89,18 @@ export function makeFakeInstall(opts: { withWindowsScripts?: boolean } = {}): Fa
   writeFileSync(join(scaffoldDir, ".env.example"), ENV_EXAMPLE);
   writeFileSync(join(scaffoldDir, "fake-dev.js"), FAKE_DEV_SERVER);
   writeFileSync(join(scaffoldDir, "fake-setup-local.js"), FAKE_SETUP_LOCAL);
+  const browserLog = join(root, "browser.log");
+  const fakeBrowser = join(root, "fake-browser.cmd");
+  writeFileSync(fakeBrowser, `@echo %*>>"${browserLog}"\r\n`);
   return {
     root,
     installDir,
     scaffoldDir,
     desktopDir: join(root, "Desktop"),
     startMenuDir: join(root, "Programs"),
+    settingsPath: join(root, "LocalAppData", "Granted", "settings.json"),
+    fakeBrowser,
+    browserLog,
     // Retries: on Windows a just-exited process can hold a handle in here for a moment.
     cleanup: () => rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 }),
   };
@@ -107,6 +118,9 @@ export async function launchInstaller(
       GRANTED_INSTALL_DIR: fake ? fake.installDir : (install as string),
       GRANTED_PORT: String(TEST_PORT),
       ...(fake && { GRANTED_SHORTCUT_DESKTOP_DIR: fake.desktopDir, GRANTED_SHORTCUT_STARTMENU_DIR: fake.startMenuDir }),
+      // Never a real Edge window, and never the real settings file.
+      GRANTED_APP_BROWSER: fake ? fake.fakeBrowser : "none",
+      GRANTED_SETTINGS_PATH: fake ? fake.settingsPath : join(tmpdir(), "granted-e2e-no-settings.json"),
       ...extraEnv,
     } as Record<string, string>,
   });
@@ -122,8 +136,19 @@ export async function launchInstaller(
   return { app, page };
 }
 
+/** URLs opened in a browser TAB (shell.openExternal). */
 export async function openedUrls(app: ElectronApplication): Promise<string[]> {
   return app.evaluate(() => (globalThis as unknown as { __opened: string[] }).__opened);
+}
+
+/** URLs opened in Granted's OWN WINDOW: what the stand-in app-mode browser was started with (`--app=<url>`). */
+export function appWindowUrls(install: FakeInstall): string[] {
+  if (!existsSync(install.browserLog)) return [];
+  return readFileSync(install.browserLog, "utf8")
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((l) => l.replace(/^--app=/, ""));
 }
 
 /**

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import type { GrantedSetupState, ShortcutChoice, TaskStatusEvent } from "../../../shared/ipc";
+import type { GrantedSetupState, OpenIn, ShortcutChoice, TaskStatusEvent } from "../../../shared/ipc";
 
 /**
  * Shown once the install finishes. Offers to do the README's "Next steps"
  * for the user — configure .env.local (their API keys, or the fully-local
- * Ollama setup), start `npm run dev`, and open the browser — instead of
+ * Ollama setup), start `npm run dev`, and open Granted (in its own window or
+ * a browser tab) — instead of
  * leaving them to type those commands into the console.
  */
 type Step =
@@ -15,7 +16,7 @@ type Step =
   | { id: "local-setup" }
   // background: null until the main process says how it's starting Granted.
   | { id: "starting"; background: boolean | null }
-  | { id: "opened"; message: string | null; url: string; background: boolean }
+  | { id: "opened"; message: string | null; url: string; background: boolean; openedIn: OpenIn }
   | { id: "declined" }
   | { id: "error"; message: string; retry: () => void };
 
@@ -26,12 +27,15 @@ export default function InstallComplete(): React.JSX.Element {
   const [shortcutsNote, setShortcutsNote] = useState<{ ok: boolean; message: string } | null>(null);
   const [shortcutsMade, setShortcutsMade] = useState(false);
   const [applying, setApplying] = useState(false);
+  // Ticked = open Granted in its own window (Edge/Chrome app mode), not a browser tab.
+  const [ownWindow, setOwnWindow] = useState(true);
 
   useEffect(() => {
     window.api
       .getSetupState()
       .then((state) => {
         setSetup(state);
+        setOwnWindow(state.openIn !== "browser");
         setStep({ id: "ask" });
       })
       .catch(() => setStep({ id: "ask" }));
@@ -63,6 +67,7 @@ export default function InstallComplete(): React.JSX.Element {
           message: status.message ?? null,
           url: status.url ?? "http://localhost:3000",
           background: status.background ?? false,
+          openedIn: status.openedIn ?? "browser",
         });
       } else {
         setStep({ id: "error", message: status.message ?? "Granted didn't start.", retry: start });
@@ -80,9 +85,18 @@ export default function InstallComplete(): React.JSX.Element {
     if (result.ok) setShortcutsMade(true);
   };
 
+  // Saved for the tray and shortcuts too, so it applies every time Granted
+  // opens. Best effort: if it can't be saved, Granted opens the way it would have.
+  const applyOpenIn = async (): Promise<void> => {
+    if (!setup?.appWindowAvailable) return;
+    const openIn: OpenIn = ownWindow ? "window" : "browser";
+    if (openIn !== setup.openIn) await window.api.setOpenIn(openIn).catch(() => undefined);
+  };
+
   const continueWith = (next: () => void): void => {
     setApplying(true);
-    void applyShortcuts()
+    void applyOpenIn()
+      .then(applyShortcuts)
       .catch(() => setShortcutsNote({ ok: false, message: "Couldn't add the Granted shortcut(s)." }))
       .finally(() => {
         setApplying(false);
@@ -147,6 +161,12 @@ export default function InstallComplete(): React.JSX.Element {
               </label>
             </fieldset>
           )}
+          {setup?.appWindowAvailable && (
+            <label className="open-in-option">
+              <input type="checkbox" checked={ownWindow} onChange={(e) => setOwnWindow(e.target.checked)} />
+              Open Granted in its own window, like an app (not as a browser tab)
+            </label>
+          )}
           <p className="question">Open Granted now?</p>
           <div className="actions">
             <button type="button" className="primary" onClick={handleYes} disabled={applying}>
@@ -203,7 +223,7 @@ export default function InstallComplete(): React.JSX.Element {
       {step.id === "local-setup" && (
         <div className="status-note">
           Setting up the local AI model in a separate PowerShell window. This can take up to half an hour — Granted will
-          open in your browser by itself when it's done. To cancel, close that window.
+          open by itself when it's done. To cancel, close that window.
         </div>
       )}
 
@@ -212,13 +232,13 @@ export default function InstallComplete(): React.JSX.Element {
           <div className="status-note">Starting Granted…</div>
         ) : step.background ? (
           <div className="status-note">
-            Starting Granted in the background… Your browser will open when it's ready (the first start can take a
-            minute or two).
+            Starting Granted in the background… It will open when it's ready (the first start can take a minute or
+            two).
           </div>
         ) : (
           <div className="status-note">
             Starting Granted… A PowerShell window titled <strong>Granted</strong> opened — keep it open while you use
-            Granted. Your browser will open when it's ready (the first start can take a minute or two). To cancel, close
+            Granted. It will open when it's ready (the first start can take a minute or two). To cancel, close
             that window.
           </div>
         ))}
@@ -227,14 +247,14 @@ export default function InstallComplete(): React.JSX.Element {
         <>
           {step.background ? (
             <div className="status-note">
-              {step.message ?? "Granted is open in your browser."} It's at <code>{step.url}</code> and keeps running in
+              {step.message ?? openedText(step.openedIn)} It's at <code>{step.url}</code> and keeps running in
               the background — look for the <strong>Granted icon</strong> by the clock (it may be under the ^ arrow).
               Right-click it to open Granted again or to quit it.
               {shortcutPlaces.length > 0 && <> Next time, open it from the Granted shortcut {shortcutPlaces.join(" or ")}.</>}
             </div>
           ) : (
             <div className="status-note">
-              {step.message ?? "Granted is open in your browser."} It's at <code>{step.url}</code>. Keep the{" "}
+              {step.message ?? openedText(step.openedIn)} It's at <code>{step.url}</code>. Keep the{" "}
               <strong>Granted</strong> PowerShell window open while you use it — closing that window stops Granted.
             </div>
           )}
@@ -287,7 +307,13 @@ npm run dev                    # then open http://localhost:3000`}</code>
   );
 }
 
-const KEEP_EXISTING = "Already set — leave blank to keep it";
+// What actually happened — "window" may have been asked for, but with no
+// Edge or Chrome on the machine Granted opens in a browser tab instead.
+function openedText(openedIn: OpenIn): string {
+  return openedIn === "window" ? "Granted is open in its own window." : "Granted is open in your browser.";
+}
+
+const KEEP_EXISTING ="Already set — leave blank to keep it";
 
 function ApiKeysForm({
   openaiKeySet,

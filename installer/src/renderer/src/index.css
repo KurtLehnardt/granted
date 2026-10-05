@@ -214,6 +214,14 @@ button.choice span {
   gap: 6px;
 }
 
+.open-in-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 16px;
+  font-size: 14px;
+}
+
 .keys-form label {
   display: flex;
   flex-direction: column;

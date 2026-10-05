@@ -10,9 +10,9 @@
  * (IPC handlers, opening console windows, shell.openExternal).
  */
 import { closeSync, existsSync, openSync } from "node:fs";
-import { readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import type { ApiKeysInput, GrantedSetupState, SaveKeysResult } from "../shared/ipc";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import type { ActionResult, ApiKeysInput, GrantedSetupState, OpenIn, SaveKeysResult } from "../shared/ipc";
 import {
   applyApiKeys,
   currentEnvValue,
@@ -21,10 +21,12 @@ import {
   isAnthropicKeyFormat,
   isOpenAiKeyFormat,
   looksLikeGranted,
+  parseOpenInSetting,
   parseStatusFile,
   resolveTaskStatus,
   statusLockPath,
   type StatusFile,
+  withOpenInSetting,
 } from "./ipcPure";
 
 async function readTextOrNull(path: string): Promise<string | null> {
@@ -39,7 +41,7 @@ export function readEnvLocal(scaffoldDir: string): Promise<string | null> {
   return readTextOrNull(join(scaffoldDir, ".env.local"));
 }
 
-export async function getSetupState(installDir: string): Promise<GrantedSetupState> {
+export async function getSetupState(installDir: string, settingsPath: string): Promise<GrantedSetupState> {
   const scaffoldDir = join(installDir, "scaffold");
   const env = (await readEnvLocal(scaffoldDir)) ?? "";
   const openaiKeySet = isOpenAiKeyFormat(currentEnvValue(env, "OPENAI_API_KEY"));
@@ -53,11 +55,25 @@ export async function getSetupState(installDir: string): Promise<GrantedSetupSta
     localConfigured: envIsLocalConfigured(env, await readTextOrNull(join(scaffoldDir, "data", "local", "corpus-meta.json"))),
     trayAvailable: existsSync(windowsScriptPath(scaffoldDir, "granted-tray.ps1")),
     shortcutsAvailable: existsSync(windowsScriptPath(scaffoldDir, "shortcuts.ps1")),
+    appWindowAvailable: existsSync(windowsScriptPath(scaffoldDir, "open-granted.ps1")),
+    openIn: parseOpenInSetting(await readTextOrNull(settingsPath)),
   };
 }
 
+/** Saves the "open in" preference to the settings file the tray and open-granted.ps1 read, keeping its other settings. */
+export async function saveOpenIn(settingsPath: string, openIn: OpenIn): Promise<ActionResult> {
+  try {
+    await mkdir(dirname(settingsPath), { recursive: true });
+    await writeFile(settingsPath, withOpenInSetting(await readTextOrNull(settingsPath), openIn), "utf8");
+    return { ok: true, message: openIn === "window" ? "Granted will open in its own window." : "Granted will open in your browser." };
+  } catch (err) {
+    console.error("saveOpenIn failed:", err);
+    return { ok: false, message: "Couldn't save where Granted opens." };
+  }
+}
+
 /** scaffold/scripts/windows/<name> — the tray, shortcut and icon files (one place builds this path). */
-export function windowsScriptPath(scaffoldDir: string, name: "granted-tray.ps1" | "shortcuts.ps1"): string {
+export function windowsScriptPath(scaffoldDir: string, name: "granted-tray.ps1" | "shortcuts.ps1" | "open-granted.ps1"): string {
   return join(scaffoldDir, "scripts", "windows", name);
 }
 

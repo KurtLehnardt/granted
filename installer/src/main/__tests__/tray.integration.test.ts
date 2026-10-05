@@ -15,8 +15,15 @@ import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { parseShortcutsOutput, startProcessCommand, STATUS_LOCK_LINE, trayLaunchCommand } from "../ipcPure";
-import { probeGranted, readTaskStatus } from "../openGranted";
+import {
+  parseOpenGrantedOutput,
+  parseOpenInSetting,
+  parseShortcutsOutput,
+  startProcessCommand,
+  STATUS_LOCK_LINE,
+  trayLaunchCommand,
+} from "../ipcPure";
+import { probeGranted, readTaskStatus, saveOpenIn } from "../openGranted";
 
 const execFileAsync = promisify(execFile);
 
@@ -78,10 +85,11 @@ describe("granted-tray.ps1 and shortcuts.ps1, run for real", { skip: (process.pl
     return n > 0 ? n : null;
   };
 
-  function startTray(dir: string, port: number, extra: string[] = []): ChildProcess {
+  function startTray(dir: string, port: number, extra: string[] = [], env?: NodeJS.ProcessEnv): ChildProcess {
     const child = spawn("powershell.exe", [...PS, join(dir, "scripts", "windows", "granted-tray.ps1"), "-NoTray", "-Port", String(port), ...extra], {
       windowsHide: true,
       stdio: "ignore",
+      ...(env && { env }),
     });
     started.push(child);
     return child;
@@ -308,6 +316,80 @@ describe("granted-tray.ps1 and shortcuts.ps1, run for real", { skip: (process.pl
     // GitHub's Windows runners) while the shortcut stores the long form — same folder.
     assert.equal(realpathSync.native(lnk.w).toLowerCase(), realpathSync.native(scaffold).toLowerCase());
     assert.match(lnk.i, /granted\.ico,0$/);
+  });
+
+  describe("open-granted.ps1: Granted in its own window (Edge/Chrome app mode) or a browser tab", () => {
+    // A stand-in browser that records how it was started — never a real Edge
+    // window, never a real browser tab — and a settings file of its own.
+    let dir: string;
+    let fakeBrowser: string;
+    let browserLog: string;
+    let settings: string;
+    let openScript: string;
+    const env = (extra: Record<string, string> = {}): NodeJS.ProcessEnv => ({
+      ...process.env,
+      GRANTED_SETTINGS_PATH: settings,
+      GRANTED_APP_BROWSER: fakeBrowser,
+      ...extra,
+    });
+    const run = async (args: string[], extra: Record<string, string> = {}): Promise<string> =>
+      (await execFileAsync("powershell.exe", [...PS, openScript, ...args], { windowsHide: true, env: env(extra) })).stdout;
+    const browserCalls = (): string[] => (existsSync(browserLog) ? readFileSync(browserLog, "utf8").split(/\r?\n/).map((l) => l.trim()).filter(Boolean) : []);
+
+    before(async () => {
+      dir = await mkdtemp(join(root, "open-"));
+      browserLog = join(dir, "browser.log");
+      fakeBrowser = join(dir, "fake-browser.cmd");
+      await writeFile(fakeBrowser, `@echo %*>>"${browserLog}"\r\n`);
+      settings = join(dir, "Granted", "settings.json");
+      openScript = join(scaffold, "scripts", "windows", "open-granted.ps1");
+    });
+
+    test("by default it opens an app window: --app=<url>, and says so", async () => {
+      const out = await run(["-Url", "http://localhost:3901", "-NoBrowserFallback"]);
+      assert.equal(parseOpenGrantedOutput(out), "window");
+      assert.deepEqual(await until(async () => browserCalls(), (c) => c.length > 0, 10_000), ["--app=http://localhost:3901"]);
+    });
+
+    test("a 'browser' preference is saved where the installer reads it, and then no app window is opened", async () => {
+      await run(["-SetOpenIn", "browser"]);
+      assert.equal(parseOpenInSetting(readFileSync(settings, "utf8")), "browser", "the installer's parser reads what the script wrote");
+      assert.match(await run(["-GetOpenIn"]), /"openIn":"browser"/);
+      const before = browserCalls().length;
+      assert.equal(parseOpenGrantedOutput(await run(["-Url", "http://localhost:3901", "-NoBrowserFallback"])), "none");
+      await sleep(1000);
+      assert.equal(browserCalls().length, before);
+    });
+
+    test("a preference the installer saved is what the script follows", async () => {
+      assert.equal((await saveOpenIn(settings, "window")).ok, true);
+      assert.match(await run(["-GetOpenIn"]), /"openIn":"window"/);
+    });
+
+    test("with no Edge or Chrome it leaves opening to the caller", async () => {
+      assert.equal(parseOpenGrantedOutput(await run(["-Url", "http://localhost:3901", "-NoBrowserFallback"], { GRANTED_APP_BROWSER: "none" })), "none");
+    });
+
+    test("anything but an http(s) URL is refused", async () => {
+      await assert.rejects(run(["-Url", "C:\\Windows\\System32\\calc.exe", "-NoBrowserFallback"]));
+    });
+
+    test("the tray opens Granted through it (here: Granted already running, a shortcut's -OpenBrowser launch)", async () => {
+      const port = takePort();
+      const existing: Server = await new Promise((r) => {
+        const s = createServer((_q, res) => res.end(GRANTED_HTML));
+        s.listen(port, "127.0.0.1", () => r(s));
+      });
+      try {
+        const before = browserCalls().length;
+        const tray = startTray(scaffold, port, ["-OpenBrowser"], env());
+        assert.equal(await exited(tray), 0);
+        const calls = await until(async () => browserCalls(), (c) => c.length > before, 10_000);
+        assert.equal(calls[calls.length - 1], `--app=http://localhost:${port}`);
+      } finally {
+        existing.close();
+      }
+    });
   });
 
   test("shortcuts.ps1 only creates what's asked for, and -Port is carried into the shortcut", async () => {

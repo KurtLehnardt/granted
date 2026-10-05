@@ -10,7 +10,11 @@ import {
   isOpenAiKeyFormat,
   escapeForAppleScript,
   grantedPort,
+  grantedSettingsPath,
   isRealKey,
+  parseOpenGrantedOutput,
+  parseOpenInSetting,
+  withOpenInSetting,
   looksLikeGranted,
   mergeRegistryPath,
   newInstallStatusPath,
@@ -601,6 +605,39 @@ describe("grantedPort", () => {
     assert.equal(grantedPort("abc"), 3000);
     assert.equal(grantedPort("70000"), 3000);
     assert.equal(grantedPort("-1"), 3000);
+  });
+});
+
+describe("opening Granted in its own window: the settings file and open-granted.ps1's output", () => {
+  test("the settings file lives in %LOCALAPPDATA%\\Granted, unless a test overrides it", () => {
+    assert.equal(grantedSettingsPath({ LOCALAPPDATA: "C:\\Users\\a\\AppData\\Local" }, "C:\\Users\\a"), "C:\\Users\\a\\AppData\\Local\\Granted\\settings.json");
+    assert.equal(grantedSettingsPath({}, "C:\\Users\\a"), "C:\\Users\\a\\AppData\\Local\\Granted\\settings.json");
+    assert.equal(grantedSettingsPath({ GRANTED_SETTINGS_PATH: "D:\\t\\s.json", LOCALAPPDATA: "C:\\x" }, "C:\\Users\\a"), "D:\\t\\s.json");
+  });
+
+  test("its own window is the default; only an explicit 'browser' changes that", () => {
+    assert.equal(parseOpenInSetting(null), "window");
+    assert.equal(parseOpenInSetting(""), "window");
+    assert.equal(parseOpenInSetting("not json"), "window");
+    assert.equal(parseOpenInSetting("[1]"), "window");
+    assert.equal(parseOpenInSetting('{"openIn":"tab"}'), "window");
+    assert.equal(parseOpenInSetting('{"openIn":"browser"}'), "browser");
+    // PowerShell 5.1's Set-Content -Encoding utf8 writes a BOM; it must still parse.
+    assert.equal(parseOpenInSetting('\uFEFF{"openIn":"browser"}'), "browser");
+  });
+
+  test("withOpenInSetting sets openIn and keeps everything else", () => {
+    assert.deepEqual(JSON.parse(withOpenInSetting(null, "browser")), { openIn: "browser" });
+    assert.deepEqual(JSON.parse(withOpenInSetting('{"openIn":"browser","x":2}', "window")), { openIn: "window", x: 2 });
+    assert.deepEqual(JSON.parse(withOpenInSetting("garbage", "window")), { openIn: "window" });
+  });
+
+  test("parseOpenGrantedOutput reads the script's last JSON line", () => {
+    assert.equal(parseOpenGrantedOutput('{"openedIn":"window","browser":"C:\\\\Edge\\\\msedge.exe"}\r\n'), "window");
+    assert.equal(parseOpenGrantedOutput('{"browser":null,"openedIn":"none"}'), "none");
+    assert.equal(parseOpenGrantedOutput('some warning\r\n{"openedIn":"browser"}\r\n'), "browser");
+    assert.equal(parseOpenGrantedOutput(""), null);
+    assert.equal(parseOpenGrantedOutput('{"openedIn":"elsewhere"}'), null);
   });
 });
 

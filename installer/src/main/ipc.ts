@@ -12,9 +12,11 @@ import {
   decideStatusPoll,
   escapeForAppleScript,
   grantedPort,
+  grantedSettingsPath,
   mergeRegistryPath,
   newInstallStatusPath,
   newTaskStatusPath,
+  parseOpenGrantedOutput,
   parseShortcutsOutput,
   parseVersionFromOutput,
   psSingleQuoted,
@@ -28,6 +30,7 @@ import {
   probeGranted,
   readTaskStatus,
   saveApiKeys,
+  saveOpenIn,
   waitForGrantedToStart,
   windowsScriptPath,
 } from "./openGranted";
@@ -37,6 +40,7 @@ import {
   type ActionResult,
   type ApiKeysInput,
   type InstallStatusEvent,
+  type OpenIn,
   type OpenInstallTerminalResult,
   type PrereqReport,
   type ShortcutChoice,
@@ -528,6 +532,10 @@ function scaffoldDir(): string {
   return join(installDir(), "scaffold");
 }
 
+function settingsPath(): string {
+  return grantedSettingsPath(process.env, homedir());
+}
+
 /** Writes a buildTaskScript .ps1 and runs it in its own console window in scaffold/. */
 async function launchScaffoldTask(opts: {
   task: GrantedTask;
@@ -571,6 +579,31 @@ async function openInBrowser(url: string): Promise<boolean> {
     console.error("openExternal failed:", err);
     return false;
   }
+}
+
+/**
+ * Opens Granted the way the user prefers: in its own window (Edge/Chrome app
+ * mode, via scripts/windows/open-granted.ps1 — the same script the tray and
+ * shortcuts use) or a browser tab. The browser-tab part stays here
+ * (shell.openExternal), so an install without the script, a machine with no
+ * app-mode browser, or a script failure all still open Granted.
+ * Returns how it opened, or null if nothing could be opened.
+ */
+async function openGrantedPage(url: string): Promise<OpenIn | null> {
+  const script = windowsScriptPath(scaffoldDir(), "open-granted.ps1");
+  if (existsSync(script)) {
+    try {
+      const { stdout } = await execFileAsync(
+        "powershell.exe",
+        ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script, "-Url", url, "-NoBrowserFallback"],
+        { windowsHide: true, timeout: 30_000 },
+      );
+      if (parseOpenGrantedOutput(stdout) === "window") return "window";
+    } catch (err) {
+      console.error("open-granted.ps1 failed:", err);
+    }
+  }
+  return (await openInBrowser(url)) ? "browser" : null;
 }
 
 async function runLocalSetup(sender: WebContents): Promise<ActionResult> {
@@ -632,13 +665,14 @@ async function startGranted(sender: WebContents): Promise<StartResult> {
     ? "right-click the Granted icon by the clock and choose Show log"
     : "check its PowerShell window";
 
-  const finish = (state: "done" | "error", message: string | null): void => {
+  const finish = (state: "done" | "error", message: string | null, openedIn?: OpenIn): void => {
     grantedTaskInFlight = false;
-    sendTaskStatus(sender, { task: "start-app", state, message, url: GRANTED_URL, background });
+    sendTaskStatus(sender, { task: "start-app", state, message, url: GRANTED_URL, background, ...(openedIn && { openedIn }) });
   };
 
   const openAndFinish = async (message: string | null): Promise<void> => {
-    if (await openInBrowser(GRANTED_URL)) finish("done", message);
+    const openedIn = await openGrantedPage(GRANTED_URL);
+    if (openedIn) finish("done", message, openedIn);
     else finish("done", `Granted is running, but your browser couldn't be opened automatically — go to ${GRANTED_URL} yourself.`);
   };
 
@@ -693,7 +727,7 @@ async function startGranted(sender: WebContents): Promise<StartResult> {
 
     const before = await probeGranted(GRANTED_PROBE_URL, ALREADY_RUNNING_PROBE_TIMEOUT_MS);
     if (before === "granted") {
-      await openAndFinish("Granted was already running — opened it in your browser.");
+      await openAndFinish("Granted was already running, so it was opened.");
       return { ok: true, message: "Granted is already running.", background };
     }
     if (before === "busy") {
@@ -795,7 +829,12 @@ async function createShortcuts(choice: ShortcutChoice): Promise<ShortcutsResult>
 export function registerIpcHandlers(): void {
   ipcMain.handle("prereqs:check", () => checkPrereqs());
   ipcMain.handle("terminal:open-install", (event) => openInstallTerminal(event.sender));
-  ipcMain.handle("granted:get-setup-state", () => getSetupState(installDir()));
+  ipcMain.handle("granted:get-setup-state", () => getSetupState(installDir(), settingsPath()));
+  ipcMain.handle("granted:set-open-in", (_event, openIn: OpenIn) =>
+    openIn === "window" || openIn === "browser"
+      ? saveOpenIn(settingsPath(), openIn)
+      : { ok: false, message: "Unknown place to open Granted." },
+  );
   ipcMain.handle("granted:save-api-keys", (_event, keys: ApiKeysInput) => saveApiKeys(scaffoldDir(), keys));
   ipcMain.handle("granted:run-local-setup", (event) => runLocalSetup(event.sender));
   ipcMain.handle("granted:start", (event) => startGranted(event.sender));
