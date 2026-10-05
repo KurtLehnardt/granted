@@ -13,10 +13,17 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, realpat
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { parseShortcutsOutput, startProcessCommand, STATUS_LOCK_LINE, trayLaunchCommand } from "../ipcPure";
-import { probeGranted, readTaskStatus } from "../openGranted";
+import {
+  parseOpenGrantedOutput,
+  parseOpenInSetting,
+  parseShortcutsOutput,
+  startProcessCommand,
+  STATUS_LOCK_LINE,
+  trayLaunchCommand,
+} from "../ipcPure";
+import { probeGranted, readTaskStatus, saveOpenIn } from "../openGranted";
 
 const execFileAsync = promisify(execFile);
 
@@ -78,10 +85,11 @@ describe("granted-tray.ps1 and shortcuts.ps1, run for real", { skip: (process.pl
     return n > 0 ? n : null;
   };
 
-  function startTray(dir: string, port: number, extra: string[] = []): ChildProcess {
+  function startTray(dir: string, port: number, extra: string[] = [], env?: NodeJS.ProcessEnv): ChildProcess {
     const child = spawn("powershell.exe", [...PS, join(dir, "scripts", "windows", "granted-tray.ps1"), "-NoTray", "-Port", String(port), ...extra], {
       windowsHide: true,
       stdio: "ignore",
+      ...(env && { env }),
     });
     started.push(child);
     return child;
@@ -175,6 +183,9 @@ describe("granted-tray.ps1 and shortcuts.ps1, run for real", { skip: (process.pl
   test("REGRESSION (review): a second launch while the first tray's Granted isn't answering reports it instead of leaving silently", async () => {
     const port = takePort();
     const stuck = await makeScaffold("stuck", NEVER_LISTENS);
+    // A log left by an earlier run on this port already says "starting forever":
+    // the wait below would pass at once and the second tray would race the first.
+    await rm(logPath(port), { force: true });
     const first = startTray(stuck, port);
     await until(async () => existsSync(logPath(port)) && readFileSync(logPath(port), "utf8").includes("starting forever"), (v) => v);
     const statusPath = join(root, "status-second.json");
@@ -308,6 +319,125 @@ describe("granted-tray.ps1 and shortcuts.ps1, run for real", { skip: (process.pl
     // GitHub's Windows runners) while the shortcut stores the long form — same folder.
     assert.equal(realpathSync.native(lnk.w).toLowerCase(), realpathSync.native(scaffold).toLowerCase());
     assert.match(lnk.i, /granted\.ico,0$/);
+  });
+
+  describe("open-granted.ps1: Granted in its own window (Edge/Chrome app mode) or a browser tab", () => {
+    // A stand-in browser that records how it was started — never a real Edge
+    // window, never a real browser tab — and, per test, a settings file and
+    // log of its own (so tests can run alone or in any order).
+    let openScript: string;
+    let seq = 0;
+    interface Sandbox {
+      settings: string;
+      browserLog: string;
+      env: (extra?: Record<string, string>) => NodeJS.ProcessEnv;
+      run: (args: string[], extra?: Record<string, string>) => Promise<string>;
+      browserCalls: () => string[];
+    }
+    async function sandbox(): Promise<Sandbox> {
+      const dir = join(root, `open-${seq++}`);
+      mkdirSync(dir, { recursive: true });
+      const browserLog = join(dir, "browser.log");
+      const fakeBrowser = join(dir, "fake-browser.cmd");
+      // Plain %*: the script passes --app="<url>", whose quotes keep a URL's & away from cmd.
+      await writeFile(fakeBrowser, `@echo %*>>"${browserLog}"\r\n`);
+      const settings = join(dir, "Granted", "settings.json");
+      const env = (extra: Record<string, string> = {}): NodeJS.ProcessEnv => ({
+        ...process.env,
+        GRANTED_SETTINGS_PATH: settings,
+        GRANTED_APP_BROWSER: fakeBrowser,
+        ...extra,
+      });
+      return {
+        settings,
+        browserLog,
+        env,
+        run: async (args, extra = {}) =>
+          (await execFileAsync("powershell.exe", [...PS, openScript, ...args], { windowsHide: true, env: env(extra) })).stdout,
+        browserCalls: () =>
+          existsSync(browserLog)
+            ? readFileSync(browserLog, "utf8").split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+            : [],
+      };
+    }
+    /** The stand-in browser is started asynchronously: wait a while to be sure it was NOT. */
+    async function notLaunched(s: Sandbox): Promise<void> {
+      await sleep(3000);
+      assert.deepEqual(s.browserCalls(), []);
+    }
+
+    before(() => {
+      openScript = join(scaffold, "scripts", "windows", "open-granted.ps1");
+    });
+
+    test("by default it opens an app window: --app=\"<url>\", and says so", async () => {
+      const s = await sandbox();
+      const out = await s.run(["-Url", "http://localhost:3901/?a=1&b=2", "-NoBrowserFallback"]);
+      assert.equal(parseOpenGrantedOutput(out), "window");
+      assert.deepEqual(await until(async () => s.browserCalls(), (c) => c.length > 0, 10_000), ['--app="http://localhost:3901/?a=1&b=2"']);
+    });
+
+    test("a 'browser' preference is saved where the installer reads it, and then no app window is opened", async () => {
+      const s = await sandbox();
+      await s.run(["-SetOpenIn", "browser"]);
+      assert.equal(parseOpenInSetting(readFileSync(s.settings, "utf8")), "browser", "the installer's parser reads what the script wrote");
+      assert.match(await s.run(["-GetOpenIn"]), /"openIn":"browser"/);
+      assert.equal(parseOpenGrantedOutput(await s.run(["-Url", "http://localhost:3901", "-NoBrowserFallback"])), "none");
+      await notLaunched(s);
+    });
+
+    test("a preference the installer saved is what the script follows", async () => {
+      const s = await sandbox();
+      assert.equal((await saveOpenIn(s.settings, "browser")).ok, true);
+      assert.match(await s.run(["-GetOpenIn"]), /"openIn":"browser"/);
+    });
+
+    test("REGRESSION (review): the script reads a hand-edited file exactly as the installer does", async () => {
+      const s = await sandbox();
+      mkdirSync(dirname(s.settings), { recursive: true });
+      for (const text of ['{"openIn":["browser"]}', '{"OpenIn":"browser"}', '{"openIn":"Browser"}']) {
+        await writeFile(s.settings, text);
+        assert.equal(parseOpenInSetting(text), "window", text);
+        assert.match(await s.run(["-GetOpenIn"]), /"openIn":"window"/, text);
+      }
+    });
+
+    test("REGRESSION (review): -SetOpenIn keeps nested settings intact", async () => {
+      const s = await sandbox();
+      mkdirSync(dirname(s.settings), { recursive: true });
+      await writeFile(s.settings, JSON.stringify({ a: { b: { c: { d: 1 } } } }));
+      await s.run(["-SetOpenIn", "browser"]);
+      assert.deepEqual(JSON.parse(readFileSync(s.settings, "utf8")), { a: { b: { c: { d: 1 } } }, openIn: "browser" });
+    });
+
+    test("with no Edge or Chrome it leaves opening to the caller", async () => {
+      const s = await sandbox();
+      assert.equal(parseOpenGrantedOutput(await s.run(["-Url", "http://localhost:3901", "-NoBrowserFallback"], { GRANTED_APP_BROWSER: "none" })), "none");
+    });
+
+    test("REGRESSION (review): anything but a whole http(s) URL is refused, and nothing is launched", async () => {
+      const s = await sandbox();
+      for (const url of ["C:\\Windows\\System32\\calc.exe", "file:///C:/Windows", "http://localhost:3000/ --evil", 'http://localhost:3000/"x', "localhost:3000"]) {
+        await assert.rejects(s.run(["-Url", url, "-NoBrowserFallback"]), url);
+      }
+      await notLaunched(s);
+    });
+
+    test("the tray opens Granted through it (here: Granted already running, a shortcut's -OpenBrowser launch)", async () => {
+      const s = await sandbox();
+      const port = takePort();
+      const existing: Server = await new Promise((r) => {
+        const srv = createServer((_q, res) => res.end(GRANTED_HTML));
+        srv.listen(port, "127.0.0.1", () => r(srv));
+      });
+      try {
+        const tray = startTray(scaffold, port, ["-OpenBrowser"], s.env());
+        assert.equal(await exited(tray), 0);
+        assert.deepEqual(await until(async () => s.browserCalls(), (c) => c.length > 0, 10_000), [`--app="http://localhost:${port}"`]);
+      } finally {
+        existing.close();
+      }
+    });
   });
 
   test("shortcuts.ps1 only creates what's asked for, and -Port is carried into the shortcut", async () => {

@@ -100,7 +100,14 @@ export interface GrantedSetupState {
   trayAvailable: boolean;
   /** This install has scripts/windows/shortcuts.ps1, so Desktop/Start menu shortcuts can be offered. */
   shortcutsAvailable: boolean;
+  /** This install has scripts/windows/open-granted.ps1, so Granted can open in its own window (Edge/Chrome app mode). */
+  appWindowAvailable: boolean;
+  /** The saved preference: open Granted in its own window, or in a browser tab. */
+  openIn: OpenIn;
 }
+
+/** Where Granted opens: its own app window, or a tab in the default browser. */
+export type OpenIn = "window" | "browser";
 
 /** What the "Use my API keys" form sends. Blank = leave whatever is already there. */
 export interface ApiKeysInput {
@@ -132,6 +139,8 @@ export interface TaskStatusEvent {
    * user must keep open. False only for an older install without that script.
    */
   background?: boolean;
+  /** start-app "done" only: whether Granted opened in its own window or a browser tab. */
+  openedIn?: OpenIn;
 }
 
 /** saveApiKeys's result: `suggestLocal` = offer "use local models instead" (no usable search key was given). */
@@ -166,11 +175,13 @@ export interface GrantedInstallerApi {
   saveApiKeys: (keys: ApiKeysInput) => Promise<SaveKeysResult>;
   /** Opens a PowerShell window running `npm run setup:local -- --yes`; a TaskStatusEvent follows. */
   runLocalSetup: () => Promise<ActionResult>;
-  /** Starts Granted in the background (tray icon) and opens the browser once it answers; a TaskStatusEvent follows. */
+  /** Starts Granted in the background (tray icon) and opens it once it answers; a TaskStatusEvent follows. */
   startGranted: () => Promise<StartResult>;
   onTaskStatus: (listener: (status: TaskStatusEvent) => void) => () => void;
   /** Creates the "Granted" Desktop and/or Start menu shortcut. */
   createShortcuts: (choice: ShortcutChoice) => Promise<ShortcutsResult>;
+  /** Saves where Granted opens from now on (the installer, the tray and the shortcuts all follow it). */
+  setOpenIn: (openIn: OpenIn) => Promise<ActionResult>;
   /** Closes the installer window. */
   quit: () => void;
 }

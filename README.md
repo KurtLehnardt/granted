@@ -94,8 +94,9 @@ Instead of keeping a terminal open for `npm run dev`, Granted can run hidden in 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\shortcuts.ps1 -Desktop -StartMenu
 ```
-- **The Granted shortcut** starts Granted if it isn't already running, then opens it in your browser. Nothing starts at sign-in.
-- **The Granted icon by the clock** has a right-click menu: **Open Granted**, its status, **Show log** (the server output, in `%LOCALAPPDATA%\Granted\logs`), **Restart** and **Quit Granted**. Quitting stops the server.
+- **The Granted shortcut** starts Granted if it isn't already running, then opens it. Nothing starts at sign-in.
+- **Its own window:** Granted opens like an app, in an Edge window with no tabs or address bar and its own taskbar entry (Edge's app mode, `msedge --app=…`; Chrome if there's no Edge). To use a normal browser tab instead, untick **Open in its own window** in the tray icon's menu or on the installer's last screen. The choice is saved in `%LOCALAPPDATA%\Granted\settings.json`. Links to other sites open in a regular Edge (or Chrome) window, not in your default browser.
+- **The Granted icon by the clock** has a right-click menu: **Open Granted**, its status, **Open in its own window**, **Show log** (the server output, in `%LOCALAPPDATA%\Granted\logs`), **Restart** and **Quit Granted**. Quitting stops the server.
 - **No window, even on Windows 11:** the shortcut runs `scripts\windows\granted-tray.ps1` through `conhost.exe --headless`. A plain `powershell -WindowStyle Hidden` still opens a visible Windows Terminal window when Windows Terminal is the default console host, as it is by default on Windows 11.
 
 ## Install on Linux

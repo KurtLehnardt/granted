@@ -7,7 +7,7 @@
 import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -23,6 +23,7 @@ import {
   readStatusFile,
   readTaskStatus,
   saveApiKeys,
+  saveOpenIn,
   waitForGrantedToStart,
 } from "../openGranted";
 
@@ -55,6 +56,12 @@ async function makeInstall(): Promise<{ root: string; installDir: string; scaffo
   return { root, installDir, scaffoldDir };
 }
 
+// Never the real %LOCALAPPDATA%\Granted\settings.json.
+const settingsDir = mkdtempSync(join(tmpdir(), "granted-settings-it-"));
+const SETTINGS = join(settingsDir, "Granted", "settings.json");
+const setupState = (installDir: string): ReturnType<typeof getSetupState> => getSetupState(installDir, SETTINGS);
+after(() => rmSync(settingsDir, { recursive: true, force: true }));
+
 function serve(handler: Parameters<typeof createServer>[1]): Promise<{ server: Server; url: string }> {
   return new Promise((resolveServe) => {
     const server = createServer(handler);
@@ -82,7 +89,7 @@ describe("getSetupState / saveApiKeys against a real install folder", () => {
   });
 
   test("a fresh install reads as installed but not configured", async () => {
-    assert.deepEqual(await getSetupState(install.installDir), {
+    assert.deepEqual(await setupState(install.installDir), {
       installDir: install.installDir,
       installed: true,
       openaiKeySet: false,
@@ -91,20 +98,34 @@ describe("getSetupState / saveApiKeys against a real install folder", () => {
       localConfigured: false,
       trayAvailable: false,
       shortcutsAvailable: false,
+      appWindowAvailable: false,
+      openIn: "window",
     });
   });
 
-  test("an install that has the Windows tray + shortcut scripts says so", async () => {
+  test("an install that has the Windows tray, shortcut and open-in-a-window scripts says so", async () => {
     await mkdir(join(install.scaffoldDir, "scripts", "windows"), { recursive: true });
     await writeFile(join(install.scaffoldDir, "scripts", "windows", "granted-tray.ps1"), "");
     await writeFile(join(install.scaffoldDir, "scripts", "windows", "shortcuts.ps1"), "");
-    const state = await getSetupState(install.installDir);
+    await writeFile(join(install.scaffoldDir, "scripts", "windows", "open-granted.ps1"), "");
+    const state = await setupState(install.installDir);
     assert.equal(state.trayAvailable, true);
     assert.equal(state.shortcutsAvailable, true);
+    assert.equal(state.appWindowAvailable, true);
+  });
+
+  test("saveOpenIn creates the settings file, round-trips through getSetupState, and keeps other settings", async () => {
+    assert.equal((await saveOpenIn(SETTINGS, "browser")).ok, true);
+    assert.equal((await setupState(install.installDir)).openIn, "browser");
+    // Something else the file might hold (a future setting) survives a change.
+    await writeFile(SETTINGS, JSON.stringify({ openIn: "browser", other: 1 }));
+    assert.equal((await saveOpenIn(SETTINGS, "window")).ok, true);
+    assert.deepEqual(JSON.parse(await readFile(SETTINGS, "utf8")), { openIn: "window", other: 1 });
+    assert.equal((await setupState(install.installDir)).openIn, "window");
   });
 
   test("a folder that was never cloned reads as not installed", async () => {
-    const state = await getSetupState(join(install.root, "nowhere"));
+    const state = await setupState(join(install.root, "nowhere"));
     assert.equal(state.installed, false);
   });
 
@@ -133,7 +154,7 @@ describe("getSetupState / saveApiKeys against a real install folder", () => {
       const env = await readFile(join(other.scaffoldDir, ".env.local"), "utf8");
       assert.match(env, /^OPENAI_API_KEY=sk-only-openai-0000000000$/m);
       assert.match(env, /^ANTHROPIC_API_KEY=sk-ant-\.\.\.$/m, "the Claude placeholder is left as-is");
-      const state = await getSetupState(other.installDir);
+      const state = await setupState(other.installDir);
       assert.equal(state.hostedKeysSet, true);
       assert.equal(state.anthropicKeySet, false);
     } finally {
@@ -152,7 +173,7 @@ describe("getSetupState / saveApiKeys against a real install folder", () => {
     assert.match(env, /^OPENAI_API_KEY=sk-test-openai-0000000000$/m);
     assert.match(env, /^ANTHROPIC_API_KEY=sk-ant-test-key-000000000$/m);
     assert.match(env, /^NEXT_PUBLIC_FLAG_R5_DEEP_ANALYSIS=true$/m, "the rest of .env.example is carried over");
-    const state = await getSetupState(install.installDir);
+    const state = await setupState(install.installDir);
     assert.equal(state.hostedKeysSet, true);
     assert.equal(state.openaiKeySet && state.anthropicKeySet, true);
   });
@@ -171,11 +192,11 @@ describe("getSetupState / saveApiKeys against a real install folder", () => {
     try {
       await writeFile(join(other.scaffoldDir, ".env.local"), LOCAL_ENV);
       // setup:local failed during the re-embed: env written, no local corpus.
-      assert.equal((await getSetupState(other.installDir)).localConfigured, false);
+      assert.equal((await setupState(other.installDir)).localConfigured, false);
 
       await mkdir(join(other.scaffoldDir, "data", "local"), { recursive: true });
       await writeFile(join(other.scaffoldDir, "data", "local", "corpus-meta.json"), LOCAL_META);
-      const state = await getSetupState(other.installDir);
+      const state = await setupState(other.installDir);
       assert.equal(state.localConfigured, true);
       assert.equal(state.hostedKeysSet, false);
     } finally {
@@ -199,7 +220,7 @@ describe("getSetupState / saveApiKeys against a real install folder", () => {
     const other = await makeInstall();
     try {
       await writeFile(join(other.scaffoldDir, ".env.local"), `OPENAI_API_KEY=sk-only-openai-0000000000\n${LOCAL_ENV}`);
-      const state = await getSetupState(other.installDir);
+      const state = await setupState(other.installDir);
       assert.equal(state.openaiKeySet, true);
       assert.equal(state.hostedKeysSet, false, "LLM_PROVIDER=ollama: offer the choice again");
       assert.equal(state.localConfigured, false, "and no finished local re-embed either");

@@ -2,8 +2,9 @@
 #
 # Starts `npm run dev` for this scaffold as a hidden process (no console
 # window), puts a Granted icon in the notification area (Open Granted /
-# status / Show log / Restart / Quit), and opens the browser once Granted
-# answers. Only runs while you've opened it -- nothing starts at sign-in.
+# status / Show log / Restart / Quit), and opens Granted once it answers --
+# in its own window (Edge/Chrome app mode) unless the user prefers a browser
+# tab (see open-granted.ps1). Only runs while you've opened it -- nothing starts at sign-in.
 #
 # Meant to be launched WITHOUT a console window -- via the Desktop/Start menu
 # shortcut (or the GUI installer), which run it as:
@@ -41,6 +42,7 @@ $RestartEventName = "Local\GrantedTray-Restart-$Port"
 $LogDir = Join-Path $env:LOCALAPPDATA "Granted\logs"
 $LogPath = Join-Path $LogDir "server-$Port.log"
 $IconPath = Join-Path $PSScriptRoot "granted.ico"
+$OpenScript = Join-Path $PSScriptRoot "open-granted.ps1"
 
 # --- -Stop / -Restart: signal a running tray and leave ----------------------
 if ($Stop -or $Restart) {
@@ -120,7 +122,18 @@ function Wait-NotBusy([int]$Seconds) {
   return "busy"
 }
 
-function Open-Granted { Start-Process $Url }
+# In its own window or a browser tab, as the user prefers (open-granted.ps1);
+# a plain browser tab if that script is missing or fails.
+function Open-Granted {
+  if (Test-Path -LiteralPath $OpenScript) {
+    try { [void](& $OpenScript -Url $Url); return } catch { }
+  }
+  Start-Process $Url
+}
+
+function Get-OpenInPreference {
+  try { return ((& $OpenScript -GetOpenIn) | ConvertFrom-Json).openIn } catch { return "window" }
+}
 
 # --- the server -------------------------------------------------------------
 $script:Server = $null
@@ -289,6 +302,13 @@ $openItem = $menu.Items.Add("Open Granted")
 $openItem.Font = New-Object System.Drawing.Font($openItem.Font, [System.Drawing.FontStyle]::Bold)
 $statusItem = $menu.Items.Add("Starting...")
 $statusItem.Enabled = $false
+$windowItem = $null
+if (Test-Path -LiteralPath $OpenScript) {
+  # Ticked: Granted opens in its own window; unticked: in a browser tab.
+  $windowItem = New-Object System.Windows.Forms.ToolStripMenuItem("Open in its own window")
+  $windowItem.CheckOnClick = $true
+  [void]$menu.Items.Add($windowItem)
+}
 [void]$menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
 $logItem = $menu.Items.Add("Show log")
 $restartItem = $menu.Items.Add("Restart")
@@ -337,6 +357,17 @@ $icon.add_DoubleClick({ if ($script:LastState -eq "running") { Open-Granted } el
 $logItem.add_Click({ if (Test-Path $LogPath) { Start-Process notepad.exe -ArgumentList "`"$LogPath`"" } })
 $restartItem.add_Click({ Invoke-Restart })
 $quitItem.add_Click({ Invoke-Quit })
+if ($windowItem) {
+  # Re-read on every open: the installer can change the preference too.
+  $menu.add_Opening({ $windowItem.Checked = ((Get-OpenInPreference) -ne "browser") })
+  $windowItem.add_Click({
+    $mode = if ($windowItem.Checked) { "window" } else { "browser" }
+    try { & $OpenScript -SetOpenIn $mode } catch {
+      $windowItem.Checked = -not $windowItem.Checked
+      $icon.ShowBalloonTip(5000, "Granted", "Couldn't save that setting -- Granted will keep opening the way it did.", [System.Windows.Forms.ToolTipIcon]::Warning)
+    }
+  })
+}
 
 $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 2000
