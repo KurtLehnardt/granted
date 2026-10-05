@@ -2,21 +2,25 @@ import { BrowserWindow, clipboard, ipcMain, shell } from "electron";
 import type { WebContents } from "electron";
 import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import {
   buildTaskScript,
+  cmdStartLine,
   decideStatusPoll,
   escapeForAppleScript,
   grantedPort,
   mergeRegistryPath,
   newInstallStatusPath,
   newTaskStatusPath,
+  parseShortcutsOutput,
   parseVersionFromOutput,
   psSingleQuoted,
   shouldReattach,
+  trayLaunchCommand,
   type StatusFile,
 } from "./ipcPure";
 import {
@@ -34,6 +38,8 @@ import {
   type InstallStatusEvent,
   type OpenInstallTerminalResult,
   type PrereqReport,
+  type ShortcutChoice,
+  type ShortcutsResult,
   type TaskStatusEvent,
   type ToolCheckResult,
   isSupportedPlatform,
@@ -617,9 +623,16 @@ async function startGranted(sender: WebContents): Promise<ActionResult> {
   if (grantedTaskInFlight) return { ok: false, message: "Granted is already being set up or started." };
   grantedTaskInFlight = true;
 
+  // Background (tray icon) when this install has the tray script; an older
+  // install without it falls back to the console window it always used.
+  const background = existsSync(trayScriptPath());
+  const whereErrorsAre = background
+    ? "right-click the Granted icon by the clock and choose Show log"
+    : "check its PowerShell window";
+
   const finish = (state: "done" | "error", message: string | null): void => {
     grantedTaskInFlight = false;
-    sendTaskStatus(sender, { task: "start-app", state, message, url: GRANTED_URL });
+    sendTaskStatus(sender, { task: "start-app", state, message, url: GRANTED_URL, background });
   };
 
   const openAndFinish = async (message: string | null): Promise<void> => {
@@ -640,14 +653,24 @@ async function startGranted(sender: WebContents): Promise<ActionResult> {
         if (outcome.ok) {
           await openAndFinish(null);
         } else if (outcome.reason === "exited") {
-          finish("error", "Granted stopped before it finished starting — the error is in its PowerShell window (if it's still open).");
+          // The tray reports a specific reason (e.g. the log's last error);
+          // a closed window/tray, or an older console window, gets a generic one.
+          const status = await readStatus();
+          const specific = status?.state === "error" && !status.closed ? status.message : null;
+          finish(
+            "error",
+            specific ??
+              (background
+                ? "Granted stopped before it finished starting (its tray icon was closed)."
+                : "Granted stopped before it finished starting — the error is in its PowerShell window (if it's still open)."),
+          );
         } else if (outcome.lastProbe === "other") {
           finish(
             "error",
-            `Something is answering on port ${GRANTED_PORT}, but not with Granted's home page — if that's Granted, its PowerShell window will show the error.`,
+            `Something is answering on port ${GRANTED_PORT}, but not with Granted's home page — if that's Granted showing an error, ${whereErrorsAre}.`,
           );
         } else {
-          finish("error", `Granted didn't answer within ${APP_START_TIMEOUT_MS / 60_000} minutes — check its PowerShell window.`);
+          finish("error", `Granted didn't answer within ${APP_START_TIMEOUT_MS / 60_000} minutes — ${whereErrorsAre}.`);
         }
       })
       .catch((err: unknown) => {
@@ -682,25 +705,94 @@ async function startGranted(sender: WebContents): Promise<ActionResult> {
       grantedTaskInFlight = false;
       return {
         ok: false,
-        message: `Something is already using port ${GRANTED_PORT} and isn't showing Granted's home page. If it's another program, close it and try again; if it's Granted showing an error, its PowerShell window has the details.`,
+        message: `Something is already using port ${GRANTED_PORT} and isn't showing Granted's home page. If it's another program, close it and try again; if it's Granted showing an error, ${whereErrorsAre}.`,
       };
     }
 
-    const statusPath = await launchScaffoldTask({
-      task: "start-app",
-      title: "Granted - keep this window open while you use Granted",
-      command: "npm.cmd run dev",
-      failureMessage: "Granted stopped. The error is shown above in this window.",
-      // Next.js reads PORT; set it explicitly so the server is always where
-      // the probe looks, whatever PORT the user's environment has.
-      env: { PORT: String(GRANTED_PORT) },
-    });
+    const statusPath = background
+      ? await launchTray()
+      : await launchScaffoldTask({
+          task: "start-app",
+          title: "Granted - keep this window open while you use Granted",
+          command: "npm.cmd run dev",
+          failureMessage: "Granted stopped. The error is shown above in this window.",
+          // Next.js reads PORT; set it explicitly so the server is always where
+          // the probe looks, whatever PORT the user's environment has.
+          env: { PORT: String(GRANTED_PORT) },
+        });
     waitThenOpen(() => readTaskStatus(statusPath));
     return { ok: true, message: "Starting Granted…" };
   } catch (err) {
     grantedTaskInFlight = false;
     console.error("startGranted failed:", err);
-    return { ok: false, message: "Couldn't open a PowerShell window to start Granted." };
+    return { ok: false, message: "Couldn't start Granted." };
+  }
+}
+
+function trayScriptPath(): string {
+  return join(scaffoldDir(), "scripts", "windows", "granted-tray.ps1");
+}
+
+/**
+ * Starts Granted in the background: granted-tray.ps1 runs `npm run dev`
+ * hidden and shows a tray icon (Open / status / Show log / Restart / Quit),
+ * so there's no console window to keep open. It reports through a status
+ * file like the other windows (pid + lock), so a tray quit before Granted
+ * answered reads as closed. The browser is opened here, not by the tray,
+ * once Granted answers.
+ */
+async function launchTray(): Promise<string> {
+  // git/Node were installed by a detached process after this app started,
+  // so refresh PATH from the registry before the tray inherits it.
+  await refreshWindowsPathEnv();
+  const statusPath = newTaskStatusPath("start-app");
+  const { file, args } = trayLaunchCommand({
+    systemRoot: process.env["SystemRoot"] ?? "C:\\Windows",
+    trayScript: trayScriptPath(),
+    port: GRANTED_PORT,
+    statusPath,
+  });
+  rememberLaunch("start-app", statusPath);
+  // Via `cmd /c start`, not spawn(conhost) directly — see cmdStartLine.
+  const child = spawn("cmd.exe", ["/d", "/s", "/c", cmdStartLine(file, args)], {
+    cwd: scaffoldDir(),
+    detached: true,
+    stdio: "ignore",
+    windowsHide: true,
+    windowsVerbatimArguments: true,
+  });
+  await new Promise<void>((resolveSpawn, rejectSpawn) => {
+    child.once("spawn", resolveSpawn);
+    child.once("error", rejectSpawn);
+  });
+  child.unref();
+  return statusPath;
+}
+
+/** Creates the "Granted" shortcut(s) via scripts/windows/shortcuts.ps1. */
+async function createShortcuts(choice: ShortcutChoice): Promise<ShortcutsResult> {
+  if (process.platform !== "win32") return { ...NOT_WINDOWS, created: [] };
+  if (!choice.desktop && !choice.startMenu) return { ok: true, message: "No shortcuts requested.", created: [] };
+  const script = join(scaffoldDir(), "scripts", "windows", "shortcuts.ps1");
+  if (!existsSync(script)) {
+    return { ok: false, message: "This copy of Granted is too old to add shortcuts — update it and try again.", created: [] };
+  }
+  const args = ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script];
+  if (choice.desktop) args.push("-Desktop");
+  if (choice.startMenu) args.push("-StartMenu");
+  if (process.env["GRANTED_PORT"]) args.push("-Port", String(GRANTED_PORT));
+  // Test-only overrides, so the end-to-end tests never touch the real Desktop/Start menu.
+  if (process.env["GRANTED_SHORTCUT_DESKTOP_DIR"]) args.push("-DesktopDir", process.env["GRANTED_SHORTCUT_DESKTOP_DIR"]);
+  if (process.env["GRANTED_SHORTCUT_STARTMENU_DIR"]) args.push("-StartMenuDir", process.env["GRANTED_SHORTCUT_STARTMENU_DIR"]);
+  try {
+    const { stdout } = await execFileAsync("powershell.exe", args, { timeout: 30_000, windowsHide: true });
+    const created = parseShortcutsOutput(stdout);
+    if (!created) throw new Error(`unexpected output: ${stdout}`);
+    const where = [choice.desktop && "your desktop", choice.startMenu && "the Start menu"].filter(Boolean).join(" and ");
+    return { ok: true, message: `Added a Granted shortcut to ${where}.`, created };
+  } catch (err) {
+    console.error("createShortcuts failed:", err);
+    return { ok: false, message: "Couldn't add the Granted shortcut(s). You can still open Granted from here.", created: [] };
   }
 }
 
@@ -711,5 +803,6 @@ export function registerIpcHandlers(): void {
   ipcMain.handle("granted:save-api-keys", (_event, keys: ApiKeysInput) => saveApiKeys(scaffoldDir(), keys));
   ipcMain.handle("granted:run-local-setup", (event) => runLocalSetup(event.sender));
   ipcMain.handle("granted:start", (event) => startGranted(event.sender));
+  ipcMain.handle("granted:create-shortcuts", (_event, choice: ShortcutChoice) => createShortcuts(choice));
   ipcMain.on("app:quit", (event) => BrowserWindow.fromWebContents(event.sender)?.close());
 }

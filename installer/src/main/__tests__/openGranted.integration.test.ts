@@ -89,7 +89,18 @@ describe("getSetupState / saveApiKeys against a real install folder", () => {
       anthropicKeySet: false,
       hostedKeysSet: false,
       localConfigured: false,
+      trayAvailable: false,
+      shortcutsAvailable: false,
     });
+  });
+
+  test("an install that has the Windows tray + shortcut scripts says so", async () => {
+    await mkdir(join(install.scaffoldDir, "scripts", "windows"), { recursive: true });
+    await writeFile(join(install.scaffoldDir, "scripts", "windows", "granted-tray.ps1"), "");
+    await writeFile(join(install.scaffoldDir, "scripts", "windows", "shortcuts.ps1"), "");
+    const state = await getSetupState(install.installDir);
+    assert.equal(state.trayAvailable, true);
+    assert.equal(state.shortcutsAvailable, true);
   });
 
   test("a folder that was never cloned reads as not installed", async () => {

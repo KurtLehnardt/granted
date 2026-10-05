@@ -49,6 +49,8 @@ export async function getSetupState(installDir: string): Promise<GrantedSetupSta
     anthropicKeySet,
     hostedKeysSet: openaiKeySet && anthropicKeySet,
     localConfigured: envIsLocalConfigured(env, await readTextOrNull(join(scaffoldDir, "data", "local", "corpus-meta.json"))),
+    trayAvailable: existsSync(join(scaffoldDir, "scripts", "windows", "granted-tray.ps1")),
+    shortcutsAvailable: existsSync(join(scaffoldDir, "scripts", "windows", "shortcuts.ps1")),
   };
 }
 

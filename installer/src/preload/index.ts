@@ -8,6 +8,8 @@ import type {
   InstallStatusEvent,
   OpenInstallTerminalResult,
   PrereqReport,
+  ShortcutChoice,
+  ShortcutsResult,
   TaskStatusEvent,
 } from "../shared/ipc";
 
@@ -34,6 +36,7 @@ const api: GrantedInstallerApi = {
     ipcRenderer.on("granted:task-status", handler);
     return () => ipcRenderer.removeListener("granted:task-status", handler);
   },
+  createShortcuts: (choice: ShortcutChoice): Promise<ShortcutsResult> => ipcRenderer.invoke("granted:create-shortcuts", choice),
   quit: (): void => ipcRenderer.send("app:quit"),
 };
 
