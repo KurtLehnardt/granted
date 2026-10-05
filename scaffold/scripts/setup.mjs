@@ -169,11 +169,23 @@ if (wantsInstall === "" || wantsInstall === "y") {
 }
 
 // 3) Next steps.
-const haveOpenAI = !!currentValue(readFileSync(ENV, "utf8"), "OPENAI_API_KEY").replace("sk-...", "");
+// The same shape check the app uses (lib/llm/providers.ts isValidOpenAiKeyFormat:
+// sk- prefix, 20–200 chars, no whitespace) — so a truncated paste is caught here,
+// not as "No cloud provider is configured" on the first search.
+const finalEnv = readFileSync(ENV, "utf8");
+const openAiKey = currentValue(finalEnv, "OPENAI_API_KEY");
+const openAiKeyLooksValid = /^sk-\S{17,197}$/.test(openAiKey) && openAiKey !== "sk-...";
+const anthropicKey = currentValue(finalEnv, "ANTHROPIC_API_KEY");
+const anthropicKeyLooksValid = !anthropicKey || anthropicKey === "sk-ant-..." || /^sk-ant-[A-Za-z0-9_-]{13,193}$/.test(anthropicKey);
 
 heading("You're set — next steps");
-if (!haveOpenAI) {
+if (!openAiKey || openAiKey === "sk-...") {
   console.log(c.y("  ! Search needs OPENAI_API_KEY — add it to scaffold/.env.local, or run fully local: npm run setup:local"));
+} else if (!openAiKeyLooksValid) {
+  console.log(c.y("  ! OPENAI_API_KEY doesn't look like an OpenAI key (they start with sk- and are 20+ characters) — check scaffold/.env.local."));
+}
+if (!anthropicKeyLooksValid) {
+  console.log(c.y("  ! ANTHROPIC_API_KEY doesn't look like a Claude key (they start with sk-ant-) — fix it in scaffold/.env.local, or remove it to score with OpenAI."));
 }
 console.log(`  ${c.b("1.")} Start the app:      ${c.g("npm run dev")}   ${c.dim("→ http://localhost:3000")}`);
 console.log(`  ${c.b("2.")} Describe a company in the box and run a search. That's the whole core app.`);

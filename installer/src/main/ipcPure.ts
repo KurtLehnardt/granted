@@ -170,7 +170,13 @@ export function envIsLocalConfigured(text: string, localCorpusMetaJson: string |
 export function applyApiKeys(
   text: string,
   keys: { OPENAI_API_KEY: string; ANTHROPIC_API_KEY: string; EXA_API_KEY: string },
-): { text: string; missing: string[] } {
+): { text: string; missing: string[]; invalid: string[] } {
+  // A key the user typed that the app would refuse (scaffold/lib/llm/
+  // providers.ts) is rejected here, with its name — not saved, only to fail
+  // at the first search as "No cloud provider is configured".
+  const invalid: string[] = [];
+  if (keys.OPENAI_API_KEY.trim() && !isOpenAiKeyFormat(keys.OPENAI_API_KEY.trim())) invalid.push("OPENAI_API_KEY");
+  if (keys.ANTHROPIC_API_KEY.trim() && !isAnthropicKeyFormat(keys.ANTHROPIC_API_KEY.trim())) invalid.push("ANTHROPIC_API_KEY");
   let out = text;
   for (const [key, raw] of Object.entries(keys)) {
     const value = raw.trim();
@@ -181,13 +187,33 @@ export function applyApiKeys(
   // (scaffold/lib/llm/config.ts resolveCloudConfig). ANTHROPIC_API_KEY is an
   // optional upgrade (Claude does the scoring). A Claude key alone can't
   // search: Anthropic has no embeddings API.
-  const missing = ["OPENAI_API_KEY"].filter((k) => !isRealKey(currentEnvValue(out, k)));
-  return { text: out, missing };
+  const missing = isOpenAiKeyFormat(currentEnvValue(out, "OPENAI_API_KEY")) ? [] : ["OPENAI_API_KEY"];
+  return { text: out, missing, invalid };
 }
 
-/** Whether env text has what hosted (API-key) mode needs to run — the OpenAI key (see applyApiKeys). */
+// The app's own key-shape rules (scaffold/lib/llm/providers.ts
+// isValidOpenAiKeyFormat / isValidAnthropicKeyFormat), mirrored — installer/
+// doesn't depend on scaffold/ — so the installer never accepts a key the app
+// would then refuse. Tested against the same examples.
+const STRICT_KEY_LENGTH = { min: 20, max: 200 } as const;
+
+export function isOpenAiKeyFormat(key: string): boolean {
+  return key.length >= STRICT_KEY_LENGTH.min && key.length <= STRICT_KEY_LENGTH.max && !/\s/.test(key) && key.startsWith("sk-");
+}
+
+export function isAnthropicKeyFormat(key: string): boolean {
+  return key.length >= STRICT_KEY_LENGTH.min && key.length <= STRICT_KEY_LENGTH.max && /^sk-ant-[A-Za-z0-9_-]+$/.test(key);
+}
+
+/**
+ * Whether .env.local is ready for hosted (API-key) mode: a valid OpenAI key
+ * (see applyApiKeys), and NOT switched to a local model — a `setup:local`
+ * that wrote LLM_PROVIDER=ollama but then failed its re-embed must still be
+ * offered the choice again, not started as-is with broken retrieval.
+ */
 export function envHasHostedKeys(text: string): boolean {
-  return isRealKey(currentEnvValue(text, "OPENAI_API_KEY"));
+  const provider = currentEnvValue(text, "LLM_PROVIDER").toLowerCase();
+  return isOpenAiKeyFormat(currentEnvValue(text, "OPENAI_API_KEY")) && (provider === "" || provider === "anthropic");
 }
 
 // ---------------------------------------------------------------------------

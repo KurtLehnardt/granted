@@ -19,6 +19,7 @@ let resolveAnthropicKey: typeof import("../config").resolveAnthropicKey;
 let resolveAnthropicKeySource: typeof import("../config").resolveAnthropicKeySource;
 let isValidAnthropicKey: typeof import("../config").isValidAnthropicKey;
 let resetLlmConfigCache: typeof import("../config").resetLlmConfigCache;
+let isEnvCloudConfig: typeof import("../config").isEnvCloudConfig;
 let isLocalLlm: typeof import("../client").isLocalLlm;
 
 before(async () => {
@@ -35,6 +36,7 @@ before(async () => {
     resolveAnthropicKeySource,
     isValidAnthropicKey,
     resetLlmConfigCache,
+    isEnvCloudConfig,
   } = config);
   ({ isLocalLlm } = client);
 });
@@ -86,6 +88,32 @@ describe("llm/config — one cloud key is enough", () => {
     delete process.env.ANTHROPIC_API_KEY;
     process.env.OPENAI_API_KEY = "sk-...";
     assert.equal(resolveCloudConfig(), undefined);
+  });
+
+  test("REGRESSION (review): a malformed Claude key fails loudly — it does NOT silently hand the scoring to OpenAI", () => {
+    removeConfigFile();
+    process.env.ANTHROPIC_API_KEY = "sk-ant-truncated"; // set, but not a valid key
+    process.env.OPENAI_API_KEY = OPENAI;
+    assert.equal(resolveCloudConfig(), undefined);
+  });
+
+  test(".env.example's Claude placeholder counts as unset, so OpenAI does the scoring", () => {
+    removeConfigFile();
+    process.env.ANTHROPIC_API_KEY = "sk-ant-...";
+    process.env.OPENAI_API_KEY = OPENAI;
+    assert.equal(resolveCloudConfig()?.providerId, "openai");
+  });
+
+  test("isEnvCloudConfig: env-derived (can't be removed in Settings) vs saved in Settings", () => {
+    removeConfigFile();
+    delete process.env.ANTHROPIC_API_KEY;
+    process.env.OPENAI_API_KEY = OPENAI;
+    assert.equal(isEnvCloudConfig(), true);
+    writeLlmConfig({ provider: "cloud", cloud: { providerId: "groq", keySource: { type: "inline", key: "gsk_test00000000000000" } } });
+    assert.equal(isEnvCloudConfig(), false);
+    removeConfigFile();
+    delete process.env.OPENAI_API_KEY;
+    assert.equal(isEnvCloudConfig(), false, "no cloud config at all");
   });
 
   test("a provider chosen in Settings still wins over either env key", () => {

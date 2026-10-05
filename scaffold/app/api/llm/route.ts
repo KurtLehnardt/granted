@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { isLocalLlm, defaultLocalModel } from "@/lib/llm/client";
 import { listOllamaChatModels } from "@/lib/llm/ollamaInfo";
-import { resolveCloudConfig, resolveCloudApiKey, publicKeySource } from "@/lib/llm/config";
+import { resolveCloudConfig, resolveCloudApiKey, publicKeySource, isEnvCloudConfig } from "@/lib/llm/config";
 import { buildLocalEmbeddingsStatus } from "@/lib/embeddings/localEmbeddings";
 
 // Next 14 would otherwise prerender this at build time, freezing the backend/model list.
@@ -22,6 +22,9 @@ function buildCloudBlock(cfg: NonNullable<ReturnType<typeof resolveCloudConfig>>
     hasKey: Boolean(resolved.key),
     ...(resolved.key ? { keyHint: resolved.key.slice(-4) } : {}),
     keySource: publicKeySource(cfg.keySource),
+    // From ANTHROPIC_API_KEY / OPENAI_API_KEY in .env.local, not saved in
+    // Settings: Settings' Remove can't remove it (it would just come back).
+    ...(isEnvCloudConfig() ? { fromEnv: true } : {}),
   };
 }
 

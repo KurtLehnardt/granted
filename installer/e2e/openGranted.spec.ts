@@ -74,7 +74,7 @@ function newWindows(): number[] {
 }
 
 function configureHostedKeys(): void {
-  writeFileSync(join(install.scaffoldDir, ".env.local"), "OPENAI_API_KEY=sk-already\nANTHROPIC_API_KEY=sk-ant-already\n");
+  writeFileSync(join(install.scaffoldDir, ".env.local"), "OPENAI_API_KEY=sk-already-key-0000000000\nANTHROPIC_API_KEY=sk-ant-already-0000000000\n");
 }
 
 test("a finished install shows Installation complete and asks to open Granted", async () => {
@@ -142,7 +142,7 @@ test("API keys: an empty form or a Claude key alone is explained without writing
   await expect(page.getByRole("button", { name: "Use local models instead" })).toBeVisible();
   expect(existsSync(envLocal)).toBe(false);
 
-  await page.getByLabel(/OpenAI API key/).fill("sk-e2e-openai");
+  await page.getByLabel(/OpenAI API key/).fill("sk-e2e-openai-00000000000");
   await page.getByRole("button", { name: "Save and open Granted" }).click();
   await expect(page.getByText(/Starting Granted in the background/)).toBeVisible();
   await expect(page.getByText(/Granted is open in your browser/)).toBeVisible();
@@ -150,7 +150,7 @@ test("API keys: an empty form or a Claude key alone is explained without writing
   await expect(page.getByText(/keeps running in the background/)).toBeVisible();
 
   const env = readFileSync(envLocal, "utf8");
-  expect(env).toMatch(/^OPENAI_API_KEY=sk-e2e-openai$/m);
+  expect(env).toMatch(/^OPENAI_API_KEY=sk-e2e-openai-00000000000$/m);
   expect(env).toMatch(/^ANTHROPIC_API_KEY=sk-ant-e2e-anthropic$/m);
   expect(await openedUrls(a)).toEqual([TEST_URL]);
   // In the background: a tray, and no console window to keep open.
@@ -285,23 +285,23 @@ test("an install folder that doesn't exist says so instead of offering to open G
 
 test("API keys form: a key that's already set is marked, and leaving it blank keeps it", async () => {
   // Only the Claude key is set — not enough on its own, so the form is shown.
-  writeFileSync(join(install.scaffoldDir, ".env.local"), "OPENAI_API_KEY=sk-...\nANTHROPIC_API_KEY=sk-ant-existing\n");
+  writeFileSync(join(install.scaffoldDir, ".env.local"), "OPENAI_API_KEY=sk-...\nANTHROPIC_API_KEY=sk-ant-existing-000000000\n");
   const a = await start();
   await page.getByRole("button", { name: "Yes, open Granted" }).click();
   await page.getByRole("button", { name: /Use my API keys/ }).click();
   await expect(page.getByLabel(/Claude\) API key/)).toHaveAttribute("placeholder", /Already set/);
   await expect(page.getByLabel(/OpenAI API key/)).not.toHaveAttribute("placeholder", /Already set/);
-  await page.getByLabel(/OpenAI API key/).fill("sk-openai-new");
+  await page.getByLabel(/OpenAI API key/).fill("sk-openai-new-00000000000");
   await page.getByRole("button", { name: "Save and open Granted" }).click();
   await expect(page.getByText(/Granted is open in your browser/)).toBeVisible();
   const env = readFileSync(join(install.scaffoldDir, ".env.local"), "utf8");
-  expect(env).toMatch(/^OPENAI_API_KEY=sk-openai-new$/m);
-  expect(env).toMatch(/^ANTHROPIC_API_KEY=sk-ant-existing$/m);
+  expect(env).toMatch(/^OPENAI_API_KEY=sk-openai-new-00000000000$/m);
+  expect(env).toMatch(/^ANTHROPIC_API_KEY=sk-ant-existing-000000000$/m);
   expect(await openedUrls(a)).toEqual([TEST_URL]);
 });
 
 test("an OpenAI key already set is enough: Yes starts Granted straight away, no key form", async () => {
-  writeFileSync(join(install.scaffoldDir, ".env.local"), "OPENAI_API_KEY=sk-openai-only\nANTHROPIC_API_KEY=sk-ant-...\n");
+  writeFileSync(join(install.scaffoldDir, ".env.local"), "OPENAI_API_KEY=sk-openai-only-0000000000\nANTHROPIC_API_KEY=sk-ant-...\n");
   const a = await start();
   await page.getByRole("button", { name: "Yes, open Granted" }).click();
   await expect(page.getByText(/Granted is open in your browser/)).toBeVisible();
@@ -313,7 +313,7 @@ test("'Use local models instead' from the key form runs the local setup, then op
   const a = await start();
   await page.getByRole("button", { name: "Yes, open Granted" }).click();
   await page.getByRole("button", { name: /Use my API keys/ }).click();
-  await page.getByLabel(/Claude\) API key/).fill("sk-ant-only");
+  await page.getByLabel(/Claude\) API key/).fill("sk-ant-only-key-000000000");
   await page.getByRole("button", { name: "Save and open Granted" }).click();
   await page.getByRole("button", { name: "Use local models instead" }).click();
   await expect(page.getByText(/Setting up the local AI model/)).toBeVisible();

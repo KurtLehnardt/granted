@@ -109,7 +109,7 @@ describe("getSetupState / saveApiKeys against a real install folder", () => {
   });
 
   test("a Claude key alone is rejected — with why, and the local-models way out — and writes nothing at all", async () => {
-    const result = await saveApiKeys(install.scaffoldDir, { openaiApiKey: "", anthropicApiKey: "sk-ant-only-claude", exaApiKey: "" });
+    const result = await saveApiKeys(install.scaffoldDir, { openaiApiKey: "", anthropicApiKey: "sk-ant-only-claude-000000", exaApiKey: "" });
     assert.equal(result.ok, false);
     assert.equal(result.suggestLocal, true);
     assert.match(result.message, /Search works with an OpenAI key/);
@@ -128,10 +128,10 @@ describe("getSetupState / saveApiKeys against a real install folder", () => {
   test("an OpenAI key alone is enough (it searches and can do the scoring)", async () => {
     const other = await makeInstall();
     try {
-      const result = await saveApiKeys(other.scaffoldDir, { openaiApiKey: "sk-only-openai", anthropicApiKey: "", exaApiKey: "" });
+      const result = await saveApiKeys(other.scaffoldDir, { openaiApiKey: "sk-only-openai-0000000000", anthropicApiKey: "", exaApiKey: "" });
       assert.equal(result.ok, true);
       const env = await readFile(join(other.scaffoldDir, ".env.local"), "utf8");
-      assert.match(env, /^OPENAI_API_KEY=sk-only-openai$/m);
+      assert.match(env, /^OPENAI_API_KEY=sk-only-openai-0000000000$/m);
       assert.match(env, /^ANTHROPIC_API_KEY=sk-ant-\.\.\.$/m, "the Claude placeholder is left as-is");
       const state = await getSetupState(other.installDir);
       assert.equal(state.hostedKeysSet, true);
@@ -143,14 +143,14 @@ describe("getSetupState / saveApiKeys against a real install folder", () => {
 
   test("a complete form creates .env.local from .env.example, and setup state then reads as configured", async () => {
     const result = await saveApiKeys(install.scaffoldDir, {
-      openaiApiKey: "sk-test-openai",
-      anthropicApiKey: "sk-ant-test",
+      openaiApiKey: "sk-test-openai-0000000000",
+      anthropicApiKey: "sk-ant-test-key-000000000",
       exaApiKey: "",
     });
     assert.deepEqual(result, { ok: true, message: "Saved your keys to .env.local." });
     const env = await readFile(join(install.scaffoldDir, ".env.local"), "utf8");
-    assert.match(env, /^OPENAI_API_KEY=sk-test-openai$/m);
-    assert.match(env, /^ANTHROPIC_API_KEY=sk-ant-test$/m);
+    assert.match(env, /^OPENAI_API_KEY=sk-test-openai-0000000000$/m);
+    assert.match(env, /^ANTHROPIC_API_KEY=sk-ant-test-key-000000000$/m);
     assert.match(env, /^NEXT_PUBLIC_FLAG_R5_DEEP_ANALYSIS=true$/m, "the rest of .env.example is carried over");
     const state = await getSetupState(install.installDir);
     assert.equal(state.hostedKeysSet, true);
@@ -158,11 +158,11 @@ describe("getSetupState / saveApiKeys against a real install folder", () => {
   });
 
   test("saving again: blank fields keep the existing keys, a typed key replaces its old value", async () => {
-    const result = await saveApiKeys(install.scaffoldDir, { openaiApiKey: "", anthropicApiKey: "sk-ant-new", exaApiKey: "exa-new" });
+    const result = await saveApiKeys(install.scaffoldDir, { openaiApiKey: "", anthropicApiKey: "sk-ant-new-key-0000000000", exaApiKey: "exa-new" });
     assert.equal(result.ok, true);
     const env = await readFile(join(install.scaffoldDir, ".env.local"), "utf8");
-    assert.match(env, /^OPENAI_API_KEY=sk-test-openai$/m);
-    assert.match(env, /^ANTHROPIC_API_KEY=sk-ant-new$/m);
+    assert.match(env, /^OPENAI_API_KEY=sk-test-openai-0000000000$/m);
+    assert.match(env, /^ANTHROPIC_API_KEY=sk-ant-new-key-0000000000$/m);
     assert.match(env, /^EXA_API_KEY=exa-new$/m);
   });
 
@@ -183,10 +183,35 @@ describe("getSetupState / saveApiKeys against a real install folder", () => {
     }
   });
 
+  test("REGRESSION (review): a key the app would refuse (a truncated paste) is rejected by name and nothing is written", async () => {
+    const other = await makeInstall();
+    try {
+      const result = await saveApiKeys(other.scaffoldDir, { openaiApiKey: "sk-proj-abc", anthropicApiKey: "", exaApiKey: "" });
+      assert.equal(result.ok, false);
+      assert.match(result.message, /That OpenAI key doesn't look right/);
+      assert.equal(existsSync(join(other.scaffoldDir, ".env.local")), false);
+    } finally {
+      await rm(other.root, { recursive: true, force: true });
+    }
+  });
+
+  test("REGRESSION (review): a half-finished setup:local isn't treated as ready for hosted mode, even with an OpenAI key", async () => {
+    const other = await makeInstall();
+    try {
+      await writeFile(join(other.scaffoldDir, ".env.local"), `OPENAI_API_KEY=sk-only-openai-0000000000\n${LOCAL_ENV}`);
+      const state = await getSetupState(other.installDir);
+      assert.equal(state.openaiKeySet, true);
+      assert.equal(state.hostedKeysSet, false, "LLM_PROVIDER=ollama: offer the choice again");
+      assert.equal(state.localConfigured, false, "and no finished local re-embed either");
+    } finally {
+      await rm(other.root, { recursive: true, force: true });
+    }
+  });
+
   test("a scaffold folder that has gone missing reports a clear error instead of throwing", async () => {
     const result = await saveApiKeys(join(install.root, "deleted", "scaffold"), {
-      openaiApiKey: "sk-a",
-      anthropicApiKey: "sk-ant-b",
+      openaiApiKey: "sk-a-key-0000000000000000",
+      anthropicApiKey: "sk-ant-b-key-0000000000000",
       exaApiKey: "",
     });
     assert.equal(result.ok, false);

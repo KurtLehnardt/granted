@@ -18,7 +18,8 @@ import {
   currentEnvValue,
   envHasHostedKeys,
   envIsLocalConfigured,
-  isRealKey,
+  isAnthropicKeyFormat,
+  isOpenAiKeyFormat,
   looksLikeGranted,
   parseStatusFile,
   resolveTaskStatus,
@@ -41,8 +42,8 @@ export function readEnvLocal(scaffoldDir: string): Promise<string | null> {
 export async function getSetupState(installDir: string): Promise<GrantedSetupState> {
   const scaffoldDir = join(installDir, "scaffold");
   const env = (await readEnvLocal(scaffoldDir)) ?? "";
-  const openaiKeySet = isRealKey(currentEnvValue(env, "OPENAI_API_KEY"));
-  const anthropicKeySet = isRealKey(currentEnvValue(env, "ANTHROPIC_API_KEY"));
+  const openaiKeySet = isOpenAiKeyFormat(currentEnvValue(env, "OPENAI_API_KEY"));
+  const anthropicKeySet = isAnthropicKeyFormat(currentEnvValue(env, "ANTHROPIC_API_KEY"));
   return {
     installDir,
     installed: existsSync(join(scaffoldDir, "package.json")),
@@ -71,13 +72,21 @@ export async function saveApiKeys(scaffoldDir: string, keys: ApiKeysInput): Prom
   const envPath = join(scaffoldDir, ".env.local");
   try {
     const before = (await readEnvLocal(scaffoldDir)) ?? (await readFile(join(scaffoldDir, ".env.example"), "utf8"));
-    const { text, missing } = applyApiKeys(before, {
+    const { text, missing, invalid } = applyApiKeys(before, {
       OPENAI_API_KEY: keys.openaiApiKey,
       ANTHROPIC_API_KEY: keys.anthropicApiKey,
       EXA_API_KEY: keys.exaApiKey,
     });
+    if (invalid.length > 0) {
+      const problems = invalid.map((k) =>
+        k === "OPENAI_API_KEY"
+          ? "That OpenAI key doesn't look right — OpenAI keys start with sk- and are at least 20 characters."
+          : "That Claude key doesn't look right — Anthropic keys start with sk-ant- and are at least 20 characters.",
+      );
+      return { ok: false, message: `${problems.join(" ")} Check for a missing part of the paste.` };
+    }
     if (missing.length > 0) {
-      const claudeOnly = isRealKey(currentEnvValue(text, "ANTHROPIC_API_KEY"));
+      const claudeOnly = isAnthropicKeyFormat(currentEnvValue(text, "ANTHROPIC_API_KEY"));
       return {
         ok: false,
         suggestLocal: true,
