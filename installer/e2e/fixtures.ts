@@ -120,6 +120,11 @@ export async function launchInstaller(
       ...(fake && { GRANTED_SHORTCUT_DESKTOP_DIR: fake.desktopDir, GRANTED_SHORTCUT_STARTMENU_DIR: fake.startMenuDir }),
       // Never a real Edge window, and never the real settings file.
       GRANTED_APP_BROWSER: fake ? fake.fakeBrowser : "none",
+      // A development build unless a test says otherwise (a GRANTED_RELEASE_TAG
+      // left in the developer's shell by `npm run dist` must not leak in), and
+      // never the real GitHub API (port 9: nothing listens there).
+      GRANTED_RELEASE_TAG: "",
+      GRANTED_RELEASES_API: "http://127.0.0.1:9/",
       GRANTED_SETTINGS_PATH: fake ? fake.settingsPath : join(tmpdir(), "granted-e2e-no-settings.json"),
       ...extraEnv,
     } as Record<string, string>,

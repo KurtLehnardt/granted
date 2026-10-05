@@ -12,7 +12,7 @@
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join, win32 } from "node:path";
-import type { InstallStatusEvent, OpenIn } from "../shared/ipc";
+import type { InstallStatusEvent, InstallVersionPlan, OpenIn } from "../shared/ipc";
 
 /** The regex-extraction half of checkVersionedTool. */
 export function parseVersionFromOutput(stdout: string): { version: string | null; major: number | null } {
@@ -508,6 +508,69 @@ export function parseOpenGrantedOutput(stdout: string): "window" | "browser" | "
   } catch {
     return null;
   }
+}
+
+/** A release tag: v<major>.<minor>.<patch> (the only form install-windows.ps1's GRANTED_REF accepts). */
+const RELEASE_TAG = /^v(\d+)\.(\d+)\.(\d+)$/;
+
+export function parseReleaseTag(tag: string | null | undefined): [number, number, number] | null {
+  const m = RELEASE_TAG.exec(tag ?? "");
+  return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
+}
+
+/** Whether release tag `a` is newer than `b` (false if either isn't a release tag). */
+export function isNewerRelease(a: string | null, b: string | null): boolean {
+  const pa = parseReleaseTag(a);
+  const pb = parseReleaseTag(b);
+  if (!pa || !pb) return false;
+  for (let i = 0; i < 3; i++) if (pa[i] !== pb[i]) return pa[i] > pb[i];
+  return false;
+}
+
+/**
+ * GitHub's "latest release" API response → its tag, if it's a published,
+ * stable release tag (anything else — a draft, a prerelease, a tag like
+ * "hackathon-deadline" — is not something to update to).
+ */
+export function parseLatestRelease(body: unknown): string | null {
+  if (!body || typeof body !== "object") return null;
+  const r = body as { tag_name?: unknown; draft?: unknown; prerelease?: unknown };
+  if (r.draft === true || r.prerelease === true || typeof r.tag_name !== "string") return null;
+  return parseReleaseTag(r.tag_name) ? r.tag_name : null;
+}
+
+/**
+ * Which Granted to install: the release this installer was built for, or —
+ * when the user ticked "check for updates" and a newer release exists —
+ * that one. `ref` null = no pinned release (a development build): the
+ * latest code on main, as the README's one-liner installs.
+ */
+export function chooseInstallRef(opts: {
+  pinned: string | null;
+  checkForUpdates: boolean;
+  latest: string | null;
+  checkFailed: boolean;
+}): InstallVersionPlan {
+  const { pinned, checkForUpdates, latest, checkFailed } = opts;
+  if (!pinned) return { pinned: null, latest: null, ref: null, checkForUpdates: false, checkFailed: false };
+  const newer = checkForUpdates && isNewerRelease(latest, pinned);
+  return { pinned, latest: checkForUpdates ? latest : null, ref: newer ? latest : pinned, checkForUpdates, checkFailed: checkForUpdates && checkFailed };
+}
+
+/** The Windows one-liner for a release (or main, for null) — what's run, and what's copied to the clipboard. */
+export function windowsInstallCommand(ref: string | null): string {
+  if (ref === null) return "irm https://raw.githubusercontent.com/KurtLehnardt/granted/main/install-windows.ps1 | iex";
+  if (!parseReleaseTag(ref)) throw new Error(`not a release tag: ${ref}`);
+  return `$env:GRANTED_REF = '${ref}'; irm https://raw.githubusercontent.com/KurtLehnardt/granted/${ref}/install-windows.ps1 | iex`;
+}
+
+/**
+ * The temp .ps1 the GUI runs in a console window: where to report status,
+ * then the one-liner. (Never put on powershell.exe's command line itself —
+ * see openInstallTerminal: Defender flags `-Command "irm … | iex"`.)
+ */
+export function buildWindowsInstallScript(statusPath: string, ref: string | null): string {
+  return `$env:GRANTED_STATUS_FILE = ${psSingleQuoted(statusPath)}\r\n${windowsInstallCommand(ref)}\r\n`;
 }
 
 /** A fresh, unique status-file path for one "Open Granted" step (see newInstallStatusPath). */

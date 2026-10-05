@@ -6,6 +6,7 @@ import type {
   GrantedInstallerApi,
   GrantedSetupState,
   InstallStatusEvent,
+  InstallVersionPlan,
   OpenIn,
   OpenInstallTerminalResult,
   PrereqReport,
@@ -23,8 +24,10 @@ import type {
  */
 const api: GrantedInstallerApi = {
   checkPrereqs: (): Promise<PrereqReport> => ipcRenderer.invoke("prereqs:check"),
-  openInstallTerminal: (): Promise<OpenInstallTerminalResult> =>
-    ipcRenderer.invoke("terminal:open-install"),
+  planInstallVersion: (checkForUpdates: boolean): Promise<InstallVersionPlan> =>
+    ipcRenderer.invoke("install:plan-version", checkForUpdates),
+  openInstallTerminal: (checkForUpdates: boolean): Promise<OpenInstallTerminalResult> =>
+    ipcRenderer.invoke("terminal:open-install", checkForUpdates),
   onInstallStatus: (listener: (status: InstallStatusEvent) => void): (() => void) => {
     const handler = (_event: IpcRendererEvent, status: InstallStatusEvent): void => listener(status);
     ipcRenderer.on("terminal:install-status", handler);

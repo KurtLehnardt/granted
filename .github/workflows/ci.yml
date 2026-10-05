@@ -129,3 +129,16 @@ jobs:
 
       - name: End-to-end tests
         run: npm run e2e
+
+      # The packaged .exe a release ships (release.yml builds it the same
+      # way), so a change that breaks packaging fails here, not at release time.
+      - name: Package the installer
+        env:
+          GRANTED_RELEASE_TAG: v0.0.0
+        run: npm run dist
+
+      - name: Smoke-test the packaged installer
+        env:
+          GRANTED_PACKAGED_EXE: ${{ github.workspace }}\installer\dist\win-unpacked\Granted Setup.exe
+          GRANTED_EXPECT_TAG: v0.0.0
+        run: npx playwright test e2e/packaged.spec.ts

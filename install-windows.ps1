@@ -7,7 +7,8 @@
 # box, notably Windows Server), clones the repo, and runs `npm ci` (installs
 # exactly what's in package-lock.json, and never rewrites it).
 # Safe to re-run: skips anything already present/done (npm ci does remove and
-# reinstall node_modules each time, which is expected).
+# reinstall node_modules each time, which is expected). Set GRANTED_REF to a
+# release tag (v1.2.3) to install that release instead of main.
 #
 # After this finishes, `cd granted\scaffold` and run `npm run setup` (hosted
 # API keys) or `npm run setup:local -- --yes` (fully local via Ollama), then
@@ -75,8 +76,15 @@ Write-Status "running" $null
 # TLS 1.2 before any web request.
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$RepoUrl = "https://github.com/KurtLehnardt/granted.git"
+# GRANTED_REPO_URL: tests point this at a local repo.
+$RepoUrl = if ($env:GRANTED_REPO_URL) { $env:GRANTED_REPO_URL } else { "https://github.com/KurtLehnardt/granted.git" }
 $TargetDir = if ($env:GRANTED_INSTALL_DIR) { $env:GRANTED_INSTALL_DIR } else { "granted" }
+# GRANTED_REF: install this release (a tag like v1.2.3) instead of the latest
+# code on main. The downloadable installer (Granted-Setup-x.y.z.exe) sets it
+# to its own version -- or to a newer release, if the user asked it to check
+# for updates -- and an install made by this script is moved to it on a re-run.
+$Ref = $env:GRANTED_REF
+if ($Ref -and $Ref -notmatch '^v\d+\.\d+\.\d+$') { Die "GRANTED_REF must be a release tag like v1.2.3 (got '$Ref')." }
 $NodeMajorMin = 22
 
 function Have($cmd) { return [bool](Get-Command $cmd -ErrorAction SilentlyContinue) }
@@ -207,11 +215,111 @@ if (-not $nodeOk) {
 # that doesn't exist yet. If $TargetDir exists but isn't a finished clone,
 # `git clone` below fails with its own clear error rather than this script
 # guessing whether it's safe to delete.
-if (Test-Path "$TargetDir\scaffold\package.json") {
+# Quits Granted if it's running from this folder -- its background tray
+# (which stops its server) and any node.exe running from in here, e.g. a
+# `npm run dev` in a terminal -- and WAITS until it has: an update replaces
+# files a running server holds open (npm ci would fail with EBUSY/EPERM).
+# It starts again the next time Granted is opened.
+#
+# Paths are compared in their LONG form: the same folder can also be named by
+# its 8.3 short form (C:\Users\JOSMIT~1\...; %TEMP% often is), even mixed
+# with long names, in a command line -- so each path is converted first.
+function Get-LongPath([string]$path) {
+  if (-not ("GrantedInstall.Paths" -as [type])) {
+    Add-Type -Namespace GrantedInstall -Name Paths -MemberDefinition @'
+[System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+public static extern uint GetLongPathName(string path, System.Text.StringBuilder buffer, uint size);
+'@
+  }
+  $buffer = New-Object System.Text.StringBuilder 32768
+  $n = [GrantedInstall.Paths]::GetLongPathName($path, $buffer, 32768)
+  if ($n -gt 0 -and $n -lt 32768) { return $buffer.ToString() }
+  return $path
+}
+# The absolute paths in a command line, each in its long form.
+function Get-LongPathsIn([string]$text) {
+  if (-not $text) { return @() }
+  return @([regex]::Matches($text, '"([A-Za-z]:\\[^"]+)"|([A-Za-z]:\\[^\s"]+)') | ForEach-Object {
+    $p = if ($_.Groups[1].Success) { $_.Groups[1].Value } else { $_.Groups[2].Value }
+    try { Get-LongPath ([System.IO.Path]::GetFullPath($p)) } catch { $p }
+  })
+}
+function Stop-GrantedIn([string]$dir) {
+  $full = (Get-LongPath (Get-Item -LiteralPath $dir).FullName).TrimEnd('\')
+  $tray = Join-Path $full "scaffold\scripts\windows\granted-tray.ps1"
+  $trays = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object {
+    $_.ProcessId -ne $PID -and @(Get-LongPathsIn $_.CommandLine | Where-Object { $_ -ieq $tray }).Count -gt 0
+  })
+  foreach ($t in $trays) {
+    # Its port: its own -Port, else GRANTED_PORT (as the tray reads it), else 3000.
+    $port = if ($t.CommandLine -match '-Port\s+(\d+)') { [int]$Matches[1] } elseif ($env:GRANTED_PORT -match '^\d+$') { [int]$env:GRANTED_PORT } else { 3000 }
+    try { & $tray -Stop -Port $port | Out-Null } catch { }
+  }
+  $deadline = (Get-Date).AddSeconds(30)
+  while ((Get-Date) -lt $deadline -and @($trays | Where-Object { Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue }).Count -gt 0) {
+    Start-Sleep -Milliseconds 500
+  }
+  $node = @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object {
+    @(Get-LongPathsIn $_.CommandLine | Where-Object { $_.StartsWith("$full\", [StringComparison]::OrdinalIgnoreCase) }).Count -gt 0
+  })
+  # Anything still running: stopped outright. taskkill via Start-Process --
+  # never PowerShell's native-command handling, which turns its stderr (a
+  # process already gone) into a terminating error here.
+  foreach ($p in @($trays | Where-Object { Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue }) + $node) {
+    Start-Process -FilePath (Join-Path $env:SystemRoot "System32\taskkill.exe") -ArgumentList "/PID $($p.ProcessId) /T /F" -WindowStyle Hidden -Wait
+  }
+  if ($trays.Count -gt 0 -or $node.Count -gt 0) { Ok "stopped the Granted that was running (it starts again when you open it)" }
+}
+
+# "1.2.3" (or "v1.2.3", "1.2.3-dev") -> [version] 1.2.3, for comparing.
+function Get-VersionNumber([string]$text) {
+  if ($text -match '(\d+)\.(\d+)\.(\d+)') { return [version]"$($Matches[1]).$($Matches[2]).$($Matches[3])" }
+  return $null
+}
+
+$existingInstall = Test-Path "$TargetDir\scaffold\package.json"
+if ($existingInstall) {
   Ok "$TargetDir already cloned"
+  # Asked for a specific release: move an install THIS script made to it (an
+  # update) -- never someone's own checkout (no marker), never over changes
+  # made in the folder, and never backwards: an older installer run again
+  # (or one whose update check failed) must not replace newer code.
+  if ($Ref) {
+    if (-not (Test-Path -LiteralPath (Join-Path $TargetDir ".git\granted-installer"))) {
+      Warn "Not changing $TargetDir to $Ref -- it wasn't installed by this installer (your own checkout?)."
+    } elseif (git -C $TargetDir status --porcelain) {
+      Warn "Not changing $TargetDir to $Ref -- it has local changes."
+    } else {
+      # Just this tag, forced: a release tag that was moved on GitHub (re-tagged
+      # after a fix) must not break updates, and a stale local copy of it must
+      # not be what's installed.
+      git -C $TargetDir fetch --quiet --force origin "+refs/tags/${Ref}:refs/tags/${Ref}"
+      Assert-LastExitCode "Couldn't download Granted $Ref (git fetch failed)."
+      git -C $TargetDir merge-base --is-ancestor "refs/tags/$Ref" HEAD
+      if ($LASTEXITCODE -eq 0) {
+        Ok "already includes Granted $Ref -- nothing to update"
+      } else {
+        $have = Get-VersionNumber ((Get-Content -LiteralPath "$TargetDir\scaffold\package.json" -Raw | ConvertFrom-Json).version)
+        $want = Get-VersionNumber $Ref
+        if ($have -and $want -and $have -gt $want -and $env:GRANTED_ALLOW_DOWNGRADE -ne "1") {
+          Warn "Not changing $TargetDir to $Ref -- it already has a newer Granted ($have)."
+        } else {
+          Log "Updating $TargetDir to Granted $Ref ..."
+          Stop-GrantedIn $TargetDir
+          git -C $TargetDir -c advice.detachedHead=false checkout --quiet "refs/tags/$Ref"
+          Assert-LastExitCode "Couldn't switch $TargetDir to $Ref (git checkout failed)."
+          Ok "now at $Ref"
+        }
+      }
+    }
+  }
 } else {
   Log "Cloning $RepoUrl into .\$TargetDir ..."
-  git clone $RepoUrl $TargetDir
+  if ($Ref) {
+    git -c advice.detachedHead=false clone --branch $Ref $RepoUrl $TargetDir
+  } else {
+    git clone $RepoUrl $TargetDir
+  }
   Assert-LastExitCode "git clone failed. If $TargetDir was partially created, remove it before re-running."
   # Marks this clone as made by the installer (inside .git, so git never
   # sees it): only such clones are listed in Installed apps -- a folder that
@@ -223,6 +331,9 @@ if (Test-Path "$TargetDir\scaffold\package.json") {
 
 # 4) npm ci -- installs exactly what package-lock.json pins, and never rewrites it
 # (unlike `npm install`, which can touch the lockfile on a version/registry mismatch).
+# A re-run (an update, say) while Granted is running: quit it first -- its
+# server holds files in node_modules that npm ci is about to replace.
+if ($existingInstall) { Stop-GrantedIn $TargetDir }
 Set-Location "$TargetDir\scaffold"
 Log "Installing npm dependencies..."
 npm ci

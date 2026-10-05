@@ -82,6 +82,21 @@ export function isSupportedPlatform(p: string): p is SupportedPlatform {
   return p === "darwin" || p === "win32" || p === "linux";
 }
 
+/**
+ * Which Granted the install will set up (see chooseInstallRef). `pinned` is
+ * the release this installer was built for (null in a development build,
+ * which installs main); `latest` is the newest release found when checking
+ * for updates; `ref` is what will actually be installed.
+ */
+export interface InstallVersionPlan {
+  pinned: string | null;
+  latest: string | null;
+  ref: string | null;
+  checkForUpdates: boolean;
+  /** Checking for updates failed (offline, say): the pinned release is installed. */
+  checkFailed: boolean;
+}
+
 /** Where Granted got installed, and how far its first-run setup already got. */
 export interface GrantedSetupState {
   /** Absolute path of the clone (install-windows.ps1's $TargetDir, resolved). */
@@ -167,7 +182,9 @@ export interface ShortcutsResult extends ActionResult {
 /** contextBridge surface exposed to the renderer as `window.api`. */
 export interface GrantedInstallerApi {
   checkPrereqs: () => Promise<PrereqReport>;
-  openInstallTerminal: () => Promise<OpenInstallTerminalResult>;
+  /** Which Granted the install will set up — checking GitHub for a newer release if asked. */
+  planInstallVersion: (checkForUpdates: boolean) => Promise<InstallVersionPlan>;
+  openInstallTerminal: (checkForUpdates: boolean) => Promise<OpenInstallTerminalResult>;
   /** Subscribe to install-status pushes (see InstallStatusEvent). Returns an unsubscribe function. */
   onInstallStatus: (listener: (status: InstallStatusEvent) => void) => () => void;
   getSetupState: () => Promise<GrantedSetupState>;

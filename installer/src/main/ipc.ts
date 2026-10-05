@@ -19,7 +19,9 @@ import {
   parseOpenGrantedOutput,
   parseShortcutsOutput,
   parseVersionFromOutput,
+  buildWindowsInstallScript,
   psSingleQuoted,
+  windowsInstallCommand,
   shouldReattach,
   startProcessCommand,
   trayLaunchCommand,
@@ -34,6 +36,7 @@ import {
   waitForGrantedToStart,
   windowsScriptPath,
 } from "./openGranted";
+import { createVersionPlanner, LATEST_RELEASE_API, pinnedReleaseTag } from "./release";
 import {
   INSTALL_ONE_LINERS,
   NODE_MAJOR_MIN,
@@ -364,7 +367,16 @@ function installDir(): string {
   return resolve(homedir(), process.env["GRANTED_INSTALL_DIR"] || "granted");
 }
 
-async function openInstallTerminal(sender: WebContents): Promise<OpenInstallTerminalResult> {
+// Which Granted to install (src/main/release.ts). GRANTED_RELEASES_API:
+// tests point the update check at a local server.
+// Windows only: the macOS/Linux one-liners always install main, so a pinned
+// release (and the update check) would only be a misleading note there.
+const versionPlanner = createVersionPlanner({
+  pinned: process.platform === "win32" ? pinnedReleaseTag() : null,
+  latestUrl: process.env["GRANTED_RELEASES_API"] || LATEST_RELEASE_API,
+});
+
+async function openInstallTerminal(sender: WebContents, checkForUpdates: boolean): Promise<OpenInstallTerminalResult> {
   const platform = process.platform;
 
   if (!isSupportedPlatform(platform)) {
@@ -376,16 +388,23 @@ async function openInstallTerminal(sender: WebContents): Promise<OpenInstallTerm
     };
   }
 
+  // Windows installs the release the screen showed (this installer's own, or
+  // a newer one if the user asked to check) -- decided from what the screen
+  // already learned, with no new request to GitHub, so it's exactly what the
+  // note said, and nothing is awaited between the in-flight check below and
+  // claiming it. The macOS/Linux scripts install main.
+  const plan = platform === "win32" ? versionPlanner.current(checkForUpdates) : null;
+  const command = plan ? windowsInstallCommand(plan.ref) : INSTALL_ONE_LINERS[platform];
+
   if (installInFlight) {
     return {
       ok: false,
       message: "An install is already running in a terminal window — look for it before starting another.",
-      command: INSTALL_ONE_LINERS[platform],
+      command,
       pollingStarted: false,
     };
   }
 
-  const command = INSTALL_ONE_LINERS[platform];
   clipboard.writeText(command);
 
   try {
@@ -446,8 +465,7 @@ async function openInstallTerminal(sender: WebContents): Promise<OpenInstallTerm
       // to start reads its script late, and a fixed path could by then hold
       // a LATER attempt's status path — two windows reporting into one file.
       const scriptPath = join(tmpdir(), `granted-install-${randomUUID()}.ps1`);
-      const scriptContents = `$env:GRANTED_STATUS_FILE = ${psSingleQuoted(statusPath)}\r\n${command}\r\n`;
-      await writeFile(scriptPath, scriptContents, "utf8");
+      await writeFile(scriptPath, buildWindowsInstallScript(statusPath, plan?.ref ?? null), "utf8");
       rememberLaunch("install", statusPath);
       // install-windows.ps1 clones into .\granted relative to its working
       // directory. Without an explicit cwd it inherits ours — the app's own
@@ -459,7 +477,7 @@ async function openInstallTerminal(sender: WebContents): Promise<OpenInstallTerm
       pollInstallStatus(sender, statusPath);
       return {
         ok: true,
-        message: `Opened PowerShell and started the installer — Granted will be installed to ${installDir()}. Watch that window; this screen will update on its own once it finishes. If it closes before then, paste the command from your clipboard into PowerShell.`,
+        message: `Opened PowerShell and started the installer — Granted${plan?.ref ? ` ${plan.ref}` : ""} will be installed to ${installDir()}. Watch that window; this screen will update on its own once it finishes. If it closes before then, paste the command from your clipboard into PowerShell.`,
         command,
         pollingStarted: true,
       };
@@ -835,7 +853,8 @@ async function createShortcuts(choice: ShortcutChoice): Promise<ShortcutsResult>
 
 export function registerIpcHandlers(): void {
   ipcMain.handle("prereqs:check", () => checkPrereqs());
-  ipcMain.handle("terminal:open-install", (event) => openInstallTerminal(event.sender));
+  ipcMain.handle("install:plan-version", (_event, checkForUpdates: unknown) => versionPlanner.plan(checkForUpdates === true));
+  ipcMain.handle("terminal:open-install", (event, checkForUpdates: unknown) => openInstallTerminal(event.sender, checkForUpdates === true));
   ipcMain.handle("granted:get-setup-state", () => getSetupState(installDir(), settingsPath()));
   ipcMain.handle("granted:set-open-in", (_event, openIn: OpenIn) =>
     openIn === "window" || openIn === "browser"
