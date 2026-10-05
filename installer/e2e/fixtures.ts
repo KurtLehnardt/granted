@@ -7,7 +7,7 @@
  */
 import { _electron as electron, type ElectronApplication, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -53,14 +53,26 @@ export interface FakeInstall {
   root: string;
   installDir: string;
   scaffoldDir: string;
+  /** Where the installer is told to put the Desktop / Start menu shortcuts (never the real ones). */
+  desktopDir: string;
+  startMenuDir: string;
   cleanup: () => void;
 }
 
-export function makeFakeInstall(): FakeInstall {
+// The real scaffold/scripts/windows (tray + shortcuts + icon), copied into
+// each fake install — so the background/tray path under test is the real one.
+const WINDOWS_SCRIPTS = resolve(INSTALLER_ROOT, "..", "scaffold", "scripts", "windows");
+
+export function makeFakeInstall(opts: { withWindowsScripts?: boolean } = {}): FakeInstall {
   const root = mkdtempSync(join(tmpdir(), "granted-e2e-"));
   const installDir = join(root, "granted");
   const scaffoldDir = join(installDir, "scaffold");
   mkdirSync(scaffoldDir, { recursive: true });
+  if (opts.withWindowsScripts !== false) {
+    const dest = join(scaffoldDir, "scripts", "windows");
+    mkdirSync(dest, { recursive: true });
+    for (const f of readdirSync(WINDOWS_SCRIPTS)) copyFileSync(join(WINDOWS_SCRIPTS, f), join(dest, f));
+  }
   writeFileSync(
     join(scaffoldDir, "package.json"),
     JSON.stringify(
@@ -72,19 +84,29 @@ export function makeFakeInstall(): FakeInstall {
   writeFileSync(join(scaffoldDir, ".env.example"), ENV_EXAMPLE);
   writeFileSync(join(scaffoldDir, "fake-dev.js"), FAKE_DEV_SERVER);
   writeFileSync(join(scaffoldDir, "fake-setup-local.js"), FAKE_SETUP_LOCAL);
-  return { root, installDir, scaffoldDir, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+  return {
+    root,
+    installDir,
+    scaffoldDir,
+    desktopDir: join(root, "Desktop"),
+    startMenuDir: join(root, "Programs"),
+    // Retries: on Windows a just-exited process can hold a handle in here for a moment.
+    cleanup: () => rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 }),
+  };
 }
 
 export async function launchInstaller(
-  installDir: string,
+  install: FakeInstall | string,
   extraEnv: Record<string, string> = {},
 ): Promise<{ app: ElectronApplication; page: Page }> {
+  const fake = typeof install === "string" ? null : install;
   const app = await electron.launch({
     args: [INSTALLER_ROOT],
     env: {
       ...process.env,
-      GRANTED_INSTALL_DIR: installDir,
+      GRANTED_INSTALL_DIR: fake ? fake.installDir : (install as string),
       GRANTED_PORT: String(TEST_PORT),
+      ...(fake && { GRANTED_SHORTCUT_DESKTOP_DIR: fake.desktopDir, GRANTED_SHORTCUT_STARTMENU_DIR: fake.startMenuDir }),
       ...extraEnv,
     } as Record<string, string>,
   });
@@ -157,6 +179,48 @@ function powershell(script: string): string {
     // stderr carries PowerShell's CLIXML progress records, not errors worth showing.
     stdio: ["ignore", "pipe", "ignore"],
   });
+}
+
+/**
+ * Quits the tray for the test port (it stops its server too), the way the
+ * tray's own Quit does. Must run BEFORE closing the app: the tray is started
+ * detached from it, but can still hold the app's inherited stdio handles —
+ * Playwright's pipes, here — so app.close() would otherwise hang.
+ */
+export function stopTestTray(install: FakeInstall): void {
+  const tray = join(install.scaffoldDir, "scripts", "windows", "granted-tray.ps1");
+  if (!existsSync(tray)) return;
+  try {
+    execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", tray, "-Stop", "-Port", String(TEST_PORT)], {
+      stdio: "ignore",
+      windowsHide: true,
+    });
+  } catch {
+    return; // exit 1: no tray running for this port
+  }
+  // -Stop only signals; the tray then stops its server and exits. Wait for
+  // that, so the fake install folder (the tray's working directory) can be
+  // deleted and the next test finds the port free.
+  const deadline = Date.now() + 30_000;
+  while (testTrayRunning() && Date.now() < deadline) execFileSync("powershell.exe", ["-NoProfile", "-Command", "Start-Sleep -Milliseconds 500"], { windowsHide: true });
+}
+
+/** Whether a tray (granted-tray.ps1) is running for the test port. */
+export function testTrayRunning(): boolean {
+  const out = powershell(
+    "@(Get-CimInstance Win32_Process -Filter \"Name='powershell.exe'\" | " +
+      `Where-Object { $_.CommandLine -match 'granted-tray\\.ps1' -and $_.CommandLine -match '-Port ${TEST_PORT}' }).Count`,
+  );
+  return Number(out.trim()) > 0;
+}
+
+/** Reads a .lnk back through the same COM object Explorer uses. */
+export function readShortcut(path: string): { target: string; args: string; icon: string } {
+  const out = powershell(
+    `$l = (New-Object -ComObject WScript.Shell).CreateShortcut('${path.replace(/'/g, "''")}'); ` +
+      "@{ target = $l.TargetPath; args = $l.Arguments; icon = $l.IconLocation } | ConvertTo-Json -Compress",
+  );
+  return JSON.parse(out.trim()) as { target: string; args: string; icon: string };
 }
 
 /** PIDs of the console windows the app opens for "Open Granted" (a granted-start-app-/granted-local-setup- script). */

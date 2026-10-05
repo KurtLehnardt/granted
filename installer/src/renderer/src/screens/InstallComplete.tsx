@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { GrantedSetupState, TaskStatusEvent } from "../../../shared/ipc";
+import type { GrantedSetupState, ShortcutChoice, TaskStatusEvent } from "../../../shared/ipc";
 
 /**
  * Shown once the install finishes. Offers to do the README's "Next steps"
@@ -13,14 +13,19 @@ type Step =
   | { id: "choose" }
   | { id: "keys" }
   | { id: "local-setup" }
-  | { id: "starting" }
-  | { id: "opened"; message: string | null; url: string }
+  // background: null until the main process says how it's starting Granted.
+  | { id: "starting"; background: boolean | null }
+  | { id: "opened"; message: string | null; url: string; background: boolean }
   | { id: "declined" }
   | { id: "error"; message: string; retry: () => void };
 
 export default function InstallComplete(): React.JSX.Element {
   const [setup, setSetup] = useState<GrantedSetupState | null>(null);
   const [step, setStep] = useState<Step>({ id: "loading" });
+  const [shortcuts, setShortcuts] = useState<ShortcutChoice>({ desktop: true, startMenu: true });
+  const [shortcutsNote, setShortcutsNote] = useState<{ ok: boolean; message: string } | null>(null);
+  const [shortcutsMade, setShortcutsMade] = useState(false);
+  const [applying, setApplying] = useState(false);
 
   useEffect(() => {
     window.api
@@ -33,9 +38,10 @@ export default function InstallComplete(): React.JSX.Element {
   }, []);
 
   const start = useCallback((): void => {
-    setStep({ id: "starting" });
+    setStep({ id: "starting", background: null });
     window.api.startGranted().then((result) => {
       if (!result.ok) setStep({ id: "error", message: result.message, retry: start });
+      else setStep((prev) => (prev.id === "starting" ? { ...prev, background: result.background ?? false } : prev));
     });
   }, []);
 
@@ -52,20 +58,50 @@ export default function InstallComplete(): React.JSX.Element {
         if (status.state === "done") start();
         else setStep({ id: "error", message: status.message ?? "The local setup didn't finish.", retry: runLocalSetup });
       } else if (status.state === "done") {
-        setStep({ id: "opened", message: status.message ?? null, url: status.url ?? "http://localhost:3000" });
+        setStep({
+          id: "opened",
+          message: status.message ?? null,
+          url: status.url ?? "http://localhost:3000",
+          background: status.background ?? false,
+        });
       } else {
         setStep({ id: "error", message: status.message ?? "Granted didn't start.", retry: start });
       }
     });
   }, [start, runLocalSetup]);
 
-  const handleYes = (): void => {
-    // Already configured on an earlier run — nothing to ask, just start it.
-    if (setup?.hostedKeysSet || setup?.localConfigured) start();
-    else setStep({ id: "choose" });
+  // Creates whichever shortcuts are ticked (once — they're the same files if
+  // the user goes Back and continues again). Never blocks continuing: a
+  // failure is just noted.
+  const applyShortcuts = async (): Promise<void> => {
+    if (!setup?.shortcutsAvailable || shortcutsMade || (!shortcuts.desktop && !shortcuts.startMenu)) return;
+    const result = await window.api.createShortcuts(shortcuts);
+    setShortcutsNote({ ok: result.ok, message: result.message });
+    if (result.ok) setShortcutsMade(true);
   };
 
+  const continueWith = (next: () => void): void => {
+    setApplying(true);
+    void applyShortcuts()
+      .catch(() => setShortcutsNote({ ok: false, message: "Couldn't add the Granted shortcut(s)." }))
+      .finally(() => {
+        setApplying(false);
+        next();
+      });
+  };
+
+  const handleYes = (): void =>
+    continueWith(() => {
+      // Already configured on an earlier run — nothing to ask, just start it.
+      if (setup?.hostedKeysSet || setup?.localConfigured) start();
+      else setStep({ id: "choose" });
+    });
+
   const installDir = setup?.installDir ?? "your granted folder";
+  const shortcutPlaces = [
+    shortcutsMade && shortcuts.desktop && "on your desktop",
+    shortcutsMade && shortcuts.startMenu && "in the Start menu",
+  ].filter(Boolean);
 
   return (
     <main className="screen">
@@ -90,16 +126,46 @@ export default function InstallComplete(): React.JSX.Element {
 
       {step.id === "ask" && (!setup || setup.installed) && (
         <>
+          {setup?.shortcutsAvailable && !shortcutsMade && (
+            <fieldset className="shortcut-options">
+              <legend>Add a Granted shortcut to:</legend>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={shortcuts.desktop}
+                  onChange={(e) => setShortcuts((s) => ({ ...s, desktop: e.target.checked }))}
+                />
+                The desktop
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={shortcuts.startMenu}
+                  onChange={(e) => setShortcuts((s) => ({ ...s, startMenu: e.target.checked }))}
+                />
+                The Start menu
+              </label>
+            </fieldset>
+          )}
           <p className="question">Open Granted now?</p>
           <div className="actions">
-            <button type="button" className="primary" onClick={handleYes}>
+            <button type="button" className="primary" onClick={handleYes} disabled={applying}>
               Yes, open Granted
             </button>
-            <button type="button" className="secondary" onClick={() => setStep({ id: "declined" })}>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => continueWith(() => setStep({ id: "declined" }))}
+              disabled={applying}
+            >
               Not now
             </button>
           </div>
         </>
+      )}
+
+      {shortcutsNote && step.id !== "ask" && (
+        <div className={`status-note${shortcutsNote.ok ? "" : " error"}`}>{shortcutsNote.message}</div>
       )}
 
       {step.id === "choose" && (
@@ -140,20 +206,37 @@ export default function InstallComplete(): React.JSX.Element {
         </div>
       )}
 
-      {step.id === "starting" && (
-        <div className="status-note">
-          Starting Granted… A PowerShell window titled <strong>Granted</strong> opened — keep it open while you use
-          Granted. Your browser will open when it's ready (the first start can take a minute or two). To cancel, close
-          that window.
-        </div>
-      )}
+      {step.id === "starting" &&
+        (step.background === null ? (
+          <div className="status-note">Starting Granted…</div>
+        ) : step.background ? (
+          <div className="status-note">
+            Starting Granted in the background… Your browser will open when it's ready (the first start can take a
+            minute or two).
+          </div>
+        ) : (
+          <div className="status-note">
+            Starting Granted… A PowerShell window titled <strong>Granted</strong> opened — keep it open while you use
+            Granted. Your browser will open when it's ready (the first start can take a minute or two). To cancel, close
+            that window.
+          </div>
+        ))}
 
       {step.id === "opened" && (
         <>
-          <div className="status-note">
-            {step.message ?? "Granted is open in your browser."} It's at <code>{step.url}</code>. Keep the{" "}
-            <strong>Granted</strong> PowerShell window open while you use it — closing that window stops Granted.
-          </div>
+          {step.background ? (
+            <div className="status-note">
+              {step.message ?? "Granted is open in your browser."} It's at <code>{step.url}</code> and keeps running in
+              the background — look for the <strong>Granted icon</strong> by the clock (it may be under the ^ arrow).
+              Right-click it to open Granted again or to quit it.
+              {shortcutPlaces.length > 0 && <> Next time, open it from the Granted shortcut {shortcutPlaces.join(" or ")}.</>}
+            </div>
+          ) : (
+            <div className="status-note">
+              {step.message ?? "Granted is open in your browser."} It's at <code>{step.url}</code>. Keep the{" "}
+              <strong>Granted</strong> PowerShell window open while you use it — closing that window stops Granted.
+            </div>
+          )}
           <div className="actions spaced">
             <button type="button" className="primary" onClick={() => window.api.quit()}>
               Close installer
@@ -164,7 +247,13 @@ export default function InstallComplete(): React.JSX.Element {
 
       {step.id === "declined" && (
         <>
-          <p>To open Granted later, run these in PowerShell:</p>
+          {shortcutPlaces.length > 0 && (
+            <p>
+              Open Granted any time from the Granted shortcut {shortcutPlaces.join(" or ")}. The first time, set it up
+              first (your API keys, or fully local) with:
+            </p>
+          )}
+          {shortcutPlaces.length === 0 && <p>To open Granted later, run these in PowerShell:</p>}
           <code className="command">{`cd "${installDir}\\scaffold"
 npm run setup                  # your API keys (OpenAI + Anthropic), or
 npm run setup:local -- --yes   # fully local via Ollama, no API keys

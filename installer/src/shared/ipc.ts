@@ -96,6 +96,10 @@ export interface GrantedSetupState {
   hostedKeysSet: boolean;
   /** `npm run setup:local` finished: .env.local points at Ollama AND the corpus was re-embedded to match. */
   localConfigured: boolean;
+  /** This install has scripts/windows/granted-tray.ps1, so Granted can run in the background with a tray icon. */
+  trayAvailable: boolean;
+  /** This install has scripts/windows/shortcuts.ps1, so Desktop/Start menu shortcuts can be offered. */
+  shortcutsAvailable: boolean;
 }
 
 /** What the "Use my API keys" form sends. Blank = leave whatever is already there. */
@@ -122,6 +126,28 @@ export interface TaskStatusEvent {
   message?: string | null;
   /** start-app only: where Granted is (or would have been) served. */
   url?: string;
+  /**
+   * start-app only: Granted runs in the background with a tray icon
+   * (scripts/windows/granted-tray.ps1) rather than in a console window the
+   * user must keep open. False only for an older install without that script.
+   */
+  background?: boolean;
+}
+
+/** startGranted's result: `background` says whether it's starting in the background (tray icon) or a console window. */
+export interface StartResult extends ActionResult {
+  background?: boolean;
+}
+
+/** Which "Granted" shortcuts to create (the installer's checkboxes). */
+export interface ShortcutChoice {
+  desktop: boolean;
+  startMenu: boolean;
+}
+
+export interface ShortcutsResult extends ActionResult {
+  /** The .lnk files created. */
+  created: string[];
 }
 
 /** contextBridge surface exposed to the renderer as `window.api`. */
@@ -135,9 +161,11 @@ export interface GrantedInstallerApi {
   saveApiKeys: (keys: ApiKeysInput) => Promise<ActionResult>;
   /** Opens a PowerShell window running `npm run setup:local -- --yes`; a TaskStatusEvent follows. */
   runLocalSetup: () => Promise<ActionResult>;
-  /** Starts `npm run dev` in its own window and opens the browser once it answers; a TaskStatusEvent follows. */
-  startGranted: () => Promise<ActionResult>;
+  /** Starts Granted in the background (tray icon) and opens the browser once it answers; a TaskStatusEvent follows. */
+  startGranted: () => Promise<StartResult>;
   onTaskStatus: (listener: (status: TaskStatusEvent) => void) => () => void;
+  /** Creates the "Granted" Desktop and/or Start menu shortcut. */
+  createShortcuts: (choice: ShortcutChoice) => Promise<ShortcutsResult>;
   /** Closes the installer window. */
   quit: () => void;
 }

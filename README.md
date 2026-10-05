@@ -88,6 +88,16 @@ npm run setup:local -- --yes        # picks a model sized for your RAM/VRAM, pul
 npm run dev
 ```
 
+**4. Run it in the background, from a shortcut (optional)**
+
+Instead of keeping a terminal open for `npm run dev`, Granted can run hidden in the background with an icon by the clock. The GUI installer offers this. Its "Installation complete" screen has **Desktop** and **Start menu** shortcut boxes, and "Open Granted" starts it this way. To add the shortcuts by hand:
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\shortcuts.ps1 -Desktop -StartMenu
+```
+- **The Granted shortcut** starts Granted if it isn't already running, then opens it in your browser. Nothing starts at sign-in.
+- **The Granted icon by the clock** has a right-click menu: **Open Granted**, its status, **Show log** (the server output, in `%LOCALAPPDATA%\Granted\logs`), **Restart** and **Quit Granted**. Quitting stops the server.
+- **No window, even on Windows 11:** the shortcut runs `scripts\windows\granted-tray.ps1` through `conhost.exe --headless`. A plain `powershell -WindowStyle Hidden` still opens a visible Windows Terminal window when Windows Terminal is the default console host, as it is by default on Windows 11.
+
 ## Install on Linux
 
 **1. Install prerequisites + clone (one command)**

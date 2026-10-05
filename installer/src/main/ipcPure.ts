@@ -11,7 +11,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, win32 } from "node:path";
 import type { InstallStatusEvent } from "../shared/ipc";
 
 /** The regex-extraction half of checkVersionedTool. */
@@ -352,6 +352,85 @@ export function shouldReattach(
   if (status.state === "running") return status.pid !== undefined;
   if (status.state === "done") return opts.acceptDone;
   return false;
+}
+
+/**
+ * How to start scaffold/scripts/windows/granted-tray.ps1 — Granted running in
+ * the background with a tray icon instead of in a console window the user
+ * must keep open. Through `conhost.exe --headless`, NOT `powershell
+ * -WindowStyle Hidden`: where Windows Terminal is the default console host
+ * (Windows 11's default) the latter still opens a visible terminal window —
+ * verified on a real Windows 11 25H2 machine; the former opens none. -STA
+ * because the tray is Windows Forms. The Desktop/Start menu shortcuts
+ * (shortcuts.ps1) launch it the same way, with -OpenBrowser.
+ */
+export function trayLaunchCommand(opts: {
+  systemRoot: string;
+  trayScript: string;
+  port: number;
+  statusPath?: string;
+  openBrowser?: boolean;
+}): { file: string; args: string[] } {
+  const args = [
+    "--headless",
+    win32.join(opts.systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
+    "-NoProfile",
+    "-STA",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    opts.trayScript,
+    "-Port",
+    String(opts.port),
+  ];
+  if (opts.statusPath) args.push("-StatusPath", opts.statusPath);
+  if (opts.openBrowser) args.push("-OpenBrowser");
+  return { file: win32.join(opts.systemRoot, "System32", "conhost.exe"), args };
+}
+
+/**
+ * A Windows command line for `args` (the receiving program splits it the
+ * standard way): an argument with whitespace — or an empty one — is
+ * double-quoted. One containing a double quote is refused: a Windows path
+ * can't contain one, and nothing passed here should.
+ */
+export function windowsArgLine(args: string[]): string {
+  return args
+    .map((s) => {
+      if (s.includes('"')) throw new Error(`Refusing to pass an argument containing a double quote: ${s}`);
+      return s === "" || /\s/.test(s) ? `"${s}"` : s;
+    })
+    .join(" ");
+}
+
+/**
+ * The PowerShell -Command that starts `file args…` with Start-Process —
+ * how the installer launches the tray. Not spawn(conhost) directly:
+ * `conhost --headless` exits at once (code 0, nothing started) when given
+ * real stdin/stdout handles, and Node always gives a spawned child some (NUL
+ * for "ignore"); Start-Process goes through ShellExecute, which — like a
+ * shortcut — gives none, and doesn't pass on this app's inheritable handles
+ * either. Not `cmd /c start`: cmd would expand %VAR% (and !VAR!) inside the
+ * paths even when quoted. Everything here is a single-quoted PowerShell
+ * literal (psSingleQuoted), so nothing in a path is ever interpreted.
+ * conhost.exe is a GUI-subsystem program, so no console — and no Windows
+ * Terminal handoff — is created for it either way.
+ */
+export function startProcessCommand(file: string, args: string[]): string {
+  return `Start-Process -FilePath ${psSingleQuoted(file)} -ArgumentList ${psSingleQuoted(windowsArgLine(args))}`;
+}
+
+/** shortcuts.ps1's JSON output → the shortcut paths it created (null if it isn't that shape). */
+export function parseShortcutsOutput(stdout: string): string[] | null {
+  try {
+    const line = stdout.trim().split(/\r?\n/).filter(Boolean).pop() ?? "";
+    const created = (JSON.parse(line) as { created?: unknown }).created;
+    if (created === undefined || created === null) return [];
+    const list = Array.isArray(created) ? created : [created]; // PS 5.1 can flatten a 1-item array
+    return list.every((p) => typeof p === "string") ? (list as string[]) : null;
+  } catch {
+    return null;
+  }
 }
 
 /** A fresh, unique status-file path for one "Open Granted" step (see newInstallStatusPath). */

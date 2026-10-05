@@ -12,15 +12,19 @@ import {
   mergeRegistryPath,
   newInstallStatusPath,
   parseInstallStatusJson,
+  parseShortcutsOutput,
   parseStatusFile,
   parseVersionFromOutput,
   psSingleQuoted,
   resolveTaskStatus,
   shouldReattach,
+  startProcessCommand,
   STATUS_LOCK_LINE,
   statusLockPath,
   TASK_WINDOW_CLOSED_MESSAGE,
+  trayLaunchCommand,
   upsertEnv,
+  windowsArgLine,
 } from "../ipcPure";
 
 describe("parseVersionFromOutput", () => {
@@ -443,6 +447,80 @@ describe("shouldReattach", () => {
 
   test("an error (including a closed window) never re-attaches — the retry should start fresh", () => {
     assert.equal(shouldReattach({ state: "error", message: "x", closed: true }, { ...RECENT, launchedMsAgo: 1_000 }), false);
+  });
+});
+
+describe("trayLaunchCommand", () => {
+  const base = { systemRoot: "C:\\Windows", trayScript: "C:\\Users\\O'Brien\\granted\\scaffold\\scripts\\windows\\granted-tray.ps1", port: 3000 };
+
+  test("runs the tray through conhost --headless (a hidden powershell still opens a window under Windows Terminal)", () => {
+    const { file, args } = trayLaunchCommand(base);
+    assert.equal(file, "C:\\Windows\\System32\\conhost.exe");
+    assert.equal(args[0], "--headless");
+    assert.equal(args[1], "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe");
+    assert.ok(!args.includes("-WindowStyle"), "no -WindowStyle Hidden reliance");
+  });
+
+  test("STA (Windows Forms), Bypass (AllSigned machines), the script and the port", () => {
+    const { args } = trayLaunchCommand(base);
+    assert.ok(args.includes("-STA"));
+    assert.deepEqual(args.slice(args.indexOf("-ExecutionPolicy"), args.indexOf("-ExecutionPolicy") + 2), ["-ExecutionPolicy", "Bypass"]);
+    assert.equal(args[args.indexOf("-File") + 1], base.trayScript, "path passed as one argument, quotes and all");
+    assert.equal(args[args.indexOf("-Port") + 1], "3000");
+  });
+
+  test("status file and browser opening only when asked", () => {
+    assert.ok(!trayLaunchCommand(base).args.includes("-StatusPath"));
+    assert.ok(!trayLaunchCommand(base).args.includes("-OpenBrowser"));
+    const { args } = trayLaunchCommand({ ...base, statusPath: "C:\\t\\s.json", openBrowser: true });
+    assert.equal(args[args.indexOf("-StatusPath") + 1], "C:\\t\\s.json");
+    assert.ok(args.includes("-OpenBrowser"));
+  });
+});
+
+describe("windowsArgLine / startProcessCommand", () => {
+  test("quotes only arguments with whitespace (or empty ones)", () => {
+    assert.equal(
+      windowsArgLine(["--headless", "C:\\Users\\Jo Smith\\tray.ps1", "-Port", "3000", ""]),
+      '--headless "C:\\Users\\Jo Smith\\tray.ps1" -Port 3000 ""',
+    );
+  });
+
+  test("refuses an argument containing a double quote", () => {
+    assert.throws(() => windowsArgLine(['a"b']));
+  });
+
+  test("Start-Process with everything as single-quoted PowerShell literals", () => {
+    assert.equal(
+      startProcessCommand("C:\\Windows\\System32\\conhost.exe", ["--headless", "-Port", "3000"]),
+      "Start-Process -FilePath 'C:\\Windows\\System32\\conhost.exe' -ArgumentList '--headless -Port 3000'",
+    );
+  });
+
+  test("REGRESSION (review): %VAR%, !VAR!, $ and ' in a path reach the program literally — no cmd expansion", () => {
+    const cmd = startProcessCommand("C:\\x.exe", ["-File", "C:\\Users\\a%USERNAME%b\\it's $x !y!\\tray.ps1"]);
+    // Single-quoted: PowerShell expands nothing; the only escape is '' for '.
+    assert.equal(cmd, "Start-Process -FilePath 'C:\\x.exe' -ArgumentList '-File \"C:\\Users\\a%USERNAME%b\\it''s $x !y!\\tray.ps1\"'");
+  });
+});
+
+describe("parseShortcutsOutput", () => {
+  test("reads the created paths from shortcuts.ps1's JSON line", () => {
+    assert.deepEqual(parseShortcutsOutput('{"created":["C:\\\\a\\\\Granted.lnk","C:\\\\b\\\\Granted.lnk"]}\r\n'), [
+      "C:\\a\\Granted.lnk",
+      "C:\\b\\Granted.lnk",
+    ]);
+  });
+
+  test("tolerates PowerShell 5.1 flattening a one-item array, and an empty result", () => {
+    assert.deepEqual(parseShortcutsOutput('{"created":"C:\\\\a\\\\Granted.lnk"}'), ["C:\\a\\Granted.lnk"]);
+    assert.deepEqual(parseShortcutsOutput('{"created":[]}'), []);
+    assert.deepEqual(parseShortcutsOutput('{"created":null}'), []);
+  });
+
+  test("anything else is null (treated as a failure)", () => {
+    assert.equal(parseShortcutsOutput("Exception: boom"), null);
+    assert.equal(parseShortcutsOutput('{"created":[1]}'), null);
   });
 });
 

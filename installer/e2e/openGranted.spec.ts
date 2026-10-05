@@ -18,9 +18,12 @@ import {
   openGrantedWindowPids,
   openedUrls,
   reachInstallComplete,
+  readShortcut,
   sendInstallStatus,
   serveOnTestPort,
+  stopTestTray,
   testPortIsFree,
+  testTrayRunning,
   type FakeInstall,
 } from "./fixtures";
 
@@ -38,9 +41,10 @@ test.beforeEach(async ({}, testInfo) => {
 });
 
 test.afterEach(async () => {
-  // Windows BEFORE the app: a console window started via `cmd /c start`
-  // inherits the app's stdio pipe handles (Playwright's, here), so while one
-  // is still open the app never reads as closed and app.close() hangs.
+  // The tray and console windows BEFORE the app: anything started via
+  // `cmd /c start` inherits the app's stdio pipe handles (Playwright's,
+  // here), so while one is still running app.close() hangs.
+  if (install) stopTestTray(install);
   killWindowsOpenedSince(windowsBefore);
   await app?.close().catch(() => {});
   app = undefined;
@@ -48,7 +52,7 @@ test.afterEach(async () => {
 });
 
 async function launch(extraEnv: Record<string, string> = {}): Promise<ElectronApplication> {
-  const launched = await launchInstaller(install.installDir, extraEnv);
+  const launched = await launchInstaller(install, extraEnv);
   app = launched.app;
   page = launched.page;
   return launched.app;
@@ -90,11 +94,13 @@ test("a failed install stays on the check screen, never Installation complete", 
   await expect(page.getByRole("button", { name: "Open a terminal for me" })).toBeEnabled();
 });
 
-test("Not now shows how to open Granted later, and Close installer closes the app", async () => {
+test("Not now still adds the ticked shortcuts, says where they are, and Close installer closes the app", async () => {
   const a = await start();
   await page.getByRole("button", { name: "Not now" }).click();
+  await expect(page.getByText(/Open Granted any time from the Granted shortcut on your desktop or in the Start menu/)).toBeVisible();
   await expect(page.locator("code.command")).toContainText(`cd "${install.installDir}\\scaffold"`);
-  await expect(page.locator("code.command")).toContainText("npm run dev");
+  expect(existsSync(join(install.desktopDir, "Granted.lnk"))).toBe(true);
+  expect(existsSync(join(install.startMenuDir, "Granted.lnk"))).toBe(true);
   const closed = a.waitForEvent("close");
   await page.getByRole("button", { name: "Close installer" }).click();
   await closed;
@@ -116,16 +122,75 @@ test("API keys: rejects a missing key without writing anything, then saves, star
 
   await page.getByLabel(/Anthropic API key/).fill("sk-ant-e2e-anthropic");
   await page.getByRole("button", { name: "Save and open Granted" }).click();
+  await expect(page.getByText(/Starting Granted in the background/)).toBeVisible();
   await expect(page.getByText(/Granted is open in your browser/)).toBeVisible();
   await expect(page.getByText(TEST_URL, { exact: true })).toBeVisible();
+  await expect(page.getByText(/keeps running in the background/)).toBeVisible();
 
   const env = readFileSync(envLocal, "utf8");
   expect(env).toMatch(/^OPENAI_API_KEY=sk-e2e-openai$/m);
   expect(env).toMatch(/^ANTHROPIC_API_KEY=sk-ant-e2e-anthropic$/m);
   expect(await openedUrls(a)).toEqual([TEST_URL]);
-  expect(newWindows()).toHaveLength(1);
+  // In the background: a tray, and no console window to keep open.
+  expect(testTrayRunning()).toBe(true);
+  expect(newWindows()).toHaveLength(0);
   const res = await fetch(`http://127.0.0.1:${TEST_PORT}/`);
   expect(await res.text()).toContain("federal funding intelligence");
+
+  // The tray's own Quit stops it — and Granted with it.
+  stopTestTray(install);
+  await expect.poll(() => testPortIsFree(), { timeout: 15_000 }).toBe(true);
+});
+
+test("the shortcut boxes are ticked by default and create both shortcuts, launching Granted hidden in the background", async () => {
+  configureHostedKeys(); // before launch: the screen reads the setup state when it opens
+  await start();
+  await expect(page.getByLabel("The desktop")).toBeChecked();
+  await expect(page.getByLabel("The Start menu")).toBeChecked();
+  await page.getByRole("button", { name: "Yes, open Granted" }).click();
+  await expect(page.getByText("Added a Granted shortcut to your desktop and the Start menu.")).toBeVisible();
+  await expect(page.getByText(/open it from the Granted shortcut on your desktop or in the Start menu/)).toBeVisible();
+
+  for (const dir of [install.desktopDir, install.startMenuDir]) {
+    const lnk = readShortcut(join(dir, "Granted.lnk"));
+    expect(lnk.target).toMatch(/\\System32\\conhost\.exe$/i);
+    expect(lnk.args).toMatch(/^--headless ".*powershell\.exe" .*-File ".*\\scripts\\windows\\granted-tray\.ps1" -OpenBrowser -Port 3987$/);
+    expect(lnk.icon).toMatch(/granted\.ico,0$/);
+  }
+});
+
+test("unticking a box skips that shortcut; unticking both creates none", async () => {
+  await start();
+  await page.getByLabel("The desktop").uncheck();
+  await page.getByRole("button", { name: "Not now" }).click();
+  await expect(page.getByText("Added a Granted shortcut to the Start menu.")).toBeVisible();
+  expect(existsSync(join(install.desktopDir, "Granted.lnk"))).toBe(false);
+  expect(existsSync(join(install.startMenuDir, "Granted.lnk"))).toBe(true);
+});
+
+test("no boxes ticked: no shortcuts and no shortcut message", async () => {
+  await start();
+  await page.getByLabel("The desktop").uncheck();
+  await page.getByLabel("The Start menu").uncheck();
+  await page.getByRole("button", { name: "Not now" }).click();
+  await expect(page.getByText("To open Granted later, run these in PowerShell:")).toBeVisible();
+  await expect(page.getByText(/Added a Granted shortcut/)).toHaveCount(0);
+  expect(existsSync(install.desktopDir)).toBe(false);
+  expect(existsSync(install.startMenuDir)).toBe(false);
+});
+
+test("an older install without the tray scripts falls back to the console window, and offers no shortcuts", async () => {
+  install.cleanup();
+  install = makeFakeInstall({ withWindowsScripts: false });
+  configureHostedKeys(); // before launch: the screen reads the setup state when it opens
+  const a = await start();
+  await expect(page.getByLabel("The desktop")).toHaveCount(0);
+  await page.getByRole("button", { name: "Yes, open Granted" }).click();
+  await expect(page.getByText(/Granted is open in your browser/)).toBeVisible();
+  await expect(page.getByText(/Keep the Granted PowerShell window open/)).toBeVisible();
+  expect(newWindows()).toHaveLength(1);
+  expect(testTrayRunning()).toBe(false);
+  expect(await openedUrls(a)).toEqual([TEST_URL]);
 });
 
 test("already configured and already running: Yes just opens the browser, without a second server", async () => {

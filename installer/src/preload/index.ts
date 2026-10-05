@@ -8,6 +8,9 @@ import type {
   InstallStatusEvent,
   OpenInstallTerminalResult,
   PrereqReport,
+  ShortcutChoice,
+  ShortcutsResult,
+  StartResult,
   TaskStatusEvent,
 } from "../shared/ipc";
 
@@ -28,12 +31,13 @@ const api: GrantedInstallerApi = {
   getSetupState: (): Promise<GrantedSetupState> => ipcRenderer.invoke("granted:get-setup-state"),
   saveApiKeys: (keys: ApiKeysInput): Promise<ActionResult> => ipcRenderer.invoke("granted:save-api-keys", keys),
   runLocalSetup: (): Promise<ActionResult> => ipcRenderer.invoke("granted:run-local-setup"),
-  startGranted: (): Promise<ActionResult> => ipcRenderer.invoke("granted:start"),
+  startGranted: (): Promise<StartResult> => ipcRenderer.invoke("granted:start"),
   onTaskStatus: (listener: (status: TaskStatusEvent) => void): (() => void) => {
     const handler = (_event: IpcRendererEvent, status: TaskStatusEvent): void => listener(status);
     ipcRenderer.on("granted:task-status", handler);
     return () => ipcRenderer.removeListener("granted:task-status", handler);
   },
+  createShortcuts: (choice: ShortcutChoice): Promise<ShortcutsResult> => ipcRenderer.invoke("granted:create-shortcuts", choice),
   quit: (): void => ipcRenderer.send("app:quit"),
 };
 
