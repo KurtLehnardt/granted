@@ -316,7 +316,13 @@ if ($existingInstall) {
 } else {
   Log "Cloning $RepoUrl into .\$TargetDir ..."
   if ($Ref) {
-    git -c advice.detachedHead=false clone --branch $Ref $RepoUrl $TargetDir
+    # Clone, then check out the release tag -- not `clone --branch <tag>`,
+    # which prints a scary (harmless) "refs/tags/vX is not a commit!" for an
+    # annotated tag, as releases are.
+    git clone --no-checkout $RepoUrl $TargetDir
+    Assert-LastExitCode "git clone failed. If $TargetDir was partially created, remove it before re-running."
+    git -C $TargetDir -c advice.detachedHead=false checkout --quiet "refs/tags/$Ref"
+    Assert-LastExitCode "Couldn't check out Granted $Ref (is it a published release?). Remove $TargetDir before re-running."
   } else {
     git clone $RepoUrl $TargetDir
   }
@@ -336,7 +342,8 @@ if ($existingInstall) {
 if ($existingInstall) { Stop-GrantedIn $TargetDir }
 Set-Location "$TargetDir\scaffold"
 Log "Installing npm dependencies..."
-npm ci
+# No audit/funding summaries: advice for a developer, not someone installing an app.
+npm ci --no-audit --no-fund
 Assert-LastExitCode "npm ci failed -- see the output above for the underlying error."
 Ok "dependencies installed"
 
@@ -362,6 +369,12 @@ if (Test-Path -LiteralPath $uninstallScript) {
 }
 
 Write-Status "done" $null
+# Run by the Granted installer app (it set GRANTED_STATUS_FILE): it takes it
+# from here -- keys, local models, opening Granted -- so no terminal commands.
+if ($env:GRANTED_STATUS_FILE) {
+  Log "Done. Granted is installed -- carry on in the Granted installer."
+  return
+}
 Log "Done. Next steps:"
 Write-Host "  cd $TargetDir\scaffold"
 Write-Host "  npm run setup                  # hosted API key (OpenAI; Claude optional), or"

@@ -570,7 +570,36 @@ export function windowsInstallCommand(ref: string | null): string {
  * see openInstallTerminal: Defender flags `-Command "irm … | iex"`.)
  */
 export function buildWindowsInstallScript(statusPath: string, ref: string | null): string {
-  return `$env:GRANTED_STATUS_FILE = ${psSingleQuoted(statusPath)}\r\n${windowsInstallCommand(ref)}\r\n`;
+  return windowsInstallScriptFor(statusPath, windowsInstallCommand(ref));
+}
+
+/** Seconds a successful install's window stays up (so "Installed" can be read) before closing itself. */
+export const INSTALL_WINDOW_CLOSE_SECONDS = 5;
+
+/**
+ * The script around `command`: report to `statusPath`, run it, and then —
+ * only if it reported "done" — close the window by itself after a few
+ * seconds: the installer app takes it from there, and a leftover console
+ * full of "Next steps" commands just confuses. On an error (or anything
+ * else) the window stays open (-NoExit) so the message can be read.
+ * [Environment]::Exit, not `exit`: under -NoExit, `exit` only ends this
+ * script and leaves the window at a prompt.
+ */
+export function windowsInstallScriptFor(statusPath: string, command: string): string {
+  const status = psSingleQuoted(statusPath);
+  return [
+    `$env:GRANTED_STATUS_FILE = ${status}`,
+    command,
+    `$grantedStatus = $null`,
+    `try { $grantedStatus = Get-Content -LiteralPath ${status} -Raw | ConvertFrom-Json } catch { }`,
+    `if ($grantedStatus -and $grantedStatus.state -eq 'done') {`,
+    `  Write-Host ""`,
+    `  Write-Host "Installed. This window closes in ${INSTALL_WINDOW_CLOSE_SECONDS} seconds -- carry on in the Granted installer." -ForegroundColor Green`,
+    `  Start-Sleep -Seconds ${INSTALL_WINDOW_CLOSE_SECONDS}`,
+    `  [Environment]::Exit(0)`,
+    `}`,
+    ``,
+  ].join("\r\n");
 }
 
 /** A fresh, unique status-file path for one "Open Granted" step (see newInstallStatusPath). */

@@ -53,7 +53,7 @@ describe("install-windows.ps1 with GRANTED_REF (a pinned release)", { skip: (pro
     if (extraFile) writeFileSync(join(scaffold, extraFile), extraFile);
     git(source, "add", "-A");
     git(source, "commit", "-q", "-m", `version ${version}`);
-    if (tag) git(source, "tag", "-f", tag);
+    if (tag) git(source, "tag", "-f", "-a", tag, "-m", tag); // annotated, as real releases are
   }
 
   /** A stand-in for the GitHub repo: v0.1.0, v0.2.0, then main moved on to 0.3.0-dev. */
@@ -138,6 +138,9 @@ describe("install-windows.ps1 with GRANTED_REF (a pinned release)", { skip: (pro
     assert.equal(versionIn(home), "0.1.0");
     assert.equal(git(join(home, "granted"), "describe", "--tags", "--exact-match"), "v0.1.0");
     assert.ok(existsSync(join(home, "granted", ".git", "granted-installer")), "marked as made by the installer");
+    assert.doesNotMatch(r.output, /is not a commit/, "no scary git warning for the (annotated) release tag");
+    assert.match(r.output, /carry on in the Granted installer/, "run by the installer app: no terminal next steps");
+    assert.doesNotMatch(r.output, /npm run setup/);
     assert.equal(listedVersion(), "0.1.0");
 
     const update = await runInstall(home, source, "v0.2.0");

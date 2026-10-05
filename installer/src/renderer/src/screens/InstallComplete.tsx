@@ -167,7 +167,7 @@ export default function InstallComplete(): React.JSX.Element {
           {setup?.appWindowAvailable && (
             <label className="open-in-option">
               <input type="checkbox" checked={ownWindow} onChange={(e) => setOwnWindow(e.target.checked)} />
-              Open Granted in its own window, like an app (not as a browser tab)
+              Open Granted
             </label>
           )}
           <p className="question">Open Granted now?</p>

@@ -223,7 +223,7 @@ test("an older install without the tray scripts falls back to the console window
   await page.getByRole("button", { name: "Yes, open Granted" }).click();
   await expect(page.getByText(/Granted is open in your browser/)).toBeVisible();
   await expect(page.getByText(/Keep the Granted PowerShell window open/)).toBeVisible();
-  await expect(page.getByLabel(/in its own window/)).toHaveCount(0);
+  await expect(page.getByLabel("Open Granted", { exact: true })).toHaveCount(0);
   expect(newWindows()).toHaveLength(1);
   expect(testTrayRunning()).toBe(false);
   expect(await openedUrls(a)).toEqual([TEST_URL]);
@@ -350,7 +350,7 @@ test("a failed local setup shows the error with Try again, and doesn't start Gra
 test("Granted opens in its own window by default: the box is ticked, and Yes opens an app window, not a browser tab", async () => {
   configureHostedKeys();
   const a = await start();
-  await expect(page.getByLabel(/Open Granted in its own window/)).toBeChecked();
+  await expect(page.getByLabel("Open Granted", { exact: true })).toBeChecked();
   await page.getByRole("button", { name: "Yes, open Granted" }).click();
   await expect(page.getByText(/Granted is open in its own window/)).toBeVisible();
   await expectOpenedInOwnWindow(a);
@@ -361,7 +361,7 @@ test("Granted opens in its own window by default: the box is ticked, and Yes ope
 test("unticking 'its own window' opens a browser tab instead, and saves that for the tray and shortcuts", async () => {
   configureHostedKeys();
   const a = await start();
-  await page.getByLabel(/Open Granted in its own window/).uncheck();
+  await page.getByLabel("Open Granted", { exact: true }).uncheck();
   await page.getByRole("button", { name: "Yes, open Granted" }).click();
   await expect(page.getByText(/Granted is open in your browser/)).toBeVisible();
   expect(await openedUrls(a)).toEqual([TEST_URL]);
@@ -373,7 +373,7 @@ test("a browser-tab preference saved earlier (e.g. from the tray menu) starts th
   mkdirSync(dirname(install.settingsPath), { recursive: true });
   writeFileSync(install.settingsPath, JSON.stringify({ openIn: "browser" }));
   await start();
-  await expect(page.getByLabel(/Open Granted in its own window/)).not.toBeChecked();
+  await expect(page.getByLabel("Open Granted", { exact: true })).not.toBeChecked();
 });
 
 test("with no Edge or Chrome on the machine, Granted still opens, in a browser tab, and says so", async () => {

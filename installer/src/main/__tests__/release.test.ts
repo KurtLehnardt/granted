@@ -91,9 +91,14 @@ describe("the Windows install command", () => {
     assert.throws(() => windowsInstallCommand("main"));
   });
 
-  test("the temp script reports to the status file first, then runs the command", () => {
+  test("the temp script reports to the status file first, runs the command, then closes the window only on success", () => {
     const script = buildWindowsInstallScript("C:\\Temp\\it's.json", "v0.2.0");
-    assert.equal(script, `$env:GRANTED_STATUS_FILE = 'C:\\Temp\\it''s.json'\r\n${windowsInstallCommand("v0.2.0")}\r\n`);
+    const lines = script.split("\r\n");
+    assert.equal(lines[0], "$env:GRANTED_STATUS_FILE = 'C:\\Temp\\it''s.json'");
+    assert.equal(lines[1], windowsInstallCommand("v0.2.0"));
+    assert.match(script, /Get-Content -LiteralPath 'C:\\Temp\\it''s\.json' -Raw \| ConvertFrom-Json/);
+    assert.match(script, /if \(\$grantedStatus -and \$grantedStatus\.state -eq 'done'\) \{[\s\S]*\[Environment\]::Exit\(0\)[\s\S]*\}/);
+    assert.ok(!/\n(?!.*\r)/.test(script.replace(/\r\n/g, "")), "CRLF throughout");
   });
 });
 
