@@ -8,6 +8,7 @@ import type {
   InstallStatusEvent,
   OpenInstallTerminalResult,
   PrereqReport,
+  SaveKeysResult,
   ShortcutChoice,
   ShortcutsResult,
   StartResult,
@@ -29,7 +30,7 @@ const api: GrantedInstallerApi = {
     return () => ipcRenderer.removeListener("terminal:install-status", handler);
   },
   getSetupState: (): Promise<GrantedSetupState> => ipcRenderer.invoke("granted:get-setup-state"),
-  saveApiKeys: (keys: ApiKeysInput): Promise<ActionResult> => ipcRenderer.invoke("granted:save-api-keys", keys),
+  saveApiKeys: (keys: ApiKeysInput): Promise<SaveKeysResult> => ipcRenderer.invoke("granted:save-api-keys", keys),
   runLocalSetup: (): Promise<ActionResult> => ipcRenderer.invoke("granted:run-local-setup"),
   startGranted: (): Promise<StartResult> => ipcRenderer.invoke("granted:start"),
   onTaskStatus: (listener: (status: TaskStatusEvent) => void): (() => void) => {

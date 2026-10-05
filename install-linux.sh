@@ -132,6 +132,6 @@ ok "dependencies installed"
 
 log "Done. Next steps:"
 echo "  cd $TARGET_DIR/scaffold"
-echo "  npm run setup                  # hosted API keys (OpenAI + Anthropic), or"
+echo "  npm run setup                  # hosted API key (OpenAI; Claude optional), or"
 echo "  npm run setup:local -- --yes   # fully local via Ollama, no API keys"
 echo "  npm run dev                    # -> http://localhost:3000"

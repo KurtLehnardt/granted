@@ -12,10 +12,11 @@
 import { closeSync, existsSync, openSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { ActionResult, ApiKeysInput, GrantedSetupState } from "../shared/ipc";
+import type { ApiKeysInput, GrantedSetupState, SaveKeysResult } from "../shared/ipc";
 import {
   applyApiKeys,
   currentEnvValue,
+  envHasHostedKeys,
   envIsLocalConfigured,
   isRealKey,
   looksLikeGranted,
@@ -47,7 +48,7 @@ export async function getSetupState(installDir: string): Promise<GrantedSetupSta
     installed: existsSync(join(scaffoldDir, "package.json")),
     openaiKeySet,
     anthropicKeySet,
-    hostedKeysSet: openaiKeySet && anthropicKeySet,
+    hostedKeysSet: envHasHostedKeys(env),
     localConfigured: envIsLocalConfigured(env, await readTextOrNull(join(scaffoldDir, "data", "local", "corpus-meta.json"))),
     trayAvailable: existsSync(windowsScriptPath(scaffoldDir, "granted-tray.ps1")),
     shortcutsAvailable: existsSync(windowsScriptPath(scaffoldDir, "shortcuts.ps1")),
@@ -62,10 +63,11 @@ export function windowsScriptPath(scaffoldDir: string, name: "granted-tray.ps1" 
 /**
  * Writes the form's keys into scaffold/.env.local. Starts from .env.example
  * when there's no .env.local yet (as setup.mjs does), but writes nothing at
- * all unless both required keys end up set — a rejected form must not leave
- * a half-configured file behind.
+ * all unless the required key (OpenAI's — see applyApiKeys) ends up set — a
+ * rejected form must not leave a half-configured file behind. When only a
+ * Claude key was given, says why that isn't enough and offers local models.
  */
-export async function saveApiKeys(scaffoldDir: string, keys: ApiKeysInput): Promise<ActionResult> {
+export async function saveApiKeys(scaffoldDir: string, keys: ApiKeysInput): Promise<SaveKeysResult> {
   const envPath = join(scaffoldDir, ".env.local");
   try {
     const before = (await readEnvLocal(scaffoldDir)) ?? (await readFile(join(scaffoldDir, ".env.example"), "utf8"));
@@ -75,8 +77,14 @@ export async function saveApiKeys(scaffoldDir: string, keys: ApiKeysInput): Prom
       EXA_API_KEY: keys.exaApiKey,
     });
     if (missing.length > 0) {
-      const names = missing.map((k) => (k === "OPENAI_API_KEY" ? "OpenAI" : "Anthropic"));
-      return { ok: false, message: `Granted needs your ${names.join(" and ")} API key${names.length > 1 ? "s" : ""} to run.` };
+      const claudeOnly = isRealKey(currentEnvValue(text, "ANTHROPIC_API_KEY"));
+      return {
+        ok: false,
+        suggestLocal: true,
+        message: claudeOnly
+          ? "Search works with an OpenAI key — Claude can do the scoring, but it can't search (Anthropic has no search/embeddings API). Add an OpenAI key too, or use local models instead."
+          : "Granted needs an OpenAI API key to search (it can do the scoring too). Or use local models instead — no keys needed.",
+      };
     }
     await writeFile(envPath, text, "utf8");
     return { ok: true, message: "Saved your keys to .env.local." };

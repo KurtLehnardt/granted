@@ -108,11 +108,37 @@ describe("getSetupState / saveApiKeys against a real install folder", () => {
     assert.equal(state.installed, false);
   });
 
-  test("a rejected form (missing a required key) writes nothing at all", async () => {
-    const result = await saveApiKeys(install.scaffoldDir, { openaiApiKey: "sk-only-openai", anthropicApiKey: "", exaApiKey: "" });
+  test("a Claude key alone is rejected — with why, and the local-models way out — and writes nothing at all", async () => {
+    const result = await saveApiKeys(install.scaffoldDir, { openaiApiKey: "", anthropicApiKey: "sk-ant-only-claude", exaApiKey: "" });
     assert.equal(result.ok, false);
-    assert.match(result.message, /Anthropic API key/);
+    assert.equal(result.suggestLocal, true);
+    assert.match(result.message, /Search works with an OpenAI key/);
+    assert.match(result.message, /use local models instead/);
     assert.equal(existsSync(join(install.scaffoldDir, ".env.local")), false);
+  });
+
+  test("an empty form is rejected the same way, and writes nothing", async () => {
+    const result = await saveApiKeys(install.scaffoldDir, { openaiApiKey: "", anthropicApiKey: "", exaApiKey: "" });
+    assert.equal(result.ok, false);
+    assert.equal(result.suggestLocal, true);
+    assert.match(result.message, /needs an OpenAI API key to search/);
+    assert.equal(existsSync(join(install.scaffoldDir, ".env.local")), false);
+  });
+
+  test("an OpenAI key alone is enough (it searches and can do the scoring)", async () => {
+    const other = await makeInstall();
+    try {
+      const result = await saveApiKeys(other.scaffoldDir, { openaiApiKey: "sk-only-openai", anthropicApiKey: "", exaApiKey: "" });
+      assert.equal(result.ok, true);
+      const env = await readFile(join(other.scaffoldDir, ".env.local"), "utf8");
+      assert.match(env, /^OPENAI_API_KEY=sk-only-openai$/m);
+      assert.match(env, /^ANTHROPIC_API_KEY=sk-ant-\.\.\.$/m, "the Claude placeholder is left as-is");
+      const state = await getSetupState(other.installDir);
+      assert.equal(state.hostedKeysSet, true);
+      assert.equal(state.anthropicKeySet, false);
+    } finally {
+      await rm(other.root, { recursive: true, force: true });
+    }
   });
 
   test("a complete form creates .env.local from .env.example, and setup state then reads as configured", async () => {

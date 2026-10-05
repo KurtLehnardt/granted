@@ -92,7 +92,7 @@ export interface GrantedSetupState {
   openaiKeySet: boolean;
   /** ANTHROPIC_API_KEY is set to a real (non-placeholder) value. */
   anthropicKeySet: boolean;
-  /** Both of the above. */
+  /** What hosted (API-key) mode needs to run: the OpenAI key (search). The Anthropic key is optional. */
   hostedKeysSet: boolean;
   /** `npm run setup:local` finished: .env.local points at Ollama AND the corpus was re-embedded to match. */
   localConfigured: boolean;
@@ -134,6 +134,11 @@ export interface TaskStatusEvent {
   background?: boolean;
 }
 
+/** saveApiKeys's result: `suggestLocal` = offer "use local models instead" (no usable search key was given). */
+export interface SaveKeysResult extends ActionResult {
+  suggestLocal?: boolean;
+}
+
 /** startGranted's result: `background` says whether it's starting in the background (tray icon) or a console window. */
 export interface StartResult extends ActionResult {
   background?: boolean;
@@ -158,7 +163,7 @@ export interface GrantedInstallerApi {
   onInstallStatus: (listener: (status: InstallStatusEvent) => void) => () => void;
   getSetupState: () => Promise<GrantedSetupState>;
   /** Writes the keys into scaffold/.env.local (same rules as scaffold/scripts/setup.mjs). */
-  saveApiKeys: (keys: ApiKeysInput) => Promise<ActionResult>;
+  saveApiKeys: (keys: ApiKeysInput) => Promise<SaveKeysResult>;
   /** Opens a PowerShell window running `npm run setup:local -- --yes`; a TaskStatusEvent follows. */
   runLocalSetup: () => Promise<ActionResult>;
   /** Starts Granted in the background (tray icon) and opens the browser once it answers; a TaskStatusEvent follows. */

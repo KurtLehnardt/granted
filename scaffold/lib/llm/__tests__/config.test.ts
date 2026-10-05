@@ -41,6 +41,7 @@ before(async () => {
 
 const savedProvider = process.env.LLM_PROVIDER;
 const savedKey = process.env.ANTHROPIC_API_KEY;
+const savedOpenAiKey = process.env.OPENAI_API_KEY;
 
 function removeConfigFile() {
   try {
@@ -56,7 +57,44 @@ afterEach(() => {
   else process.env.LLM_PROVIDER = savedProvider;
   if (savedKey === undefined) delete process.env.ANTHROPIC_API_KEY;
   else process.env.ANTHROPIC_API_KEY = savedKey;
+  if (savedOpenAiKey === undefined) delete process.env.OPENAI_API_KEY;
+  else process.env.OPENAI_API_KEY = savedOpenAiKey;
   removeConfigFile();
+});
+
+describe("llm/config — one cloud key is enough", () => {
+  const OPENAI = "sk-proj-test0000000000000000";
+  const ANTHROPIC = "sk-ant-test0000000000000000";
+
+  test("only OPENAI_API_KEY: OpenAI does the scoring too (its preset's default chat model)", () => {
+    removeConfigFile();
+    delete process.env.ANTHROPIC_API_KEY;
+    process.env.OPENAI_API_KEY = OPENAI;
+    assert.deepEqual(resolveCloudConfig(), { providerId: "openai", keySource: { type: "env", name: "OPENAI_API_KEY" } });
+    assert.equal(resolveCloudApiKey().key, OPENAI);
+  });
+
+  test("both keys: Anthropic still does the scoring (unchanged default)", () => {
+    removeConfigFile();
+    process.env.ANTHROPIC_API_KEY = ANTHROPIC;
+    process.env.OPENAI_API_KEY = OPENAI;
+    assert.equal(resolveCloudConfig()?.providerId, "anthropic");
+  });
+
+  test(".env.example's sk-... placeholder isn't a key", () => {
+    removeConfigFile();
+    delete process.env.ANTHROPIC_API_KEY;
+    process.env.OPENAI_API_KEY = "sk-...";
+    assert.equal(resolveCloudConfig(), undefined);
+  });
+
+  test("a provider chosen in Settings still wins over either env key", () => {
+    removeConfigFile();
+    delete process.env.ANTHROPIC_API_KEY;
+    process.env.OPENAI_API_KEY = OPENAI;
+    writeLlmConfig({ provider: "cloud", cloud: { providerId: "groq", keySource: { type: "inline", key: "gsk_test00000000000000" } } });
+    assert.equal(resolveCloudConfig()?.providerId, "groq");
+  });
 });
 
 describe("llm/config — precedence", () => {

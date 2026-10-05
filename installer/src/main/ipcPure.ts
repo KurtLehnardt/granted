@@ -176,8 +176,18 @@ export function applyApiKeys(
     const value = raw.trim();
     if (value !== "") out = upsertEnv(out, key, value);
   }
-  const missing = ["OPENAI_API_KEY", "ANTHROPIC_API_KEY"].filter((k) => !isRealKey(currentEnvValue(out, k)));
+  // One cloud key is enough — but it has to be OpenAI's: search embeds every
+  // query with it, and with no Anthropic key the app scores with OpenAI too
+  // (scaffold/lib/llm/config.ts resolveCloudConfig). ANTHROPIC_API_KEY is an
+  // optional upgrade (Claude does the scoring). A Claude key alone can't
+  // search: Anthropic has no embeddings API.
+  const missing = ["OPENAI_API_KEY"].filter((k) => !isRealKey(currentEnvValue(out, k)));
   return { text: out, missing };
+}
+
+/** Whether env text has what hosted (API-key) mode needs to run — the OpenAI key (see applyApiKeys). */
+export function envHasHostedKeys(text: string): boolean {
+  return isRealKey(currentEnvValue(text, "OPENAI_API_KEY"));
 }
 
 // ---------------------------------------------------------------------------

@@ -162,7 +162,10 @@ export function resolveProvider(): ProviderName {
 /**
  * Resolved cloud config, normalized from whichever shape is on disk (or env):
  * the new `cloud` object wins; else the #210 `anthropicApiKey`; else a valid
- * `ANTHROPIC_API_KEY` env var. Returns undefined when nothing resolves.
+ * `ANTHROPIC_API_KEY` env var; else a valid `OPENAI_API_KEY` env var (the
+ * OpenAI preset's default chat model) — so one cloud key is enough: search
+ * embeddings already use OPENAI_API_KEY, and with no Anthropic key that same
+ * key now does the scoring too. Returns undefined when nothing resolves.
  */
 export function resolveCloudConfig(file: LlmConfigFile = readLlmConfig()): CloudConfig | undefined {
   const fileCloud = file.cloud ?? legacyAnthropicCloud(file);
@@ -170,6 +173,10 @@ export function resolveCloudConfig(file: LlmConfigFile = readLlmConfig()): Cloud
   const envKey = process.env.ANTHROPIC_API_KEY;
   if (envKey && isValidAnthropicKey(envKey)) {
     return { providerId: "anthropic", keySource: { type: "env", name: "ANTHROPIC_API_KEY" } };
+  }
+  const openAiKey = process.env.OPENAI_API_KEY;
+  if (openAiKey && getCloudProvider("openai")?.isKeyValid(openAiKey)) {
+    return { providerId: "openai", keySource: { type: "env", name: "OPENAI_API_KEY" } };
   }
   return undefined;
 }

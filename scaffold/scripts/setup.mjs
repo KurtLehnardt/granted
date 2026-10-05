@@ -4,7 +4,7 @@
  *
  *   npm run setup      (from the scaffold/ directory)
  *
- * Scaffolds `.env.local`, collects the two required API keys (and optional ones),
+ * Scaffolds `.env.local`, collects the API key(s) — OpenAI is the one required key; Anthropic and Exa are optional —
  * installs dependencies, and prints exactly what to do next. Idempotent and safe
  * to re-run — it never overwrites a key you've already set, and it never prints a
  * key back to the screen. It does NOT touch any cloud account; the README covers
@@ -133,13 +133,17 @@ let text = readFileSync(ENV, "utf8");
 
 heading("API keys");
 console.log(c.dim("Pasted keys are hidden and written straight to .env.local (gitignored)."));
-text = await collectKey(text, "OPENAI_API_KEY", "OpenAI (embeddings)", {
+// One key is enough: OpenAI powers search (embeddings) and, with no Anthropic
+// key, the scoring too (lib/llm/config.ts resolveCloudConfig). Anthropic is an
+// optional upgrade for scoring + explanations. A Claude key alone can't search
+// (Anthropic has no embeddings API) — use `npm run setup:local` for that.
+text = await collectKey(text, "OPENAI_API_KEY", "OpenAI (search, and scoring if you skip Anthropic)", {
   required: true,
-  help: "Get one at https://platform.openai.com/api-keys — used for text-embedding-3-small.",
+  help: "Get one at https://platform.openai.com/api-keys. Search needs it — or run fully local instead: npm run setup:local",
 });
-text = await collectKey(text, "ANTHROPIC_API_KEY", "Anthropic (scoring + explanations)", {
-  required: true,
-  help: "Get one at https://console.anthropic.com/settings/keys — used for Claude.",
+text = await collectKey(text, "ANTHROPIC_API_KEY", "Anthropic (optional — Claude for scoring + explanations)", {
+  required: false,
+  help: "https://console.anthropic.com/settings/keys — without it, OpenAI's gpt-4o-mini does the scoring.",
 });
 text = await collectKey(text, "EXA_API_KEY", "Exa (optional — live web competitors)", {
   required: false,
@@ -166,11 +170,10 @@ if (wantsInstall === "" || wantsInstall === "y") {
 
 // 3) Next steps.
 const haveOpenAI = !!currentValue(readFileSync(ENV, "utf8"), "OPENAI_API_KEY").replace("sk-...", "");
-const haveAnthropic = currentValue(readFileSync(ENV, "utf8"), "ANTHROPIC_API_KEY").replace("sk-ant-...", "");
 
 heading("You're set — next steps");
-if (!haveOpenAI || !haveAnthropic) {
-  console.log(c.y("  ! Add the missing required key(s) to scaffold/.env.local first."));
+if (!haveOpenAI) {
+  console.log(c.y("  ! Search needs OPENAI_API_KEY — add it to scaffold/.env.local, or run fully local: npm run setup:local"));
 }
 console.log(`  ${c.b("1.")} Start the app:      ${c.g("npm run dev")}   ${c.dim("→ http://localhost:3000")}`);
 console.log(`  ${c.b("2.")} Describe a company in the box and run a search. That's the whole core app.`);

@@ -174,7 +174,7 @@ export default function InstallComplete(): React.JSX.Element {
           <div className="choices">
             <button type="button" className="choice" onClick={() => setStep({ id: "keys" })}>
               <strong>Use my API keys</strong>
-              <span>Fastest. Uses OpenAI and Anthropic — you'll need a key from each.</span>
+              <span>Fastest. An OpenAI key is all you need (search uses it); add a Claude key too if you'd like.</span>
             </button>
             <button type="button" className="choice" onClick={runLocalSetup}>
               <strong>Run everything on this computer</strong>
@@ -196,6 +196,7 @@ export default function InstallComplete(): React.JSX.Element {
           anthropicKeySet={setup?.anthropicKeySet ?? false}
           onSaved={start}
           onBack={() => setStep({ id: "choose" })}
+          onUseLocal={runLocalSetup}
         />
       )}
 
@@ -255,7 +256,7 @@ export default function InstallComplete(): React.JSX.Element {
           )}
           {shortcutPlaces.length === 0 && <p>To open Granted later, run these in PowerShell:</p>}
           <code className="command">{`cd "${installDir}\\scaffold"
-npm run setup                  # your API keys (OpenAI + Anthropic), or
+npm run setup                  # your API key (OpenAI; Claude optional), or
 npm run setup:local -- --yes   # fully local via Ollama, no API keys
 npm run dev                    # then open http://localhost:3000`}</code>
           <div className="actions spaced">
@@ -293,17 +294,19 @@ function ApiKeysForm({
   anthropicKeySet,
   onSaved,
   onBack,
+  onUseLocal,
 }: {
   openaiKeySet: boolean;
   anthropicKeySet: boolean;
   onSaved: () => void;
   onBack: () => void;
+  onUseLocal: () => void;
 }): React.JSX.Element {
   const [openaiApiKey, setOpenai] = useState("");
   const [anthropicApiKey, setAnthropic] = useState("");
   const [exaApiKey, setExa] = useState("");
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ message: string; suggestLocal: boolean } | null>(null);
 
   const handleSubmit = (e: React.FormEvent): void => {
     e.preventDefault();
@@ -313,7 +316,7 @@ function ApiKeysForm({
       .saveApiKeys({ openaiApiKey, anthropicApiKey, exaApiKey })
       .then((result) => {
         if (result.ok) onSaved();
-        else setError(result.message);
+        else setError({ message: result.message, suggestLocal: result.suggestLocal ?? false });
       })
       .finally(() => setSaving(false));
   };
@@ -321,9 +324,12 @@ function ApiKeysForm({
   return (
     <form className="keys-form" onSubmit={handleSubmit}>
       <p className="question">Your API keys</p>
-      <p className="detail">Saved only on this computer, in Granted's .env.local file.</p>
+      <p className="detail">
+        One key is enough: search works with an OpenAI key, and it can do the scoring too. Add a Claude key if you'd
+        like Claude to do the scoring. Saved only on this computer, in Granted's .env.local file.
+      </p>
       <label>
-        OpenAI API key <span className="detail">(platform.openai.com/api-keys)</span>
+        OpenAI API key <span className="detail">(needed for search — platform.openai.com/api-keys)</span>
         <input
           type="password"
           autoComplete="off"
@@ -333,7 +339,8 @@ function ApiKeysForm({
         />
       </label>
       <label>
-        Anthropic API key <span className="detail">(console.anthropic.com/settings/keys)</span>
+        Anthropic (Claude) API key{" "}
+        <span className="detail">(optional — Claude does the scoring if you add it; console.anthropic.com/settings/keys)</span>
         <input
           type="password"
           autoComplete="off"
@@ -346,11 +353,16 @@ function ApiKeysForm({
         Exa API key <span className="detail">(optional — live competitor web results)</span>
         <input type="password" autoComplete="off" value={exaApiKey} onChange={(e) => setExa(e.target.value)} />
       </label>
-      {error && <div className="status-note error">{error}</div>}
+      {error && <div className="status-note error">{error.message}</div>}
       <div className="actions spaced">
         <button type="submit" className="primary" disabled={saving}>
           {saving ? "Saving…" : "Save and open Granted"}
         </button>
+        {error?.suggestLocal && (
+          <button type="button" className="secondary" onClick={onUseLocal} disabled={saving}>
+            Use local models instead
+          </button>
+        )}
         <button type="button" className="secondary" onClick={onBack} disabled={saving}>
           Back
         </button>

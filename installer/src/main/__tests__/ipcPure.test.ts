@@ -4,6 +4,7 @@ import {
   applyApiKeys,
   buildTaskScript,
   decideStatusPoll,
+  envHasHostedKeys,
   envIsLocalConfigured,
   escapeForAppleScript,
   grantedPort,
@@ -219,10 +220,21 @@ describe("applyApiKeys", () => {
     assert.doesNotMatch(r.text, /sk-stale/);
   });
 
-  test("reports required keys still missing, and trims pasted whitespace", () => {
+  test("one cloud key is enough: an OpenAI key alone is complete (it searches and can score), and pasted whitespace is trimmed", () => {
     const r = applyApiKeys(ENV_EXAMPLE, { OPENAI_API_KEY: "  sk-real \n", ANTHROPIC_API_KEY: "   ", EXA_API_KEY: "" });
     assert.match(r.text, /^OPENAI_API_KEY=sk-real$/m);
-    assert.deepEqual(r.missing, ["ANTHROPIC_API_KEY"]);
+    assert.deepEqual(r.missing, []);
+  });
+
+  test("a Claude key alone isn't enough — search needs OpenAI (Anthropic has no embeddings API)", () => {
+    const r = applyApiKeys(ENV_EXAMPLE, { OPENAI_API_KEY: "", ANTHROPIC_API_KEY: "sk-ant-real", EXA_API_KEY: "" });
+    assert.deepEqual(r.missing, ["OPENAI_API_KEY"]);
+  });
+
+  test("envHasHostedKeys: the OpenAI key is what hosted mode needs", () => {
+    assert.equal(envHasHostedKeys("OPENAI_API_KEY=sk-real\nANTHROPIC_API_KEY=sk-ant-...\n"), true);
+    assert.equal(envHasHostedKeys("OPENAI_API_KEY=sk-...\nANTHROPIC_API_KEY=sk-ant-real\n"), false);
+    assert.equal(envHasHostedKeys(ENV_EXAMPLE), false);
   });
 
   test("a key containing $ is written literally (String.replace's $-patterns must not apply)", () => {
