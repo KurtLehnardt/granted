@@ -17,6 +17,7 @@ import {
   makeFakeInstall,
   openGrantedWindowPids,
   openedUrls,
+  processRunning,
   reachInstallComplete,
   readShortcut,
   sendInstallStatus,
@@ -258,6 +259,10 @@ test("closing the local setup window mid-way is reported right away, and Try aga
 
   // Wait for its window, then close it the way a user would (PowerShell dies mid-command).
   await expect.poll(() => newWindows().length, { timeout: 30_000 }).toBe(1);
+  // Close it only once the setup is really running — i.e. after the window
+  // has written its "running" status. Closed any earlier (a race CI's slower
+  // runner hit) and it's correctly a "couldn't confirm it started" instead.
+  await expect.poll(() => processRunning("fake-setup-local.js"), { timeout: 30_000 }).toBe(true);
   killWindowsOpenedSince(windowsBefore);
   await expect(page.getByText("The local setup window was closed before it finished.")).toBeVisible({ timeout: 15_000 });
 
