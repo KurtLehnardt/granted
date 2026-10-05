@@ -227,6 +227,6 @@ Ok "dependencies installed"
 Write-Status "done" $null
 Log "Done. Next steps:"
 Write-Host "  cd $TargetDir\scaffold"
-Write-Host "  npm run setup                  # hosted API keys (OpenAI + Anthropic), or"
+Write-Host "  npm run setup                  # hosted API key (OpenAI; Claude optional), or"
 Write-Host "  npm run setup:local -- --yes   # fully local via Ollama, no API keys"
 Write-Host "  npm run dev                    # -> http://localhost:3000"

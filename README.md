@@ -32,12 +32,12 @@ cd granted/scaffold
 npm install
 ```
 
-**2. cloud models (OpenAI + Anthropic)**
+**2. cloud models (one OpenAI key; Claude optional)**
 ```bash
 npm run setup      # interactive: writes .env.local, collects your keys
 npm run dev
 ```
-Or by hand: `cp .env.example .env.local`, then edit `scaffold/.env.local` and set `OPENAI_API_KEY` + `ANTHROPIC_API_KEY` — see **What you need** below for where to get them.
+Or by hand: `cp .env.example .env.local`, then edit `scaffold/.env.local` and set `OPENAI_API_KEY` (and, optionally, `ANTHROPIC_API_KEY` to have Claude do the scoring) — see **What you need** below for where to get them.
 
 **3. Fully local (Ollama, no API keys)**
 ```bash
@@ -74,12 +74,12 @@ cd granted/scaffold
 ```
 No `winget`? Grab [Node 22+](https://nodejs.org) and [git](https://git-scm.com/download/win) directly instead. PowerShell (default on Windows 10/11) or Git Bash both work with everything below.
 
-**2. Search your own company — hosted (OpenAI + Anthropic)**
+**2. Search your own company — hosted (one OpenAI key; Claude optional)**
 ```powershell
 npm run setup      # interactive: writes .env.local, collects your keys
 npm run dev
 ```
-Or by hand: `Copy-Item .env.example .env.local` (PowerShell) or `cp .env.example .env.local` (Git Bash), then edit `scaffold/.env.local` and set `OPENAI_API_KEY` + `ANTHROPIC_API_KEY` — see **What you need** below.
+Or by hand: `Copy-Item .env.example .env.local` (PowerShell) or `cp .env.example .env.local` (Git Bash), then edit `scaffold/.env.local` and set `OPENAI_API_KEY` (and, optionally, `ANTHROPIC_API_KEY` to have Claude do the scoring) — see **What you need** below.
 
 **3. Fully local (Ollama, no API keys)**
 ```powershell
@@ -120,12 +120,12 @@ cd granted/scaffold
 ```
 Both install Node 22, which is also what the one-shot script installs — see **Which Node version** below for why 22 and not 20.
 
-**3. Search your own company — hosted (OpenAI + Anthropic)**
+**3. Search your own company — hosted (one OpenAI key; Claude optional)**
 ```bash
 npm run setup      # interactive: writes .env.local, collects your keys
 npm run dev
 ```
-Or by hand: `cp .env.example .env.local`, then edit `scaffold/.env.local` and set `OPENAI_API_KEY` + `ANTHROPIC_API_KEY` — see **What you need** below.
+Or by hand: `cp .env.example .env.local`, then edit `scaffold/.env.local` and set `OPENAI_API_KEY` (and, optionally, `ANTHROPIC_API_KEY` to have Claude do the scoring) — see **What you need** below.
 
 **3. Fully local (Ollama, no API keys)**
 ```bash
@@ -156,8 +156,8 @@ CI runs the suite on Node 22 and 24.
 
 | Thing | Required? | Where | Notes |
 |---|---|---|---|
-| **OpenAI API key** | For your own searches (the 4 samples work without any keys) | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) | Embeddings (`text-embedding-3-small`). Pennies per search. |
-| **Anthropic API key** | For your own searches (the 4 samples work without any keys) | [console.anthropic.com](https://console.anthropic.com/settings/keys) | Claude: scoring + explanations. A novel search runs ~$0.05–0.33. Or pick another provider in **Settings → Model → Cloud** (OpenAI, Gemini, OpenRouter, Groq, Mistral, or any OpenAI-compatible URL) and paste its key or point to an env var / secret file. No paid key? Run [Free Claude Code](https://github.com/KurtLehnardt/free-claude-code-secure) and pick **Anthropic-compatible proxy** (defaults to `http://127.0.0.1:8082` and `~/.fcc/proxy_auth_token`). Prompts are tuned on Claude. |
+| **OpenAI API key** | **The one key you need** for your own searches (the 4 samples work without any keys) | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) | Search embeddings (`text-embedding-3-small`), pennies per search. With no Anthropic key it also does the scoring (`gpt-4o-mini`). A Claude key alone can't search — Anthropic has no embeddings API — so without an OpenAI key, use local models (`npm run setup:local`). |
+| **Anthropic API key** | Optional (recommended) | [console.anthropic.com](https://console.anthropic.com/settings/keys) | Claude: scoring + explanations. A novel search runs ~$0.05–0.33. Or pick another provider in **Settings → Model → Cloud** (OpenAI, Gemini, OpenRouter, Groq, Mistral, or any OpenAI-compatible URL) and paste its key or point to an env var / secret file. No paid key? Run [Free Claude Code](https://github.com/KurtLehnardt/free-claude-code-secure) and pick **Anthropic-compatible proxy** (defaults to `http://127.0.0.1:8082` and `~/.fcc/proxy_auth_token`). Prompts are tuned on Claude. |
 | **Exa API key** | Optional | [dashboard.exa.ai](https://dashboard.exa.ai) | Only for the deep competitor analysis' *live web* results. Without it, that feature degrades honestly to federal awardees only. |
 
 ### Picking a local model manually

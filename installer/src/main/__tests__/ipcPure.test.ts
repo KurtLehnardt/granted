@@ -4,7 +4,10 @@ import {
   applyApiKeys,
   buildTaskScript,
   decideStatusPoll,
+  envHasHostedKeys,
   envIsLocalConfigured,
+  isAnthropicKeyFormat,
+  isOpenAiKeyFormat,
   escapeForAppleScript,
   grantedPort,
   isRealKey,
@@ -197,37 +200,78 @@ const ENV_EXAMPLE = [
 
 describe("applyApiKeys", () => {
   test("fills .env.example's placeholders and leaves the rest of the file alone", () => {
-    const r = applyApiKeys(ENV_EXAMPLE, { OPENAI_API_KEY: "sk-real", ANTHROPIC_API_KEY: "sk-ant-real", EXA_API_KEY: "" });
-    assert.match(r.text, /^OPENAI_API_KEY=sk-real$/m);
-    assert.match(r.text, /^ANTHROPIC_API_KEY=sk-ant-real$/m);
+    const r = applyApiKeys(ENV_EXAMPLE, { OPENAI_API_KEY: "sk-real-key-0000000000000", ANTHROPIC_API_KEY: "sk-ant-real-key-000000000", EXA_API_KEY: "" });
+    assert.match(r.text, /^OPENAI_API_KEY=sk-real-key-0000000000000$/m);
+    assert.match(r.text, /^ANTHROPIC_API_KEY=sk-ant-real-key-000000000$/m);
     assert.match(r.text, /^EXA_API_KEY=$/m);
     assert.match(r.text, /^# comment$/m);
     assert.deepEqual(r.missing, []);
   });
 
   test("a blank field keeps the key already set", () => {
-    const existing = ENV_EXAMPLE.replace("OPENAI_API_KEY=sk-...", "OPENAI_API_KEY=sk-keep-me");
-    const r = applyApiKeys(existing, { OPENAI_API_KEY: "", ANTHROPIC_API_KEY: "sk-ant-x", EXA_API_KEY: "" });
-    assert.match(r.text, /^OPENAI_API_KEY=sk-keep-me$/m);
+    const existing = ENV_EXAMPLE.replace("OPENAI_API_KEY=sk-...", "OPENAI_API_KEY=sk-keep-me-0000000000000");
+    const r = applyApiKeys(existing, { OPENAI_API_KEY: "", ANTHROPIC_API_KEY: "sk-ant-x-key-00000000000000", EXA_API_KEY: "" });
+    assert.match(r.text, /^OPENAI_API_KEY=sk-keep-me-0000000000000$/m);
     assert.deepEqual(r.missing, []);
   });
 
   test("a key the user typed replaces the one already set (never silently dropped)", () => {
-    const existing = ENV_EXAMPLE.replace("OPENAI_API_KEY=sk-...", "OPENAI_API_KEY=sk-stale");
-    const r = applyApiKeys(existing, { OPENAI_API_KEY: "sk-new", ANTHROPIC_API_KEY: "sk-ant-x", EXA_API_KEY: "" });
-    assert.match(r.text, /^OPENAI_API_KEY=sk-new$/m);
-    assert.doesNotMatch(r.text, /sk-stale/);
+    const existing = ENV_EXAMPLE.replace("OPENAI_API_KEY=sk-...", "OPENAI_API_KEY=sk-stale-key-000000000000");
+    const r = applyApiKeys(existing, { OPENAI_API_KEY: "sk-new-key-000000000000000", ANTHROPIC_API_KEY: "sk-ant-x-key-00000000000000", EXA_API_KEY: "" });
+    assert.match(r.text, /^OPENAI_API_KEY=sk-new-key-000000000000000$/m);
+    assert.doesNotMatch(r.text, /sk-stale-key-000000000000/);
   });
 
-  test("reports required keys still missing, and trims pasted whitespace", () => {
-    const r = applyApiKeys(ENV_EXAMPLE, { OPENAI_API_KEY: "  sk-real \n", ANTHROPIC_API_KEY: "   ", EXA_API_KEY: "" });
-    assert.match(r.text, /^OPENAI_API_KEY=sk-real$/m);
-    assert.deepEqual(r.missing, ["ANTHROPIC_API_KEY"]);
+  test("one cloud key is enough: an OpenAI key alone is complete (it searches and can score), and pasted whitespace is trimmed", () => {
+    const r = applyApiKeys(ENV_EXAMPLE, { OPENAI_API_KEY: "  sk-real-key-0000000000000 \n", ANTHROPIC_API_KEY: "   ", EXA_API_KEY: "" });
+    assert.match(r.text, /^OPENAI_API_KEY=sk-real-key-0000000000000$/m);
+    assert.deepEqual(r.missing, []);
+  });
+
+  test("a Claude key alone isn't enough — search needs OpenAI (Anthropic has no embeddings API)", () => {
+    const r = applyApiKeys(ENV_EXAMPLE, { OPENAI_API_KEY: "", ANTHROPIC_API_KEY: "sk-ant-real-key-000000000", EXA_API_KEY: "" });
+    assert.deepEqual(r.missing, ["OPENAI_API_KEY"]);
+  });
+
+  test("envHasHostedKeys: the OpenAI key is what hosted mode needs", () => {
+    assert.equal(envHasHostedKeys("OPENAI_API_KEY=sk-real-key-0000000000000\nANTHROPIC_API_KEY=sk-ant-...\n"), true);
+    assert.equal(envHasHostedKeys("OPENAI_API_KEY=sk-...\nANTHROPIC_API_KEY=sk-ant-real-key-000000000\n"), false);
+    assert.equal(envHasHostedKeys(ENV_EXAMPLE), false);
+  });
+
+  test("REGRESSION (review): a half-finished setup:local (LLM_PROVIDER=ollama) isn't 'ready for hosted mode', even with an OpenAI key", () => {
+    const text = "OPENAI_API_KEY=sk-real-key-0000000000000\nLLM_PROVIDER=ollama\nEMBEDDINGS_BASE_URL=http://localhost:11434/v1\n";
+    assert.equal(envHasHostedKeys(text), false);
+    assert.equal(envHasHostedKeys("OPENAI_API_KEY=sk-real-key-0000000000000\nLLM_PROVIDER=anthropic\n"), true);
+  });
+
+  test("REGRESSION (review): a typed key the app would refuse is reported as invalid, by name", () => {
+    const r = applyApiKeys(ENV_EXAMPLE, { OPENAI_API_KEY: "sk-proj-abc", ANTHROPIC_API_KEY: "claude-key-without-prefix-00", EXA_API_KEY: "" });
+    assert.deepEqual(r.invalid, ["OPENAI_API_KEY", "ANTHROPIC_API_KEY"]);
+    assert.deepEqual(r.missing, ["OPENAI_API_KEY"], "a malformed OpenAI key doesn't count as the required key");
+  });
+});
+
+describe("isOpenAiKeyFormat / isAnthropicKeyFormat (mirror scaffold/lib/llm/providers.ts)", () => {
+  test("OpenAI: sk- prefix, 20–200 characters, no whitespace", () => {
+    assert.equal(isOpenAiKeyFormat("sk-proj-0000000000000000"), true);
+    assert.equal(isOpenAiKeyFormat("sk-proj-abc"), false, "truncated paste");
+    assert.equal(isOpenAiKeyFormat("proj-00000000000000000000"), false, "no sk- prefix");
+    assert.equal(isOpenAiKeyFormat("sk-proj-0000 0000000000000"), false, "whitespace");
+    assert.equal(isOpenAiKeyFormat(`sk-${"0".repeat(198)}`), false, "over 200");
+    assert.equal(isOpenAiKeyFormat("sk-..."), false, ".env.example placeholder");
+  });
+
+  test("Anthropic: sk-ant- prefix, 20–200 characters, [A-Za-z0-9_-] only", () => {
+    assert.equal(isAnthropicKeyFormat("sk-ant-api03-00000000000"), true);
+    assert.equal(isAnthropicKeyFormat("sk-ant-short"), false);
+    assert.equal(isAnthropicKeyFormat("sk-proj-0000000000000000"), false, "an OpenAI key isn't a Claude key");
+    assert.equal(isAnthropicKeyFormat("sk-ant-..."), false, ".env.example placeholder");
   });
 
   test("a key containing $ is written literally (String.replace's $-patterns must not apply)", () => {
-    const r = applyApiKeys(ENV_EXAMPLE, { OPENAI_API_KEY: "sk-a$&b$1", ANTHROPIC_API_KEY: "sk-ant-x", EXA_API_KEY: "" });
-    assert.match(r.text, /^OPENAI_API_KEY=sk-a\$&b\$1$/m);
+    const r = applyApiKeys(ENV_EXAMPLE, { OPENAI_API_KEY: "sk-a-key-0000000000000000$&b$1", ANTHROPIC_API_KEY: "sk-ant-x-key-00000000000000", EXA_API_KEY: "" });
+    assert.match(r.text, /^OPENAI_API_KEY=sk-a-key-0000000000000000\$&b\$1$/m);
   });
 });
 
@@ -242,7 +286,7 @@ describe("isRealKey", () => {
     assert.equal(isRealKey(""), false);
     assert.equal(isRealKey("sk-..."), false);
     assert.equal(isRealKey("sk-ant-..."), false);
-    assert.equal(isRealKey("sk-real"), true);
+    assert.equal(isRealKey("sk-real-key-0000000000000"), true);
   });
 });
 

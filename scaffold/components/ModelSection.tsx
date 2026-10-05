@@ -17,6 +17,8 @@ export type CloudInfo = {
   hasKey: boolean;
   keyHint?: string;
   keySource: PublicKeySource;
+  /** From ANTHROPIC_API_KEY / OPENAI_API_KEY in .env.local rather than saved here — can't be removed from Settings. */
+  fromEnv?: boolean;
 };
 
 const KEY_TOOLTIP_TEXT =
@@ -561,9 +563,16 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
             <button type="button" className={smallBtnClass} onClick={handleTestKey} disabled={testing}>
               {testing ? "Testing…" : "Test key"}
             </button>
-            <button type="button" className={smallBtnClass} onClick={handleRemoveCloud} disabled={saving || !info?.cloud}>
-              Remove
-            </button>
+            {info?.cloud?.fromEnv ? (
+              <span className="font-body text-[12px] text-foreground" data-testid="cloud-from-env">
+                From {info.cloud.keySource.type === "env" ? info.cloud.keySource.name : "an environment variable"} in
+                .env.local — edit that file to change or remove it.
+              </span>
+            ) : (
+              <button type="button" className={smallBtnClass} onClick={handleRemoveCloud} disabled={saving || !info?.cloud}>
+                Remove
+              </button>
+            )}
             {testResult && (
               <span className="font-body text-[12px] text-foreground">
                 {testResult.ok ? "Key works." : testResult.error ?? "Test failed."}

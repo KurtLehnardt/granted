@@ -1,6 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { makeLlmClient, isLocalLlm, cloudBatchSize, defaultLocalModel, type LlmClient } from "./llm/client";
 import { currentLocalModel } from "./llm/modelContext";
+import { resolveCloudConfig, resolveCloudModel } from "./llm/config";
+import { getCloudProvider } from "./llm/providers";
 import type { StartupProfile, Opportunity, Match, CriterionCheck, Tier } from "./types";
 import type { EligibilityBucket } from "./contracts/eligibilityDetermination";
 import { loadPrompt } from "./prompts";
@@ -325,18 +327,47 @@ export function coerceCriteria(criteria: unknown, context?: string): CriterionCh
  * `undefined`, which is the expected value (see meter.ts's `StageCost`
  * comment).
  */
+/**
+ * Which provider/model a call is metered as — the one that actually ran:
+ * - local: the OpenAI-compatible shim on the local model, at $0;
+ * - a non-Anthropic cloud provider (OpenAI — the default when only
+ *   OPENAI_API_KEY is set — Gemini, Groq, …): also the shim, on that
+ *   provider's model, not the Claude one this stage would use on Anthropic
+ *   (which would price a gpt-4o-mini call at Sonnet rates). An unpriced model
+ *   is logged at $0 with a one-time warning (lib/metering/pricing.ts) —
+ *   never a guessed number;
+ * - Anthropic (or an Anthropic-SDK proxy like fcc): the stage's Claude model.
+ */
+export function usageAttribution(opts: {
+  local: boolean;
+  localModel?: string;
+  cloud?: ReturnType<typeof resolveCloudConfig>;
+  stageModel: string;
+}): { provider: "openai" | "anthropic"; model: string } {
+  if (opts.local) return { provider: "openai", model: opts.localModel ?? opts.stageModel };
+  const cloud = opts.cloud;
+  if (cloud && !getCloudProvider(cloud.providerId)?.usesAnthropicSdk) {
+    return { provider: "openai", model: resolveCloudModel(cloud) ?? opts.stageModel };
+  }
+  return { provider: "anthropic", model: opts.stageModel };
+}
+
 function recordUsage(meter: CostMeter | undefined, stage: string, usage: Anthropic.Messages.Usage, latencyMs: number, model: string = MODEL): void {
   if (!meter) return;
   // On a local backend every stage runs on the one local model, at $0 — record
   // that honestly rather than mislabeling the call as the hosted Anthropic model
   // (which would report a fictitious cost for a free, offline run).
   const local = isLocalLlm();
+  const meteredAs = usageAttribution({
+    local,
+    localModel: local ? currentLocalModel() || defaultLocalModel() : undefined,
+    cloud: local ? undefined : resolveCloudConfig(),
+    stageModel: model,
+  });
   meter.record({
     stage,
-    // Local runs go through the OpenAI-compatible shim at $0; record the real
-    // local model name (not the hosted Anthropic model) so the cost log is honest.
-    provider: local ? "openai" : "anthropic",
-    model: local ? (currentLocalModel() || defaultLocalModel()) : model,
+    provider: meteredAs.provider,
+    model: meteredAs.model,
     inputTokens: usage?.input_tokens ?? 0,
     outputTokens: usage?.output_tokens ?? 0,
     cacheCreationInputTokens: usage?.cache_creation_input_tokens ?? undefined,

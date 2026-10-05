@@ -259,7 +259,7 @@ fi
 
 log "Done. Next steps:"
 echo "  cd $TARGET_DIR/scaffold"
-echo "  npm run setup                  # cloud API keys (OpenAI + Anthropic), or"
+echo "  npm run setup                  # cloud API key (OpenAI; Claude optional), or"
 echo "  npm run setup:local -- --yes   # fully local via Ollama, no API keys"
 echo "  npm run dev                    # -> http://localhost:3000"
 if [ "$MACOS_MAJOR" -gt 0 ] && [ "$MACOS_MAJOR" -lt "$OLLAMA_MIN_MACOS" ]; then

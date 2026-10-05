@@ -158,6 +158,17 @@ describe("ModelSection — renders the right panel per provider", () => {
     assert.match(render({ provider: "cloud", local: false }), />\s*Remove\s*</);
   });
 
+  test("REGRESSION (review): a key from .env.local has no Remove (it'd just come back) — it says where to change it", () => {
+    const html = render({
+      provider: "cloud",
+      local: false,
+      cloud: { providerId: "openai", hasKey: true, keyHint: "abcd", keySource: { type: "env", name: "OPENAI_API_KEY" }, fromEnv: true },
+    });
+    assert.doesNotMatch(html, />\s*Remove\s*</);
+    assert.match(html, /data-testid="cloud-from-env"/);
+    assert.match(html, /From OPENAI_API_KEY in[\s\S]*\.env\.local/);
+  });
+
   test("active-provider indicator reports the server's provider, not just which panel is open", () => {
     // Server is on ollama — even a render where the initial panel would be
     // cloud (a saved cloud config exists) must still say the active provider
