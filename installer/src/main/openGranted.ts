@@ -49,9 +49,14 @@ export async function getSetupState(installDir: string): Promise<GrantedSetupSta
     anthropicKeySet,
     hostedKeysSet: openaiKeySet && anthropicKeySet,
     localConfigured: envIsLocalConfigured(env, await readTextOrNull(join(scaffoldDir, "data", "local", "corpus-meta.json"))),
-    trayAvailable: existsSync(join(scaffoldDir, "scripts", "windows", "granted-tray.ps1")),
-    shortcutsAvailable: existsSync(join(scaffoldDir, "scripts", "windows", "shortcuts.ps1")),
+    trayAvailable: existsSync(windowsScriptPath(scaffoldDir, "granted-tray.ps1")),
+    shortcutsAvailable: existsSync(windowsScriptPath(scaffoldDir, "shortcuts.ps1")),
   };
+}
+
+/** scaffold/scripts/windows/<name> — the tray, shortcut and icon files (one place builds this path). */
+export function windowsScriptPath(scaffoldDir: string, name: "granted-tray.ps1" | "shortcuts.ps1"): string {
+  return join(scaffoldDir, "scripts", "windows", name);
 }
 
 /**

@@ -90,7 +90,8 @@ export function makeFakeInstall(opts: { withWindowsScripts?: boolean } = {}): Fa
     scaffoldDir,
     desktopDir: join(root, "Desktop"),
     startMenuDir: join(root, "Programs"),
-    cleanup: () => rmSync(root, { recursive: true, force: true }),
+    // Retries: on Windows a just-exited process can hold a handle in here for a moment.
+    cleanup: () => rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 }),
   };
 }
 
@@ -195,8 +196,13 @@ export function stopTestTray(install: FakeInstall): void {
       windowsHide: true,
     });
   } catch {
-    /* exit 1: no tray running for this port */
+    return; // exit 1: no tray running for this port
   }
+  // -Stop only signals; the tray then stops its server and exits. Wait for
+  // that, so the fake install folder (the tray's working directory) can be
+  // deleted and the next test finds the port free.
+  const deadline = Date.now() + 30_000;
+  while (testTrayRunning() && Date.now() < deadline) execFileSync("powershell.exe", ["-NoProfile", "-Command", "Start-Sleep -Milliseconds 500"], { windowsHide: true });
 }
 
 /** Whether a tray (granted-tray.ps1) is running for the test port. */

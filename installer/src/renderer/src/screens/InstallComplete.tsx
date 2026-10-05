@@ -13,7 +13,8 @@ type Step =
   | { id: "choose" }
   | { id: "keys" }
   | { id: "local-setup" }
-  | { id: "starting" }
+  // background: null until the main process says how it's starting Granted.
+  | { id: "starting"; background: boolean | null }
   | { id: "opened"; message: string | null; url: string; background: boolean }
   | { id: "declined" }
   | { id: "error"; message: string; retry: () => void };
@@ -37,9 +38,10 @@ export default function InstallComplete(): React.JSX.Element {
   }, []);
 
   const start = useCallback((): void => {
-    setStep({ id: "starting" });
+    setStep({ id: "starting", background: null });
     window.api.startGranted().then((result) => {
       if (!result.ok) setStep({ id: "error", message: result.message, retry: start });
+      else setStep((prev) => (prev.id === "starting" ? { ...prev, background: result.background ?? false } : prev));
     });
   }, []);
 
@@ -96,7 +98,6 @@ export default function InstallComplete(): React.JSX.Element {
     });
 
   const installDir = setup?.installDir ?? "your granted folder";
-  const background = setup?.trayAvailable ?? false;
   const shortcutPlaces = [
     shortcutsMade && shortcuts.desktop && "on your desktop",
     shortcutsMade && shortcuts.startMenu && "in the Start menu",
@@ -206,7 +207,9 @@ export default function InstallComplete(): React.JSX.Element {
       )}
 
       {step.id === "starting" &&
-        (background ? (
+        (step.background === null ? (
+          <div className="status-note">Starting Granted…</div>
+        ) : step.background ? (
           <div className="status-note">
             Starting Granted in the background… Your browser will open when it's ready (the first start can take a
             minute or two).

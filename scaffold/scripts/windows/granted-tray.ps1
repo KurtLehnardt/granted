@@ -14,6 +14,7 @@
 #
 # Other entry points:
 #   -Stop      ask the running tray for this port to quit (stops the server too)
+#   -Restart   ask the running tray for this port to restart its server
 #   -NoTray    run the same server management without an icon (tests)
 #   -StatusPath <file>  report progress the way install-windows.ps1 does, so
 #              the GUI installer can tell "starting" from "failed" from
@@ -24,7 +25,11 @@ param(
   [switch]$OpenBrowser,
   [string]$StatusPath,
   [switch]$Stop,
-  [switch]$NoTray
+  [switch]$Restart,
+  [switch]$NoTray,
+  # How long a second launch waits for an already-running tray's Granted to
+  # answer before reporting that it isn't (tests shorten it).
+  [int]$AlreadyRunningWaitSeconds = 60
 )
 
 $ErrorActionPreference = "Stop"
@@ -32,16 +37,18 @@ $Url = "http://localhost:$Port"
 $ProbeUrl = "http://127.0.0.1:$Port/"   # `next dev -H 127.0.0.1` binds IPv4 only
 $MutexName = "Local\GrantedTray-$Port"
 $QuitEventName = "Local\GrantedTray-Quit-$Port"
+$RestartEventName = "Local\GrantedTray-Restart-$Port"
 $LogDir = Join-Path $env:LOCALAPPDATA "Granted\logs"
 $LogPath = Join-Path $LogDir "server-$Port.log"
 $IconPath = Join-Path $PSScriptRoot "granted.ico"
 
-# --- -Stop: signal a running tray and leave ---------------------------------
-if ($Stop) {
-  $quit = $null
-  if ([System.Threading.EventWaitHandle]::TryOpenExisting($QuitEventName, [ref]$quit)) {
-    [void]$quit.Set()
-    $quit.Dispose()
+# --- -Stop / -Restart: signal a running tray and leave ----------------------
+if ($Stop -or $Restart) {
+  $name = if ($Stop) { $QuitEventName } else { $RestartEventName }
+  $signal = $null
+  if ([System.Threading.EventWaitHandle]::TryOpenExisting($name, [ref]$signal)) {
+    [void]$signal.Set()
+    $signal.Dispose()
     exit 0
   }
   exit 1   # nothing running for this port
@@ -87,12 +94,38 @@ function Test-Granted([int]$TimeoutMs = 3000) {
   return "other"
 }
 
+# Whether anything is accepting connections on the port (no HTTP request).
+function Test-PortOpen {
+  $client = New-Object System.Net.Sockets.TcpClient
+  try {
+    $async = $client.BeginConnect("127.0.0.1", $Port, $null, $null)
+    if (-not $async.AsyncWaitHandle.WaitOne(300)) { return $false }
+    $client.EndConnect($async)
+    return $true
+  } catch {
+    return $false
+  } finally {
+    $client.Close()
+  }
+}
+
+# Waits while the port is "busy" (a server there that's still starting up);
+# returns the first non-busy probe, or "busy" if it never settles.
+function Wait-NotBusy([int]$Seconds) {
+  $deadline = (Get-Date).AddSeconds($Seconds)
+  do {
+    $p = Test-Granted 5000
+    if ($p -ne "busy") { return $p }
+  } while ((Get-Date) -lt $deadline)
+  return "busy"
+}
+
 function Open-Granted { Start-Process $Url }
 
 # --- the server -------------------------------------------------------------
 $script:Server = $null
-$script:ServerStartedAt = $null
 $script:EverReady = $false
+$script:ReportedFailure = $false
 
 function Start-GrantedServer {
   New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
@@ -108,23 +141,54 @@ function Start-GrantedServer {
   $psi.CreateNoWindow = $true
   $psi.EnvironmentVariables["PORT"] = "$Port"
   $script:Server = [System.Diagnostics.Process]::Start($psi)
-  $script:ServerStartedAt = Get-Date
   $script:EverReady = $false
+  $script:ReportedFailure = $false
 }
 
+# Kills the whole server tree (cmd -> npm -> next -> its workers) and waits
+# until it has actually let go of the port, so a Restart's new server can
+# bind it and the log can be rotated. taskkill runs as a plain process, never
+# through PowerShell's native-command handling: under $ErrorActionPreference
+# = "Stop", Windows PowerShell 5.1 turns any stderr line from a native
+# command (taskkill prints one when a process in the tree is already gone)
+# into a terminating error -- which made Quit/Restart throw half-way.
 function Stop-GrantedServer {
-  if ($script:Server -and -not $script:Server.HasExited) {
-    # The whole tree: cmd -> npm -> next -> its worker node processes.
-    & taskkill.exe /PID $script:Server.Id /T /F 2>&1 | Out-Null
-  }
+  $server = $script:Server
   $script:Server = $null
+  if (-not $server) { return }
+  try {
+    if (-not $server.HasExited) {
+      $kill = New-Object System.Diagnostics.ProcessStartInfo
+      $kill.FileName = Join-Path $env:SystemRoot "System32\taskkill.exe"
+      $kill.Arguments = "/PID $($server.Id) /T /F"
+      $kill.UseShellExecute = $false
+      $kill.CreateNoWindow = $true
+      $kill.RedirectStandardOutput = $true
+      $kill.RedirectStandardError = $true
+      $p = [System.Diagnostics.Process]::Start($kill)
+      [void]$p.StandardOutput.ReadToEnd(); [void]$p.StandardError.ReadToEnd()
+      [void]$p.WaitForExit(10000)
+    }
+  } catch { }
+  $deadline = (Get-Date).AddSeconds(15)
+  while ((Test-PortOpen) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 250 }
 }
 
-# One of: starting | running | stopped | crashed
+function Restart-GrantedServer {
+  Stop-GrantedServer
+  Write-Status "running" $null
+  Start-GrantedServer
+}
+
+# One of: starting | running | stopped | crashed. Probes over HTTP only until
+# Granted first answers (short timeout, so a tray tick never blocks the UI
+# for long); after that it just watches the process -- no request every few
+# seconds re-rendering the page and filling the log all day.
 function Get-ServerState {
   if (-not $script:Server) { return "stopped" }
   if ($script:Server.HasExited) { return "crashed" }
-  if ((Test-Granted 3000) -eq "granted") { $script:EverReady = $true; return "running" }
+  if ($script:EverReady) { return "running" }
+  if ((Test-Granted 500) -eq "granted") { $script:EverReady = $true; return "running" }
   return "starting"
 }
 
@@ -136,30 +200,52 @@ function Get-LastLogLine {
   return $null
 }
 
+# Reports a failure to the installer (if it's watching) the first time the
+# server dies before it ever answered (once per start).
+function Report-EarlyCrash {
+  if ($script:EverReady -or $script:ReportedFailure) { return }
+  $script:ReportedFailure = $true
+  $detail = Get-LastLogLine
+  $msg = "Granted stopped before it finished starting. Details are in $LogPath"
+  if ($detail) { $msg = "$msg -- last error: $detail" }
+  Write-Status "error" $msg
+}
+
 # --- single instance --------------------------------------------------------
 $createdNew = $false
 $mutex = New-Object System.Threading.Mutex($true, $MutexName, [ref]$createdNew)
 if (-not $createdNew) {
-  # Already running for this port: just open it (once it answers) and leave.
-  if ($OpenBrowser) {
-    $deadline = (Get-Date).AddMinutes(5)
-    while ((Get-Date) -lt $deadline) {
-      if ((Test-Granted 3000) -eq "granted") { Open-Granted; break }
-      Start-Sleep -Seconds 2
+  # A tray is already running for this port: wait for its Granted to answer
+  # (opening it if asked). If it doesn't, say so -- the installer, if it
+  # launched this one, would otherwise wait out its own timeout with nothing
+  # to report. No "running" status meanwhile: this process exits either way,
+  # and its released lock must not read as "the tray was closed".
+  $deadline = (Get-Date).AddSeconds($AlreadyRunningWaitSeconds)
+  while ((Get-Date) -lt $deadline) {
+    if ((Test-Granted 3000) -eq "granted") {
+      if ($OpenBrowser) { Open-Granted }
+      exit 0
     }
+    Start-Sleep -Seconds 2
   }
-  exit 0
+  Write-Status "error" "Granted is already running in the background (its icon is by the clock), but it isn't answering. Right-click the Granted icon and choose Restart, or Quit Granted and open it again."
+  exit 3
 }
 
 # --- what's on the port before we start? ------------------------------------
 $before = Test-Granted 10000
+if ($before -eq "busy") {
+  # Something's there but slow to answer -- most likely a Granted that's
+  # still compiling (started from a terminal, say). Wait for it, as the
+  # installer does, rather than calling it "another program".
+  $before = Wait-NotBusy 300
+}
 if ($before -eq "granted") {
-  # Started some other way (e.g. `npm run dev` in a terminal): nothing to
-  # manage -- open it and leave without an icon.
+  # Started some other way: nothing for this tray to manage -- open it and leave.
   if ($OpenBrowser) { Open-Granted }
   $mutex.ReleaseMutex(); exit 0
 }
-if ($before -eq "other" -or $before -eq "busy") {
+if ($before -ne "down") {
   $msg = "Something else is already using port $Port, so Granted can't start there. Close it and try again."
   Write-Status "error" $msg
   if (-not $NoTray) {
@@ -170,28 +256,21 @@ if ($before -eq "other" -or $before -eq "busy") {
 }
 
 $quitEvent = New-Object System.Threading.EventWaitHandle($false, [System.Threading.EventResetMode]::AutoReset, $QuitEventName)
+$restartEvent = New-Object System.Threading.EventWaitHandle($false, [System.Threading.EventResetMode]::AutoReset, $RestartEventName)
 Write-Status "running" $null
 Start-GrantedServer
 
-# Reports a failure to the installer (if it's watching) the first time the
-# server dies before it ever answered.
-$script:ReportedFailure = $false
-function Report-EarlyCrash {
-  if ($script:EverReady -or $script:ReportedFailure) { return }
-  $script:ReportedFailure = $true
-  $detail = Get-LastLogLine
-  $msg = "Granted stopped before it finished starting. Details are in $LogPath"
-  if ($detail) { $msg = "$msg -- last error: $detail" }
-  Write-Status "error" $msg
-}
-
 # --- headless mode (tests) --------------------------------------------------
 if ($NoTray) {
-  while (-not $quitEvent.WaitOne(1000)) {
-    if ((Get-ServerState) -eq "crashed") { Report-EarlyCrash }
+  try {
+    while (-not $quitEvent.WaitOne(1000)) {
+      if ($restartEvent.WaitOne(0)) { Restart-GrantedServer; continue }
+      if ((Get-ServerState) -eq "crashed") { Report-EarlyCrash }
+    }
+  } finally {
+    Stop-GrantedServer
+    $quitEvent.Dispose(); $restartEvent.Dispose(); $mutex.ReleaseMutex()
   }
-  Stop-GrantedServer
-  $quitEvent.Dispose(); $mutex.ReleaseMutex()
   exit 0
 }
 
@@ -219,6 +298,7 @@ $icon.ContextMenuStrip = $menu
 
 $script:OpenWhenReady = [bool]$OpenBrowser
 $script:LastState = ""
+$script:Quitting = $false
 
 function Set-TrayState($state) {
   if ($state -eq $script:LastState) { return }
@@ -231,11 +311,23 @@ function Set-TrayState($state) {
 }
 
 function Invoke-Quit {
+  if ($script:Quitting) { return }
+  $script:Quitting = $true
   $timer.Stop()
-  Stop-GrantedServer
-  $icon.Visible = $false
-  $icon.Dispose()
-  [System.Windows.Forms.Application]::Exit()
+  try { Stop-GrantedServer } finally {
+    $icon.Visible = $false
+    $icon.Dispose()
+    [System.Windows.Forms.Application]::Exit()
+  }
+}
+
+function Invoke-Restart {
+  $timer.Stop()
+  try {
+    $statusItem.Text = "Restarting..."
+    Restart-GrantedServer
+    $script:LastState = ""
+  } finally { $timer.Start() }
 }
 
 $openItem.add_Click({
@@ -243,17 +335,14 @@ $openItem.add_Click({
 })
 $icon.add_DoubleClick({ if ($script:LastState -eq "running") { Open-Granted } else { $script:OpenWhenReady = $true } })
 $logItem.add_Click({ if (Test-Path $LogPath) { Start-Process notepad.exe -ArgumentList "`"$LogPath`"" } })
-$restartItem.add_Click({
-  Stop-GrantedServer
-  $script:LastState = ""
-  Start-GrantedServer
-})
+$restartItem.add_Click({ Invoke-Restart })
 $quitItem.add_Click({ Invoke-Quit })
 
 $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 2000
 $timer.add_Tick({
   if ($quitEvent.WaitOne(0)) { Invoke-Quit; return }
+  if ($restartEvent.WaitOne(0)) { Invoke-Restart; return }
   $state = Get-ServerState
   $previous = $script:LastState
   Set-TrayState $state
@@ -274,5 +363,6 @@ try {
 } finally {
   Stop-GrantedServer
   $quitEvent.Dispose()
+  $restartEvent.Dispose()
   $mutex.ReleaseMutex()
 }

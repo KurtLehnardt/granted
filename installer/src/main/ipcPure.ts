@@ -389,23 +389,35 @@ export function trayLaunchCommand(opts: {
 }
 
 /**
- * The `cmd /d /s /c "<this>"` line (windowsVerbatimArguments) that starts
- * `file args…` via `start`, fully detached from the caller. Needed for the
- * tray: `conhost --headless` exits at once (code 0, nothing started) when
- * given real stdin/stdout handles — and Node always gives a spawned child
- * some (NUL for "ignore"), whereas `start`, like a shortcut, gives none.
- * conhost.exe is a GUI-subsystem program, so `start` creates no console
- * for it and Windows Terminal's default-terminal handoff never kicks in.
- * Arguments are double-quoted when they contain a space or a cmd
- * metacharacter; one containing a double quote is refused (a Windows path
- * can't contain one, and it couldn't be quoted safely here).
+ * A Windows command line for `args` (the receiving program splits it the
+ * standard way): an argument with whitespace — or an empty one — is
+ * double-quoted. One containing a double quote is refused: a Windows path
+ * can't contain one, and nothing passed here should.
  */
-export function cmdStartLine(file: string, args: string[]): string {
-  const quote = (s: string): string => {
-    if (s.includes('"')) throw new Error(`Can't pass an argument containing a double quote through cmd start: ${s}`);
-    return s === "" || /[\s&|<>^()%!,;=]/.test(s) ? `"${s}"` : s;
-  };
-  return `"start "" "${file.replace(/"/g, "")}" ${args.map(quote).join(" ")}"`;
+export function windowsArgLine(args: string[]): string {
+  return args
+    .map((s) => {
+      if (s.includes('"')) throw new Error(`Refusing to pass an argument containing a double quote: ${s}`);
+      return s === "" || /\s/.test(s) ? `"${s}"` : s;
+    })
+    .join(" ");
+}
+
+/**
+ * The PowerShell -Command that starts `file args…` with Start-Process —
+ * how the installer launches the tray. Not spawn(conhost) directly:
+ * `conhost --headless` exits at once (code 0, nothing started) when given
+ * real stdin/stdout handles, and Node always gives a spawned child some (NUL
+ * for "ignore"); Start-Process goes through ShellExecute, which — like a
+ * shortcut — gives none, and doesn't pass on this app's inheritable handles
+ * either. Not `cmd /c start`: cmd would expand %VAR% (and !VAR!) inside the
+ * paths even when quoted. Everything here is a single-quoted PowerShell
+ * literal (psSingleQuoted), so nothing in a path is ever interpreted.
+ * conhost.exe is a GUI-subsystem program, so no console — and no Windows
+ * Terminal handoff — is created for it either way.
+ */
+export function startProcessCommand(file: string, args: string[]): string {
+  return `Start-Process -FilePath ${psSingleQuoted(file)} -ArgumentList ${psSingleQuoted(windowsArgLine(args))}`;
 }
 
 /** shortcuts.ps1's JSON output → the shortcut paths it created (null if it isn't that shape). */

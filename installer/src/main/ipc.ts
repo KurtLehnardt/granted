@@ -9,7 +9,6 @@ import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import {
   buildTaskScript,
-  cmdStartLine,
   decideStatusPoll,
   escapeForAppleScript,
   grantedPort,
@@ -20,6 +19,7 @@ import {
   parseVersionFromOutput,
   psSingleQuoted,
   shouldReattach,
+  startProcessCommand,
   trayLaunchCommand,
   type StatusFile,
 } from "./ipcPure";
@@ -29,6 +29,7 @@ import {
   readTaskStatus,
   saveApiKeys,
   waitForGrantedToStart,
+  windowsScriptPath,
 } from "./openGranted";
 import {
   INSTALL_ONE_LINERS,
@@ -40,6 +41,7 @@ import {
   type PrereqReport,
   type ShortcutChoice,
   type ShortcutsResult,
+  type StartResult,
   type TaskStatusEvent,
   type ToolCheckResult,
   isSupportedPlatform,
@@ -618,7 +620,7 @@ async function runLocalSetup(sender: WebContents): Promise<ActionResult> {
   }
 }
 
-async function startGranted(sender: WebContents): Promise<ActionResult> {
+async function startGranted(sender: WebContents): Promise<StartResult> {
   if (process.platform !== "win32") return NOT_WINDOWS;
   if (grantedTaskInFlight) return { ok: false, message: "Granted is already being set up or started." };
   grantedTaskInFlight = true;
@@ -686,20 +688,20 @@ async function startGranted(sender: WebContents): Promise<ActionResult> {
     const existing = await reattachablePath("start-app", false);
     if (existing) {
       waitThenOpen(() => readTaskStatus(existing));
-      return { ok: true, message: "Granted is already starting…" };
+      return { ok: true, message: "Granted is already starting…", background };
     }
 
     const before = await probeGranted(GRANTED_PROBE_URL, ALREADY_RUNNING_PROBE_TIMEOUT_MS);
     if (before === "granted") {
       await openAndFinish("Granted was already running — opened it in your browser.");
-      return { ok: true, message: "Granted is already running." };
+      return { ok: true, message: "Granted is already running.", background };
     }
     if (before === "busy") {
       // Something holds the port but is slow to answer — most likely a
       // Granted that's still compiling. Wait for it instead of launching a
       // second server that would just fail on the busy port.
       waitThenOpen(async () => null);
-      return { ok: true, message: "Waiting for Granted…" };
+      return { ok: true, message: "Waiting for Granted…", background };
     }
     if (before === "other") {
       grantedTaskInFlight = false;
@@ -721,7 +723,7 @@ async function startGranted(sender: WebContents): Promise<ActionResult> {
           env: { PORT: String(GRANTED_PORT) },
         });
     waitThenOpen(() => readTaskStatus(statusPath));
-    return { ok: true, message: "Starting Granted…" };
+    return { ok: true, message: "Starting Granted…", background };
   } catch (err) {
     grantedTaskInFlight = false;
     console.error("startGranted failed:", err);
@@ -730,7 +732,7 @@ async function startGranted(sender: WebContents): Promise<ActionResult> {
 }
 
 function trayScriptPath(): string {
-  return join(scaffoldDir(), "scripts", "windows", "granted-tray.ps1");
+  return windowsScriptPath(scaffoldDir(), "granted-tray.ps1");
 }
 
 /**
@@ -753,19 +755,13 @@ async function launchTray(): Promise<string> {
     statusPath,
   });
   rememberLaunch("start-app", statusPath);
-  // Via `cmd /c start`, not spawn(conhost) directly — see cmdStartLine.
-  const child = spawn("cmd.exe", ["/d", "/s", "/c", cmdStartLine(file, args)], {
-    cwd: scaffoldDir(),
-    detached: true,
-    stdio: "ignore",
-    windowsHide: true,
-    windowsVerbatimArguments: true,
-  });
-  await new Promise<void>((resolveSpawn, rejectSpawn) => {
-    child.once("spawn", resolveSpawn);
-    child.once("error", rejectSpawn);
-  });
-  child.unref();
+  // Through PowerShell's Start-Process, not spawn(conhost) — see
+  // startProcessCommand. The PowerShell here only launches it and exits.
+  await execFileAsync(
+    "powershell.exe",
+    ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", startProcessCommand(file, args)],
+    { cwd: scaffoldDir(), windowsHide: true, timeout: 30_000 },
+  );
   return statusPath;
 }
 
@@ -773,7 +769,7 @@ async function launchTray(): Promise<string> {
 async function createShortcuts(choice: ShortcutChoice): Promise<ShortcutsResult> {
   if (process.platform !== "win32") return { ...NOT_WINDOWS, created: [] };
   if (!choice.desktop && !choice.startMenu) return { ok: true, message: "No shortcuts requested.", created: [] };
-  const script = join(scaffoldDir(), "scripts", "windows", "shortcuts.ps1");
+  const script = windowsScriptPath(scaffoldDir(), "shortcuts.ps1");
   if (!existsSync(script)) {
     return { ok: false, message: "This copy of Granted is too old to add shortcuts — update it and try again.", created: [] };
   }

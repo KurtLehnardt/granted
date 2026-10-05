@@ -15,7 +15,7 @@ import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { cmdStartLine, parseShortcutsOutput, STATUS_LOCK_LINE, trayLaunchCommand } from "../ipcPure";
+import { parseShortcutsOutput, startProcessCommand, STATUS_LOCK_LINE, trayLaunchCommand } from "../ipcPure";
 import { probeGranted, readTaskStatus } from "../openGranted";
 
 const execFileAsync = promisify(execFile);
@@ -62,7 +62,21 @@ describe("granted-tray.ps1 and shortcuts.ps1, run for real", { skip: (process.pl
     return dir;
   }
 
-  const FAKE_SERVER = `require("node:http").createServer((_q, r) => r.end(${JSON.stringify(GRANTED_HTML)})).listen(Number(process.env.PORT), "127.0.0.1", () => console.log("fake Granted up on " + process.env.PORT));`;
+  // Logs one "REQ" line per request, so a test can tell whether the tray keeps probing.
+  const FAKE_SERVER = `require("node:http").createServer((q, r) => { console.log("REQ " + q.url); r.end(${JSON.stringify(GRANTED_HTML)}); }).listen(Number(process.env.PORT), "127.0.0.1", () => console.log("fake Granted up on " + process.env.PORT));`;
+  // A dev server that never starts listening (stuck compiling, say).
+  const NEVER_LISTENS = `console.log("starting forever"); setInterval(() => {}, 1000);`;
+
+  const logPath = (port: number): string => join(process.env["LOCALAPPDATA"]!, "Granted", "logs", `server-${port}.log`);
+  const portOwner = async (port: number): Promise<number | null> => {
+    const { stdout } = await execFileAsync(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-Command", `(Get-NetTCPConnection -LocalPort ${port} -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1).OwningProcess`],
+      { windowsHide: true },
+    );
+    const n = Number(stdout.trim());
+    return n > 0 ? n : null;
+  };
 
   function startTray(dir: string, port: number, extra: string[] = []): ChildProcess {
     const child = spawn("powershell.exe", [...PS, join(dir, "scripts", "windows", "granted-tray.ps1"), "-NoTray", "-Port", String(port), ...extra], {
@@ -73,14 +87,15 @@ describe("granted-tray.ps1 and shortcuts.ps1, run for real", { skip: (process.pl
     return child;
   }
 
-  async function stopTray(dir: string, port: number): Promise<number> {
+  async function signalTray(dir: string, port: number, signal: "-Stop" | "-Restart"): Promise<number> {
     try {
-      await execFileAsync("powershell.exe", [...PS, join(dir, "scripts", "windows", "granted-tray.ps1"), "-Stop", "-Port", String(port)], { windowsHide: true });
+      await execFileAsync("powershell.exe", [...PS, join(dir, "scripts", "windows", "granted-tray.ps1"), signal, "-Port", String(port)], { windowsHide: true });
       return 0;
     } catch (err) {
       return (err as { code?: number }).code ?? -1;
     }
   }
+  const stopTray = (dir: string, port: number): Promise<number> => signalTray(dir, port, "-Stop");
 
   const exited = (child: ChildProcess): Promise<number | null> =>
     child.exitCode !== null ? Promise.resolve(child.exitCode) : new Promise((r) => child.once("exit", (code) => r(code)));
@@ -107,8 +122,16 @@ describe("granted-tray.ps1 and shortcuts.ps1, run for real", { skip: (process.pl
     assert.equal(status?.pid, tray.pid, "the tray's own pid");
     assert.ok(existsSync(`${statusPath}.lock`), "and its lock");
 
-    const log = readFileSync(join(process.env["LOCALAPPDATA"]!, "Granted", "logs", `server-${port}.log`), "utf8");
+    const log = readFileSync(logPath(port), "utf8");
     assert.match(log, new RegExp(`fake Granted up on ${port}`), "server output goes to the log, not a console");
+
+    // REGRESSION (review): once Granted has answered, the tray stops making
+    // HTTP requests — no GET / every 2 s re-rendering the page and filling the log.
+    const requests = (): number => (readFileSync(logPath(port), "utf8").match(/^REQ /gm) ?? []).length;
+    await sleep(1500);
+    const settled = requests();
+    await sleep(6000);
+    assert.equal(requests(), settled, "no further probe requests while running");
 
     assert.equal(await stopTray(scaffold, port), 0);
     assert.equal(await exited(tray), 0);
@@ -118,6 +141,73 @@ describe("granted-tray.ps1 and shortcuts.ps1, run for real", { skip: (process.pl
 
   test("-Stop with nothing running for that port exits 1", async () => {
     assert.equal(await stopTray(scaffold, takePort()), 1);
+  });
+
+  test("-Restart starts a fresh server (waiting for the old one to let go of the port) and rotates the log", async () => {
+    const port = takePort();
+    const statusPath = join(root, "status-restart.json");
+    const tray = startTray(scaffold, port, ["-StatusPath", statusPath]);
+    await until(() => probeGranted(`http://127.0.0.1:${port}/`, 2000), (p) => p === "granted");
+    const firstOwner = await portOwner(port);
+    assert.ok(firstOwner);
+
+    assert.equal(await signalTray(scaffold, port, "-Restart"), 0);
+    const secondOwner = await until(() => portOwner(port), (o) => o !== null && o !== firstOwner, 30_000);
+    assert.ok(secondOwner && secondOwner !== firstOwner, "a new server process holds the port");
+    assert.equal(await until(() => probeGranted(`http://127.0.0.1:${port}/`, 2000), (p) => p === "granted"), "granted");
+    assert.ok(existsSync(`${logPath(port)}.previous`), "the previous run's log was kept");
+    assert.equal((await readTaskStatus(statusPath))?.state, "running");
+
+    assert.equal(await stopTray(scaffold, port), 0);
+    assert.equal(await exited(tray), 0);
+  });
+
+  test("REGRESSION (review): -Stop still exits cleanly when the server already died (taskkill errors must not abort the quit)", async () => {
+    const port = takePort();
+    const tray = startTray(scaffold, port);
+    await until(() => probeGranted(`http://127.0.0.1:${port}/`, 2000), (p) => p === "granted");
+    const owner = await portOwner(port);
+    await execFileAsync("taskkill.exe", ["/PID", String(owner), "/F"]); // the node server only; its cmd/npm parents linger and exit
+    assert.equal(await stopTray(scaffold, port), 0);
+    assert.equal(await exited(tray), 0, "the tray quit despite taskkill having nothing (or less) to kill");
+  });
+
+  test("REGRESSION (review): a second launch while the first tray's Granted isn't answering reports it instead of leaving silently", async () => {
+    const port = takePort();
+    const stuck = await makeScaffold("stuck", NEVER_LISTENS);
+    const first = startTray(stuck, port);
+    await until(async () => existsSync(logPath(port)) && readFileSync(logPath(port), "utf8").includes("starting forever"), (v) => v);
+    const statusPath = join(root, "status-second.json");
+    const second = startTray(stuck, port, ["-StatusPath", statusPath, "-AlreadyRunningWaitSeconds", "3"]);
+    assert.equal(await exited(second), 3);
+    const status = await readTaskStatus(statusPath);
+    assert.equal(status?.state, "error");
+    assert.match(status?.message ?? "", /already running in the background.*isn't answering/);
+    assert.equal(await stopTray(stuck, port), 0);
+    await exited(first);
+  });
+
+  test("REGRESSION (review): a 'busy' port (a Granted still compiling) is waited for, not reported as another program", async () => {
+    const port = takePort();
+    // Accepts at once but answers the first request only after 12 s (longer
+    // than the tray's 10 s first probe), like `next dev` compiling its first page.
+    let first = true;
+    const slow: Server = await new Promise((r) => {
+      const s = createServer((_q, res) => {
+        const delay = first ? 12_000 : 0;
+        first = false;
+        setTimeout(() => res.end(GRANTED_HTML), delay);
+      });
+      s.listen(port, "127.0.0.1", () => r(s));
+    });
+    try {
+      const statusPath = join(root, "status-busy.json");
+      const tray = startTray(scaffold, port, ["-StatusPath", statusPath]);
+      assert.equal(await exited(tray), 0, "it waited, then found Granted already running");
+      assert.equal(existsSync(statusPath), false, "no 'another program' error written");
+    } finally {
+      slow.close();
+    }
   });
 
   test("a second launch for the same port doesn't start a second server", async () => {
@@ -186,15 +276,11 @@ describe("granted-tray.ps1 and shortcuts.ps1, run for real", { skip: (process.pl
       port,
       statusPath,
     });
-    // Exactly ipc.ts's launchTray: through `cmd /c start` (see cmdStartLine).
-    const child = spawn("cmd.exe", ["/d", "/s", "/c", cmdStartLine(file, args)], {
+    // Exactly ipc.ts's launchTray: PowerShell Start-Process (see startProcessCommand).
+    await execFileAsync("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", startProcessCommand(file, args)], {
       cwd: scaffold,
-      detached: true,
-      stdio: "ignore",
       windowsHide: true,
-      windowsVerbatimArguments: true,
     });
-    started.push(child);
     assert.equal(await until(() => probeGranted(`http://127.0.0.1:${port}/`, 2000), (p) => p === "granted", 60_000), "granted");
     assert.equal((await readTaskStatus(statusPath))?.state, "running");
     assert.equal(await stopTray(scaffold, port), 0);

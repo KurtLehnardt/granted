@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import {
   applyApiKeys,
   buildTaskScript,
-  cmdStartLine,
   decideStatusPoll,
   envIsLocalConfigured,
   escapeForAppleScript,
@@ -19,11 +18,13 @@ import {
   psSingleQuoted,
   resolveTaskStatus,
   shouldReattach,
+  startProcessCommand,
   STATUS_LOCK_LINE,
   statusLockPath,
   TASK_WINDOW_CLOSED_MESSAGE,
   trayLaunchCommand,
   upsertEnv,
+  windowsArgLine,
 } from "../ipcPure";
 
 describe("parseVersionFromOutput", () => {
@@ -477,22 +478,29 @@ describe("trayLaunchCommand", () => {
   });
 });
 
-describe("cmdStartLine", () => {
-  test("wraps the whole thing for cmd /s /c, with an empty start title and the program quoted", () => {
-    assert.equal(cmdStartLine("C:\\Windows\\System32\\conhost.exe", ["--headless"]), '"start "" "C:\\Windows\\System32\\conhost.exe" --headless"');
+describe("windowsArgLine / startProcessCommand", () => {
+  test("quotes only arguments with whitespace (or empty ones)", () => {
+    assert.equal(
+      windowsArgLine(["--headless", "C:\\Users\\Jo Smith\\tray.ps1", "-Port", "3000", ""]),
+      '--headless "C:\\Users\\Jo Smith\\tray.ps1" -Port 3000 ""',
+    );
   });
 
-  test("quotes arguments with spaces or cmd metacharacters, leaves plain ones alone", () => {
-    const line = cmdStartLine("C:\\x.exe", ["-File", "C:\\Users\\Jo Smith\\tray.ps1", "-Port", "3000", "C:\\a&b\\s.json", "C:\\50%\\x"]);
-    assert.equal(line, '"start "" "C:\\x.exe" -File "C:\\Users\\Jo Smith\\tray.ps1" -Port 3000 "C:\\a&b\\s.json" "C:\\50%\\x""');
+  test("refuses an argument containing a double quote", () => {
+    assert.throws(() => windowsArgLine(['a"b']));
   });
 
-  test("an apostrophe (O'Brien) passes through untouched", () => {
-    assert.match(cmdStartLine("C:\\x.exe", ["C:\\Users\\O'Brien\\t.ps1"]), / C:\\Users\\O'Brien\\t\.ps1"$/);
+  test("Start-Process with everything as single-quoted PowerShell literals", () => {
+    assert.equal(
+      startProcessCommand("C:\\Windows\\System32\\conhost.exe", ["--headless", "-Port", "3000"]),
+      "Start-Process -FilePath 'C:\\Windows\\System32\\conhost.exe' -ArgumentList '--headless -Port 3000'",
+    );
   });
 
-  test("refuses an argument containing a double quote (it can't be quoted safely)", () => {
-    assert.throws(() => cmdStartLine("C:\\x.exe", ['a"b']));
+  test("REGRESSION (review): %VAR%, !VAR!, $ and ' in a path reach the program literally — no cmd expansion", () => {
+    const cmd = startProcessCommand("C:\\x.exe", ["-File", "C:\\Users\\a%USERNAME%b\\it's $x !y!\\tray.ps1"]);
+    // Single-quoted: PowerShell expands nothing; the only escape is '' for '.
+    assert.equal(cmd, "Start-Process -FilePath 'C:\\x.exe' -ArgumentList '-File \"C:\\Users\\a%USERNAME%b\\it''s $x !y!\\tray.ps1\"'");
   });
 });
 

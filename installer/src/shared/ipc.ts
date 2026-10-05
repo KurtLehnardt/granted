@@ -134,6 +134,11 @@ export interface TaskStatusEvent {
   background?: boolean;
 }
 
+/** startGranted's result: `background` says whether it's starting in the background (tray icon) or a console window. */
+export interface StartResult extends ActionResult {
+  background?: boolean;
+}
+
 /** Which "Granted" shortcuts to create (the installer's checkboxes). */
 export interface ShortcutChoice {
   desktop: boolean;
@@ -157,7 +162,7 @@ export interface GrantedInstallerApi {
   /** Opens a PowerShell window running `npm run setup:local -- --yes`; a TaskStatusEvent follows. */
   runLocalSetup: () => Promise<ActionResult>;
   /** Starts Granted in the background (tray icon) and opens the browser once it answers; a TaskStatusEvent follows. */
-  startGranted: () => Promise<ActionResult>;
+  startGranted: () => Promise<StartResult>;
   onTaskStatus: (listener: (status: TaskStatusEvent) => void) => () => void;
   /** Creates the "Granted" Desktop and/or Start menu shortcut. */
   createShortcuts: (choice: ShortcutChoice) => Promise<ShortcutsResult>;
