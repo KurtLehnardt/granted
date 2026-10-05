@@ -8,7 +8,7 @@
 import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { INSTALL_WINDOW_CLOSE_SECONDS, windowsInstallScriptFor } from "../ipcPure";
@@ -48,16 +48,25 @@ describe("the install window closes itself only after a successful install", { s
 
   const report = (state: string): string =>
     `Set-Content -LiteralPath $env:GRANTED_STATUS_FILE -Value '{"state":"${state}","message":null,"pid":0}' -Encoding utf8`;
+  /**
+   * The install the way the real one-liner runs it: a script string through
+   * `iex` (irm … | iex). The real install-windows.ps1 ends a successful run
+   * with `return` and an error with `exit 1` (Die) -- which behave differently
+   * inside iex, and that difference is what makes the window close or stay.
+   */
+  const viaIex = (body: string): string => `iex @'\r\n${body}\r\n'@`;
 
-  test("done: the window closes by itself (exit 0) a few seconds later", async () => {
-    const started = Date.now();
-    const result = await runWindow("done", report("done"), (INSTALL_WINDOW_CLOSE_SECONDS + 20) * 1000);
+  test("done (the install script's `return`, run through iex): the window closes by itself (exit 0) a few seconds later", async () => {
+    const t0 = Date.now();
+    const result = await runWindow("done", viaIex(`${report("done")}\r\nreturn\r\nWrite-Host 'never'`), (INSTALL_WINDOW_CLOSE_SECONDS + 20) * 1000);
     assert.equal(result, 0);
-    assert.ok(Date.now() - started >= INSTALL_WINDOW_CLOSE_SECONDS * 1000, "after the few seconds that let 'Installed' be read");
+    assert.ok(Date.now() - t0 >= INSTALL_WINDOW_CLOSE_SECONDS * 1000, "after the few seconds that let 'Installed' be read");
   });
 
-  test("an error (the install script's Die: report, then exit 1): the window stays open", async () => {
-    assert.equal(await runWindow("error", `${report("error")}; exit 1`, (INSTALL_WINDOW_CLOSE_SECONDS + 5) * 1000), "still open");
+  test("an error (the install script's Die: report, then `exit 1`, through iex): the window stays open", async () => {
+    assert.equal(await runWindow("error", viaIex(`${report("error")}\r\nexit 1`), (INSTALL_WINDOW_CLOSE_SECONDS + 5) * 1000), "still open");
+    // The stand-in really ran (so "still open" isn't just a slow start).
+    assert.match(await readFile(join(root, "error.json"), "utf8"), /"state":"error"/);
   });
 
   test("no status at all (the install never got going): the window stays open", async () => {

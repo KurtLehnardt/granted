@@ -322,11 +322,16 @@ if ($existingInstall) {
     git clone --no-checkout $RepoUrl $TargetDir
     Assert-LastExitCode "git clone failed. If $TargetDir was partially created, remove it before re-running."
     git -C $TargetDir -c advice.detachedHead=false checkout --quiet "refs/tags/$Ref"
-    Assert-LastExitCode "Couldn't check out Granted $Ref (is it a published release?). Remove $TargetDir before re-running."
+    if ($LASTEXITCODE -ne 0) {
+      # This run just created the folder (it held no install): remove it, so a
+      # re-run isn't blocked by a half-made clone.
+      Remove-Item -LiteralPath $TargetDir -Recurse -Force -ErrorAction SilentlyContinue
+      Die "Couldn't check out Granted $Ref (is it a published release?)."
+    }
   } else {
     git clone $RepoUrl $TargetDir
+    Assert-LastExitCode "git clone failed. If $TargetDir was partially created, remove it before re-running."
   }
-  Assert-LastExitCode "git clone failed. If $TargetDir was partially created, remove it before re-running."
   # Marks this clone as made by the installer (inside .git, so git never
   # sees it): only such clones are listed in Installed apps -- a folder that
   # was already here may be someone's own checkout, which Settings must never

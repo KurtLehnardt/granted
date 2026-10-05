@@ -96,9 +96,11 @@ describe("the Windows install command", () => {
     const lines = script.split("\r\n");
     assert.equal(lines[0], "$env:GRANTED_STATUS_FILE = 'C:\\Temp\\it''s.json'");
     assert.equal(lines[1], windowsInstallCommand("v0.2.0"));
-    assert.match(script, /Get-Content -LiteralPath 'C:\\Temp\\it''s\.json' -Raw \| ConvertFrom-Json/);
+    assert.match(script, /Get-Content -LiteralPath 'C:\\Temp\\it''s\.json' -Raw -ErrorAction Stop \| ConvertFrom-Json/);
     assert.match(script, /if \(\$grantedStatus -and \$grantedStatus\.state -eq 'done'\) \{[\s\S]*\[Environment\]::Exit\(0\)[\s\S]*\}/);
-    assert.ok(!/\n(?!.*\r)/.test(script.replace(/\r\n/g, "")), "CRLF throughout");
+    assert.ok(!/(?<!\r)\n/.test(script), "CRLF throughout");
+    assert.match(script, /Remove-Item Env:GRANTED_STATUS_FILE/, "a later paste into a left-open window can't report into this attempt");
+    assert.match(script, /Get-Content -LiteralPath '[^']*(?:''[^']*)*' -Raw -ErrorAction Stop/, "no second error if the status file was never written");
   });
 });
 

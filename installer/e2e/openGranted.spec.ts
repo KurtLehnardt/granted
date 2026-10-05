@@ -12,6 +12,7 @@ import {
   GRANTED_HTML,
   TEST_PORT,
   TEST_URL,
+  closeEverything,
   killWindowsOpenedSince,
   launchInstaller,
   makeFakeInstall,
@@ -50,9 +51,11 @@ test.afterEach(async () => {
   // The tray and console windows BEFORE the app: anything started via
   // `cmd /c start` inherits the app's stdio pipe handles (Playwright's,
   // here), so while one is still running app.close() hangs.
+  // (Flaky on CI twice: a window opened by "Try again" just as the test ended
+  // was still starting, missed by a single sweep -- closeEverything keeps
+  // sweeping, and never lets app.close() hang the run.)
   if (install) stopTestTray(install);
-  killWindowsOpenedSince(windowsBefore);
-  await app?.close().catch(() => {});
+  await closeEverything(app, windowsBefore);
   app = undefined;
   install?.cleanup();
 });

@@ -238,6 +238,18 @@ describe("install-windows.ps1 with GRANTED_REF (a pinned release)", { skip: (pro
     assert.equal(versionIn(home), "0.1.0");
   });
 
+  test("REGRESSION (review): a release that can't be checked out leaves no half-made folder behind, so a re-run works", async () => {
+    const source = makeSource();
+    const home = freshHome();
+    const r = await runInstall(home, source, "v0.9.9"); // no such release
+    assert.equal(r.state, "error");
+    assert.match(r.message ?? "", /Couldn't check out Granted v0\.9\.9/);
+    assert.equal(existsSync(join(home, "granted")), false, "the clone it just made is gone");
+    const retry = await runInstall(home, source, "v0.1.0");
+    assert.equal(retry.state, "done", retry.output);
+    assert.equal(versionIn(home), "0.1.0");
+  });
+
   test("a GRANTED_REF that isn't a release tag is refused before anything is done", async () => {
     const home = freshHome();
     const r = await runInstall(home, makeSource(), "main; Remove-Item x");

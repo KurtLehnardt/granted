@@ -165,8 +165,13 @@ export default function InstallComplete(): React.JSX.Element {
             </fieldset>
           )}
           {setup?.appWindowAvailable && (
-            <label className="open-in-option">
-              <input type="checkbox" checked={ownWindow} onChange={(e) => setOwnWindow(e.target.checked)} />
+            <label className="open-in-option" title="In its own window, like an app. Untick to open it in a browser tab instead.">
+              <input
+                type="checkbox"
+                checked={ownWindow}
+                onChange={(e) => setOwnWindow(e.target.checked)}
+                aria-description="In its own window, like an app. Untick to open it in a browser tab instead."
+              />
               Open Granted
             </label>
           )}

@@ -590,8 +590,13 @@ export function windowsInstallScriptFor(statusPath: string, command: string): st
   return [
     `$env:GRANTED_STATUS_FILE = ${status}`,
     command,
+    // The window may stay open, and anything pasted into it later must not
+    // report into this attempt's status file.
+    `Remove-Item Env:GRANTED_STATUS_FILE -ErrorAction SilentlyContinue`,
     `$grantedStatus = $null`,
-    `try { $grantedStatus = Get-Content -LiteralPath ${status} -Raw | ConvertFrom-Json } catch { }`,
+    // -ErrorAction Stop: if the download failed before the install wrote any
+    // status, no second (misleading) red "path not found" error under the real one.
+    `try { $grantedStatus = Get-Content -LiteralPath ${status} -Raw -ErrorAction Stop | ConvertFrom-Json } catch { }`,
     `if ($grantedStatus -and $grantedStatus.state -eq 'done') {`,
     `  Write-Host ""`,
     `  Write-Host "Installed. This window closes in ${INSTALL_WINDOW_CLOSE_SECONDS} seconds -- carry on in the Granted installer." -ForegroundColor Green`,
