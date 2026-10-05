@@ -213,6 +213,11 @@ if (Test-Path "$TargetDir\scaffold\package.json") {
   Log "Cloning $RepoUrl into .\$TargetDir ..."
   git clone $RepoUrl $TargetDir
   Assert-LastExitCode "git clone failed. If $TargetDir was partially created, remove it before re-running."
+  # Marks this clone as made by the installer (inside .git, so git never
+  # sees it): only such clones are listed in Installed apps -- a folder that
+  # was already here may be someone's own checkout, which Settings must never
+  # offer to delete. See scaffold\scripts\windows\uninstall.ps1.
+  Set-Content -LiteralPath (Join-Path $TargetDir ".git\granted-installer") -Value "Cloned by install-windows.ps1 on $(Get-Date -Format s)" -Encoding ascii
   Ok "cloned"
 }
 
@@ -223,6 +228,27 @@ Log "Installing npm dependencies..."
 npm ci
 Assert-LastExitCode "npm ci failed -- see the output above for the underlying error."
 Ok "dependencies installed"
+
+# 5) List Granted in Settings -> Apps -> Installed apps (per-user, no admin),
+# so it can be uninstalled from there like any other app -- only a clone this
+# script made (see the marker above). Never fails the install: Granted works
+# the same without the entry. -LiteralPath / .FullName: a folder name with
+# [brackets] is a wildcard pattern to Test-Path and Resolve-Path.
+$uninstallScript = Join-Path (Get-Location).ProviderPath "scripts\windows\uninstall.ps1"
+if (Test-Path -LiteralPath $uninstallScript) {
+  try {
+    $registered = (& $uninstallScript -Register -InstallDir (Get-Item -LiteralPath "..").FullName | Select-Object -Last 1) | ConvertFrom-Json
+    if ($registered.registered) {
+      Ok "added to Installed apps (uninstall it from Settings -> Apps)"
+    } elseif ($registered.reason -eq "not-made-by-installer") {
+      Ok "not added to Installed apps: $TargetDir was already here before this install (your own checkout?)"
+    } else {
+      Warn "Couldn't add Granted to Installed apps ($($registered.detail)). Granted still works."
+    }
+  } catch {
+    Warn "Couldn't add Granted to Installed apps ($($_.Exception.Message)). Granted still works."
+  }
+}
 
 Write-Status "done" $null
 Log "Done. Next steps:"
