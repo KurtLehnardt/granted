@@ -2,13 +2,15 @@
   "name": "granted-installer",
   "version": "0.1.0",
   "private": true,
-  "description": "Cross-platform GUI installer wizard for Granted.",
+  "description": "Granted installer",
+  "author": "Kurt Lehnardt",
   "main": "./out/main/index.js",
   "scripts": {
     "postinstall": "node -e \"console.log('Fetching the Electron binary (~100 MB download on first install, can take a minute)...')\" && install-electron",
     "dev": "node scripts/run-electron-vite.mjs dev",
     "build": "electron-vite build",
     "preview": "node scripts/run-electron-vite.mjs preview",
+    "dist": "npm run build && electron-builder --win portable --x64 --publish never",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "tsx --test \"src/**/__tests__/**/*.test.ts\"",
     "test:integration": "tsx --test \"src/**/__tests__/**/*.integration.test.ts\"",
@@ -16,6 +18,32 @@
   },
   "engines": {
     "node": ">=22"
+  },
+  "build": {
+    "appId": "io.github.kurtlehnardt.granted.setup",
+    "productName": "Granted Setup",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "out/**",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "../scaffold/scripts/windows/granted.ico",
+      "requestedExecutionLevel": "asInvoker"
+    },
+    "portable": {
+      "artifactName": "Granted-Setup-${version}.exe"
+    }
   },
   "dependencies": {
     "react": "^19.3.0",
@@ -28,6 +56,7 @@
     "@types/react-dom": "^19.0.2",
     "@vitejs/plugin-react": "^4.3.4",
     "electron": "^44.5.1",
+    "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3",

@@ -7,7 +7,8 @@
 # box, notably Windows Server), clones the repo, and runs `npm ci` (installs
 # exactly what's in package-lock.json, and never rewrites it).
 # Safe to re-run: skips anything already present/done (npm ci does remove and
-# reinstall node_modules each time, which is expected).
+# reinstall node_modules each time, which is expected). Set GRANTED_REF to a
+# release tag (v1.2.3) to install that release instead of main.
 #
 # After this finishes, `cd granted\scaffold` and run `npm run setup` (hosted
 # API keys) or `npm run setup:local -- --yes` (fully local via Ollama), then
@@ -75,8 +76,15 @@ Write-Status "running" $null
 # TLS 1.2 before any web request.
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$RepoUrl = "https://github.com/KurtLehnardt/granted.git"
+# GRANTED_REPO_URL: tests point this at a local repo.
+$RepoUrl = if ($env:GRANTED_REPO_URL) { $env:GRANTED_REPO_URL } else { "https://github.com/KurtLehnardt/granted.git" }
 $TargetDir = if ($env:GRANTED_INSTALL_DIR) { $env:GRANTED_INSTALL_DIR } else { "granted" }
+# GRANTED_REF: install this release (a tag like v1.2.3) instead of the latest
+# code on main. The downloadable installer (Granted-Setup-x.y.z.exe) sets it
+# to its own version -- or to a newer release, if the user asked it to check
+# for updates -- and an install made by this script is moved to it on a re-run.
+$Ref = $env:GRANTED_REF
+if ($Ref -and $Ref -notmatch '^v\d+\.\d+\.\d+$') { Die "GRANTED_REF must be a release tag like v1.2.3 (got '$Ref')." }
 $NodeMajorMin = 22
 
 function Have($cmd) { return [bool](Get-Command $cmd -ErrorAction SilentlyContinue) }
@@ -209,9 +217,30 @@ if (-not $nodeOk) {
 # guessing whether it's safe to delete.
 if (Test-Path "$TargetDir\scaffold\package.json") {
   Ok "$TargetDir already cloned"
+  # Asked for a specific release: move an install THIS script made to it (an
+  # update) -- never someone's own checkout (no marker), and never over
+  # changes made in the folder.
+  if ($Ref) {
+    if (-not (Test-Path -LiteralPath (Join-Path $TargetDir ".git\granted-installer"))) {
+      Warn "Not changing $TargetDir to $Ref -- it wasn't installed by this installer (your own checkout?)."
+    } elseif (git -C $TargetDir status --porcelain) {
+      Warn "Not changing $TargetDir to $Ref -- it has local changes."
+    } else {
+      Log "Switching $TargetDir to Granted $Ref ..."
+      git -C $TargetDir fetch --quiet --tags origin
+      Assert-LastExitCode "Couldn't download Granted $Ref (git fetch failed)."
+      git -C $TargetDir -c advice.detachedHead=false checkout --quiet $Ref
+      Assert-LastExitCode "Couldn't switch $TargetDir to $Ref (git checkout failed)."
+      Ok "now at $Ref"
+    }
+  }
 } else {
   Log "Cloning $RepoUrl into .\$TargetDir ..."
-  git clone $RepoUrl $TargetDir
+  if ($Ref) {
+    git -c advice.detachedHead=false clone --branch $Ref $RepoUrl $TargetDir
+  } else {
+    git clone $RepoUrl $TargetDir
+  }
   Assert-LastExitCode "git clone failed. If $TargetDir was partially created, remove it before re-running."
   # Marks this clone as made by the installer (inside .git, so git never
   # sees it): only such clones are listed in Installed apps -- a folder that
@@ -224,6 +253,12 @@ if (Test-Path "$TargetDir\scaffold\package.json") {
 # 4) npm ci -- installs exactly what package-lock.json pins, and never rewrites it
 # (unlike `npm install`, which can touch the lockfile on a version/registry mismatch).
 Set-Location "$TargetDir\scaffold"
+# A re-run (an update, say) while Granted is running in the background:
+# quit it first -- its server holds files in node_modules that npm ci is
+# about to replace. (Exit 1 = it wasn't running.)
+if (Test-Path -LiteralPath "scripts\windows\granted-tray.ps1") {
+  try { & ".\scripts\windows\granted-tray.ps1" -Stop | Out-Null } catch { }
+}
 Log "Installing npm dependencies..."
 npm ci
 Assert-LastExitCode "npm ci failed -- see the output above for the underlying error."

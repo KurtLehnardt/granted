@@ -1,0 +1,109 @@
+name: release
+
+# Publishes a GitHub Release with the downloadable Windows installer,
+# Granted-Setup-<version>.exe, whenever a version tag is pushed. To release:
+#   1. Set "version" to the new version (e.g. 0.2.0) in BOTH
+#      installer/package.json and scaffold/package.json, and merge that.
+#   2. Tag main and push the tag:
+#        git tag v0.2.0 && git push origin v0.2.0
+# This workflow checks the tag matches both versions, runs the installer's
+# tests, builds the .exe with the tag baked in (so it installs exactly that
+# release, or a newer one if the user ticks "check for updates" -- see
+# installer/src/main/release.ts), smoke-tests the packaged app, and creates
+# the release with the .exe and its SHA-256 checksum attached.
+#
+# The .exe is not code-signed yet, so Windows SmartScreen shows "Windows
+# protected your PC" until it is; the release notes tell users what to click.
+# Signing slots in as a step between "Build" and "Smoke-test" once a
+# certificate (or SignPath, free for open source) is set up.
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows-installer:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: installer
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Check the tag matches the versions
+        shell: pwsh
+        run: |
+          $version = $env:TAG.TrimStart('v')
+          $installer = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $scaffold = (Get-Content ../scaffold/package.json -Raw | ConvertFrom-Json).version
+          if ($env:TAG -notmatch '^v\d+\.\d+\.\d+$') { Write-Error "Tag $env:TAG isn't vMAJOR.MINOR.PATCH"; exit 1 }
+          if ($installer -ne $version -or $scaffold -ne $version) {
+            Write-Error "Tag $env:TAG doesn't match installer/package.json ($installer) and scaffold/package.json ($scaffold). Bump both, merge, then tag."
+            exit 1
+          }
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: installer/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit + integration tests
+        run: npm test
+
+      - name: Build Granted-Setup-x.y.z.exe
+        env:
+          GRANTED_RELEASE_TAG: ${{ github.ref_name }}
+        run: npm run dist
+
+      - name: Smoke-test the packaged installer
+        env:
+          GRANTED_PACKAGED_EXE: ${{ github.workspace }}\installer\dist\win-unpacked\Granted Setup.exe
+          GRANTED_EXPECT_TAG: ${{ github.ref_name }}
+        run: npx playwright test e2e/packaged.spec.ts
+
+      - name: Checksum
+        shell: pwsh
+        run: |
+          $exe = Get-Item "dist/Granted-Setup-$($env:TAG.TrimStart('v')).exe"
+          $hash = (Get-FileHash $exe.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $($exe.Name)" | Set-Content -Encoding ascii dist/SHA256SUMS.txt
+          Get-Content dist/SHA256SUMS.txt
+
+      - name: Publish the release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $exe = "dist/Granted-Setup-$($env:TAG.TrimStart('v')).exe"
+          $notes = @"
+          ## Install on Windows
+
+          1. Download **$(Split-Path -Leaf $exe)** below and double-click it.
+          2. Windows may say **"Windows protected your PC"**: the installer isn't code-signed yet. Click **More info**, then **Run anyway**.
+          3. Follow the steps. It installs Git and Node.js if they're missing, then Granted, and can open it for you.
+
+          The installer installs Granted $env:TAG. Tick **"Check for and install the latest version of Granted"** (on by default) to get a newer release instead, if there is one. Uninstall Granted from **Settings -> Apps -> Installed apps**.
+
+          Checksum (SHA-256): see SHA256SUMS.txt.
+          "@
+          Set-Content -Path release-notes.md -Value $notes -Encoding utf8
+          gh release create $env:TAG $exe dist/SHA256SUMS.txt --title "Granted $env:TAG" --notes-file release-notes.md --generate-notes --verify-tag

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { InstallStatusEvent, OpenInstallTerminalResult, PrereqReport } from "../../../shared/ipc";
+import type { InstallStatusEvent, InstallVersionPlan, OpenInstallTerminalResult, PrereqReport } from "../../../shared/ipc";
 
 type LoadState =
   | { status: "loading" }
@@ -27,6 +27,24 @@ export default function PrereqCheck({ onInstallComplete }: PrereqCheckProps): Re
   // into starting a second, racing install. Only ever set on Windows — it's
   // the only platform that reports a real completion event (see below).
   const [waitingForInstall, setWaitingForInstall] = useState(false);
+  // "Check for and install the latest version" (a release build only: a
+  // development build installs main). Re-planned whenever it's toggled.
+  const [checkForUpdates, setCheckForUpdates] = useState(true);
+  const [plan, setPlan] = useState<InstallVersionPlan | null>(null);
+  const [planning, setPlanning] = useState(false);
+
+  useEffect(() => {
+    let current = true;
+    setPlanning(true);
+    window.api
+      .planInstallVersion(checkForUpdates)
+      .then((p) => current && setPlan(p))
+      .catch(() => current && setPlan(null))
+      .finally(() => current && setPlanning(false));
+    return () => {
+      current = false;
+    };
+  }, [checkForUpdates]);
 
   const refreshPrereqs = useCallback((): void => {
     setState((prev) => (prev.status === "loaded" ? prev : { status: "loading" }));
@@ -76,7 +94,7 @@ export default function PrereqCheck({ onInstallComplete }: PrereqCheckProps): Re
     setOpeningTerminal(true);
     setTerminalResult(null);
     window.api
-      .openInstallTerminal()
+      .openInstallTerminal(checkForUpdates)
       .then((result) => {
         setTerminalResult(result);
         // Main process is the source of truth for whether a
@@ -130,12 +148,29 @@ export default function PrereqCheck({ onInstallComplete }: PrereqCheckProps): Re
         </>
       )}
 
+      {plan?.pinned && (
+        <div className="update-option">
+          <label>
+            <input
+              type="checkbox"
+              checked={checkForUpdates}
+              onChange={(e) => setCheckForUpdates(e.target.checked)}
+              disabled={busy}
+            />
+            Check for and install the latest version of Granted
+          </label>
+          <p className="detail" data-testid="install-version">
+            {planning ? "Checking for a newer version…" : versionNote(plan)}
+          </p>
+        </div>
+      )}
+
       <div className="actions">
         <button
           type="button"
           className={satisfied ? "primary" : "secondary"}
           onClick={handleOpenTerminal}
-          disabled={busy}
+          disabled={busy || planning}
         >
           {openingTerminal
             ? "Opening…"
@@ -155,6 +190,15 @@ export default function PrereqCheck({ onInstallComplete }: PrereqCheckProps): Re
       )}
     </main>
   );
+}
+
+/** What the install will set up, in words. */
+function versionNote(plan: InstallVersionPlan): string {
+  const own = `Granted ${plan.pinned} (this installer's version)`;
+  if (!plan.checkForUpdates) return `${own} will be installed.`;
+  if (plan.checkFailed) return `Couldn't check for updates, so ${own} will be installed.`;
+  if (plan.ref !== plan.pinned) return `A newer version is available: Granted ${plan.ref} will be installed.`;
+  return `Granted ${plan.pinned} is the latest version.`;
 }
 
 function ToolRow({

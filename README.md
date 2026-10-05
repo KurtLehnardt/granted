@@ -57,6 +57,13 @@ npm run dev
 
 ## Install on Windows
 
+**Easiest: download the installer.** Get **Granted-Setup-x.y.z.exe** from the [latest release](https://github.com/KurtLehnardt/granted/releases/latest) and double-click it.
+- **SmartScreen warning:** the installer isn't code-signed yet, so Windows may say "Windows protected your PC". Click **More info**, then **Run anyway**.
+- **What it does:** it walks you through everything. It installs Git and Node.js if they're missing, then installs Granted, offers Desktop and Start menu shortcuts, and can open Granted for you. Uninstall it from **Settings → Apps → Installed apps**.
+- **Which version:** each installer installs its own release. With **"Check for and install the latest version of Granted"** ticked (the default), it installs a newer release instead, if there is one. Run a newer installer over an existing install to update it.
+
+Prefer the command line? The steps below do the same thing, from `main`.
+
 *The app's local-model flow is verified end to end on Windows 11 (HP ZBook, 32GB RAM, 4GB Quadro P1000): qwen2.5:3b + nomic-embed-text, fully local, a novel-company search scoring 34 candidates completed in 7m33s. `install-windows.ps1` itself is separately verified on a fresh Windows Server 2022 box with no `winget` present, forcing the direct-download fallback path for both Node and git.*
 
 **1. Install prerequisites + clone (one command, PowerShell)**
@@ -272,3 +279,18 @@ Results **stream**. Progress and grounded evidence appear in seconds rather than
 **Built with:** Next.js · TypeScript · Tailwind · OpenAI (embeddings) · Anthropic Claude (scoring & explanations).
 
 **License:** see [LICENSE](LICENSE).
+
+## Releasing (maintainers)
+
+Releases publish the Windows installer, `Granted-Setup-x.y.z.exe`, through `.github/workflows/release.yml`.
+1. Set `"version"` to the new version in **both** `installer/package.json` and `scaffold/package.json`, and merge that.
+2. Tag `main` and push the tag: `git tag v0.2.0 && git push origin v0.2.0`.
+
+The workflow:
+- checks that the tag matches both versions;
+- runs the installer's tests;
+- builds the `.exe` with the tag baked in, so it installs exactly that release (or a newer one, when asked);
+- smoke-tests the packaged app;
+- publishes the release with the `.exe` and a SHA-256 checksum.
+
+To build it locally: `cd installer; $env:GRANTED_RELEASE_TAG='v0.2.0'; npm run dist`, which writes `installer\dist\Granted-Setup-<version>.exe`.

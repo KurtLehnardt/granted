@@ -214,6 +214,21 @@ button.choice span {
   gap: 6px;
 }
 
+.update-option {
+  margin: 16px 0 0;
+  font-size: 14px;
+}
+
+.update-option label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.update-option .detail {
+  margin: 4px 0 0 22px;
+}
+
 .open-in-option {
   display: flex;
   align-items: center;
