@@ -52,14 +52,31 @@ export function installInfo(
 }
 
 /**
- * The per-user settings file the Windows tray, open-granted.ps1 and the
- * installer share: %LOCALAPPDATA%\Granted\settings.json (GRANTED_SETTINGS_PATH
- * overrides it, for tests). Elsewhere, ~/.granted/settings.json.
+ * The per-user settings file the trays, open-granted.ps1 and the installer
+ * all share:
+ *   %LOCALAPPDATA%\Granted\settings.json                        (Windows)
+ *   ~/Library/Application Support/Granted/settings.json         (macOS)
+ *   ~/.granted/settings.json                                    (elsewhere)
+ *
+ * macOS uses the platform's own per-user application-support folder, which is
+ * also what scaffold/scripts/macos/granted-tray.sh and the Swift menu-bar
+ * helper read and write — so the same `openIn` / `autoUpdate` /
+ * `lastAutoCheck` keys Windows uses are shared there too, rather than living
+ * in a second file under ~/.granted.
+ *
+ * GRANTED_SETTINGS_PATH overrides all of them (tests). LOCALAPPDATA is
+ * checked before the platform so a Windows-path test can run on any OS.
+ * `home` is injectable for the same reason.
  */
-export function settingsPath(env: Record<string, string | undefined> = process.env): string {
+export function settingsPath(
+  env: Record<string, string | undefined> = process.env,
+  platform: NodeJS.Platform = process.platform,
+  home: string = homedir(),
+): string {
   if (env["GRANTED_SETTINGS_PATH"]) return env["GRANTED_SETTINGS_PATH"];
-  const base = env["LOCALAPPDATA"] ? join(env["LOCALAPPDATA"], "Granted") : join(homedir(), ".granted");
-  return join(base, "settings.json");
+  if (env["LOCALAPPDATA"]) return join(env["LOCALAPPDATA"], "Granted", "settings.json");
+  if (platform === "darwin") return join(home, "Library", "Application Support", "Granted", "settings.json");
+  return join(home, ".granted", "settings.json");
 }
 
 function readSettings(path: string): Record<string, unknown> {

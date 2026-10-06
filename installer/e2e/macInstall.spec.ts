@@ -2,10 +2,14 @@
  * End-to-end: the built installer app on macOS, driven through its real UI,
  * reaching "Installation complete" (the install-status event win32 already
  * covers in openGranted.spec.ts, now also real on darwin) and then running
- * a FAKE Granted install's `npm run dev` / `npm run setup:local` for real
- * through the new launchMacScaffoldTask path — no console window, no tray,
- * no own app window (all separate, later work; this only exercises the
- * minimal background-process-plus-browser-tab path). The Terminal-launch
+ * a FAKE Granted install's `npm run dev` / `npm run setup:local` for real —
+ * both macOS paths: the plain detached launchMacScaffoldTask one (an install
+ * with no scripts/macos) and, for an install that has it, the real
+ * granted-tray.sh background one, where launchd runs the server under a
+ * throwaway LaunchAgent label. No menu-bar icon is started here (fixtures.ts
+ * sets GRANTED_MENUBAR_HELPER=none: a test must not put an icon on the
+ * machine's menu bar) — the Swift helper itself is covered by
+ * macTray.integration.test.ts. The Terminal-launch
  * call itself (openInstallTerminal's darwin branch) is never exercised here,
  * same as openGranted.spec.ts never exercises win32's real PowerShell
  * launch: reachInstallComplete delivers the install's "done" event directly,
@@ -24,6 +28,7 @@ import {
   openedUrls,
   reachInstallComplete,
   serveOnTestPort,
+  stopTestLaunchAgent,
   testPortIsFree,
   type FakeInstall,
 } from "./fixtures";
@@ -81,6 +86,10 @@ test.beforeEach(async ({}, testInfo) => {
 });
 
 test.afterEach(async () => {
+  // Before closing the app: the background server is launchd's child, so the
+  // installer going away doesn't stop it, and its LaunchAgent must not be
+  // left registered on this machine.
+  if (install) stopTestLaunchAgent(install);
   await closeApp(app);
   app = undefined;
   killStandIns();
@@ -130,20 +139,19 @@ test("REGRESSION: a real clone's scripts/windows/*.ps1 files (present on every p
   expect(await openedUrls(a)).toEqual([TEST_URL]);
 });
 
-test("API keys already set: Yes starts Granted via the background launchMacScaffoldTask path and opens a browser tab", async () => {
+test("API keys already set: Yes starts Granted via the detached launchMacScaffoldTask path and opens a browser tab", async () => {
   configureHostedKeys();
   const a = await start();
   await page.getByRole("button", { name: "Yes, open Granted" }).click();
   await expect(page.getByText(/Starting Granted/)).toBeVisible();
   await expect(page.getByText(/Granted is open in your browser/)).toBeVisible({ timeout: 30_000 });
-  // KNOWN GAP, not this task's job to fix (see the final report): the
-  // non-background "opened" copy in InstallComplete.tsx is a hardcoded
-  // string that says "Keep the Granted PowerShell window open" with no
-  // platform check — on macOS there is no such window (launchMacScaffoldTask
-  // has none), so this text is simply wrong here. Asserted present, not
-  // absent, so this test documents today's real (flawed) behavior rather
-  // than silently diverging from it.
-  await expect(page.getByText(/Keep the Granted PowerShell window open/)).toBeVisible();
+  // No scripts/macos in this install, so there is no LaunchAgent and no
+  // menu-bar icon to mention — and, equally, no PowerShell window: this copy
+  // used to be Windows's regardless of platform (the known gap this test
+  // recorded), and is now worded for a mac install too old to have the
+  // background runner.
+  await expect(page.getByText(/keeps running in the background until you quit it or restart your Mac/)).toBeVisible();
+  await expect(page.getByText(/PowerShell/)).toHaveCount(0);
   expect(await openedUrls(a)).toEqual([TEST_URL]);
 });
 
@@ -163,6 +171,29 @@ test("a failed local setup is reported with Try again, and doesn't start Granted
   await page.getByRole("button", { name: /Run everything on this computer/ }).click();
   await expect(page.getByRole("button", { name: "Try again" })).toBeVisible({ timeout: 15_000 });
   expect(await openedUrls(app!)).toEqual([]);
+});
+
+test("an install with scripts/macos runs Granted in the background under its LaunchAgent, and the screen points at the menu-bar icon", async () => {
+  // The real scripts/macos/granted-tray.sh, against a throwaway LaunchAgent
+  // label with no menu-bar icon (see fixtures.ts) — so this exercises the
+  // real background path the installer now takes on macOS, end to end,
+  // without touching the real com.granted.server or anyone's menu bar.
+  install.cleanup();
+  install = makeFakeInstall({ withMacScripts: true });
+  configureHostedKeys();
+  const a = await start();
+  await page.getByRole("button", { name: "Yes, open Granted" }).click();
+  await expect(page.getByText(/Starting Granted in the background/)).toBeVisible();
+  await expect(page.getByText(/Granted is open in your browser/)).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByText(/look for the/)).toBeVisible();
+  await expect(page.getByText(/icon.*in the menu bar at the top of your screen/)).toBeVisible();
+  await expect(page.getByText(/by the clock/)).toHaveCount(0);
+  expect(await openedUrls(a)).toEqual([TEST_URL]);
+  // launchd really is running it: the agent is loaded and the server's
+  // output is in the install's log folder, not a terminal.
+  const loaded = execFileSync("launchctl", ["print", `gui/${process.getuid?.() ?? 0}/${install.launchLabel}`], { encoding: "utf8" });
+  expect(loaded).toMatch(/state = running/);
+  expect(readFileSync(join(install.logDir, `server-${TEST_PORT}.log`), "utf8")).toMatch(/fake Granted listening/);
 });
 
 test("already running: Yes just opens the browser, without starting a second server", async () => {

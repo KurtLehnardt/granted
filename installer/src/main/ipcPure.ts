@@ -498,6 +498,31 @@ export function trayLaunchCommand(opts: {
 }
 
 /**
+ * macOS's equivalent of trayLaunchCommand: how to start
+ * scaffold/scripts/macos/granted-tray.sh — Granted running in the background
+ * under a per-user LaunchAgent, with a menu-bar icon, instead of a process
+ * tied to whoever started it.
+ *
+ * Run through `/bin/bash <script>` rather than the script's own shebang, for
+ * the same reason install-macos.sh is: a file fetched or copied without its
+ * executable bit still runs. There is no console-window dance to arrange
+ * (launchd gives the server no terminal at all, and the menu-bar helper
+ * detaches itself with nohup), so unlike Windows this needs no conhost and no
+ * Start-Process — just the arguments.
+ */
+export function macTrayLaunchCommand(opts: {
+  trayScript: string;
+  port: number;
+  statusPath?: string;
+  openBrowser?: boolean;
+}): { file: string; args: string[] } {
+  const args = [opts.trayScript, "start", "--port", String(opts.port)];
+  if (opts.statusPath) args.push("--status-path", opts.statusPath);
+  if (opts.openBrowser) args.push("--open-browser");
+  return { file: "/bin/bash", args };
+}
+
+/**
  * A Windows command line for `args` (the receiving program splits it the
  * standard way): an argument with whitespace — or an empty one — is
  * double-quoted. One containing a double quote is refused: a Windows path
@@ -543,12 +568,24 @@ export function parseShortcutsOutput(stdout: string): string[] | null {
 }
 
 /**
- * The per-user settings file open-granted.ps1 and the tray read and write:
- * %LOCALAPPDATA%\Granted\settings.json (GRANTED_SETTINGS_PATH overrides it,
- * for tests).
+ * The per-user settings file the trays, open-granted.ps1 and this installer
+ * read and write: %LOCALAPPDATA%\Granted\settings.json on Windows,
+ * ~/Library/Application Support/Granted/settings.json on macOS — the same two
+ * paths scaffold/lib/appUpdate/install.ts's settingsPath() resolves, so the
+ * app, the menu-bar helper and the installer share one file (and so the
+ * `openIn` the installer saves is the one the menu-bar helper later reads).
+ * GRANTED_SETTINGS_PATH overrides both, for tests.
  */
-export function grantedSettingsPath(env: Record<string, string | undefined>, home: string): string {
+export function grantedSettingsPath(
+  env: Record<string, string | undefined>,
+  home: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
   if (env["GRANTED_SETTINGS_PATH"]) return env["GRANTED_SETTINGS_PATH"];
+  // LOCALAPPDATA before the platform check, so a Windows-path test runs on any OS.
+  if (platform === "darwin" && !env["LOCALAPPDATA"]) {
+    return join(home, "Library", "Application Support", "Granted", "settings.json");
+  }
   return win32.join(env["LOCALAPPDATA"] || win32.join(home, "AppData", "Local"), "Granted", "settings.json");
 }
 

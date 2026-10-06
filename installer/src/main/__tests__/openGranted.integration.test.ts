@@ -91,6 +91,7 @@ describe("getSetupState / saveApiKeys against a real install folder", () => {
   test("a fresh install reads as installed but not configured", async () => {
     assert.deepEqual(await setupState(install.installDir), {
       installDir: install.installDir,
+      platform: process.platform,
       installed: true,
       openaiKeySet: false,
       anthropicKeySet: false,
@@ -117,6 +118,20 @@ describe("getSetupState / saveApiKeys against a real install folder", () => {
     assert.equal(state.trayAvailable, expected);
     assert.equal(state.shortcutsAvailable, expected);
     assert.equal(state.appWindowAvailable, expected);
+  });
+
+  test("an install that has scripts/macos/granted-tray.sh can run in the background on darwin only (same rule, each platform its own runner)", async () => {
+    await mkdir(join(install.scaffoldDir, "scripts", "macos"), { recursive: true });
+    await writeFile(join(install.scaffoldDir, "scripts", "macos", "granted-tray.sh"), "");
+    const state = await setupState(install.installDir);
+    // On Windows the .ps1 written by the test above is still there, so tray
+    // stays true there; what this pins down is that the .sh alone makes it
+    // true on macOS, and on neither platform does the other's file count.
+    assert.equal(state.trayAvailable, process.platform === "win32" || process.platform === "darwin");
+    // Shortcuts and its own window remain Windows-only: scripts/macos has no
+    // counterpart for either yet.
+    assert.equal(state.shortcutsAvailable, process.platform === "win32");
+    assert.equal(state.appWindowAvailable, process.platform === "win32");
   });
 
   test("saveOpenIn creates the settings file, round-trips through getSetupState, and keeps other settings", async () => {

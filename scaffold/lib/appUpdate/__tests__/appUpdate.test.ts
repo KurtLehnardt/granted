@@ -84,6 +84,26 @@ describe("settings and status (the file the tray and installer share)", () => {
     assert.equal(updateStatusPath({ GRANTED_SETTINGS_PATH: join("C:\\t", "s.json") }), join("C:\\t", "update-status.json"));
   });
 
+  // macOS's own per-user location, shared with scripts/macos/granted-tray.sh
+  // and the Swift menu-bar helper (which read and write the same openIn /
+  // autoUpdate / lastAutoCheck keys Windows uses) — not ~/.granted, which is
+  // what every non-Windows platform used before background running on macOS.
+  test("macOS: ~/Library/Application Support/Granted/settings.json; elsewhere ~/.granted", () => {
+    assert.equal(
+      settingsPath({}, "darwin", "/Users/a"),
+      join("/Users/a", "Library", "Application Support", "Granted", "settings.json"),
+    );
+    assert.equal(settingsPath({}, "linux", "/home/a"), join("/home/a", ".granted", "settings.json"));
+    // The overrides still win on macOS, in the same order.
+    assert.equal(settingsPath({ GRANTED_SETTINGS_PATH: "/t/s.json" }, "darwin", "/Users/a"), "/t/s.json");
+    assert.equal(settingsPath({ LOCALAPPDATA: "C:\\L" }, "darwin", "/Users/a"), join("C:\\L", "Granted", "settings.json"));
+    // update-status.json follows the settings file, so it lands there too.
+    assert.equal(
+      updateStatusPath({ GRANTED_SETTINGS_PATH: join("/Users/a/Library/Application Support/Granted", "settings.json") }),
+      join("/Users/a/Library/Application Support/Granted", "update-status.json"),
+    );
+  });
+
   test("auto-update is off unless turned on; saving keeps the file's other settings (e.g. openIn)", () => {
     const p = join(dir, "s1", "settings.json");
     assert.deepEqual(readUpdateSettings(p), { autoUpdate: false, lastAutoCheck: null });

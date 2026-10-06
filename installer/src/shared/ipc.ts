@@ -101,6 +101,13 @@ export interface InstallVersionPlan {
 export interface GrantedSetupState {
   /** Absolute path of the clone (install-windows.ps1's $TargetDir, resolved). */
   installDir: string;
+  /**
+   * process.platform, so the screen can word what it says about running in
+   * the background for the machine it's on (a tray icon "by the clock" on
+   * Windows, an icon in the menu bar on macOS) rather than fetching the
+   * prereq report again just to learn which OS this is.
+   */
+  platform: string;
   /** True once the clone's scaffold/package.json exists. */
   installed: boolean;
   /** OPENAI_API_KEY is set to a real (non-placeholder) value. */
@@ -113,7 +120,12 @@ export interface GrantedSetupState {
   localConfigured: boolean;
   /** A model provider was already chosen in Granted's Settings → Model (data/local/llm-config.json), e.g. Gemini or Groq. */
   settingsProviderSet: boolean;
-  /** This install has scripts/windows/granted-tray.ps1, so Granted can run in the background with a tray icon. */
+  /**
+   * This install has its platform's background runner, so Granted can run
+   * with no window to keep open: scripts/windows/granted-tray.ps1 (a tray
+   * icon by the clock) on Windows, scripts/macos/granted-tray.sh (a LaunchAgent
+   * plus a menu-bar icon) on macOS.
+   */
   trayAvailable: boolean;
   /** This install has scripts/windows/shortcuts.ps1, so Desktop/Start menu shortcuts can be offered. */
   shortcutsAvailable: boolean;
@@ -151,9 +163,13 @@ export interface TaskStatusEvent {
   /** start-app only: where Granted is (or would have been) served. */
   url?: string;
   /**
-   * start-app only: Granted runs in the background with a tray icon
-   * (scripts/windows/granted-tray.ps1) rather than in a console window the
-   * user must keep open. False only for an older install without that script.
+   * start-app only: Granted runs in the background with an icon that can
+   * open and quit it — a tray icon (scripts/windows/granted-tray.ps1) on
+   * Windows, a menu-bar icon over a LaunchAgent
+   * (scripts/macos/granted-tray.sh) on macOS — rather than in a console
+   * window the user must keep open, or (on macOS) a plain detached process
+   * with nothing to manage it. False only for an older install without that
+   * script.
    */
   background?: boolean;
   /** start-app "done" only: whether Granted opened in its own window or a browser tab. */

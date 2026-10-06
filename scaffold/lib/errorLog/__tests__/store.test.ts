@@ -37,6 +37,14 @@ describe("where the log lives", () => {
   test("Windows: %LOCALAPPDATA%\\Granted\\logs (next to the tray's server log)", () => {
     assert.equal(errorLogDir({ LOCALAPPDATA: join("C", "AppData", "Local") }), join("C", "AppData", "Local", "Granted", "logs"));
   });
+  // Also next to the server log on macOS: scripts/macos/granted-tray.sh writes
+  // server-<port>.log into exactly this folder, the platform's own per-user
+  // log location.
+  test("macOS: ~/Library/Logs/Granted; elsewhere ~/.granted/logs", () => {
+    assert.equal(errorLogDir({}, "darwin", "/Users/a"), join("/Users/a", "Library", "Logs", "Granted"));
+    assert.equal(errorLogDir({}, "linux", "/home/a"), join("/home/a", ".granted", "logs"));
+    assert.equal(errorLogDir({ GRANTED_LOG_DIR: "/x/logs" }, "darwin", "/Users/a"), "/x/logs");
+  });
   test("under node:test with no override: a temp folder, never the real log", () => {
     assert.ok(errorLogDir({ NODE_TEST_CONTEXT: "child-v8" }).startsWith(tmpdir()));
   });

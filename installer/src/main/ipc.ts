@@ -15,6 +15,7 @@ import {
   grantedPort,
   grantedSettingsPath,
   macStatusLockPath,
+  macTrayLaunchCommand,
   mergeRegistryPath,
   newInstallStatusPath,
   newTaskStatusPath,
@@ -32,6 +33,7 @@ import {
 } from "./ipcPure";
 import {
   getSetupState,
+  macScriptPath,
   probeGranted,
   readTaskStatus,
   saveApiKeys,
@@ -644,16 +646,17 @@ async function launchScaffoldTask(opts: {
 }
 
 /**
- * macOS, for now: a minimal, first-cut path, deliberately smaller than
- * Windows's — no visible console window (there's nothing here yet that
- * needs one kept open the way launchScaffoldTask's does), no tray, no own
- * app window (those are separate, later work). getSetupState's
- * trayAvailable/shortcutsAvailable/appWindowAvailable stay false on darwin
- * because they're explicitly gated on process.platform === "win32" — NOT
- * because this install lacks scripts/windows: those .ps1 files are ordinary
- * files tracked in the repo, so a real `git clone` on macOS has them too,
- * the same as on Windows. `command` is spawned directly, detached so it
- * outlives the installer the same way
+ * macOS, without a window: `command` is spawned directly, detached, with its
+ * output going to a log file. Used for the fully-local setup
+ * (`npm run setup:local`), which needs no window kept open the way
+ * launchScaffoldTask's does, and as the fallback for starting the server on an
+ * install too old to have scripts/macos/granted-tray.sh — the LaunchAgent and
+ * menu-bar icon that launchMacTray uses instead (the counterpart of Windows's
+ * launchTray). getSetupState's shortcutsAvailable/appWindowAvailable stay
+ * false on darwin because they're explicitly gated on process.platform ===
+ * "win32" — NOT because this install lacks scripts/windows: those .ps1 files
+ * are ordinary files tracked in the repo, so a real `git clone` on macOS has
+ * them too, the same as on Windows. Detached so it outlives the installer the same way
  * Windows's console window does, writing the exact same {state,message,pid}
  * status-file shape buildTaskScript's PowerShell writes — so it's read back
  * by the SAME readTaskStatus/pollStatusFile/decideStatusPoll Windows uses,
@@ -865,19 +868,25 @@ async function startGranted(sender: WebContents): Promise<StartResult> {
   if (grantedTaskInFlight) return { ok: false, message: "Granted is already being set up or started." };
   grantedTaskInFlight = true;
 
-  // Background (tray icon) when this install has the tray script; an older
-  // install without it falls back to the console window it always used.
-  // win32-gated, not just existsSync: scaffold/scripts/windows/*.ps1 are
-  // ordinary files tracked in the repo, so a real `git clone` on macOS has
-  // them too, same as on Windows — without this guard, `background` would
-  // read true on a real mac install and route into launchTray() below,
-  // which unconditionally runs powershell.exe (nonexistent on macOS,
-  // throws, caught by the outer catch, and startGranted always fails).
-  // There's no tray on darwin yet (a later, separate piece of work); this
-  // is the same fallback path win32 takes for an install that predates it.
-  const background = process.platform === "win32" && existsSync(trayScriptPath());
+  // Background (an icon that can open and quit Granted) when this install has
+  // its platform's background runner: granted-tray.ps1 on Windows,
+  // granted-tray.sh on macOS. An older install without it falls back to what
+  // it always used — a console window on Windows, a plain detached process on
+  // macOS.
+  //
+  // Platform-gated, not just existsSync: scaffold/scripts/{windows,macos} are
+  // ordinary files tracked in the repo, so a real `git clone` has both on
+  // every platform — without this guard `background` would read true on a
+  // real mac install and route into launchTray(), which unconditionally runs
+  // powershell.exe (nonexistent on macOS, throws, caught by the outer catch,
+  // and startGranted always fails).
+  const background =
+    (process.platform === "win32" && existsSync(trayScriptPath())) ||
+    (process.platform === "darwin" && existsSync(macTrayScriptPath()));
   const whereErrorsAre = background
-    ? "right-click the Granted icon by the clock and choose Show log"
+    ? process.platform === "win32"
+      ? "right-click the Granted icon by the clock and choose Show log"
+      : "click the Granted icon in the menu bar and choose Show log"
     : process.platform === "win32"
       ? "check its PowerShell window"
       : "check its log file";
@@ -914,7 +923,9 @@ async function startGranted(sender: WebContents): Promise<StartResult> {
             "error",
             specific ??
               (background
-                ? "Granted stopped before it finished starting (its tray icon was closed)."
+                ? process.platform === "win32"
+                  ? "Granted stopped before it finished starting (its tray icon was closed)."
+                  : "Granted stopped before it finished starting (its menu-bar icon was closed)."
                 : process.platform === "win32"
                   ? "Granted stopped before it finished starting — the error is in its PowerShell window (if it's still open)."
                   : "Granted stopped before it finished starting."),
@@ -965,7 +976,9 @@ async function startGranted(sender: WebContents): Promise<StartResult> {
     }
 
     const statusPath = background
-      ? await launchTray()
+      ? process.platform === "win32"
+        ? await launchTray()
+        : await launchMacTray()
       : process.platform === "win32"
         ? await launchScaffoldTask({
             task: "start-app",
@@ -994,6 +1007,51 @@ async function startGranted(sender: WebContents): Promise<StartResult> {
 
 function trayScriptPath(): string {
   return windowsScriptPath(scaffoldDir(), "granted-tray.ps1");
+}
+
+function macTrayScriptPath(): string {
+  return macScriptPath(scaffoldDir(), "granted-tray.sh");
+}
+
+/**
+ * Starts Granted in the background on macOS: scripts/macos/granted-tray.sh
+ * runs `npm run dev` under a per-user LaunchAgent (no window, no terminal,
+ * logging to ~/Library/Logs/Granted) and puts a menu-bar icon up — Open /
+ * status / Open in its own window / Show log / Restart / Quit, the same menu
+ * as the Windows tray. The counterpart of launchTray() above, and the
+ * replacement for launchMacScaffoldTask's bare detached `npm run dev` for any
+ * install that has the script.
+ *
+ * Nothing here duplicates launchMacScaffoldTask's status mechanism: the
+ * script writes the same {state,message} JSON, and the menu-bar helper then
+ * takes the very same `<status>.lock.d` directory (macStatusLockPath) and
+ * writes the status with its own pid for as long as it lives — so this is
+ * read back by the unchanged readTaskStatus/isStatusWindowAlive, exactly as
+ * the Windows tray's lock file is.
+ *
+ * `start` returns as soon as the server is launched and the icon is up, so
+ * this is awaited (like launchTray) rather than left running: a non-zero exit
+ * is logged but NOT thrown, because the script has already written the real
+ * reason to the status file (a port taken by something else, say), which the
+ * caller's poll reports verbatim — a throw here would replace it with the
+ * generic "Couldn't start Granted."
+ */
+async function launchMacTray(): Promise<string> {
+  const statusPath = newTaskStatusPath("start-app");
+  const { file, args } = macTrayLaunchCommand({
+    trayScript: macTrayScriptPath(),
+    port: GRANTED_PORT,
+    statusPath,
+  });
+  rememberLaunch("start-app", statusPath);
+  try {
+    // Long enough for the first `swift build` of the menu-bar helper on a
+    // cold machine (seconds, not minutes) plus launchd's own start.
+    await execFileAsync(file, args, { cwd: scaffoldDir(), timeout: 5 * 60_000 });
+  } catch (err) {
+    console.error("granted-tray.sh start failed:", err);
+  }
+  return statusPath;
 }
 
 /**

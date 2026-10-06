@@ -116,6 +116,10 @@ export default function InstallComplete(): React.JSX.Element {
     });
 
   const installDir = setup?.installDir ?? "your granted folder";
+  // Everything about running in the background is worded per platform: on
+  // Windows it's a tray icon by the clock in a PowerShell-run install, on
+  // macOS a menu-bar icon over a LaunchAgent, with no PowerShell anywhere.
+  const isMac = setup?.platform === "darwin";
   const shortcutPlaces = [
     shortcutsMade && shortcuts.desktop && "on your desktop",
     shortcutsMade && shortcuts.startMenu && "in the Start menu",
@@ -131,8 +135,8 @@ export default function InstallComplete(): React.JSX.Element {
       {step.id === "ask" && setup && !setup.installed && (
         <>
           <div className="status-note error">
-            Couldn't find Granted in {installDir} — the install may not have finished. Check the PowerShell window it ran
-            in for errors.
+            Couldn't find Granted in {installDir} — the install may not have finished. Check the{" "}
+            {isMac ? "Terminal" : "PowerShell"} window it ran in for errors.
           </div>
           <div className="actions spaced">
             <button type="button" className="primary" onClick={() => window.api.quit()}>
@@ -247,6 +251,11 @@ export default function InstallComplete(): React.JSX.Element {
             Starting Granted in the background… It will open when it's ready (the first start can take a minute or
             two).
           </div>
+        ) : isMac ? (
+          <div className="status-note">
+            Starting Granted in the background… It will open when it's ready (the first start can take a minute or
+            two).
+          </div>
         ) : (
           <div className="status-note">
             Starting Granted… A PowerShell window titled <strong>Granted</strong> opened — keep it open while you use
@@ -257,12 +266,24 @@ export default function InstallComplete(): React.JSX.Element {
 
       {step.id === "opened" && (
         <>
-          {step.background ? (
+          {step.background && isMac ? (
+            <div className="status-note">
+              {step.message ?? openedText(step.openedIn)} It's at <code>{step.url}</code> and keeps running in
+              the background — look for the <strong>Granted icon</strong> in the menu bar at the top of your screen.
+              Click it to open Granted again, to see its log, or to quit it.
+            </div>
+          ) : step.background ? (
             <div className="status-note">
               {step.message ?? openedText(step.openedIn)} It's at <code>{step.url}</code> and keeps running in
               the background — look for the <strong>Granted icon</strong> by the clock (it may be under the ^ arrow).
               Right-click it to open Granted again or to quit it.
               {shortcutPlaces.length > 0 && <> Next time, open it from the Granted shortcut {shortcutPlaces.join(" or ")}.</>}
+            </div>
+          ) : isMac ? (
+            <div className="status-note">
+              {step.message ?? openedText(step.openedIn)} It's at <code>{step.url}</code> and keeps running in the
+              background until you quit it or restart your Mac. This copy of Granted is too old to show a menu-bar
+              icon: to stop it, quit the <code>node</code> process in Activity Monitor, or update Granted.
             </div>
           ) : (
             <div className="status-note">
