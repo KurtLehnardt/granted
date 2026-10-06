@@ -13,3 +13,7 @@ data/local
 
 # the built-in search model (npm run model:fetch / the installers download it here)
 /models/
+
+# the macOS menu-bar helper's Swift build output (granted-tray.sh builds it
+# here on the first background start; CI builds it with `swift build` too)
+/scripts/macos/menubar/.build/

@@ -1,9 +1,13 @@
 /**
  * The per-user error log: one JSON object per line in
  *   %LOCALAPPDATA%\Granted\logs\errors.jsonl   (Windows)
+ *   ~/Library/Logs/Granted/errors.jsonl         (macOS)
  *   ~/.granted/logs/errors.jsonl                (elsewhere)
- * next to the tray's server-<port>.log. GRANTED_LOG_DIR overrides the folder
- * (tests); so does GRANTED_SETTINGS_PATH (logs/ next to that settings file).
+ * next to the tray's server-<port>.log — on macOS that is the same
+ * ~/Library/Logs/Granted folder scaffold/scripts/macos/granted-tray.sh writes
+ * the server log into, which is the platform's own per-user log location.
+ * GRANTED_LOG_DIR overrides the folder (tests, and the macOS tray script);
+ * so does GRANTED_SETTINGS_PATH (logs/ next to that settings file).
  *
  * Rotates at ~1 MB, keeping 3 files (errors.jsonl, errors.1.jsonl,
  * errors.2.jsonl). Every function here swallows its own failures: logging an
@@ -49,13 +53,29 @@ export interface StoreOptions {
   keep?: number;
 }
 
-export function errorLogDir(env: Record<string, string | undefined> = process.env): string {
+/**
+ * Each per-platform branch below joins with the separator of the platform it
+ * describes, never the ambient `path.join` (which is whichever platform this
+ * process happens to be running on). The same mistake in
+ * installer/src/main/ipcPure.ts's grantedSettingsPath did fail CI on the
+ * windows-latest runner; here it stayed hidden because the test re-derived its
+ * expected value with the same ambient `path.join`, which cannot catch a
+ * separator bug. The tests now assert literal paths instead.
+ */
+export function errorLogDir(
+  env: Record<string, string | undefined> = process.env,
+  platform: NodeJS.Platform = process.platform,
+  home: string = os.homedir(),
+): string {
   if (env["GRANTED_LOG_DIR"]) return env["GRANTED_LOG_DIR"];
   if (env["GRANTED_SETTINGS_PATH"]) return path.join(path.dirname(env["GRANTED_SETTINGS_PATH"]), "logs");
   // Under node:test with no override: never the real log.
   if (env["NODE_TEST_CONTEXT"]) return path.join(os.tmpdir(), `granted-test-logs-${process.pid}`);
-  const base = env["LOCALAPPDATA"] ? path.join(env["LOCALAPPDATA"], "Granted") : path.join(os.homedir(), ".granted");
-  return path.join(base, "logs");
+  // LOCALAPPDATA before the platform check, like settingsPath's: it lets a
+  // Windows-path test run on any OS. `home` is injectable for the same reason.
+  if (env["LOCALAPPDATA"]) return path.win32.join(env["LOCALAPPDATA"], "Granted", "logs");
+  if (platform === "darwin") return path.posix.join(home, "Library", "Logs", "Granted");
+  return (platform === "win32" ? path.win32 : path.posix).join(home, ".granted", "logs");
 }
 
 /** errors.jsonl, errors.1.jsonl, errors.2.jsonl… (0 = the current file). */

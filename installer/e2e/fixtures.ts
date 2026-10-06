@@ -10,7 +10,7 @@ import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 
 export const INSTALLER_ROOT = resolve(__dirname, "..");
 // Not 3000: the installer is pointed here with GRANTED_PORT, so these tests
@@ -53,6 +53,11 @@ export interface FakeInstall {
   root: string;
   installDir: string;
   scaffoldDir: string;
+  /** macOS: the throwaway LaunchAgent label and plist folder this install's background server uses. */
+  launchLabel: string;
+  launchAgentsDir: string;
+  /** macOS: where the tray script writes the server log (never ~/Library/Logs/Granted). */
+  logDir: string;
   /** Where the installer is told to put the Desktop / Start menu shortcuts (never the real ones). */
   desktopDir: string;
   startMenuDir: string;
@@ -67,8 +72,13 @@ export interface FakeInstall {
 // The real scaffold/scripts/windows (tray + shortcuts + icon), copied into
 // each fake install — so the background/tray path under test is the real one.
 const WINDOWS_SCRIPTS = resolve(INSTALLER_ROOT, "..", "scaffold", "scripts", "windows");
+// The real scaffold/scripts/macos/granted-tray.sh (the LaunchAgent + menu-bar
+// helper), for the same reason. Off by default: an install WITHOUT it is the
+// case most of the macOS tests are about (and the one that must not route
+// into the Windows tray path).
+const MACOS_SCRIPTS = resolve(INSTALLER_ROOT, "..", "scaffold", "scripts", "macos");
 
-export function makeFakeInstall(opts: { withWindowsScripts?: boolean } = {}): FakeInstall {
+export function makeFakeInstall(opts: { withWindowsScripts?: boolean; withMacScripts?: boolean } = {}): FakeInstall {
   const root = mkdtempSync(join(tmpdir(), "granted-e2e-"));
   const installDir = join(root, "granted");
   const scaffoldDir = join(installDir, "scaffold");
@@ -77,6 +87,11 @@ export function makeFakeInstall(opts: { withWindowsScripts?: boolean } = {}): Fa
     const dest = join(scaffoldDir, "scripts", "windows");
     mkdirSync(dest, { recursive: true });
     for (const f of readdirSync(WINDOWS_SCRIPTS)) copyFileSync(join(WINDOWS_SCRIPTS, f), join(dest, f));
+  }
+  if (opts.withMacScripts) {
+    const dest = join(scaffoldDir, "scripts", "macos");
+    mkdirSync(dest, { recursive: true });
+    copyFileSync(join(MACOS_SCRIPTS, "granted-tray.sh"), join(dest, "granted-tray.sh"));
   }
   writeFileSync(
     join(scaffoldDir, "package.json"),
@@ -96,6 +111,11 @@ export function makeFakeInstall(opts: { withWindowsScripts?: boolean } = {}): Fa
     root,
     installDir,
     scaffoldDir,
+    // Unique per install, and never the real com.granted.server: a test must
+    // not be able to load, start or stop the real Granted LaunchAgent.
+    launchLabel: `com.granted.e2e.${basename(root)}`,
+    launchAgentsDir: join(root, "LaunchAgents"),
+    logDir: join(root, "logs"),
     desktopDir: join(root, "Desktop"),
     startMenuDir: join(root, "Programs"),
     settingsPath: join(root, "LocalAppData", "Granted", "settings.json"),
@@ -118,6 +138,16 @@ export async function launchInstaller(
       GRANTED_INSTALL_DIR: fake ? fake.installDir : (install as string),
       GRANTED_PORT: String(TEST_PORT),
       ...(fake && { GRANTED_SHORTCUT_DESKTOP_DIR: fake.desktopDir, GRANTED_SHORTCUT_STARTMENU_DIR: fake.startMenuDir }),
+      // macOS background running: a throwaway LaunchAgent label and plist
+      // folder, logs inside the fake install, and no menu-bar icon (a test
+      // must not put one on the machine's menu bar — the real helper is
+      // covered by macTray.integration.test.ts and by hand).
+      ...(fake && {
+        GRANTED_LAUNCH_LABEL: fake.launchLabel,
+        GRANTED_LAUNCH_AGENTS_DIR: fake.launchAgentsDir,
+        GRANTED_LOG_DIR: fake.logDir,
+        GRANTED_MENUBAR_HELPER: "none",
+      }),
       // Never a real Edge window, and never the real settings file.
       GRANTED_APP_BROWSER: fake ? fake.fakeBrowser : "none",
       // A development build unless a test says otherwise (a GRANTED_RELEASE_TAG
@@ -197,6 +227,40 @@ export async function testPortIsFree(): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * macOS: stops this fake install's background server and unloads its
+ * throwaway LaunchAgent — through the real granted-tray.sh, then through
+ * launchctl directly, so nothing is left registered on the machine whatever
+ * state the test ended in. Must run BEFORE closing the app, like
+ * stopTestTray: the server is launchd's child and does not die with the
+ * installer.
+ */
+export function stopTestLaunchAgent(install: FakeInstall): void {
+  if (process.platform !== "darwin") return;
+  const tray = join(install.scaffoldDir, "scripts", "macos", "granted-tray.sh");
+  if (existsSync(tray)) {
+    try {
+      execFileSync("/bin/bash", [tray, "stop", "--port", String(TEST_PORT)], {
+        stdio: "ignore",
+        env: {
+          ...process.env,
+          GRANTED_LAUNCH_LABEL: install.launchLabel,
+          GRANTED_LAUNCH_AGENTS_DIR: install.launchAgentsDir,
+          GRANTED_LOG_DIR: install.logDir,
+          GRANTED_SETTINGS_PATH: install.settingsPath,
+        },
+      });
+    } catch {
+      /* exit 1: nothing was running */
+    }
+  }
+  try {
+    execFileSync("launchctl", ["bootout", `gui/${process.getuid?.() ?? 0}/${install.launchLabel}`], { stdio: "ignore" });
+  } catch {
+    /* already gone */
   }
 }
 

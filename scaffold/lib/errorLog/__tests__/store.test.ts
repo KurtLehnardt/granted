@@ -29,13 +29,31 @@ const entry = (i: number, extra: Partial<ErrorLogEntry> = {}): ErrorLogEntry => 
   ...extra,
 });
 
+// The per-platform expectations below are literal strings, never rebuilt with
+// the ambient `join`. Rebuilding them makes the assertion tautological: the
+// test picks up the very same platform-dependent separator the code under test
+// did, so a macOS path joined with Windows separators (or the reverse) still
+// "passes" on every runner. That exact bug in the installer's own
+// grantedSettingsPath only surfaced on the windows-latest CI runner, where its
+// test did assert a literal.
 describe("where the log lives", () => {
   test("GRANTED_LOG_DIR wins, then logs/ next to GRANTED_SETTINGS_PATH", () => {
     assert.equal(errorLogDir({ GRANTED_LOG_DIR: "/x/logs", GRANTED_SETTINGS_PATH: "/y/settings.json" }), "/x/logs");
     assert.equal(errorLogDir({ GRANTED_SETTINGS_PATH: join("y", "settings.json") }), join("y", "logs"));
   });
   test("Windows: %LOCALAPPDATA%\\Granted\\logs (next to the tray's server log)", () => {
-    assert.equal(errorLogDir({ LOCALAPPDATA: join("C", "AppData", "Local") }), join("C", "AppData", "Local", "Granted", "logs"));
+    assert.equal(errorLogDir({ LOCALAPPDATA: "C:\\Users\\a\\AppData\\Local" }), "C:\\Users\\a\\AppData\\Local\\Granted\\logs");
+  });
+  // Also next to the server log on macOS: scripts/macos/granted-tray.sh writes
+  // server-<port>.log into exactly this folder, the platform's own per-user
+  // log location.
+  test("macOS: ~/Library/Logs/Granted; elsewhere ~/.granted/logs", () => {
+    assert.equal(errorLogDir({}, "darwin", "/Users/a"), "/Users/a/Library/Logs/Granted");
+    assert.equal(errorLogDir({}, "linux", "/home/a"), "/home/a/.granted/logs");
+    assert.equal(errorLogDir({ GRANTED_LOG_DIR: "/x/logs" }, "darwin", "/Users/a"), "/x/logs");
+    // Nothing above may depend on the OS this test runs under.
+    assert.ok(!errorLogDir({}, "darwin", "/Users/a").includes("\\"), "the macOS path is POSIX on every runner");
+    assert.ok(!errorLogDir({ LOCALAPPDATA: "C:\\L" }).includes("/"), "the Windows path is win32 on every runner");
   });
   test("under node:test with no override: a temp folder, never the real log", () => {
     assert.ok(errorLogDir({ NODE_TEST_CONTEXT: "child-v8" }).startsWith(tmpdir()));

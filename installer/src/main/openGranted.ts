@@ -50,20 +50,25 @@ export async function getSetupState(installDir: string, settingsPath: string): P
   const anthropicKeySet = isAnthropicKeyFormat(currentEnvValue(env, "ANTHROPIC_API_KEY"));
   return {
     installDir,
+    platform: process.platform,
     installed: existsSync(join(scaffoldDir, "package.json")),
     openaiKeySet,
     anthropicKeySet,
     hostedKeysSet: envHasHostedKeys(env),
     localConfigured: envIsLocalConfigured(env, await readTextOrNull(join(scaffoldDir, "data", "local", "corpus-meta.json"))),
     settingsProviderSet: settingsHasProvider(await readTextOrNull(join(scaffoldDir, "data", "local", "llm-config.json"))),
-    // win32-gated, not just existsSync: scaffold/scripts/windows/*.ps1 are
-    // ordinary files tracked in the repo, present on a real clone on every
-    // platform, not only Windows's — without this guard these would read
-    // true on a real macOS install too, which is exactly what made
-    // startGranted's `background` wrongly route into the win32 tray path
-    // there (see ipc.ts). Tray/shortcuts/own-window stay Windows-only for
-    // now regardless of whether the files happen to be on disk.
-    trayAvailable: process.platform === "win32" && existsSync(windowsScriptPath(scaffoldDir, "granted-tray.ps1")),
+    // Platform-gated, not just existsSync: scaffold/scripts/{windows,macos}
+    // are ordinary files tracked in the repo, present on a real clone on
+    // every platform — without this guard they would read true on a Linux
+    // install too, which is exactly what made startGranted's `background`
+    // wrongly route into the win32 tray path on macOS (see ipc.ts).
+    // Each platform's own background runner: granted-tray.ps1 on Windows,
+    // granted-tray.sh (LaunchAgent + Swift menu-bar helper) on macOS.
+    // Shortcuts and own-window stay Windows-only for now regardless of
+    // whether the files happen to be on disk.
+    trayAvailable:
+      (process.platform === "win32" && existsSync(windowsScriptPath(scaffoldDir, "granted-tray.ps1"))) ||
+      (process.platform === "darwin" && existsSync(macScriptPath(scaffoldDir, "granted-tray.sh"))),
     shortcutsAvailable: process.platform === "win32" && existsSync(windowsScriptPath(scaffoldDir, "shortcuts.ps1")),
     appWindowAvailable: process.platform === "win32" && existsSync(windowsScriptPath(scaffoldDir, "open-granted.ps1")),
     openIn: parseOpenInSetting(await readTextOrNull(settingsPath)),
@@ -85,6 +90,11 @@ export async function saveOpenIn(settingsPath: string, openIn: OpenIn): Promise<
 /** scaffold/scripts/windows/<name> — the tray, shortcut and icon files (one place builds this path). */
 export function windowsScriptPath(scaffoldDir: string, name: "granted-tray.ps1" | "shortcuts.ps1" | "open-granted.ps1"): string {
   return join(scaffoldDir, "scripts", "windows", name);
+}
+
+/** scaffold/scripts/macos/<name> — macOS's background runner (the LaunchAgent + menu-bar helper). */
+export function macScriptPath(scaffoldDir: string, name: "granted-tray.sh"): string {
+  return join(scaffoldDir, "scripts", "macos", name);
 }
 
 /**

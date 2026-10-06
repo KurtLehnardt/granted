@@ -24,6 +24,7 @@ import {
   macInstallScriptFor,
   macInstallScriptUrl,
   macStatusLockPath,
+  macTrayLaunchCommand,
   parseOpenGrantedOutput,
   parseOpenInSetting,
   withOpenInSetting,
@@ -575,6 +576,26 @@ describe("trayLaunchCommand", () => {
   });
 });
 
+describe("macTrayLaunchCommand", () => {
+  const base = { trayScript: "/Users/O'Brien/granted/scaffold/scripts/macos/granted-tray.sh", port: 3000 };
+
+  test("runs the script through /bin/bash (so a file with no executable bit still runs), with its own arguments", () => {
+    const { file, args } = macTrayLaunchCommand(base);
+    assert.equal(file, "/bin/bash");
+    assert.deepEqual(args, [base.trayScript, "start", "--port", "3000"]);
+  });
+
+  test("status file and browser opening only when asked", () => {
+    assert.ok(!macTrayLaunchCommand(base).args.includes("--status-path"));
+    assert.ok(!macTrayLaunchCommand(base).args.includes("--open-browser"));
+    const { args } = macTrayLaunchCommand({ ...base, statusPath: "/tmp/granted status.json", openBrowser: true });
+    // Each argument stays one argument (execFile, never a shell string), so a
+    // space or a quote in the path needs no escaping at all.
+    assert.equal(args[args.indexOf("--status-path") + 1], "/tmp/granted status.json");
+    assert.ok(args.includes("--open-browser"));
+  });
+});
+
 describe("windowsArgLine / startProcessCommand", () => {
   test("quotes only arguments with whitespace (or empty ones)", () => {
     assert.equal(
@@ -659,9 +680,29 @@ describe("grantedPort", () => {
 
 describe("opening Granted in its own window: the settings file and open-granted.ps1's output", () => {
   test("the settings file lives in %LOCALAPPDATA%\\Granted, unless a test overrides it", () => {
-    assert.equal(grantedSettingsPath({ LOCALAPPDATA: "C:\\Users\\a\\AppData\\Local" }, "C:\\Users\\a"), "C:\\Users\\a\\AppData\\Local\\Granted\\settings.json");
-    assert.equal(grantedSettingsPath({}, "C:\\Users\\a"), "C:\\Users\\a\\AppData\\Local\\Granted\\settings.json");
-    assert.equal(grantedSettingsPath({ GRANTED_SETTINGS_PATH: "D:\\t\\s.json", LOCALAPPDATA: "C:\\x" }, "C:\\Users\\a"), "D:\\t\\s.json");
+    assert.equal(grantedSettingsPath({ LOCALAPPDATA: "C:\\Users\\a\\AppData\\Local" }, "C:\\Users\\a", "win32"), "C:\\Users\\a\\AppData\\Local\\Granted\\settings.json");
+    assert.equal(grantedSettingsPath({}, "C:\\Users\\a", "win32"), "C:\\Users\\a\\AppData\\Local\\Granted\\settings.json");
+    assert.equal(grantedSettingsPath({ GRANTED_SETTINGS_PATH: "D:\\t\\s.json", LOCALAPPDATA: "C:\\x" }, "C:\\Users\\a", "win32"), "D:\\t\\s.json");
+  });
+
+  // The same path scaffold/lib/appUpdate/install.ts's settingsPath() resolves
+  // on darwin, so the installer, the app and the menu-bar helper share one
+  // settings file rather than each keeping its own openIn.
+  //
+  // REGRESSION (CI, windows-latest): this expectation is a literal string on
+  // purpose, and the macOS branch joins with posix.join on purpose. Written
+  // with the ambient `join` on either side, a macOS path built with Windows
+  // separators passes everywhere — which is exactly how the same bug went
+  // unnoticed in the two scaffold functions this one mirrors.
+  test("macOS: ~/Library/Application Support/Granted/settings.json, with the same overrides", () => {
+    assert.equal(
+      grantedSettingsPath({}, "/Users/a", "darwin"),
+      "/Users/a/Library/Application Support/Granted/settings.json",
+    );
+    assert.equal(grantedSettingsPath({ GRANTED_SETTINGS_PATH: "/t/s.json" }, "/Users/a", "darwin"), "/t/s.json");
+    // Neither path may pick up the separator of whatever OS is running this.
+    assert.ok(!grantedSettingsPath({}, "/Users/a", "darwin").includes("\\"), "the macOS path is POSIX on every runner");
+    assert.ok(!grantedSettingsPath({}, "C:\\Users\\a", "win32").includes("/"), "the Windows path is win32 on every runner");
   });
 
   test("its own window is the default; only an explicit 'browser' changes that", () => {

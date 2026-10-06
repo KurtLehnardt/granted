@@ -77,11 +77,39 @@ describe("this install", () => {
   });
 });
 
+// Every expected path below is written out as a literal string, never rebuilt
+// with the ambient `join`. Rebuilding it makes the assertion tautological: the
+// test picks up the very same platform-dependent separator the code under test
+// did, so a branch that joins a macOS path with Windows separators (or the
+// reverse) still "passes" on every runner. That exact bug in the installer's
+// own grantedSettingsPath only surfaced on the windows-latest CI runner, where
+// its test did assert a literal.
 describe("settings and status (the file the tray and installer share)", () => {
   test("lives in %LOCALAPPDATA%\\Granted unless a test overrides it", () => {
-    assert.equal(settingsPath({ LOCALAPPDATA: "C:\\L" }), join("C:\\L", "Granted", "settings.json"));
+    assert.equal(settingsPath({ LOCALAPPDATA: "C:\\L" }), "C:\\L\\Granted\\settings.json");
     assert.equal(settingsPath({ GRANTED_SETTINGS_PATH: "C:\\t\\s.json", LOCALAPPDATA: "C:\\L" }), "C:\\t\\s.json");
     assert.equal(updateStatusPath({ GRANTED_SETTINGS_PATH: join("C:\\t", "s.json") }), join("C:\\t", "update-status.json"));
+  });
+
+  // macOS's own per-user location, shared with scripts/macos/granted-tray.sh
+  // and the Swift menu-bar helper (which read and write the same openIn /
+  // autoUpdate / lastAutoCheck keys Windows uses) — not ~/.granted, which is
+  // what every non-Windows platform used before background running on macOS.
+  test("macOS: ~/Library/Application Support/Granted/settings.json; elsewhere ~/.granted", () => {
+    assert.equal(settingsPath({}, "darwin", "/Users/a"), "/Users/a/Library/Application Support/Granted/settings.json");
+    assert.equal(settingsPath({}, "linux", "/home/a"), "/home/a/.granted/settings.json");
+    // The overrides still win on macOS, in the same order.
+    assert.equal(settingsPath({ GRANTED_SETTINGS_PATH: "/t/s.json" }, "darwin", "/Users/a"), "/t/s.json");
+    assert.equal(settingsPath({ LOCALAPPDATA: "C:\\L" }, "darwin", "/Users/a"), "C:\\L\\Granted\\settings.json");
+    // Nothing above may depend on the OS this test runs under: the macOS path
+    // must never gain a backslash, and the Windows one never a forward slash.
+    assert.ok(!settingsPath({}, "darwin", "/Users/a").includes("\\"), "the macOS path is POSIX on every runner");
+    assert.ok(!settingsPath({ LOCALAPPDATA: "C:\\L" }).includes("/"), "the Windows path is win32 on every runner");
+    // update-status.json follows the settings file, so it lands there too.
+    assert.equal(
+      updateStatusPath({ GRANTED_SETTINGS_PATH: join("/Users/a/Library/Application Support/Granted", "settings.json") }),
+      join("/Users/a/Library/Application Support/Granted", "update-status.json"),
+    );
   });
 
   test("auto-update is off unless turned on; saving keeps the file's other settings (e.g. openIn)", () => {
