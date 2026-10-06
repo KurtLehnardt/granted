@@ -10,7 +10,7 @@
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import path, { dirname, join } from "node:path";
 
 /** The scaffold folder the server runs in (`npm run dev` starts there). */
 export function scaffoldDir(): string {
@@ -41,11 +41,13 @@ export function installInfo(
   platform: NodeJS.Platform = process.platform,
   exists: (p: string) => boolean = existsSync,
 ): InstallInfo {
-  const installDir = resolve(dir, "..");
+  // Windows paths on Windows (and in tests of it on any OS).
+  const p = platform === "win32" ? path.win32 : path;
+  const installDir = p.resolve(dir, "..");
   let reason: CannotUpdateReason | null = null;
   if (platform !== "win32") reason = "not-windows";
-  else if (!exists(join(installDir, ".git", "granted-installer"))) reason = "not-installer-made";
-  else if (!exists(join(dir, "scripts", "windows", "update.ps1"))) reason = "no-updater";
+  else if (!exists(p.join(installDir, ".git", "granted-installer"))) reason = "not-installer-made";
+  else if (!exists(p.join(dir, "scripts", "windows", "update.ps1"))) reason = "no-updater";
   return { installDir, canUpdate: reason === null, reason };
 }
 
@@ -134,9 +136,10 @@ export function startUpdater(
 ): void {
   const dir = deps.dir ?? scaffoldDir();
   const systemRoot = deps.systemRoot ?? process.env["SystemRoot"] ?? "C:\\Windows";
-  const conhost = join(systemRoot, "System32", "conhost.exe");
-  const powershell = join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
-  const updater = join(dir, "scripts", "windows", "update.ps1");
+  // Windows-only: Windows paths whatever the test OS.
+  const conhost = path.win32.join(systemRoot, "System32", "conhost.exe");
+  const powershell = path.win32.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+  const updater = path.win32.join(dir, "scripts", "windows", "update.ps1");
   const command = startProcessCommand(conhost, [
     "--headless",
     powershell,
