@@ -7,6 +7,7 @@ import precomputed from "@/data/precomputed.json";
 import { isLocalLlm } from "@/lib/llm/client";
 import { withLocalModel } from "@/lib/llm/modelContext";
 import { prepareLocalSearch } from "@/lib/llm/localPreflight";
+import { ollamaHost } from "@/lib/llm/ollamaInfo";
 import { describeSearchError, shortProviderLabel } from "@/lib/llm/searchErrors";
 import { resolveCloudConfig } from "@/lib/llm/config";
 import { getCloudProvider } from "@/lib/llm/providers";
@@ -72,6 +73,8 @@ export type MatchDeps = {
   resolveLlm?: (requestedModel: string | undefined, onStatus: (label: string) => void) => Promise<LlmInfo>;
   /** The cloud provider's name for error messages ("Anthropic", "OpenAI", ...). */
   cloudProviderName?: () => string | undefined;
+  /** The cloud provider's base URL, when it has one (a loopback one is a local proxy, e.g. fcc). */
+  cloudBaseUrl?: () => string | undefined;
 };
 
 const REAL_DEPS: MatchDeps = { buildOpportunityMap, cached };
@@ -89,6 +92,15 @@ async function resolveLlmInfo(requestedModel: string | undefined, onStatus: (lab
 function cloudProviderName(): string | undefined {
   try {
     return shortProviderLabel(getCloudProvider(resolveCloudConfig()?.providerId ?? "anthropic")?.label);
+  } catch {
+    return undefined;
+  }
+}
+
+function cloudBaseUrl(): string | undefined {
+  try {
+    const cfg = resolveCloudConfig();
+    return cfg?.baseUrl || getCloudProvider(cfg?.providerId ?? "anthropic")?.baseUrl || undefined;
   } catch {
     return undefined;
   }
@@ -227,11 +239,12 @@ export async function handleMatchRequest(
         // bad key) gets a specific message that says where to fix it.
         console.error("match failed:", err);
         const local = llm ? llm.local : isLocalLlm();
-        const specific = describeSearchError(err, {
-          local,
-          model: llm?.model,
-          provider: local ? undefined : (deps.cloudProviderName ?? cloudProviderName)(),
-        });
+        const specific = describeSearchError(
+          err,
+          local
+            ? { local, model: llm?.model, host: ollamaHost() }
+            : { local, provider: (deps.cloudProviderName ?? cloudProviderName)(), baseUrl: (deps.cloudBaseUrl ?? cloudBaseUrl)() },
+        );
         const providerMessage = specific ?? sanitizedProviderErrorFor4xx(err);
         send({ type: "error", error: providerMessage ?? "The search didn't complete. Please try again." });
         controller.close();

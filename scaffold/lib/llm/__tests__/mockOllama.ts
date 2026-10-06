@@ -4,16 +4,20 @@ import type { AddressInfo } from "node:net";
 /**
  * A stand-in Ollama on 127.0.0.1 (random port) for tests: GET /api/tags lists
  * `models`; POST /api/pull streams NDJSON progress like Ollama's and then adds
- * the model to `models`. `listen()` / `close()` simulate the daemon starting and
- * stopping on the same port. Never touches a real Ollama.
+ * the model to `models`. Every mock gets a fresh random port; `listen()` / `close()`
+ * simulate its daemon starting and stopping on that port. Never touches a real Ollama.
  */
 export type MockOllama = {
   host: string;
   port: number;
   models: Array<{ name: string; details?: Record<string, unknown> }>;
   pulls: string[];
-  /** Make the next /api/pull fail with Ollama's error line. */
+  /** Make /api/pull fail with Ollama's error line. */
   pullError?: string;
+  /** "stall": send a little progress, then nothing (connection kept open). "die": drop the connection midway. */
+  pullMode?: "ok" | "stall" | "die";
+  /** Set once the client closed a pull connection (cancel / idle timeout released it). */
+  pullClientClosed: boolean;
   listen: () => Promise<void>;
   close: () => Promise<void>;
 };
@@ -22,7 +26,7 @@ export async function startMockOllama(
   models: MockOllama["models"] = [],
   opts: { listening?: boolean } = {},
 ): Promise<MockOllama> {
-  const mock = { models, pulls: [] as string[] } as MockOllama;
+  const mock = { models, pulls: [] as string[], pullClientClosed: false } as MockOllama;
   const server = http.createServer((req, res) => {
     if (req.method === "GET" && req.url === "/api/tags") {
       res.writeHead(200, { "Content-Type": "application/json" });
@@ -41,6 +45,19 @@ export async function startMockOllama(
         if (mock.pullError) {
           line({ error: mock.pullError });
           res.end();
+          return;
+        }
+        res.on("close", () => {
+          if (!res.writableFinished) mock.pullClientClosed = true;
+        });
+        if (mock.pullMode === "stall") {
+          line({ status: "pulling aaa", digest: "sha256:aaa", total: 1000, completed: 10 });
+          return; // never another byte
+        }
+        if (mock.pullMode === "die") {
+          line({ status: "pulling aaa", digest: "sha256:aaa", total: 1000, completed: 300 });
+          await new Promise((r) => setTimeout(r, 10));
+          res.socket?.destroy();
           return;
         }
         const total = 2_000_000_000;

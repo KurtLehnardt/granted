@@ -1,17 +1,17 @@
-import { existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import os from "node:os";
-import path from "node:path";
 import { ollamaHost, parseParamsB } from "./ollamaInfo";
 import { defaultLocalModel } from "./client";
 import { getOllamaJobs, hasWinget } from "./ollamaJobs";
+import { canManageHost, detectOllamaInstalled } from "./ollamaLocate";
+
+export { canManageHost, detectOllamaInstalled, isLocalHost, isOllamaPort, locateOllama, OLLAMA_PORT } from "./ollamaLocate";
+export type { InstallProbeDeps } from "./ollamaLocate";
 import { isEmbeddingModel, resolveDefaultLocalModel, type OllamaModel, type OllamaStatus } from "./ollamaModels";
 import {
   MODEL_TIERS,
   recommendModel,
   manualInstallCommand,
-  ollamaWindowsDir,
-  withOllamaOnPath,
   OLLAMA_DOWNLOAD_URL,
 } from "../../scripts/lib/ollamaSetup.mjs";
 
@@ -50,57 +50,6 @@ export function splitModels(models: Array<{ name: string; details?: any }>): { c
   return { chatModels, embeddingModels };
 }
 
-/** True when `host` is this machine, so Granted can install / start Ollama for it. */
-export function isLocalHost(host: string): boolean {
-  try {
-    const h = new URL(host).hostname.toLowerCase();
-    return h === "localhost" || h === "[::1]" || h === "::1" || h === "0.0.0.0" || /^127\.\d+\.\d+\.\d+$/.test(h);
-  } catch {
-    return false;
-  }
-}
-
-export type InstallProbeDeps = {
-  platform: NodeJS.Platform;
-  env: Record<string, string | undefined>;
-  exists: (p: string) => boolean;
-  /** Exit status of `ollama --version`, or null when it can't run. */
-  ollamaVersionStatus: (env: Record<string, string | undefined>) => number | null;
-};
-
-const REAL_INSTALL_PROBE: InstallProbeDeps = {
-  platform: process.platform,
-  env: process.env,
-  exists: existsSync,
-  ollamaVersionStatus: (env) => {
-    try {
-      return spawnSync("ollama", ["--version"], { timeout: 4_000, env: env as NodeJS.ProcessEnv, windowsHide: true }).status;
-    } catch {
-      return null;
-    }
-  },
-};
-
-/** Ollama's binary is on this machine: its usual install paths, else `ollama --version` on PATH. */
-export function detectOllamaInstalled(deps: Partial<InstallProbeDeps> = {}): boolean {
-  const d = { ...REAL_INSTALL_PROBE, ...deps };
-  const candidates: string[] = [];
-  if (d.platform === "win32") {
-    if (d.env.LOCALAPPDATA) {
-      const dir = ollamaWindowsDir(d.env.LOCALAPPDATA);
-      candidates.push(path.win32.join(dir, "ollama.exe"), path.win32.join(dir, "ollama app.exe"));
-    }
-    if (d.env.ProgramFiles) candidates.push(path.win32.join(d.env.ProgramFiles, "Ollama", "ollama.exe"));
-  } else if (d.platform === "darwin") {
-    candidates.push("/Applications/Ollama.app", "/usr/local/bin/ollama", "/opt/homebrew/bin/ollama");
-  } else {
-    candidates.push("/usr/local/bin/ollama", "/usr/bin/ollama");
-  }
-  if (candidates.some((p) => d.exists(p))) return true;
-  const env = withOllamaOnPath(d.env, d.platform, d.env.LOCALAPPDATA) as Record<string, string | undefined>;
-  return d.ollamaVersionStatus(env) === 0;
-}
-
 /** This machine's memory in whole GB, or null when unknown. */
 export function memoryGB(): number | null {
   const n = Math.floor(os.totalmem() / 1024 ** 3);
@@ -122,6 +71,8 @@ export type StatusDeps = {
   platform: NodeJS.Platform;
   fetch: typeof fetch;
   detectInstalled: () => boolean;
+  /** Granted may install / start Ollama for this host (default: this machine, port 11434). */
+  canManage: (host: string) => boolean;
   hasWinget: () => boolean;
   memGB: () => number | null;
   defaultModel: () => string;
@@ -134,6 +85,7 @@ function realStatusDeps(): StatusDeps {
     platform: process.platform,
     fetch: (...args) => fetch(...args),
     detectInstalled: () => detectOllamaInstalled(),
+    canManage: canManageHost,
     hasWinget,
     memGB: memoryGB,
     defaultModel: defaultLocalModel,
@@ -149,9 +101,9 @@ function realStatusDeps(): StatusDeps {
  */
 export async function getOllamaStatus(deps: Partial<StatusDeps> = {}): Promise<OllamaStatus> {
   const d = { ...realStatusDeps(), ...deps };
-  const canManage = isLocalHost(d.host);
+  const canManage = d.canManage(d.host);
   const probe = await probeOllama(d.host, d.fetch);
-  // A remote host can't be checked for an install: treat it as installed-but-unreachable.
+  // A remote host or another local server can't be checked for an install: treat it as installed-but-unreachable.
   const installed = probe.reachable || !canManage || d.detectInstalled();
   const { chatModels, embeddingModels } = probe.reachable && probe.isOllama ? splitModels(probe.models) : { chatModels: [], embeddingModels: [] };
   const { recommended, suggestions } = suggestModels(d.memGB());

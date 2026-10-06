@@ -4,6 +4,7 @@ import React, { useEffect, useId, useRef, useState } from "react";
 import {
   classifyOllamaStatus,
   effectiveLocalModel,
+  pickNotInstalled,
   sameModel,
   type OllamaJob,
   type OllamaState,
@@ -19,9 +20,18 @@ export function configuredMissing(s: OllamaStatus): boolean {
 export function describeLocalSetup(
   s: OllamaStatus,
   selectedModel: string | null,
-): { state: OllamaState; model: string; title: string; detail?: string } {
-  const model = effectiveLocalModel(selectedModel, s.chatModels.map((m) => m.name), s.defaultModel);
+): { state: OllamaState; model: string; title: string; detail?: string; notice?: string } {
+  const installed = s.chatModels.map((m) => m.name);
+  // s.defaultModel is already an installed model whenever any chat model is installed.
+  const model = effectiveLocalModel(selectedModel, installed, s.defaultModel);
   const state = classifyOllamaStatus({ ...s, model });
+  const pickGone = Boolean(selectedModel) && installed.length > 0 && !installed.some((n) => sameModel(n, selectedModel));
+  const notice = pickGone ? pickNotInstalled(selectedModel!, model) : undefined;
+  const view = describeState(s, state, model);
+  return notice ? { ...view, notice } : view;
+}
+
+function describeState(s: OllamaStatus, state: OllamaState, model: string): { state: OllamaState; model: string; title: string; detail?: string } {
   switch (state) {
     case "not_installed":
       return {
@@ -33,20 +43,18 @@ export function describeLocalSetup(
     case "not_running":
       return s.canManage
         ? { state, model, title: "Ollama is installed but isn't running.", detail: "Searches on Local need it running." }
-        : { state, model, title: `Ollama at ${s.host} isn't answering.`, detail: "Start Ollama on that computer, then check again." };
+        : {
+            state,
+            model,
+            title: `Couldn't reach the local model server at ${s.host}.`,
+            detail: "Granted only installs and starts Ollama on this computer (port 11434). Start this server yourself, then check again.",
+          };
     case "no_chat_models": {
       const embedNote = s.embeddingModels.length
         ? ` (${s.embeddingModels.join(", ")} ${s.embeddingModels.length === 1 ? "is an embedding model" : "are embedding models"} and can't run searches.)`
         : "";
       return { state, model, title: "Ollama is running, but no chat model is installed.", detail: `Download one to search on Local.${embedNote}` };
     }
-    case "model_missing":
-      return {
-        state,
-        model,
-        title: `The model searches would use, ${model}, isn't installed.`,
-        detail: "Pick one of your installed models below, or download it.",
-      };
     case "external":
       return { state, model, title: `Using the OpenAI-compatible server at ${s.host}.`, detail: `Model: ${model}.` };
     default: {
@@ -70,7 +78,7 @@ const smallBtnClass =
   "inline-flex min-h-[36px] items-center rounded-sm border border-structure-on-canvas px-3 py-1.5 font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas transition hover:bg-structure hover:text-token-white disabled:opacity-50";
 const noteClass = "mt-1.5 font-body text-[12px] text-foreground opacity-80";
 
-function JobLine({ job, testId }: { job?: OllamaJob; testId: string }) {
+function JobLine({ job, testId, onCancel }: { job?: OllamaJob; testId: string; onCancel?: () => void }) {
   if (!job || job.status === "done") return null;
   if (job.status === "error") {
     return (
@@ -81,7 +89,14 @@ function JobLine({ job, testId }: { job?: OllamaJob; testId: string }) {
   }
   return (
     <div className="mt-2" data-testid={testId}>
-      <p className="font-body text-[12px] text-foreground">{job.message ?? "Working…"}</p>
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="font-body text-[12px] text-foreground">{job.message ?? "Working…"}</p>
+        {onCancel && (
+          <button type="button" className={smallBtnClass} onClick={onCancel}>
+            Cancel
+          </button>
+        )}
+      </div>
       {typeof job.pct === "number" && (
         <div className="mt-1 h-1.5 w-full rounded-sm bg-canvas-alt" role="progressbar" aria-valuenow={job.pct} aria-valuemin={0} aria-valuemax={100}>
           <div className="h-1.5 rounded-sm bg-structure" style={{ width: `${job.pct}%` }} />
@@ -147,14 +162,14 @@ export default function LocalModelPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [running, pollMs]);
 
-  async function act(action: "start" | "pull" | "install", model?: string) {
+  async function act(action: "start" | "pull" | "install" | "cancel", model?: string, job?: "pull" | "install") {
     setActionError(null);
     if (action === "pull") pullTarget.current = model ?? null;
     try {
       const res = await fetch("/api/llm/ollama", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, ...(model ? { model } : {}) }),
+        body: JSON.stringify({ action, ...(model ? { model } : {}), ...(job ? { job } : {}) }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) setActionError(json?.error ?? `HTTP ${res.status}`);
@@ -197,7 +212,6 @@ export default function LocalModelPanel({
   const pulling = jobs.pull?.status === "running";
   const showConfiguredDownload = view.state === "ok" && configuredMissing(status);
   const downloadChoices = [
-    ...(view.state === "model_missing" ? [view.model] : []),
     ...(showConfiguredDownload ? [status.configuredModel] : []),
     ...(view.state === "ok" ? [] : status.suggestions),
   ].filter((m, i, all) => all.findIndex((x) => sameModel(x, m)) === i && !installedNames.some((n) => sameModel(n, m)));
@@ -211,6 +225,11 @@ export default function LocalModelPanel({
         {view.title}
       </p>
       {view.detail && <p className={noteClass}>{view.detail}</p>}
+      {view.notice && (
+        <p className="mt-1.5 rounded-r-sm border-l-2 border-structure-on-canvas bg-canvas-alt px-3 py-2 font-body text-[12px] text-foreground" data-testid="local-pick-notice">
+          {view.notice}
+        </p>
+      )}
 
       {view.state === "not_installed" && (
         <div className="mt-2" data-testid="local-install">
@@ -236,7 +255,7 @@ export default function LocalModelPanel({
               or run <code>{status.install.command}</code>, start it, then check again.
             </p>
           )}
-          <JobLine job={jobs.install} testId="local-install-progress" />
+          <JobLine job={jobs.install} testId="local-install-progress" onCancel={() => act("cancel", undefined, "install")} />
         </div>
       )}
 
@@ -277,7 +296,7 @@ export default function LocalModelPanel({
       {showDownloads && (view.state !== "ok" || showConfiguredDownload) && (
         <div className="mt-3" data-testid="local-download">
           <span className={legendClass}>Download a model</span>
-          {view.state !== "model_missing" && view.state !== "ok" && (
+          {view.state !== "ok" && (
             <p className={noteClass}>
               Recommended for this computer{status.recommended.memGB ? ` (${status.recommended.memGB} GB of memory)` : ""}:{" "}
               <strong>{status.recommended.model}</strong>. {status.recommended.note}
@@ -291,7 +310,7 @@ export default function LocalModelPanel({
               </button>
             ))}
           </div>
-          <JobLine job={jobs.pull} testId="local-pull-progress" />
+          <JobLine job={jobs.pull} testId="local-pull-progress" onCancel={() => act("cancel", undefined, "pull")} />
         </div>
       )}
 

@@ -180,12 +180,20 @@ export function installGuidance(platform, macosMajor = null) {
  * @param {object} [opts]
  * @param {string} [opts.localAppData]
  * @param {NodeJS.ProcessEnv} [opts.env]
+ * @param {string} [opts.exePath] - the Ollama install actually found (e.g. under
+ *   Program Files): its "ollama app.exe" is started like the default one, any other
+ *   binary as `<exePath> serve`; "ollama" means `ollama serve` from PATH.
  * @param {(cmd: string, args: string[], options: object) => import("node:child_process").ChildProcess} [opts.spawnFn]
  */
 export function launchOllamaDaemon(platform, opts = {}) {
-  const { localAppData = "", env, spawnFn = spawn } = opts;
-  const child =
-    platform === "win32"
+  const { localAppData = "", env, spawnFn = spawn, exePath } = opts;
+  const startApp = (app) =>
+    spawnFn("cmd", ["/c", "start", "", app], { stdio: "ignore", detached: true, windowsHide: true, env });
+  const child = exePath
+    ? platform === "win32" && /ollama app\.exe$/i.test(exePath)
+      ? startApp(exePath)
+      : spawnFn(exePath, ["serve"], { detached: true, stdio: "ignore", windowsHide: true, env })
+    : platform === "win32"
       ? spawnFn("cmd", ["/c", "start", "", join(ollamaWindowsDir(localAppData), "ollama app.exe")], {
           stdio: "ignore",
           detached: true,

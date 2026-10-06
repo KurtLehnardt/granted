@@ -64,9 +64,17 @@ const EMBEDDING_FAMILY = /bert/i; // nomic-bert, bert: encoder-only, can't chat
 /**
  * True for an embedding-only model (nomic-embed-text, mxbai-embed-large,
  * all-minilm, bge-m3, ...), which can't run a search's chat prompts. Uses the
- * name and, when /api/tags reports it, the model family.
+ * model's `capabilities` when /api/tags reports them, else its name and family.
  */
-export function isEmbeddingModel(m: { name: string; details?: { family?: unknown; families?: unknown } }): boolean {
+export function isEmbeddingModel(m: {
+  name: string;
+  details?: { family?: unknown; families?: unknown };
+  capabilities?: unknown;
+}): boolean {
+  // Newer Ollama lists what a model can do: ["embedding"] vs ["completion", ...]. Trust it when present.
+  if (Array.isArray(m.capabilities) && m.capabilities.length > 0) {
+    return m.capabilities.includes("embedding") && !m.capabilities.includes("completion");
+  }
   if (EMBEDDING_NAME.test(m.name)) return true;
   const fams = [m.details?.family, ...(Array.isArray(m.details?.families) ? m.details!.families as unknown[] : [])];
   return fams.some((f) => typeof f === "string" && EMBEDDING_FAMILY.test(f));
@@ -87,13 +95,16 @@ export function sameModel(a: string | null | undefined, b: string | null | undef
 
 /**
  * The model a Local search actually runs on: the user's pick (Settings) when it's
- * installed, else the server default — the same rule app/api/match applies.
- * Returns the installed model's own spelling when it matches.
+ * installed, else `fallback` — Default, already resolved to an installed model
+ * (resolveDefaultLocalModel). Returns the installed model's own spelling.
  */
 export function effectiveLocalModel(requested: string | null | undefined, installed: string[], fallback: string): string {
-  const pick = requested ? installed.find((n) => sameModel(n, requested)) : undefined;
-  if (pick) return pick;
-  return installed.find((n) => sameModel(n, fallback)) ?? fallback;
+  return (requested ? installed.find((n) => sameModel(n, requested)) : undefined) ?? fallback;
+}
+
+/** Said in Settings and in the search's progress when a picked model is gone. */
+export function pickNotInstalled(pick: string, using: string): string {
+  return `Your pick ${pick} isn't installed; using ${using}.`;
 }
 
 /**

@@ -5,6 +5,7 @@ import React from "react";
 
 import ModelSection, { draftOnProviderSwitch, type LlmProviderInfo } from "../ModelSection";
 import type { OllamaStatus } from "@/lib/llm/ollamaModels";
+import LocalModelPanel from "../LocalModelPanel";
 
 /**
  * Settings' Local/Cloud switch. `initialInfo` is the hermetic test seam (no
@@ -146,6 +147,32 @@ describe("ModelSection — Local says what's wrong and offers the fix", () => {
     assert.doesNotMatch(html, /not installed/);
     assert.doesNotMatch(html, /Download a model/);
     assert.match(html, />Check again</);
+  });
+
+  test("a pick that's no longer installed -> 'Your pick X isn't installed; using Y'", () => {
+    const ollama = ollamaStatus({ chatModels: [{ name: "qwen2.5:7b" }], defaultModel: "qwen2.5:7b" });
+    const html = renderToStaticMarkup(
+      React.createElement(LocalModelPanel, { initialStatus: ollama, selectedModel: "gone:3b", onSelectModel: () => {} }),
+    );
+    assert.match(html, /data-testid="local-pick-notice"[^>]*>Your pick gone:3b isn&#x27;t installed; using qwen2\.5:7b\.</);
+  });
+
+  test("a running download or install has a Cancel button", () => {
+    const pulling = renderLocal({ jobs: { pull: { status: "running", model: "qwen2.5:7b", pct: 5, message: "Downloading" } } });
+    assert.match(pulling, /data-testid="local-pull-progress"[\s\S]*>Cancel</);
+    const installing = renderLocal({ installed: false, running: false, isOllama: false, jobs: { install: { status: "running", message: "winget: …" } } });
+    assert.match(installing, /data-testid="local-install-progress"[\s\S]*>Cancel</);
+    const cancelled = renderLocal({ jobs: { pull: { status: "error", model: "qwen2.5:7b", error: "Cancelled." } } });
+    assert.match(cancelled, />Cancelled\.</);
+    assert.doesNotMatch(cancelled, />Cancel</);
+  });
+
+  test("a local server that isn't Ollama is down -> names the server; no Start or Install Ollama", () => {
+    const html = renderLocal({ host: "http://127.0.0.1:1234", canManage: false, running: false, isOllama: false, install: { auto: null, command: "x", url: "https://ollama.com/download" } });
+    assert.equal(stateOf(html), "not_running");
+    assert.match(html, /Couldn&#x27;t reach the local model server at http:\/\/127\.0\.0\.1:1234/);
+    assert.doesNotMatch(html, />Start Ollama</);
+    assert.doesNotMatch(html, />Install Ollama</);
   });
 
   test("no status yet -> 'Checking Ollama…', never a blank panel", () => {

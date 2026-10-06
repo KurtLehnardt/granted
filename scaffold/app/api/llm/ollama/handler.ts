@@ -1,14 +1,15 @@
 import { NextResponse } from "next/server";
 import { isLoopbackRequest } from "@/lib/corpus/loopback";
 import { getOllamaStatus } from "@/lib/llm/ollamaStatus";
-import { installOllama, pullModel, startOllama } from "@/lib/llm/ollamaJobs";
+import { cancelOllamaJob, installOllama, pullModel, startOllama } from "@/lib/llm/ollamaJobs";
 import { isValidModelTag, type OllamaStatus } from "@/lib/llm/ollamaModels";
 
 // GET  /api/llm/ollama — Settings → Model → Local: is Ollama installed / running,
 //                        its chat models, what to download, how to install, job progress.
-// POST /api/llm/ollama — { action: "start" | "pull" | "install", model? }: start the
+// POST /api/llm/ollama — { action: "start" | "pull" | "install" | "cancel", model?, job? }: start the
 //                        daemon, pull a model, or (Windows) install Ollama. Each runs in
-//                        the background; the UI polls GET for progress. Loopback-only:
+//                        the background; the UI polls GET for progress. "cancel" stops
+//                        a running pull or install ({ job: "pull" | "install" }). Loopback-only:
 //                        these launch processes and write to disk.
 
 export type OllamaRouteDeps = {
@@ -17,6 +18,7 @@ export type OllamaRouteDeps = {
   start: typeof startOllama;
   pull: typeof pullModel;
   install: typeof installOllama;
+  cancel: typeof cancelOllamaJob;
   platform: NodeJS.Platform;
 };
 
@@ -26,6 +28,7 @@ const REAL_DEPS: OllamaRouteDeps = {
   start: startOllama,
   pull: pullModel,
   install: installOllama,
+  cancel: cancelOllamaJob,
   platform: process.platform,
 };
 
@@ -49,11 +52,22 @@ export async function handleOllamaActionPost(
     return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
   }
 
+  if (body?.action === "cancel") {
+    const kind = body?.job;
+    if (kind !== "pull" && kind !== "install") {
+      return NextResponse.json({ error: 'job must be "pull" or "install".' }, { status: 400 });
+    }
+    return NextResponse.json({ cancelled: d.cancel(kind) });
+  }
+
   const status = await d.getStatus();
   switch (body?.action) {
     case "start": {
       if (!status.canManage) {
-        return NextResponse.json({ error: `Ollama runs on another computer (${status.host}). Start it there.` }, { status: 400 });
+        return NextResponse.json(
+          { error: `Granted only starts Ollama on this computer, on port 11434. Start the local model server at ${status.host} yourself.` },
+          { status: 400 },
+        );
       }
       if (!status.installed) {
         return NextResponse.json({ error: "Ollama isn't installed on this computer yet." }, { status: 400 });
@@ -81,6 +95,6 @@ export async function handleOllamaActionPost(
       return NextResponse.json({ job: d.install() }, { status: 202 });
     }
     default:
-      return NextResponse.json({ error: 'action must be "start", "pull" or "install".' }, { status: 400 });
+      return NextResponse.json({ error: 'action must be "start", "pull", "install" or "cancel".' }, { status: 400 });
   }
 }

@@ -67,12 +67,12 @@ describe("model names", () => {
     assert.equal(sameModel("qwen2.5:7b", "qwen2.5:14b"), false);
     assert.equal(sameModel(null, "x"), false);
   });
-  test("effectiveLocalModel: the pick when installed, else the default", () => {
+  test("effectiveLocalModel: the pick when installed, else Default (already resolved to an installed model)", () => {
     const installed = ["llama3.2:1b", "qwen2.5:7b"];
     assert.equal(effectiveLocalModel("qwen2.5:7b", installed, "gemma4:latest"), "qwen2.5:7b");
     assert.equal(effectiveLocalModel("deleted:1b", installed, "gemma4:latest"), "gemma4:latest");
     assert.equal(effectiveLocalModel(null, installed, "gemma4:latest"), "gemma4:latest");
-    assert.equal(effectiveLocalModel(null, ["gemma4:latest"], "gemma4"), "gemma4:latest");
+    assert.equal(effectiveLocalModel("Qwen2.5:7B", installed, "gemma4:latest"), "qwen2.5:7b", "the installed spelling");
   });
   test("isValidModelTag", () => {
     for (const t of ["qwen2.5:7b", "llama3.2", "hf.co/bartowski/Llama-3.2-1B-Instruct-GGUF:Q4_K_M"]) assert.equal(isValidModelTag(t), true, t);
@@ -128,5 +128,47 @@ describe("resolveDefaultLocalModel — Default is always an installed chat model
   });
   test("only embedding models installed -> never an embedding model; the configured one", () => {
     assert.equal(resolveDefaultLocalModel("gemma4:latest", ["nomic-embed-text:latest", "mxbai-embed-large"]), "gemma4:latest");
+  });
+});
+
+describe("hardening", () => {
+  test("isEmbeddingModel trusts /api/tags `capabilities` when present", () => {
+    assert.equal(isEmbeddingModel({ name: "my-model", capabilities: ["embedding"] }), true);
+    assert.equal(isEmbeddingModel({ name: "embeddinggemma-chat", capabilities: ["completion", "tools"] }), false);
+    assert.equal(isEmbeddingModel({ name: "nomic-embed-text", capabilities: [] }), true, "empty list: fall back to the name");
+  });
+
+  test("locateOllama: a Program Files install is found and is what gets launched", async () => {
+    const { locateOllama } = await import("../ollamaLocate");
+    const env = { LOCALAPPDATA: "C:\\Users\\u\\AppData\\Local", ProgramFiles: "C:\\Program Files" };
+    const exe = locateOllama({ platform: "win32", env, exists: (p) => p === "C:\\Program Files\\Ollama\\ollama app.exe", ollamaVersionStatus: () => null });
+    assert.equal(exe, "C:\\Program Files\\Ollama\\ollama app.exe");
+    assert.equal(locateOllama({ platform: "win32", env, exists: () => false, ollamaVersionStatus: () => 0 }), "ollama", "on PATH only");
+    assert.equal(locateOllama({ platform: "win32", env, exists: () => false, ollamaVersionStatus: () => null }), null);
+  });
+
+  test("launchOllamaDaemon(exePath): the detected app via `start`, a bare binary or PATH's ollama via `serve`", async () => {
+    const { launchOllamaDaemon } = await import("../../../scripts/lib/ollamaSetup.mjs");
+    const calls: Array<{ cmd: string; args: string[] }> = [];
+    const spawnFn = ((cmd: string, args: string[]) => {
+      calls.push({ cmd, args });
+      return { on() {}, unref() {} };
+    }) as any;
+    launchOllamaDaemon("win32", { exePath: "C:\\Program Files\\Ollama\\ollama app.exe", spawnFn });
+    launchOllamaDaemon("win32", { exePath: "C:\\Program Files\\Ollama\\ollama.exe", spawnFn });
+    launchOllamaDaemon("win32", { exePath: "ollama", spawnFn });
+    assert.deepEqual(calls, [
+      { cmd: "cmd", args: ["/c", "start", "", "C:\\Program Files\\Ollama\\ollama app.exe"] },
+      { cmd: "C:\\Program Files\\Ollama\\ollama.exe", args: ["serve"] },
+      { cmd: "ollama", args: ["serve"] },
+    ]);
+  });
+
+  test("canManageHost: only Ollama's port on this machine", async () => {
+    const { canManageHost } = await import("../ollamaLocate");
+    assert.equal(canManageHost("http://localhost:11434"), true);
+    assert.equal(canManageHost("http://127.0.0.1:1234"), false, "LM Studio");
+    assert.equal(canManageHost("http://127.0.0.1:8000"), false, "vLLM");
+    assert.equal(canManageHost("http://gpu-box:11434"), false, "another computer");
   });
 });

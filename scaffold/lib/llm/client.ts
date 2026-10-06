@@ -5,7 +5,7 @@ import { currentLocalModel } from "./modelContext";
 import { configuredLocalModel, resolveLocalDefaultModel } from "./localDefault";
 import { resolveProvider, resolveCloudConfig, resolveCloudApiKey, resolveCloudBaseUrl, resolveCloudModel, resolveAnthropicSdkBaseUrl } from "./config";
 import { getCloudProvider, type CloudProviderPreset } from "./providers";
-import { ProviderHttpError, redactKey, retryAfterMsFromResponse } from "./errors";
+import { ProviderHttpError, markChatError, redactKey, retryAfterMsFromResponse } from "./errors";
 import { withRetry429, withConcurrencyLimit, getSharedLimiter } from "./rateLimit";
 
 /** Test-only: the SDK binds node-fetch at import, so hosted tests inject fetch here. */
@@ -87,6 +87,25 @@ export interface LlmClientOptions {
 }
 
 export function makeLlmClient(opts: LlmClientOptions = {}): LlmClient {
+  return markingChatErrors(buildLlmClient(opts));
+}
+
+/** Every error a chat call throws is marked as the chat provider's (see lib/llm/searchErrors.ts). */
+function markingChatErrors(client: LlmClient): LlmClient {
+  return {
+    messages: {
+      create: async (params: any, options?: any) => {
+        try {
+          return await client.messages.create(params, options);
+        } catch (err) {
+          throw markChatError(err);
+        }
+      },
+    },
+  } as unknown as LlmClient;
+}
+
+function buildLlmClient(opts: LlmClientOptions): LlmClient {
   if (isLocalLlm()) {
     return makeOpenAiCompatClient({
       baseUrl: normalizeOpenAiBaseUrl(process.env.LLM_BASE_URL || "http://localhost:11434/v1"),

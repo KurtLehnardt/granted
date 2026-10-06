@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { ProviderHttpError, anthropicRawMessage, providerMessageFromBody } from "./errors";
+import { ProviderHttpError, anthropicRawMessage, isChatError, providerMessageFromBody } from "./errors";
+import { isLocalHost } from "./ollamaLocate";
 
 /**
  * Why a search failed, in words the user can act on. app/api/match maps the
@@ -8,23 +9,23 @@ import { ProviderHttpError, anthropicRawMessage, providerMessageFromBody } from 
  * "The search didn't complete").
  */
 
-export type LocalSetupKind = "ollama_unreachable" | "local_model_missing" | "no_chat_models";
+export type LocalSetupKind = "ollama_unreachable" | "server_unreachable" | "no_chat_models";
 
 /** Thrown by the pre-search check (lib/llm/localPreflight.ts) when Local can't run. */
 export class LocalSetupError extends Error {
   kind: LocalSetupKind;
-  model?: string;
-  constructor(kind: LocalSetupKind, model?: string) {
+  host?: string;
+  constructor(kind: LocalSetupKind, opts: { host?: string } = {}) {
     super(
       kind === "ollama_unreachable"
         ? OLLAMA_UNREACHABLE
-        : kind === "no_chat_models"
-          ? NO_CHAT_MODELS
-          : localModelMissing(model ?? "the selected model"),
+        : kind === "server_unreachable"
+          ? localServerUnreachable(opts.host ?? "its address")
+          : NO_CHAT_MODELS,
     );
     this.name = "LocalSetupError";
     this.kind = kind;
-    this.model = model;
+    this.host = opts.host;
   }
 }
 
@@ -33,6 +34,10 @@ export const OLLAMA_UNREACHABLE =
 
 export const NO_CHAT_MODELS =
   "Ollama has no chat model installed (embedding models like nomic-embed-text can't run searches) — download one in Settings → Model.";
+
+export function localServerUnreachable(host: string): string {
+  return `Couldn't reach the local model server at ${host} — start it, or switch to Cloud in Settings → Model.`;
+}
 
 export function localModelMissing(model: string): string {
   return `The local model "${model}" isn't installed in Ollama — pick an installed model or download it in Settings → Model.`;
@@ -51,7 +56,7 @@ export function providerUnreachable(provider: string): string {
 }
 
 const BILLING =
-  /credit balance is too low|insufficient[_ ]quota|exceeded your current quota|insufficient (?:balance|credits?|funds)|out of credits|payment required|purchase credits/i;
+  /credit balance is too low|insufficient[_ ]quota|exceeded your current quota|insufficient (?:balance|credits?|funds)|out of credits|purchase credits/i;
 // Not a bare "billing": rate-limit messages link billing pages too (Groq: "Upgrade ... at .../settings/billing").
 const BAD_KEY =
   /invalid[ _-]?(?:x-)?api[ _-]?key|incorrect api key|api key (?:not valid|is invalid|was revoked|has been revoked)|authentication[_ ]error|invalid authentication|unauthorized|revoked/i;
@@ -92,39 +97,65 @@ function providerFailure(err: unknown): { status: number; message: string } | un
   return undefined;
 }
 
+export function proxyUnreachable(baseUrl: string): string {
+  return `Granted couldn't reach the proxy at ${baseUrl} — is it running? (Or switch providers in Settings → Model.)`;
+}
+
 export type SearchErrorContext = {
-  /** The search ran on Local (Ollama). */
+  /** The search ran on Local (Ollama or another OpenAI-compatible server). */
   local: boolean;
   /** The local model the search used. */
   model?: string;
-  /** The cloud provider's name ("Anthropic", "OpenAI", ...). */
+  /** Local: the server's address. Ollama on this machine (port 11434) is "Ollama"; anything else is "the local model server". */
+  host?: string;
+  /** Cloud: the provider's name ("Anthropic", "OpenAI", ...). */
   provider?: string;
+  /** Cloud: the provider's base URL, when it has one (a loopback one is a proxy on this machine, e.g. fcc). */
+  baseUrl?: string;
 };
 
-/** A specific, actionable message for a failed search, or undefined when the cause isn't recognized. */
+/**
+ * A specific, actionable message for a failed search, or undefined when the cause
+ * isn't recognized. Provider failures are only mapped when the chat client threw
+ * them (markChatError): an embeddings or other call failing isn't the chat provider's fault.
+ */
 export function describeSearchError(err: unknown, ctx: SearchErrorContext): string | undefined {
-  const setup = causeChain(err).find((e): e is LocalSetupError => e instanceof LocalSetupError);
+  const chain = causeChain(err);
+  const setup = chain.find((e): e is LocalSetupError => e instanceof LocalSetupError);
   if (setup) return setup.message;
 
-  const failure = providerFailure(err);
+  const chatErr = chain.find(isChatError);
+  if (!chatErr) return undefined;
+  const failure = providerFailure(chatErr);
+
   if (ctx.local) {
     if (failure && (MODEL_NOT_FOUND.test(failure.message) || (failure.status === 404 && /\bmodel\b/i.test(failure.message)))) {
       return localModelMissing(MODEL_NOT_FOUND.exec(failure.message)?.[1] ?? ctx.model ?? "the selected model");
     }
-    if (!failure && isConnectionError(err)) return OLLAMA_UNREACHABLE;
-    return undefined;
-  }
-
-  const provider = ctx.provider ?? "cloud provider";
-  if (failure) {
-    if (failure.status === 402 || BILLING.test(failure.message)) return outOfCredits(provider);
-    if (failure.status === 401 || BAD_KEY.test(failure.message)) {
-      return keyRejected(provider);
+    if (!failure && isConnectionError(chatErr)) {
+      return !ctx.host || isOllamaHostOnThisMachine(ctx.host) ? OLLAMA_UNREACHABLE : localServerUnreachable(ctx.host);
     }
     return undefined;
   }
-  if (isConnectionError(err)) return providerUnreachable(provider);
+
+  const proxy = ctx.baseUrl && isLocalHost(ctx.baseUrl) ? ctx.baseUrl : undefined;
+  const provider = ctx.provider ?? "cloud provider";
+  if (failure) {
+    // A proxy on this machine has no account of its own: only say "out of credits" when its error says so.
+    if ((failure.status === 402 && !proxy) || BILLING.test(failure.message)) return outOfCredits(provider);
+    if (failure.status === 401 || BAD_KEY.test(failure.message)) return keyRejected(provider);
+    return undefined;
+  }
+  if (isConnectionError(chatErr)) return proxy ? proxyUnreachable(proxy) : providerUnreachable(provider);
   return undefined;
+}
+
+function isOllamaHostOnThisMachine(host: string): boolean {
+  try {
+    return isLocalHost(host) && new URL(host).port === "11434";
+  } catch {
+    return false;
+  }
 }
 
 /** "Anthropic (Claude)" -> "Anthropic"; the bare names for the generic presets. */

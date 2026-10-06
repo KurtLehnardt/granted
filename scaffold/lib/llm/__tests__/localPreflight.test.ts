@@ -12,7 +12,8 @@ afterEach(async () => {
   mock = undefined;
 });
 
-const base = (m: MockOllama) => ({ host: m.host, defaultModel: "gemma4:latest", detectInstalled: () => true, start: async () => false });
+// The mock is on a random port, not 11434: canManage says "this is Ollama on this machine" unless a test checks the real rule.
+const base = (m: MockOllama) => ({ host: m.host, defaultModel: "gemma4:latest", detectInstalled: () => true, canManage: () => true, start: async () => false });
 
 describe("prepareLocalSearch", () => {
   test("ok: the picked model, when installed, with its size", async () => {
@@ -68,6 +69,32 @@ describe("prepareLocalSearch", () => {
       prepareLocalSearch(undefined, undefined, { ...base(mock), detectInstalled: () => false, start: async () => assert.fail("must not start") }),
       /couldn't reach Ollama/,
     );
+  });
+
+  test("a local server that isn't Ollama (not port 11434), down -> 'couldn't reach the local model server', never starts Ollama", async () => {
+    mock = await startMockOllama([], { listening: false });
+    await assert.rejects(
+      prepareLocalSearch(undefined, undefined, {
+        host: mock.host,
+        defaultModel: "gemma4:latest",
+        detectInstalled: () => true,
+        start: async () => assert.fail("must not start Ollama for LM Studio / vLLM"),
+      }),
+      (e: unknown) => {
+        assert.ok(e instanceof LocalSetupError);
+        assert.equal(e.kind, "server_unreachable");
+        assert.equal(e.message, `Couldn't reach the local model server at ${mock!.host} — start it, or switch to Cloud in Settings → Model.`);
+        return true;
+      },
+    );
+  });
+
+  test("a pick that isn't installed says so in the progress, and uses Default", async () => {
+    mock = await startMockOllama([{ name: "llama3.2:1b" }, { name: "qwen2.5:7b" }]);
+    const statuses: string[] = [];
+    const info = await prepareLocalSearch("deleted-model:3b", (s) => statuses.push(s), base(mock));
+    assert.equal(info.model, "qwen2.5:7b");
+    assert.deepEqual(statuses, ["Your pick deleted-model:3b isn't installed; using qwen2.5:7b."]);
   });
 
   test("an OpenAI-compatible server that isn't Ollama (no /api/tags) passes through with the default model", async () => {

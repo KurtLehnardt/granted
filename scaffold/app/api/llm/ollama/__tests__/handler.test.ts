@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { handleOllamaActionPost, handleOllamaStatusGet, type OllamaRouteDeps } from "../handler";
 import { getOllamaStatus } from "@/lib/llm/ollamaStatus";
-import { getOllamaJobs, installOllama, pullModel, resetOllamaJobs, startOllama } from "@/lib/llm/ollamaJobs";
+import { getOllamaJobs, installOllama, isTrustedOllamaSignature, pullModel, resetOllamaJobs, startOllama } from "@/lib/llm/ollamaJobs";
 import { startMockOllama, type MockOllama } from "@/lib/llm/__tests__/mockOllama";
 
 /**
@@ -39,11 +39,17 @@ async function useMock(models: MockOllama["models"], opts?: { listening?: boolea
   return mock;
 }
 
+/**
+ * The mock listens on a random port, not Ollama's 11434 (the real Ollama may be there):
+ * tests that play Ollama on this machine say so with `canManage`.
+ */
+const asOllama = { canManage: () => true };
+
 /** Real status + jobs against the mock, with the machine-specific probes pinned. */
 function deps(over: Partial<OllamaRouteDeps> = {}): Partial<OllamaRouteDeps> {
   return {
     isLoopbackRequest: () => true,
-    getStatus: () => getOllamaStatus({ detectInstalled: () => true, hasWinget: () => false, memGB: () => 16, platform: "linux" }),
+    getStatus: () => getOllamaStatus({ ...asOllama, detectInstalled: () => true, hasWinget: () => false, memGB: () => 16, platform: "linux" }),
     start: () => startOllama({ launch: () => void mock!.listen(), startTimeoutMs: 5_000, pollIntervalMs: 25 }),
     pull: (model) => pullModel(model),
     platform: "linux",
@@ -89,7 +95,7 @@ describe("GET /api/llm/ollama — tags", () => {
     assert.equal(j.running, false);
     assert.equal(j.installed, true);
     const notInstalled = await (
-      await handleOllamaStatusGet(deps({ getStatus: () => getOllamaStatus({ detectInstalled: () => false, hasWinget: () => true, platform: "win32" }) }))
+      await handleOllamaStatusGet(deps({ getStatus: () => getOllamaStatus({ ...asOllama, detectInstalled: () => false, hasWinget: () => true, platform: "win32" }) }))
     ).json();
     assert.equal(notInstalled.installed, false);
     assert.equal(notInstalled.install.auto, "winget");
@@ -123,7 +129,7 @@ describe("POST /api/llm/ollama — start", () => {
     await useMock([], { listening: false });
     const res = await handleOllamaActionPost(
       post({ action: "start" }),
-      deps({ getStatus: () => getOllamaStatus({ detectInstalled: () => false, hasWinget: () => false }), start: () => assert.fail("must not launch") }),
+      deps({ getStatus: () => getOllamaStatus({ ...asOllama, detectInstalled: () => false, hasWinget: () => false }), start: () => assert.fail("must not launch") }),
     );
     assert.equal(res.status, 400);
   });
@@ -192,7 +198,7 @@ describe("POST /api/llm/ollama — install", () => {
       post({ action: "install" }),
       deps({
         platform: "win32",
-        getStatus: () => getOllamaStatus({ detectInstalled: () => false, hasWinget: () => true, platform: "win32" }),
+        getStatus: () => getOllamaStatus({ ...asOllama, detectInstalled: () => false, hasWinget: () => true, platform: "win32" }),
         install: () =>
           installOllama({
             platform: "win32",
@@ -229,6 +235,10 @@ describe("POST /api/llm/ollama — install", () => {
         return fetch(url, init);
       }) as typeof fetch,
       tmpDir: fs.mkdtempSync(path.join(os.tmpdir(), "granted-ollama-install-test-")),
+      verifySignature: async (file) => {
+        commands.push(`verify ${path.basename(file)}`);
+        return true;
+      },
       runCommand: async (cmd, args) => {
         commands.push(`${cmd} ${args.join(" ")}`);
         return cmd === "winget" ? 1 : 0;
@@ -240,14 +250,16 @@ describe("POST /api/llm/ollama — install", () => {
     await until(() => getOllamaJobs().install?.status !== "running");
     assert.equal(getOllamaJobs().install!.status, "done", getOllamaJobs().install!.error);
     assert.deepEqual(fetched, ["https://ollama.com/download/OllamaSetup.exe"]);
-    assert.match(commands[1], /OllamaSetup\.exe \/VERYSILENT/);
+    // A unique temp file, signature-checked before it runs, and removed afterwards.
+    assert.match(commands[1], /^verify OllamaSetup-\d+-[0-9a-f]{8}\.exe$/);
+    assert.match(commands[2], /OllamaSetup-\d+-[0-9a-f]{8}\.exe \/VERYSILENT/);
   });
 
   test("not Windows -> 400 with the download link and command", async () => {
     await useMock([], { listening: false });
     const res = await handleOllamaActionPost(
       post({ action: "install" }),
-      deps({ getStatus: () => getOllamaStatus({ detectInstalled: () => false, platform: "darwin" }) }),
+      deps({ getStatus: () => getOllamaStatus({ ...asOllama, detectInstalled: () => false, platform: "darwin" }) }),
     );
     assert.equal(res.status, 400);
     assert.match((await res.json()).error, /ollama\.com\/download.*brew install ollama/);
@@ -258,4 +270,112 @@ test("POST is loopback-only", async () => {
   await useMock([]);
   const res = await handleOllamaActionPost(post({ action: "start" }), deps({ isLoopbackRequest: () => false }));
   assert.equal(res.status, 403);
+});
+
+describe("jobs never get stuck running", () => {
+  test("a pull that stalls (no progress for idleMs) fails with 'stopped before it finished' and releases the connection", async () => {
+    await useMock([]);
+    mock!.pullMode = "stall";
+    pullModel("qwen2.5:7b", { idleMs: 150 });
+    await until(() => getOllamaJobs().pull?.status !== "running");
+    assert.equal(getOllamaJobs().pull!.error, "The download of qwen2.5:7b stopped before it finished. Try again.");
+    await until(() => mock!.pullClientClosed);
+  });
+
+  test("a pull whose connection dies midway gives the plain message, not a socket error", async () => {
+    await useMock([]);
+    mock!.pullMode = "die";
+    pullModel("qwen2.5:7b", { idleMs: 5_000 });
+    await until(() => getOllamaJobs().pull?.status !== "running");
+    assert.equal(getOllamaJobs().pull!.error, "The download of qwen2.5:7b stopped before it finished. Try again.");
+  });
+
+  test("POST cancel stops a running pull and closes its connection", async () => {
+    await useMock([]);
+    mock!.pullMode = "stall";
+    await handleOllamaActionPost(post({ action: "pull", model: "qwen2.5:7b" }), deps());
+    await until(() => mock!.pulls.length === 1);
+    const res = await handleOllamaActionPost(post({ action: "cancel", job: "pull" }), deps());
+    assert.deepEqual(await res.json(), { cancelled: true });
+    assert.equal(getOllamaJobs().pull!.status, "error");
+    assert.equal(getOllamaJobs().pull!.error, "Cancelled.");
+    await until(() => mock!.pullClientClosed);
+    // Nothing left running: a new download can start.
+    assert.equal((await handleOllamaActionPost(post({ action: "cancel", job: "pull" }), deps()).then((r) => r.json())).cancelled, false);
+  });
+
+  test("cancel kills a running winget install", async () => {
+    await useMock([], { listening: false });
+    let killed = false;
+    installOllama({
+      platform: "win32",
+      hasWinget: () => true,
+      runCommand: (_cmd, _args, _onLine, signal) =>
+        new Promise((resolve) => {
+          signal?.addEventListener("abort", () => {
+            killed = true;
+            resolve(-1);
+          });
+        }),
+      launch: () => assert.fail("a cancelled install must not start Ollama"),
+    });
+    await handleOllamaActionPost(post({ action: "cancel", job: "install" }), deps());
+    await until(() => killed);
+    assert.equal(getOllamaJobs().install!.error, "Cancelled.");
+    await new Promise((r) => setTimeout(r, 30));
+    assert.equal(getOllamaJobs().install!.error, "Cancelled.", "the cancelled job isn't overwritten by a fallback");
+  });
+
+  test("an installer download that stalls fails instead of hanging", async () => {
+    await useMock([], { listening: false });
+    installOllama({
+      platform: "win32",
+      hasWinget: () => false,
+      idleMs: 100,
+      tmpDir: fs.mkdtempSync(path.join(os.tmpdir(), "granted-ollama-install-test-")),
+      fetch: (async () => new Response(new ReadableStream({ start() {} }), { status: 200 })) as typeof fetch,
+      verifySignature: async () => assert.fail("nothing to verify"),
+    });
+    await until(() => getOllamaJobs().install?.status !== "running");
+    assert.match(getOllamaJobs().install!.error!, /Couldn't install Ollama automatically/);
+  });
+
+  test("an installer that isn't signed by Ollama is never run", async () => {
+    await useMock([], { listening: false });
+    const ran: string[] = [];
+    installOllama({
+      platform: "win32",
+      hasWinget: () => false,
+      tmpDir: fs.mkdtempSync(path.join(os.tmpdir(), "granted-ollama-install-test-")),
+      fetch: (async () => new Response(new Uint8Array(16), { status: 200, headers: { "content-length": "16" } })) as typeof fetch,
+      verifySignature: async () => false,
+      runCommand: async (cmd) => (ran.push(cmd), 0),
+    });
+    await until(() => getOllamaJobs().install?.status !== "running");
+    assert.deepEqual(ran, []);
+    assert.match(getOllamaJobs().install!.error!, /isn't signed by Ollama/);
+  });
+
+  test("isTrustedOllamaSignature", () => {
+    assert.equal(isTrustedOllamaSignature("Valid|CN=Ollama Inc., O=Ollama Inc., L=Palo Alto, S=California, C=US"), true);
+    assert.equal(isTrustedOllamaSignature("NotSigned|"), false);
+    assert.equal(isTrustedOllamaSignature("HashMismatch|CN=Ollama Inc."), false);
+    assert.equal(isTrustedOllamaSignature("Valid|CN=Someone Else"), false);
+  });
+});
+
+describe("a local server that isn't Ollama (LM Studio, vLLM)", () => {
+  test("is never started or installed by Granted", async () => {
+    await useMock([], { listening: false });
+    process.env.LLM_BASE_URL = `${mock!.host}/v1`; // a random port, not 11434
+    const j = await (await handleOllamaStatusGet(deps({ getStatus: () => getOllamaStatus({ hasWinget: () => true, platform: "win32" }) }))).json();
+    assert.equal(j.canManage, false);
+    assert.equal(j.installed, true, "not 'not installed': it isn't Ollama's to install");
+    assert.equal(j.install.auto, null);
+    const res = await handleOllamaActionPost(
+      post({ action: "start" }),
+      deps({ getStatus: () => getOllamaStatus({ hasWinget: () => true, platform: "win32" }), start: () => assert.fail("must not launch") }),
+    );
+    assert.equal(res.status, 400);
+  });
 });

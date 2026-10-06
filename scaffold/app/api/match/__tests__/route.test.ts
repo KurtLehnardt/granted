@@ -1,10 +1,14 @@
-import { test } from "node:test";
+import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import Anthropic from "@anthropic-ai/sdk";
 
 import { handleMatchRequest, type MatchDeps } from "../handler";
 import type { OpportunityMap } from "@/lib/types";
-import { ProviderHttpError } from "@/lib/llm/errors";
+import { ProviderHttpError, markChatError } from "@/lib/llm/errors";
+import { __resetRateLimits } from "@/lib/security/rateLimit";
+
+// Every case is a fresh client: the per-IP limit (20/min) isn't what these test.
+beforeEach(() => __resetRateLimits());
 
 /**
  * NDJSON /api/match route tests (H6). `handleMatchRequest` is the pure
@@ -145,12 +149,13 @@ test("buildOpportunityMap throwing mid-stream emits a type:'error' line and the 
 // (models.list is free) and every search then fails with a provider 400 the
 // old code buried behind "The search didn't complete." Now it says what to do.
 test("a provider 400 (Anthropic credit-balance error) says the account is out of credits and how to fix it", async () => {
-  const providerErr = Anthropic.APIError.generate(
+  // Thrown by the chat client, which marks its errors as the chat provider's.
+  const providerErr = markChatError(Anthropic.APIError.generate(
     400,
     { error: { message: "Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits." } },
     undefined,
     {},
-  );
+  ));
   const deps: MatchDeps = {
     cached: () => undefined,
     buildOpportunityMap: async () => { throw providerErr; },
@@ -168,7 +173,7 @@ test("an OpenAI-compatible 402 (ProviderHttpError) is reported as out of credits
   const deps: MatchDeps = {
     cached: () => undefined,
     buildOpportunityMap: async () => {
-      throw new ProviderHttpError(402, JSON.stringify({ error: { message: "Insufficient balance for this request." } }));
+      throw markChatError(new ProviderHttpError(402, JSON.stringify({ error: { message: "Insufficient balance for this request." } })));
     },
     cloudProviderName: () => "OpenAI",
   };
@@ -179,7 +184,7 @@ test("an OpenAI-compatible 402 (ProviderHttpError) is reported as out of credits
 });
 
 test("a revoked key (401) says the key was rejected and where to update it", async () => {
-  const providerErr = Anthropic.APIError.generate(401, { error: { type: "authentication_error", message: "invalid x-api-key" } }, undefined, {});
+  const providerErr = markChatError(Anthropic.APIError.generate(401, { error: { type: "authentication_error", message: "invalid x-api-key" } }, undefined, {}));
   const res = await handleMatchRequest(post(JSON.stringify({ description: VALID_DESCRIPTION })), {
     cached: () => undefined,
     buildOpportunityMap: async () => { throw providerErr; },
@@ -217,19 +222,56 @@ test("Local: Ollama unreachable before the search -> says to start it in Setting
   assert.equal(built, false);
 });
 
-test("Local: the configured model missing -> names the model and the fix", async () => {
+test("Local: only embedding models installed -> says to download a chat model", async () => {
   const { LocalSetupError } = await import("@/lib/llm/searchErrors");
   const res = await handleMatchRequest(post(JSON.stringify({ description: VALID_DESCRIPTION })), {
     cached: () => undefined,
     buildOpportunityMap: async () => fakeMap,
-    resolveLlm: async () => { throw new LocalSetupError("local_model_missing", "gemma4:latest"); },
+    resolveLlm: async () => { throw new LocalSetupError("no_chat_models"); },
   });
   const err = (await readLines(res)).find((l) => l.type === "error");
-  assert.match(err.error, /"gemma4:latest" isn't installed/);
+  assert.match(err.error, /no chat model installed/);
+  assert.match(err.error, /Settings → Model/);
+});
+
+test("Local: a pick that isn't installed is said in the progress label, and the search runs on Default", async () => {
+  const res = await handleMatchRequest(post(JSON.stringify({ description: VALID_DESCRIPTION, model: "gone:3b" })), {
+    cached: () => undefined,
+    buildOpportunityMap: async () => fakeMap,
+    resolveLlm: async (m, onStatus) => { onStatus(`Your pick ${m} isn't installed; using qwen2.5:7b.`); return { local: true, model: "qwen2.5:7b" }; },
+  });
+  const lines = await readLines(res);
+  assert.ok(lines.some((l) => l.type === "progress" && l.label === "Your pick gone:3b isn't installed; using qwen2.5:7b."));
+  assert.equal(lines.at(-1).type, "result");
+});
+
+test("a provider error NOT from the chat client (e.g. an embeddings 401) isn't blamed on the chat provider", async () => {
+  const res = await handleMatchRequest(post(JSON.stringify({ description: VALID_DESCRIPTION })), {
+    cached: () => undefined,
+    buildOpportunityMap: async () => {
+      throw new ProviderHttpError(401, JSON.stringify({ error: { message: "Incorrect API key provided" } }));
+    },
+    cloudProviderName: () => "Anthropic",
+  });
+  const err = (await readLines(res)).find((l) => l.type === "error");
+  assert.doesNotMatch(err.error, /Anthropic/);
+});
+
+test("the fcc proxy (loopback base URL) down -> 'is the proxy running', not 'check your internet connection'", async () => {
+  const conn = markChatError(Object.assign(new TypeError("fetch failed"), { cause: Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" }) }));
+  const res = await handleMatchRequest(post(JSON.stringify({ description: VALID_DESCRIPTION })), {
+    cached: () => undefined,
+    buildOpportunityMap: async () => { throw conn; },
+    resolveLlm: async () => ({ local: false }),
+    cloudProviderName: () => "proxy",
+    cloudBaseUrl: () => "http://127.0.0.1:8082",
+  });
+  const err = (await readLines(res)).find((l) => l.type === "error");
+  assert.match(err.error, /proxy at http:\/\/127\.0\.0\.1:8082 — is it running\?/);
 });
 
 test("Local: Ollama stopping mid-search (fetch failed, wrapped by the batch fan-out) -> 'couldn't reach Ollama'", async () => {
-  const conn = Object.assign(new TypeError("fetch failed"), { cause: Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:11434"), { code: "ECONNREFUSED" }) });
+  const conn = markChatError(Object.assign(new TypeError("fetch failed"), { cause: Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:11434"), { code: "ECONNREFUSED" }) }));
   const res = await handleMatchRequest(post(JSON.stringify({ description: VALID_DESCRIPTION })), {
     cached: () => undefined,
     buildOpportunityMap: async () => { throw new Error("All scoring batches failed: fetch failed", { cause: conn }); },
