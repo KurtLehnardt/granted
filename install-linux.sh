@@ -18,9 +18,9 @@
 # rewrites it). Safe to re-run: skips anything already present/done (npm ci does
 # remove and reinstall node_modules each time, which is expected).
 #
-# After this finishes, `cd granted/scaffold` and run `npm run setup` (hosted
-# API keys) or `npm run setup:local -- --yes` (fully local via Ollama), then
-# `npm run dev`.
+# After this finishes, `cd granted/scaffold` and run `npm run setup` (an
+# OpenAI or Claude key for scoring; search needs no key) or `npm run
+# setup:local -- --yes` (fully local via Ollama), then `npm run dev`.
 set -euo pipefail
 
 REPO_URL="https://github.com/KurtLehnardt/granted.git"
@@ -127,11 +127,27 @@ fi
 # 5) npm ci -- never rewrites package-lock.json (unlike npm install).
 cd "$TARGET_DIR/scaffold"
 log "Installing npm dependencies..."
+# onnxruntime-node (the built-in search model's runtime) otherwise downloads
+# its CUDA GPU add-on on linux/x64, several hundred MB that search never uses.
+export ONNXRUNTIME_NODE_INSTALL=skip
 npm ci
 ok "dependencies installed"
 
+# The built-in search model (about 275 MB), so search works offline and needs
+# no API key. Idempotent: verifies what's already there and downloads only
+# what's missing. Never fatal: if it can't download now, Granted fetches the
+# model the first time someone searches. GRANTED_MODEL_URL points it at a mirror.
+if [ -f scripts/fetch-model.mjs ]; then
+  log "Downloading the built-in search model (about 275 MB)..."
+  if node scripts/fetch-model.mjs; then
+    ok "search model ready"
+  else
+    warn "Couldn't download the search model now. Granted will download it the first time you search."
+  fi
+fi
+
 log "Done. Next steps:"
 echo "  cd $TARGET_DIR/scaffold"
-echo "  npm run setup                  # hosted API key (OpenAI; Claude optional), or"
+echo "  npm run setup                  # an OpenAI or Claude key for scoring (search needs none), or"
 echo "  npm run setup:local -- --yes   # fully local via Ollama, no API keys"
 echo "  npm run dev                    # -> http://localhost:3000"

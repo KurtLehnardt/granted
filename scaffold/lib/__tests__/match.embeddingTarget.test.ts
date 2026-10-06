@@ -1,45 +1,27 @@
 import { test, describe, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { buildOpportunityMap } from "../match";
-import { embeddingTargetForCorpus, type EmbedOptions } from "../embed";
+import { buildOpportunityMap, CALIBRATION, type BuildDeps } from "../match";
+import type { EmbedOptions } from "../embed";
+import type { Opportunity } from "../types";
 import { resetLlmConfigCache } from "../llm/config";
 
 /**
  * One decision for corpus + query embedding: buildOpportunityMap loads the corpus
- * once and embeds the query with the target matching THAT corpus (the Settings →
- * Local index, or the hosted one), so a local 768-dim query can never be compared
- * against the 512-dim hosted corpus because two separate checks disagreed.
+ * once (in the active embedding space) and embeds the query in THAT corpus's
+ * space, and uses that space's similarity floor.
  */
 
-const saved = { cfg: process.env.GRANTED_LLM_CONFIG_PATH, base: process.env.GRANTED_LOCAL_EMBEDDINGS_BASE_DIR };
-let dir = "";
+const ENV_KEYS = ["OPENAI_API_KEY", "EMBEDDINGS_API_KEY", "SEARCH_EMBEDDINGS", "EMBEDDINGS_BASE_URL", "LLM_PROVIDER"] as const;
+const saved = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
 afterEach(() => {
-  for (const [k, v] of [["GRANTED_LLM_CONFIG_PATH", saved.cfg], ["GRANTED_LOCAL_EMBEDDINGS_BASE_DIR", saved.base]] as const) {
-    if (v === undefined) delete process.env[k];
-    else process.env[k] = v;
+  for (const k of ENV_KEYS) {
+    if (saved[k] === undefined) delete process.env[k];
+    else process.env[k] = saved[k];
   }
   resetLlmConfigCache();
-  if (dir) rmSync(dir, { recursive: true, force: true });
-  dir = "";
 });
 
-function setup(provider: "ollama" | "cloud") {
-  dir = mkdtempSync(join(tmpdir(), "granted-match-target-"));
-  writeFileSync(join(dir, "llm-config.json"), JSON.stringify({ provider }));
-  process.env.GRANTED_LLM_CONFIG_PATH = join(dir, "llm-config.json");
-  process.env.GRANTED_LOCAL_EMBEDDINGS_BASE_DIR = dir;
-  resetLlmConfigCache();
-  const idx = join(dir, "data", "local", "local-embeddings");
-  mkdirSync(idx, { recursive: true });
-  const opp = { id: "x1", source: "grants.gov", kind: "grant", program: "P", agency: "A", description: "D", eligibility: "E", embedding: [1, 0, 0] };
-  writeFileSync(join(idx, "opportunities.json"), JSON.stringify([opp]));
-  writeFileSync(join(idx, "corpus-meta.json"), JSON.stringify({ complete: true, embeddingModel: "nomic-embed-text", dims: 3, count: 1 }));
-}
-
-async function targetUsedBySearch(): Promise<EmbedOptions["target"]> {
+async function spaceUsedBySearch(): Promise<EmbedOptions["space"]> {
   let seen: EmbedOptions | undefined;
   await assert.rejects(
     buildOpportunityMap("We build sensing hardware.", undefined, {
@@ -51,26 +33,69 @@ async function targetUsedBySearch(): Promise<EmbedOptions["target"]> {
     }),
     /stop after the first embed/,
   );
-  return seen?.target;
+  return seen?.space;
 }
 
-describe("buildOpportunityMap — query embedding follows the loaded corpus", () => {
-  test("Local + ready index → the search loads the index and embeds the query locally", async () => {
-    setup("ollama");
-    const target = await targetUsedBySearch();
-    assert.equal(target?.source, "settings-local");
-    assert.equal(target?.model, "nomic-embed-text");
+describe("buildOpportunityMap — the query is embedded in the loaded corpus's space", () => {
+  test("no OpenAI key (e.g. a Claude-only setup) -> the built-in space", async () => {
+    for (const k of ENV_KEYS) delete process.env[k];
+    const space = await spaceUsedBySearch();
+    assert.equal(space?.id, "builtin");
+    assert.equal(space?.backend, "inprocess");
   });
 
-  test("Cloud → hosted corpus, hosted (env) query embedding, even with the index on disk", async () => {
-    setup("cloud");
-    const target = await targetUsedBySearch();
-    assert.equal(target?.source, "env");
+  test("a valid OpenAI key -> OpenAI, exactly as before", async () => {
+    for (const k of ENV_KEYS) delete process.env[k];
+    process.env.OPENAI_API_KEY = "sk-proj-abcdefghijklmnopqrstuvwxyz1234567890";
+    const space = await spaceUsedBySearch();
+    assert.equal(space?.id, "openai");
   });
 
-  test("embeddingTargetForCorpus maps each corpus source to its embedding space", () => {
-    assert.equal(embeddingTargetForCorpus("local-embeddings").source, "settings-local");
-    assert.equal(embeddingTargetForCorpus("local").source, "env");
-    assert.equal(embeddingTargetForCorpus("committed").source, "env");
+  test("SEARCH_EMBEDDINGS=builtin wins over an OpenAI key", async () => {
+    for (const k of ENV_KEYS) delete process.env[k];
+    process.env.OPENAI_API_KEY = "sk-proj-abcdefghijklmnopqrstuvwxyz1234567890";
+    process.env.SEARCH_EMBEDDINGS = "builtin";
+    const space = await spaceUsedBySearch();
+    assert.equal(space?.id, "builtin");
+  });
+});
+
+describe("buildOpportunityMap — per-space similarity floor", () => {
+  const opp = (id: string, embedding: number[]): Opportunity => ({
+    id,
+    source: "grants.gov",
+    kind: "grant",
+    program: `Program ${id}`,
+    agency: "NSF",
+    description: "Research.",
+    eligibility: "Anyone.",
+    embedding,
+  });
+  // cosine with [1, 0] is 0.9 for "near" and 0.35 for "middling".
+  const corpus = [opp("near", [0.9, Math.sqrt(1 - 0.81)]), opp("middling", [0.35, Math.sqrt(1 - 0.35 * 0.35)])];
+
+  async function scoredIds(space?: BuildDeps["space"]): Promise<string[]> {
+    let ids: string[] = [];
+    await buildOpportunityMap("We do research.", undefined, {
+      corpus,
+      space,
+      extractProfile: async () => ({ profile: { description: "x" }, followUps: [] }) as any,
+      embed: (async () => [1, 0]) as any,
+      explainMatches: (async (_p: unknown, candidates: Opportunity[]) => {
+        ids = candidates.map((c) => c.id).sort();
+        return candidates.map((c) => ({ id: c.id, score: 10, tier: "none", criteria: [], whyCare: "", whyFit: "", whyIneligible: "", whatToVerify: "", whatToDoNext: "" }));
+      }) as any,
+      explainWeakField: async () => ({ headline: "h", reasoning: "r", redirects: [] }),
+    });
+    return ids;
+  }
+
+  test("an injected corpus without a space keeps CALIBRATION's (OpenAI) floor", async () => {
+    assert.equal(CALIBRATION.candidateFloor, 0.22);
+    assert.deepEqual(await scoredIds(), ["middling", "near"]);
+  });
+
+  test("a space with a higher floor drops what falls below it", async () => {
+    assert.deepEqual(await scoredIds({ candidateFloor: 0.5, weakFieldThreshold: 1 }), ["near"]);
   });
 });

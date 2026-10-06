@@ -107,10 +107,12 @@ export interface GrantedSetupState {
   openaiKeySet: boolean;
   /** ANTHROPIC_API_KEY is set to a real (non-placeholder) value. */
   anthropicKeySet: boolean;
-  /** What hosted (API-key) mode needs to run: the OpenAI key (search). The Anthropic key is optional. */
+  /** What hosted (API-key) mode needs to run: one key to score with, OpenAI's or Anthropic's (search needs none). */
   hostedKeysSet: boolean;
-  /** `npm run setup:local` finished: .env.local points at Ollama AND the corpus was re-embedded to match. */
+  /** `npm run setup:local` finished: .env.local points at Ollama (and, for an older setup that re-embedded the corpus, that re-embed finished). */
   localConfigured: boolean;
+  /** A model provider was already chosen in Granted's Settings → Model (data/local/llm-config.json), e.g. Gemini or Groq. */
+  settingsProviderSet: boolean;
   /** This install has scripts/windows/granted-tray.ps1, so Granted can run in the background with a tray icon. */
   trayAvailable: boolean;
   /** This install has scripts/windows/shortcuts.ps1, so Desktop/Start menu shortcuts can be offered. */

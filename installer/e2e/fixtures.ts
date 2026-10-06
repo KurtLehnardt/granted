@@ -45,7 +45,7 @@ const fs = require("node:fs");
 if (process.env.FAKE_SETUP_LOCAL_FAIL === "1") { console.error("fake setup:local failing on purpose"); process.exit(1); }
 if (process.env.FAKE_SETUP_LOCAL_HANG === "1") { console.log("fake setup:local running until its window is closed"); setInterval(() => {}, 1000); return; }
 const existing = fs.existsSync(".env.local") ? fs.readFileSync(".env.local", "utf8") : fs.readFileSync(".env.example", "utf8");
-fs.writeFileSync(".env.local", existing + "LLM_PROVIDER=ollama\\nEMBEDDINGS_BASE_URL=http://localhost:11434/v1\\n");
+fs.writeFileSync(".env.local", existing + "LLM_PROVIDER=ollama\\nLOCAL_LLM_MODEL=gemma4:latest\\n");
 console.log("fake setup:local done; args:", process.argv.slice(2).join(" "));
 `;
 

@@ -104,17 +104,38 @@ test("generateQuestions: empty / whitespace description rejects with InterviewGe
   await assert.rejects(generateQuestions("   "), (e) => e instanceof InterviewGenerationError && /empty/i.test((e as Error).message));
 });
 
-test("generateQuestions: missing OPENAI_API_KEY (and no injected client) rejects mentioning OPENAI_API_KEY", async () => {
-  const saved = process.env.OPENAI_API_KEY;
+test("generateQuestions: no provider configured (and no injected client) rejects, and needs no OpenAI key in particular", async () => {
+  const saved = { openai: process.env.OPENAI_API_KEY, anthropic: process.env.ANTHROPIC_API_KEY, provider: process.env.LLM_PROVIDER };
   delete process.env.OPENAI_API_KEY;
+  delete process.env.ANTHROPIC_API_KEY;
+  delete process.env.LLM_PROVIDER;
   try {
     await assert.rejects(
-      generateQuestions("A valid company description with enough words to pass the length gate.", { apiKey: undefined }),
-      (e) => e instanceof InterviewGenerationError && /OPENAI_API_KEY/.test((e as Error).message),
+      generateQuestions("A valid company description with enough words to pass the length gate."),
+      (e) => e instanceof InterviewGenerationError && /No model is configured/.test((e as Error).message),
     );
   } finally {
-    if (saved !== undefined) process.env.OPENAI_API_KEY = saved;
+    for (const [k, v] of [["OPENAI_API_KEY", saved.openai], ["ANTHROPIC_API_KEY", saved.anthropic], ["LLM_PROVIDER", saved.provider]] as const) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
   }
+});
+
+test("generateQuestions: goes through the lib/llm message shape and tolerates fenced JSON", async () => {
+  let seen: any;
+  const client: InterviewChatClient = {
+    messages: {
+      create: async (params: any) => {
+        seen = params;
+        return { content: [{ type: "text", text: "```json\n" + JSON.stringify({ questions: [{ question: "Q?", routing_target: "agency", answer_kind: "free_text" }] }) + "\n```" }] };
+      },
+    },
+  };
+  const out = await generateQuestions("We build drones for agriculture and need SBIR funding.", { client });
+  assert.equal(out.length, 1);
+  assert.equal(typeof seen.system, "string", "the prompt goes in `system`, Anthropic-style");
+  assert.equal(seen.messages[0].role, "user");
 });
 
 // --- EVL-03 defense-hw-08 re-ask regression (injected client) --------------
@@ -141,10 +162,8 @@ test("EVL-03 regression (defense-hw-08): a canned re-ask of the ownership gate i
     ],
   };
   const client: InterviewChatClient = {
-    chat: {
-      completions: {
-        create: async () => ({ choices: [{ message: { content: JSON.stringify(cannedResponse) } }] }),
-      },
+    messages: {
+      create: async () => ({ content: [{ type: "text", text: JSON.stringify(cannedResponse) }] }),
     },
   };
 

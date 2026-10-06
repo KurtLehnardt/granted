@@ -23,7 +23,7 @@ import {
  * metered the instant the call resolves, fence-stripped JSON.
  *
  *   [1] RETRIEVE  keyless federal awards (USAspending/NIH/NSF) — fault-tolerant.
- *   [2] RERANK    cosine similarity to the persona (text-embedding-3-small@512);
+ *   [2] RERANK    cosine similarity to the persona, in the active search embedding space;
  *                 degrades to retrieval order if embeddings are unavailable.
  *   [3] WEB       optional private-competitor profiles via exa (skipped if no key).
  *   [4] SYNTHESIZE one grounded claude-sonnet-4-6 call over the kept evidence.
@@ -336,7 +336,9 @@ export async function analyzeCompetitors(input: AnalyzeInput): Promise<Competito
   const withSim: (RawAwardRecord & { similarity?: number })[] = retrieval.records.map((r) => ({ ...r }));
   try {
     const texts = [input.personaDescription, ...withSim.map((r) => `${r.recipient}. ${r.abstract}`)];
-    const vecs = await embedBatch(texts, input.meter, input.signal);
+    // The persona is the query; the award records are the documents (the built-in model prefixes each differently).
+    const kinds = texts.map((_, i) => (i === 0 ? "query" : "document") as "query" | "document");
+    const vecs = await embedBatch(texts, input.meter, input.signal, { kind: kinds });
     const personaVec = vecs[0];
     withSim.forEach((r, i) => {
       r.similarity = cosine(personaVec, vecs[i + 1]);

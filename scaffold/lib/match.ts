@@ -1,4 +1,6 @@
-import { embed, cosine, assertEmbeddingDimsMatch, embeddingTargetForCorpus, type EmbedOptions } from "./embed";
+import { embed, cosine, assertEmbeddingDimsMatch, type EmbedOptions } from "./embed";
+import type { EmbeddingSpace } from "./embeddings/spaces";
+import { ensureBuiltinModel, isBuiltinModelPresent } from "./embeddings/builtin";
 import { extractProfile, explainMatches, explainMatchesTwoPass, explainWeakField, type Assessment, type TwoPassProgressDetail } from "./claude";
 import type { Opportunity, OpportunityMap, StartupProfile, Match, Tier, AwardHistory } from "./types";
 import { screen } from "./eligibility/screen";
@@ -34,7 +36,9 @@ import { normalizeStateName, statesMatch } from "./location";
  * (evals/golden-set.jsonl) remains the outstanding audit step.
  */
 export const CALIBRATION = {
-  /** Below this cosine similarity a program is never a candidate. */
+  /** Below this cosine similarity a program is never a candidate. This is the
+   *  OpenAI space's floor; each embedding space carries its own (lib/embeddings/
+   *  spaces.ts), and a search uses the floor of the space its corpus is in. */
   candidateFloor: 0.22,
   /** How many candidates go to Claude for scoring. */
   candidateCount: Number(process.env.LLM_CANDIDATE_COUNT) || 24,
@@ -118,6 +122,8 @@ export type BuildDeps = {
   explainWeakField: typeof explainWeakField;
   screen: typeof screen;
   corpus: Opportunity[];
+  /** The embedding space of an injected corpus (its floor and weak-field threshold). Defaults to CALIBRATION's values. */
+  space?: Pick<EmbeddingSpace, "candidateFloor" | "weakFieldThreshold">;
 };
 
 const REAL_DEPS: Omit<BuildDeps, "corpus"> = {
@@ -388,17 +394,27 @@ export async function buildOpportunityMap(
   // exactly like `onMatch`: never affects the authoritative returned map.
   onProvisional?: (o: Opportunity) => void,
 ): Promise<OpportunityMap> {
-  // Load the corpus ONCE per search, and embed the query with the target matching the corpus
-  // actually loaded (Settings -> Local's index or the hosted one): one decision, so a 768-dim
-  // local query can never meet the 512-dim hosted corpus mid-switch. Injected corpora (tests)
-  // keep the default (active) target.
+  // Load the corpus ONCE per search, and embed the query in the embedding space of the
+  // corpus actually loaded: one decision, so a query can never be compared with vectors
+  // from another model mid-switch. Injected corpora (tests) keep the active space for the
+  // query and CALIBRATION's floor unless they pass `deps.space`.
   const corpusInfo = deps.corpus ? null : getCorpusInfo();
   const fullCorpus = deps.corpus ?? corpusInfo!.opportunities;
-  const embedOpts: EmbedOptions = corpusInfo ? { target: embeddingTargetForCorpus(corpusInfo.source) } : {};
+  const embedOpts: EmbedOptions = corpusInfo ? { space: corpusInfo.space } : {};
+  const spaceCalibration = corpusInfo?.space ?? deps.space ?? CALIBRATION;
   const d: BuildDeps = { ...REAL_DEPS, ...deps, corpus: deps.corpus ?? dropExpiredOpportunities(fullCorpus) };
   // Progress is best-effort: a reporting error must never fail the search.
   const step = (e: StepEvent) => { try { onStep?.(e); } catch { /* ignore */ } };
   step({ key: "start", label: "Reading the federal register…", pct: 5 });
+
+  // The built-in search model is normally downloaded by the installer. If it isn't
+  // there yet, fetch it now (once; Settings → Model shows the same progress) rather
+  // than failing the search.
+  if (corpusInfo?.space.backend === "inprocess" && !deps.embed && !isBuiltinModelPresent()) {
+    await ensureBuiltinModel((pct) =>
+      step({ key: "model", label: `Downloading the search model (one time): ${pct}%`, pct: 5 }),
+    );
+  }
 
   // R4b — one CostMeter per search, threaded through every LLM/embedding
   // call below (including the weakField() early-exit path). Every method on
@@ -450,7 +466,7 @@ export async function buildOpportunityMap(
       })
       .sort((a, b) => b.rank - a.rank || (a.o.id < b.o.id ? -1 : a.o.id > b.o.id ? 1 : 0));
     const rankedById = new Map(ranked.map((x) => [x.o.id, x]));
-    const floorCleared = ranked.filter((x) => x.sim >= CALIBRATION.candidateFloor);
+    const floorCleared = ranked.filter((x) => x.sim >= spaceCalibration.candidateFloor);
 
     const candidateCount = clampCandidateCount(maxCandidates);
     const selectedIds = new Set(floorCleared.slice(0, candidateCount).map((x) => x.o.id));
@@ -814,7 +830,7 @@ export async function buildOpportunityMap(
   // wrapping above.
   const wantWeakField = discernment
     ? verdict === "no_fit" || verdict === "thin_map"
-    : strong.length < CALIBRATION.weakFieldThreshold;
+    : strong.length < spaceCalibration.weakFieldThreshold;
   let weak: Awaited<ReturnType<typeof d.explainWeakField>> | undefined;
   if (wantWeakField) {
     try {

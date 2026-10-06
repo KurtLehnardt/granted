@@ -60,8 +60,13 @@ jobs:
 
       # `npm ci` (not `install`) so a lockfile that has drifted from
       # package.json fails the build instead of being silently rewritten.
+      # ONNXRUNTIME_NODE_INSTALL=skip: onnxruntime-node (the built-in search
+      # model's runtime) would otherwise download its CUDA add-on on linux/x64,
+      # several hundred MB that nothing here uses.
       - name: Install dependencies
         run: npm ci
+        env:
+          ONNXRUNTIME_NODE_INSTALL: skip
 
       # Kept as separate steps so a red build names which one broke.
       - name: Typecheck

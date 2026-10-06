@@ -40,37 +40,31 @@ describe("ModelSection — renders the right panel per provider", () => {
     assert.doesNotMatch(html, /README/);
   });
 
-  test("provider: ollama shows the local search setup status (progress / error + Retry / ready)", () => {
-    const running = render({
-      provider: "ollama",
-      local: true,
-      localEmbeddings: { state: "running", model: "nomic-embed-text", active: false, progress: { stage: "pulling", pct: 30 } },
+  test("the Search line shows on Local and on Cloud, with the built-in model's state", () => {
+    const builtin = (state: "ready" | "downloading" | "failed", extra = {}) => ({
+      space: "builtin" as const,
+      label: "Built-in, on this computer",
+      model: "nomic-embed-text-v1.5",
+      reason: "Local model selected",
+      setting: "auto" as const,
+      builtin: { state, model: "nomic-embed-text-v1.5", totalBytes: 274574153, ...extra },
     });
-    assert.match(running, /local-search-status/);
-    assert.match(running, /Downloading the local search model \(nomic-embed-text\): 30%/);
+    const downloading = render({ provider: "ollama", local: true, search: builtin("downloading", { pct: 30 }) });
+    assert.match(downloading, /search-status/);
+    assert.match(downloading, /Downloading the search model: 30%/);
 
-    const failed = render({
-      provider: "ollama",
-      local: true,
-      localEmbeddings: { state: "failed", model: "nomic-embed-text", active: false, error: "Couldn't reach Ollama" },
-    });
+    const failed = render({ provider: "ollama", local: true, search: builtin("failed", { error: "offline" }) });
     assert.match(failed, />Retry</);
 
-    const ready = render({
-      provider: "ollama",
-      local: true,
-      localEmbeddings: { state: "ready", model: "nomic-embed-text", active: true, count: 12 },
-    });
-    assert.match(ready, /Search runs on this machine/);
-  });
+    const cloud = render({ provider: "cloud", local: false, search: builtin("ready") });
+    assert.match(cloud, /Search: Built-in, on this computer/);
 
-  test("provider: cloud never shows the local search status", () => {
-    const html = render({
+    const openai = render({
       provider: "cloud",
       local: false,
-      localEmbeddings: { state: "running", model: "nomic-embed-text", active: false, progress: { stage: "checking" } },
+      search: { ...builtin("ready"), space: "openai", label: "OpenAI embeddings", model: "text-embedding-3-small" },
     });
-    assert.doesNotMatch(html, /local-search-status/);
+    assert.match(openai, /Search: OpenAI embeddings/);
   });
 
   test("provider: cloud, no key -> cloud panel with a provider select covering every preset", () => {

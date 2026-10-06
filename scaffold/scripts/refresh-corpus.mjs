@@ -1,13 +1,23 @@
 /**
  * npm run data:refresh: fetch every open listing into data/local/ (gitignored; data/raw and the
  * committed corpus are untouched), drop expired, cap, embed only new/changed records, write atomically.
+ *
+ * Records are embedded in the embedding space search uses (lib/embeddings/spaces.ts), so a refresh
+ * needs no API key when search is built-in: new and changed records are embedded in this process
+ * and written to data/local/vectors/, reusing every vector whose id and text are unchanged. With
+ * OpenAI (or a custom embedder) the inline vectors are refreshed as before, and the built-in vectors
+ * are kept up to date as well whenever the built-in model is downloaded.
  */
 import "./_loadEnvLocal.mjs"; // honor scaffold/.env.local when run as plain `node`
 import { spawnSync } from "node:child_process";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { embedBatch, envEmbeddingTarget, EMBEDDINGS_DIMENSIONS, EMBEDDINGS_MODEL } from "../lib/embed.ts";
-import { startLocalIndexUpdateIfInUse } from "../lib/embeddings/startLocalEmbeddings.ts";
+import { embedBatch, EMBEDDINGS_DIMENSIONS, EMBEDDINGS_MODEL } from "../lib/embed.ts";
+import { activeSearchSpace, getSpace } from "../lib/embeddings/spaces.ts";
+import { embedWithBuiltin, ensureBuiltinModel, isBuiltinModelPresent } from "../lib/embeddings/builtin.ts";
+import { buildSpaceVectors } from "./lib/spaceVectors.mjs";
+import { readVectorFile, writeVectorFile } from "./lib/vectorFile.mjs";
+import { BUILTIN_MODEL } from "./lib/builtinModel.mjs";
 import { clampCorpusSize, DEFAULT_CORPUS_SIZE } from "../lib/searchSettings.ts";
 import { dropExpiredOpportunities } from "../lib/corpus/expiry.ts";
 import { dropPastAwards } from "../lib/corpus/pastAwards.ts";
@@ -37,6 +47,16 @@ const LOCAL_DIR = "data/local";
 const RAW_DIR = join(LOCAL_DIR, "raw");
 const LOCAL_OPPS = join(LOCAL_DIR, "opportunities.json");
 const LOCAL_META = join(LOCAL_DIR, "corpus-meta.json");
+const LOCAL_VECTORS = join(LOCAL_DIR, "vectors");
+const COMMITTED_VECTORS = join("data", "vectors");
+
+// The space search uses decides what this refresh must embed. Inline spaces (OpenAI, a custom
+// embedder) keep their vectors in opportunities.json; the built-in space has its own vector file.
+const SEARCH_SPACE = activeSearchSpace().space;
+const INLINE_SPACE = SEARCH_SPACE.vectors.kind === "inline" ? SEARCH_SPACE : null;
+const INLINE_MODEL = INLINE_SPACE?.id === "openai" ? INLINE_SPACE.model : EMBEDDINGS_MODEL;
+const INLINE_DIMS = INLINE_SPACE?.id === "openai" ? INLINE_SPACE.dims : EMBEDDINGS_DIMENSIONS;
+const BUILTIN_SPACE = getSpace("builtin");
 const EMBED_BATCH = 64;
 const STOP_EXIT_CODE = 75; // 1-fetch.mjs uses this to signal "stopped, not failed" between detail-fetch batches
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -75,8 +95,7 @@ async function embedAll(toEmbedList, { foundCount, keptCount, allowReembedEscala
 
 async function embedBatchWithRetry(texts, attempt = 0) {
   try {
-    // Pinned to the env target: this writes the hosted corpus, never the Settings-built local index.
-    return await embedBatch(texts, undefined, undefined, { target: envEmbeddingTarget(), allowHostedOnLocal: true });
+    return await embedBatch(texts, undefined, undefined, { space: INLINE_SPACE, kind: "document" });
   } catch (e) {
     const status = Number(String(e.message).match(/\((\d+)\)/)?.[1]);
     if (!(status === 429 || status >= 500) || attempt >= 7) throw e;
@@ -140,7 +159,7 @@ async function main() {
       embeddedSoFar: [],
       notYetEmbedded: [],
       priorById: existingById,
-      dims: realDims ?? EMBEDDINGS_DIMENSIONS ?? existingMeta.dims,
+      dims: realDims ?? INLINE_DIMS ?? existingMeta.dims,
       ...opts,
     });
     if (outcome.save) {
@@ -149,7 +168,7 @@ async function main() {
         builtAt: new Date().toISOString(),
         note: "Local corpus refresh (npm run data:refresh) — gitignored, never committed. Read by lib/corpus/store.ts.",
         count: outcome.corpus.length,
-        embeddingModel: EMBEDDINGS_MODEL,
+        embeddingModel: INLINE_SPACE ? INLINE_MODEL : existingMeta.embeddingModel,
         dims: dims ?? existingMeta.dims,
       };
       await writeAtomic(LOCAL_OPPS, JSON.stringify(outcome.corpus));
@@ -255,18 +274,41 @@ async function main() {
     // Older corpora (incl. the committed snapshot) predate meta.dims.
     const priorDims = existingMeta.dims ?? priorById.values().next().value?.embedding?.length;
 
+    // With search on the built-in model, inline vectors are only carried over for unchanged
+    // records (so switching back to OpenAI later still finds most of them); nothing is sent to
+    // an HTTP embedder, so no key is needed.
     let plan = planEmbedding(
       fresh,
       priorById,
       existingMeta.embeddingModel,
-      EMBEDDINGS_MODEL,
-      EMBEDDINGS_DIMENSIONS ?? priorDims,
+      INLINE_SPACE ? INLINE_MODEL : (existingMeta.embeddingModel ?? INLINE_MODEL),
+      INLINE_SPACE ? (INLINE_DIMS ?? priorDims) : priorDims,
       priorDims,
     );
-    console.log(
-      `Embedding plan: ${plan.reused.length} reused, ${plan.toEmbed.length} to embed with ${EMBEDDINGS_MODEL}` +
-        (plan.fullReembed ? " (embedding model or dimensions changed — full re-embed)" : ""),
-    );
+    if (INLINE_SPACE) {
+      console.log(
+        `Embedding plan: ${plan.reused.length} reused, ${plan.toEmbed.length} to embed with ${INLINE_MODEL}` +
+          (plan.fullReembed ? " (embedding model or dimensions changed — full re-embed)" : ""),
+      );
+    }
+
+    // Built-in vectors: required when search uses them, kept fresh otherwise if the model is here.
+    const builtinVectors = await refreshBuiltinVectors(fresh, { foundCount, keptCount, required: !INLINE_SPACE });
+    if (builtinVectors?.stopped) {
+      reportProgress("saving", { foundCount, keptCount });
+      const kept = plan.reused.concat(plan.toEmbed.map(withoutEmbedding));
+      await writeAtomic(LOCAL_OPPS, JSON.stringify(kept));
+      await writeAtomic(LOCAL_META, JSON.stringify(localMeta(kept, existingMeta), null, 2));
+      console.log(
+        `\ndata:refresh stopped by user during embedding — saved ${kept.length} records (${builtinVectors.entries.length} with search vectors).`,
+      );
+      writeRefreshStatus({ lastStoppedAt: new Date().toISOString(), stopped: true, savedCount: kept.length });
+      return;
+    }
+
+    if (!INLINE_SPACE) {
+      plan = { ...plan, toEmbed: [], reused: plan.reused.concat(plan.toEmbed.map(withoutEmbedding)) };
+    }
     reportProgress("embedding", { done: 0, total: plan.toEmbed.length, foundCount, keptCount });
 
     let result = await embedAll(plan.toEmbed, {
@@ -280,15 +322,7 @@ async function main() {
         "\n  embedder's actual output dims differ from the corpus's recorded dims — forcing a full " +
           "re-embed so the corpus never mixes dimensions.",
       );
-      plan = planEmbedding(
-        fresh,
-        priorById,
-        existingMeta.embeddingModel,
-        EMBEDDINGS_MODEL,
-        EMBEDDINGS_DIMENSIONS ?? priorDims,
-        priorDims,
-        true,
-      );
+      plan = planEmbedding(fresh, priorById, existingMeta.embeddingModel, INLINE_MODEL, INLINE_DIMS ?? priorDims, priorDims, true);
       reportProgress("embedding", { done: 0, total: plan.toEmbed.length, foundCount, keptCount });
       result = await embedAll(plan.toEmbed, { foundCount, keptCount, allowReembedEscalation: false });
     }
@@ -315,13 +349,7 @@ async function main() {
     const removed = countRemoved(existing.map((o) => o.id), new Set(final.map((o) => o.id)));
     const dims = final.find((o) => Array.isArray(o.embedding) && o.embedding.length > 0)?.embedding?.length;
 
-    const meta = {
-      builtAt: new Date().toISOString(),
-      note: "Local corpus refresh (npm run data:refresh) — gitignored, never committed. Read by lib/corpus/store.ts.",
-      count: final.length,
-      embeddingModel: EMBEDDINGS_MODEL,
-      dims: dims ?? existingMeta.dims,
-    };
+    const meta = { ...localMeta(final, existingMeta), dims: dims ?? existingMeta.dims };
 
     await writeAtomic(LOCAL_OPPS, JSON.stringify(final));
     await writeAtomic(LOCAL_META, JSON.stringify(meta, null, 2));
@@ -332,13 +360,6 @@ async function main() {
         `(+${plan.added} added, ~${plan.updated} updated, -${removed} removed) in ${durationS}s`,
     );
     writeRefreshStatus({ lastCompletedAt: attemptAt });
-    // On Settings -> Local, search uses a separate local index derived from this corpus:
-    // bring it up to date in the background (only new/changed grants are re-embedded).
-    try {
-      if (startLocalIndexUpdateIfInUse()?.started) console.log("-> updating the local search index in the background");
-    } catch (err) {
-      console.error(`(couldn't start the local search index update: ${err.message})`);
-    }
   } catch (e) {
     console.error(`\ndata:refresh FAILED — ${e.message}`);
     writeRefreshStatus({ lastAttemptAt: attemptAt, lastError: e.message });
@@ -346,6 +367,62 @@ async function main() {
   } finally {
     releaseRefreshLock();
     clearStopRequest();
+  }
+}
+
+function withoutEmbedding(o) {
+  const { embedding: _drop, ...rest } = o;
+  return rest;
+}
+
+function localMeta(records, existingMeta) {
+  return {
+    builtAt: new Date().toISOString(),
+    note: "Local corpus refresh (npm run data:refresh) — gitignored, never committed. Read by lib/corpus/store.ts.",
+    count: records.length,
+    embeddingModel: INLINE_SPACE ? INLINE_MODEL : existingMeta.embeddingModel,
+    dims: records.find((o) => Array.isArray(o.embedding) && o.embedding.length > 0)?.embedding?.length ?? existingMeta.dims,
+  };
+}
+
+/**
+ * Bring data/local/vectors/ (the built-in space) up to date for `records`, embedding only
+ * new or changed ones in this process. `required`: search uses these vectors, so the model is
+ * downloaded if missing and a failure fails the refresh. Otherwise it only runs when the model
+ * is already downloaded, and a failure is just a warning (search doesn't use them right now).
+ */
+async function refreshBuiltinVectors(records, { foundCount, keptCount, required }) {
+  if (!required && !isBuiltinModelPresent()) return null;
+  try {
+    if (required) await ensureBuiltinModel((pct) => process.stdout.write(`\rdownloading the search model: ${pct}%`));
+    const name = BUILTIN_SPACE.vectors.name;
+    // The committed vectors cover the shipped corpus; a previous refresh's cover what it added.
+    const prior = new Map([
+      ...(readVectorFile(COMMITTED_VECTORS, name)?.vectors ?? new Map()),
+      ...(readVectorFile(LOCAL_VECTORS, name)?.vectors ?? new Map()),
+    ]);
+    const result = await buildSpaceVectors(BUILTIN_SPACE, records, {
+      prior,
+      embed: (texts) => embedWithBuiltin(texts),
+      batch: 16,
+      shouldStop: isStopRequested,
+      onProgress: (done, total) => {
+        process.stdout.write(`\rsearch vectors: embedded ${done}/${total}`);
+        reportProgress("embedding", { done, total, foundCount, keptCount });
+      },
+    });
+    writeVectorFile(
+      LOCAL_VECTORS,
+      name,
+      { space: BUILTIN_SPACE.id, model: BUILTIN_SPACE.model, revision: BUILTIN_MODEL.revision, dims: BUILTIN_SPACE.dims },
+      result.entries,
+    );
+    console.log(`\nBuilt-in search vectors: ${result.reused} reused, ${result.embedded} embedded.`);
+    return result;
+  } catch (e) {
+    if (required) throw e;
+    console.warn(`\n(couldn't update the built-in search vectors: ${e.message}; search isn't using them right now)`);
+    return null;
   }
 }
 

@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
-import type { LocalEmbeddingsStatus } from "@/lib/embeddings/localEmbeddings";
+import React, { useEffect, useState } from "react";
+import type { SearchStatus } from "@/lib/embeddings/searchStatus";
 
 export type LocalSearchView = {
   tone: "progress" | "ok" | "error" | "info";
@@ -11,103 +11,75 @@ export type LocalSearchView = {
   action?: string;
 };
 
-const fmt = (n: number) => n.toLocaleString("en-US");
+const mb = (bytes: number) => `${Math.round(bytes / 1e6)} MB`;
 
 /**
- * Pure: what Settings → Model → Local says about local search, from GET
- * /api/llm/embeddings. Null when there's nothing to say (embeddings are set in
- * .env.local, or no status yet).
+ * Pure: the "Search" line in Settings → Model, from GET /api/llm/embeddings.
+ * Says which embeddings search uses and, for the built-in model, whether its
+ * files are downloaded. Null when there's no status yet.
  */
-export function describeLocalSearchStatus(s: LocalEmbeddingsStatus | undefined | null): LocalSearchView | null {
-  if (!s || s.state === "not-applicable") return null;
+export function describeLocalSearchStatus(s: SearchStatus | undefined | null): LocalSearchView | null {
+  if (!s) return null;
 
-  if (s.state === "running") {
-    const p = s.progress ?? { stage: "checking" as const };
-    const pct = typeof p.pct === "number" ? p.pct : undefined;
-    const title =
-      p.stage === "pulling"
-        ? `Downloading the local search model (${s.model})${pct != null ? `: ${pct}%` : "..."}`
-        : p.stage === "embedding"
-          ? p.done != null && p.total != null
-            ? `Building the local search index: ${fmt(p.done)} of ${fmt(p.total)} grants${pct != null ? ` (${pct}%)` : ""}`
-            : "Building the local search index..."
-          : p.stage === "saving"
-            ? "Saving the local search index..."
-            : "Setting up local search: checking Ollama...";
-    const detail = s.active
-      ? "Search keeps using your current local index until the update finishes."
-      : "This runs in the background and can take from a few minutes to half an hour. You can keep using Granted; searches on Local start working as soon as it finishes.";
-    return { tone: "progress", title, detail, ...(pct != null ? { pct } : {}) };
-  }
-
-  if (s.state === "failed") {
-    return {
-      tone: "error",
-      title: s.error ?? "Setting up local search failed.",
-      ...(s.active ? { detail: "Search keeps using your current local index." } : {}),
-      action: "Retry",
-    };
-  }
-
-  if (s.state === "manual") {
-    // Local runs on a non-Ollama server: the app can't pull a model there, so say how to do it by hand.
-    return { tone: "info", title: s.error ?? "Set up embeddings for your local model server in .env.local." };
-  }
-
-  if (s.state === "needed") {
+  if (s.space === "openai") {
     return {
       tone: "info",
-      title: "Local search needs a one-time setup.",
-      detail: `Granted downloads a small embedding model (${s.model}) through Ollama and indexes the grants on this machine, in the background. Until it's done, searches can't run on Local.`,
-      action: "Set up local search",
+      title: "Search: OpenAI embeddings",
+      detail: "Uses your OpenAI key. To search on this computer instead, set SEARCH_EMBEDDINGS=builtin in .env.local.",
     };
+  }
+  if (s.space === "custom") {
+    return { tone: "info", title: `Search: your embedding server (${s.model})`, detail: "Set by EMBEDDINGS_BASE_URL in .env.local." };
   }
 
-  // ready
-  if (s.outdated) {
+  const title = "Search: Built-in, on this computer";
+  const b = s.builtin;
+  if (b.state === "downloading") {
+    const pct = typeof b.pct === "number" ? b.pct : 0;
     return {
-      tone: "info",
-      title: "Local search is ready, but the grant list changed since it was indexed.",
-      detail: "Search uses the existing index until you update it; only new or changed grants are re-indexed.",
-      action: "Update local search",
+      tone: "progress",
+      title: `${title}. Downloading the search model: ${pct}%`,
+      detail: `A one-time download of about ${mb(b.totalBytes)}. Searches start as soon as it finishes.`,
+      pct,
     };
   }
-  return {
-    tone: "ok",
-    title: `Search runs on this machine (${s.model}${s.count ? `, ${fmt(s.count)} grants indexed` : ""}).`,
-  };
+  if (b.state === "failed") {
+    return { tone: "error", title: b.error ?? "Downloading the search model failed.", action: "Retry" };
+  }
+  if (b.state === "missing") {
+    return {
+      tone: "info",
+      title,
+      detail: `The search model (about ${mb(b.totalBytes)}) isn't downloaded yet. It downloads by itself on your first search, or now.`,
+      action: "Download now",
+    };
+  }
+  return { tone: "ok", title, detail: `${b.model}. No key needed, and it works offline.` };
 }
 
 /**
- * Status + action for Settings → Local's background local-search setup. Polls
- * GET /api/llm/embeddings while the job runs; the action button POSTs to start
- * (or retry) it. `onReady` lets the parent refresh once search switches over.
+ * The "Search" line in Settings → Model. Polls GET /api/llm/embeddings while the
+ * built-in model downloads; the action button POSTs to start (or retry) the download.
  */
 export default function LocalSearchStatus({
   initialStatus,
-  onReady,
-  autoStart = false,
   pollMs = 2000,
 }: {
-  initialStatus?: LocalEmbeddingsStatus | null;
-  onReady?: () => void;
-  /** Start a never-attempted setup on sight (Local was already selected before this existed). A failure still waits for Retry. */
-  autoStart?: boolean;
+  initialStatus?: SearchStatus | null;
   pollMs?: number;
 }) {
-  const [status, setStatus] = useState<LocalEmbeddingsStatus | null>(initialStatus ?? null);
+  const [status, setStatus] = useState<SearchStatus | null>(initialStatus ?? null);
   const [busy, setBusy] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
-  const prevState = useRef(status?.state);
-  const autoStarted = useRef(false);
 
   // The parent re-fetches GET /api/llm after a provider switch; adopt its newer status.
   useEffect(() => {
     if (initialStatus) setStatus(initialStatus);
   }, [initialStatus]);
 
+  const downloading = status?.builtin.state === "downloading";
   useEffect(() => {
-    if (status?.state !== "running") return;
+    if (!downloading) return;
     let cancelled = false;
     const timer = setInterval(async () => {
       try {
@@ -122,19 +94,7 @@ export default function LocalSearchStatus({
       cancelled = true;
       clearInterval(timer);
     };
-  }, [status?.state, pollMs]);
-
-  useEffect(() => {
-    if (prevState.current === "running" && status?.state === "ready") onReady?.();
-    prevState.current = status?.state;
-  }, [status?.state, onReady]);
-
-  useEffect(() => {
-    if (!autoStart || autoStarted.current || status?.state !== "needed") return;
-    autoStarted.current = true;
-    void start();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoStart, status?.state]);
+  }, [downloading, pollMs]);
 
   async function start() {
     setBusy(true);
@@ -143,7 +103,7 @@ export default function LocalSearchStatus({
       const res = await fetch("/api/llm/embeddings", { method: "POST" });
       const json = await res.json().catch(() => ({}));
       if (json?.status) setStatus(json.status);
-      if (!res.ok && res.status !== 409) setStartError(json?.error ?? `Couldn't start local search setup (HTTP ${res.status}).`);
+      if (!res.ok) setStartError(json?.error ?? `Couldn't start the download (HTTP ${res.status}).`);
     } catch {
       setStartError("Couldn't reach the server. Try again.");
     } finally {
@@ -157,9 +117,10 @@ export default function LocalSearchStatus({
 
   return (
     <div
-      className={`mt-2 rounded-r-sm border-l-2 ${border} bg-canvas-alt px-3 py-2 font-body text-[12px] text-foreground`}
-      data-testid="local-search-status"
-      data-state={status?.state}
+      className={`mt-3 rounded-r-sm border-l-2 ${border} bg-canvas-alt px-3 py-2 font-body text-[12px] text-foreground`}
+      data-testid="search-status"
+      data-space={status?.space}
+      data-state={status?.builtin.state}
       role="status"
       aria-live="polite"
     >
@@ -171,7 +132,7 @@ export default function LocalSearchStatus({
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={view.pct}
-          aria-label="Local search setup progress"
+          aria-label="Search model download progress"
         >
           <div className="h-full bg-structure" style={{ width: `${view.pct}%` }} />
         </div>

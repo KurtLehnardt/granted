@@ -111,11 +111,26 @@ describe("embedBatch — one request per chunk, results in input order", () => {
     assert.deepEqual(out[129], [1, 1]);
   });
 
-  test("throws without a key", async () => {
+  test("SEARCH_EMBEDDINGS=openai without a key throws before any network call", async () => {
+    const savedSetting = process.env.SEARCH_EMBEDDINGS;
+    installFakeOpenAI();
     delete process.env.OPENAI_API_KEY;
-    // The preflight guard (embed.ts's assertEmbeddingsConfigured) now catches
-    // this before the network call, with a clearer message than the old
-    // fallback ("OPENAI_API_KEY is not set") that only fired inside fetch.
-    await assert.rejects(() => embedBatch(["x"]), /OPENAI_API_KEY is missing or still the \.env\.example placeholder/);
+    process.env.SEARCH_EMBEDDINGS = "openai";
+    try {
+      await assert.rejects(() => embedBatch(["x"]), /OPENAI_API_KEY is missing or still the \.env\.example placeholder/);
+      assert.equal(calls, 0);
+    } finally {
+      if (savedSetting === undefined) delete process.env.SEARCH_EMBEDDINGS;
+      else process.env.SEARCH_EMBEDDINGS = savedSetting;
+    }
+  });
+
+  test("without a key, embeddings go to the built-in model, never to OpenAI", async () => {
+    installFakeOpenAI();
+    delete process.env.OPENAI_API_KEY;
+    // Under node:test the model files are never there, so this stops at "download it",
+    // having made no HTTP call.
+    await assert.rejects(() => embedBatch(["x"]), /model:fetch/);
+    assert.equal(calls, 0);
   });
 });

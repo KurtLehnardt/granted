@@ -10,9 +10,9 @@
 # reinstall node_modules each time, which is expected). Set GRANTED_REF to a
 # release tag (v1.2.3) to install that release instead of main.
 #
-# After this finishes, `cd granted\scaffold` and run `npm run setup` (hosted
-# API keys) or `npm run setup:local -- --yes` (fully local via Ollama), then
-# `npm run dev`.
+# After this finishes, `cd granted\scaffold` and run `npm run setup` (an
+# OpenAI or Claude key for scoring) or `npm run setup:local -- --yes` (fully
+# local via Ollama), then `npm run dev`.
 
 $ErrorActionPreference = "Stop"
 
@@ -352,6 +352,26 @@ npm ci --no-audit --no-fund
 Assert-LastExitCode "npm ci failed -- see the output above for the underlying error."
 Ok "dependencies installed"
 
+# 4b) The built-in search model (about 275 MB), so search works offline and
+# needs no API key. scripts\fetch-model.mjs verifies the files it already has
+# and only downloads what's missing or damaged, so a re-run (an update) is
+# quick. Never fails the install: if it can't download now, Granted fetches
+# the model the first time someone searches. GRANTED_MODEL_URL points it at a
+# mirror. An older checkout without the script simply skips this step.
+if (Test-Path -LiteralPath "scripts\fetch-model.mjs") {
+  Log "Downloading the built-in search model (about 275 MB)..."
+  try {
+    node scripts/fetch-model.mjs
+    if ($LASTEXITCODE -eq 0) {
+      Ok "search model ready"
+    } else {
+      Warn "Couldn't download the search model now. Granted will download it the first time you search."
+    }
+  } catch {
+    Warn "Couldn't download the search model now ($($_.Exception.Message)). Granted will download it the first time you search."
+  }
+}
+
 # 5) List Granted in Settings -> Apps -> Installed apps (per-user, no admin),
 # so it can be uninstalled from there like any other app -- only a clone this
 # script made (see the marker above). Never fails the install: Granted works
@@ -382,6 +402,6 @@ if ($env:GRANTED_STATUS_FILE) {
 }
 Log "Done. Next steps:"
 Write-Host "  cd $TargetDir\scaffold"
-Write-Host "  npm run setup                  # hosted API key (OpenAI; Claude optional), or"
+Write-Host "  npm run setup                  # an OpenAI or Claude key for scoring (search needs none), or"
 Write-Host "  npm run setup:local -- --yes   # fully local via Ollama, no API keys"
 Write-Host "  npm run dev                    # -> http://localhost:3000"

@@ -242,7 +242,8 @@ export type Match = z.infer<typeof MatchSchema>;
  */
 export const StageCostSchema = z.object({
   stage: z.string(),
-  provider: z.enum(["anthropic", "openai"]),
+  // "builtin" (the in-process search model) and "custom" (a self-hosted embedder) cost nothing.
+  provider: z.enum(["anthropic", "openai", "builtin", "custom"]),
   model: z.string(),
   inputTokens: z.number(),
   outputTokens: z.number(),

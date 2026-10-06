@@ -12,9 +12,9 @@ import SearchProgress from "@/components/SearchProgress";
 import { useWelcomeGuideSampleHandler } from "@/components/WelcomeGuide";
 import PreSearchInterview from "@/components/PreSearchInterview";
 import ProfileQuestionnaire from "@/components/ProfileQuestionnaire";
-// Type-only: generateQuestions.ts imports the OpenAI SDK at runtime. A
+// Type-only: generateQuestions.ts calls the model through lib/llm at runtime. A
 // type-only import is erased at compile time, so no server-only runtime
-// (or the OPENAI_API_KEY it reads) ever reaches this client bundle.
+// (or the provider key it uses) ever reaches this client bundle.
 import type { InterviewQuestion } from "@/lib/interview/generateQuestions";
 import type { PreviewItem } from "@/lib/ui/previewReducer";
 

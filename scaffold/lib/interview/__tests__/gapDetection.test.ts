@@ -135,11 +135,9 @@ test("pruneAnsweredQuestions: drops questions for provided fields, keeps missing
 
 /** A client that fails the test if the model is ever called. */
 const throwingClient: InterviewChatClient = {
-  chat: {
-    completions: {
-      create: async () => {
-        throw new Error("model must not be called when there are no gaps");
-      },
+  messages: {
+    create: async () => {
+      throw new Error("model must not be called when there are no gaps");
     },
   },
 };
@@ -147,12 +145,8 @@ const throwingClient: InterviewChatClient = {
 /** A client returning a fixed set of questions. */
 function cannedClient(questions: unknown[]): InterviewChatClient {
   return {
-    chat: {
-      completions: {
-        create: async () => ({
-          choices: [{ message: { content: JSON.stringify({ questions }) } }],
-        }),
-      },
+    messages: {
+      create: async () => ({ content: [{ type: "text", text: JSON.stringify({ questions }) }] }),
     },
   };
 }

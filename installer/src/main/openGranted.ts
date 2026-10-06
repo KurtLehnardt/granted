@@ -24,6 +24,7 @@ import {
   parseOpenInSetting,
   parseStatusFile,
   resolveTaskStatus,
+  settingsHasProvider,
   statusLockPath,
   type StatusFile,
   withOpenInSetting,
@@ -53,6 +54,7 @@ export async function getSetupState(installDir: string, settingsPath: string): P
     anthropicKeySet,
     hostedKeysSet: envHasHostedKeys(env),
     localConfigured: envIsLocalConfigured(env, await readTextOrNull(join(scaffoldDir, "data", "local", "corpus-meta.json"))),
+    settingsProviderSet: settingsHasProvider(await readTextOrNull(join(scaffoldDir, "data", "local", "llm-config.json"))),
     trayAvailable: existsSync(windowsScriptPath(scaffoldDir, "granted-tray.ps1")),
     shortcutsAvailable: existsSync(windowsScriptPath(scaffoldDir, "shortcuts.ps1")),
     appWindowAvailable: existsSync(windowsScriptPath(scaffoldDir, "open-granted.ps1")),
@@ -80,9 +82,9 @@ export function windowsScriptPath(scaffoldDir: string, name: "granted-tray.ps1" 
 /**
  * Writes the form's keys into scaffold/.env.local. Starts from .env.example
  * when there's no .env.local yet (as setup.mjs does), but writes nothing at
- * all unless the required key (OpenAI's — see applyApiKeys) ends up set — a
- * rejected form must not leave a half-configured file behind. When only a
- * Claude key was given, says why that isn't enough and offers local models.
+ * all unless a key to score with (OpenAI's or Claude's, see applyApiKeys)
+ * ends up set: a rejected form must not leave a half-configured file behind.
+ * Search itself needs no key, because it runs on Granted's built-in model.
  */
 export async function saveApiKeys(scaffoldDir: string, keys: ApiKeysInput): Promise<SaveKeysResult> {
   const envPath = join(scaffoldDir, ".env.local");
@@ -102,13 +104,12 @@ export async function saveApiKeys(scaffoldDir: string, keys: ApiKeysInput): Prom
       return { ok: false, message: `${problems.join(" ")} Check for a missing part of the paste.` };
     }
     if (missing.length > 0) {
-      const claudeOnly = isAnthropicKeyFormat(currentEnvValue(text, "ANTHROPIC_API_KEY"));
       return {
         ok: false,
         suggestLocal: true,
-        message: claudeOnly
-          ? "Search works with an OpenAI key — Claude can do the scoring, but it can't search (Anthropic has no search/embeddings API). Add an OpenAI key too, or use local models instead."
-          : "Granted needs an OpenAI API key to search (it can do the scoring too). Or use local models instead — no keys needed.",
+        message:
+          "Granted needs one API key to score the grants it finds: an OpenAI key or a Claude key. Search itself runs on this computer and needs no key. " +
+          "You can add another provider (Gemini, Groq and others) in Settings once Granted is open, or use local models instead, which need no keys.",
       };
     }
     await writeFile(envPath, text, "utf8");

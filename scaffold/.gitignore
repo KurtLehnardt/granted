@@ -10,3 +10,6 @@ data/local
 /test-results/
 /playwright-report/
 /blob-report/
+
+# the built-in search model (npm run model:fetch / the installers download it here)
+/models/

@@ -1,0 +1,2 @@
+# The built-in search model's corpus vectors are raw half floats: never line-ending converted.
+data/vectors/*.bin binary

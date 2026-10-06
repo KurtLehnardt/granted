@@ -1,5 +1,5 @@
-import OpenAI from "openai";
 import { z } from "zod";
+import { makeLlmClient, isLocalLlm } from "../llm/client";
 
 import {
   MATERIAL_PROFILE_FIELDS,
@@ -15,7 +15,7 @@ import { loadPrompt, recordUsage, type PromptUsage } from "../prompts";
  *
  * The v2 core insight: ask cheap, routing-relevant questions BEFORE the
  * expensive search. On submit of the "Tell us about your company" box, this
- * runs a small/fast model (`gpt-4o-mini`, model-routing task
+ * runs a small/fast model (through lib/llm, on whichever provider is configured; model-routing task
  * `interview_generation`, target < 5s — NOT the analysis model) and produces
  * 3–5 questions whose answers change WHICH PROGRAMS MATCH.
  *
@@ -150,26 +150,24 @@ export function gateRankOf(q: RawQuestion): number {
 // --- Options / call config -------------------------------------------------
 
 /**
- * The minimal structural slice of the OpenAI client this module uses. Declared
- * so tests (H7) can inject a canned chat-completions client and exercise the
- * full parse→schema→normalize pipeline hermetically (no network, no API key) —
+ * The minimal structural slice of the LLM client (lib/llm/client.ts) this module
+ * uses: the Anthropic-shaped `messages.create`, which lib/llm maps onto whichever
+ * provider is configured (Claude, OpenAI, Gemini, Groq, a proxy, or a local model).
+ * Declared so tests (H7) can inject a canned client and exercise the full
+ * parse→schema→normalize pipeline hermetically (no network, no API key) —
  * including reproducing the exact EVL-03 `defense-hw-08` model output.
  */
 export interface InterviewChatClient {
-  chat: {
-    completions: {
-      create: (
-        params: any,
-        options?: { signal?: AbortSignal },
-      ) => Promise<{ choices: Array<{ message?: { content?: string | null } | null } | null> }>;
-    };
+  messages: {
+    create: (
+      params: any,
+      options?: { signal?: AbortSignal },
+    ) => Promise<{ content: Array<{ type: string; text?: string }> }>;
   };
 }
 
 export interface GenerateQuestionsOptions {
-  /** Defaults to `process.env.OPENAI_API_KEY`. Never logged. */
-  apiKey?: string;
-  /** Override the model. Defaults to the funded cheap/fast `gpt-4o-mini`. */
+  /** Override the model. Defaults to the cheap/fast INTERVIEW_MODEL (providers other than Anthropic use their configured model). */
   model?: string;
   /** Hard cap on returned questions (R1: 3–5). Defaults to 5. */
   maxQuestions?: number;
@@ -178,9 +176,9 @@ export interface GenerateQuestionsOptions {
   /** Abort in-flight generation (e.g. user hit "search anyway"). */
   signal?: AbortSignal;
   /**
-   * Injectable OpenAI-compatible client (H7 testability seam). When provided,
-   * the real `new OpenAI(...)` is bypassed and no `OPENAI_API_KEY` is required.
-   * Production callers omit this and get the real client.
+   * Injectable client (H7 testability seam). When provided, lib/llm's
+   * `makeLlmClient()` is bypassed and no provider needs to be configured.
+   * Production callers omit this and get the configured provider.
    */
   client?: InterviewChatClient;
   /**
@@ -196,14 +194,17 @@ export interface GenerateQuestionsOptions {
 }
 
 /**
- * The funded cheap/fast model for R1. The model-routing contract
- * (`interview_generation`) documents this as a small/fast job; its default
- * `model` field is an Anthropic placeholder Team Perf owns — INT-01 routes to
- * OpenAI `gpt-4o-mini` deliberately, per the task spec.
+ * The cheap/fast model for R1 (model-routing task `interview_generation`: a
+ * small/fast job). The interview goes through lib/llm like every other model
+ * call, so it runs on whichever provider is configured; this is the model asked
+ * of Anthropic (the same cheap model profile extraction uses), while other
+ * providers answer with their configured model.
  */
-export const INTERVIEW_MODEL = "gpt-4o-mini";
+export const INTERVIEW_MODEL = process.env.PROFILE_EXTRACTION_MODEL || "claude-haiku-4-5-20251001";
 const ROUTING = DEFAULT_MODEL_ROUTING.interview_generation;
 const DEFAULT_TIMEOUT_MS = ROUTING?.target_latency_ms ?? 5_000;
+/** A local model answers far slower than the hosted target latency. */
+const LOCAL_TIMEOUT_MS = 60_000;
 const MAX_QUESTIONS = 5;
 const PROMPT_ID = "generateInterviewQuestions";
 
@@ -343,6 +344,22 @@ export class InterviewGenerationError extends Error {
  * cleanly (the INT-01 escalate case: produce fewer/zero rather than
  * manufacturing questions).
  */
+/**
+ * The model's JSON, tolerating what models wrap it in: markdown fences, or a
+ * sentence before or after the object.
+ */
+export function parseModelJson(raw: string): unknown {
+  const clean = raw.replace(/```json/g, "").replace(/```/g, "").trim();
+  try {
+    return JSON.parse(clean);
+  } catch (err) {
+    const start = clean.indexOf("{");
+    const end = clean.lastIndexOf("}");
+    if (start !== -1 && end > start) return JSON.parse(clean.slice(start, end + 1));
+    throw err;
+  }
+}
+
 export async function generateQuestions(
   description: string,
   opts: GenerateQuestionsOptions = {},
@@ -362,46 +379,44 @@ export async function generateQuestions(
 
   const model = opts.model ?? INTERVIEW_MODEL;
   const maxQuestions = opts.maxQuestions ?? MAX_QUESTIONS;
-  const timeout = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const systemPrompt = loadPrompt(PROMPT_ID).template;
 
-  // Injected client (tests) bypasses the real SDK and the key requirement.
+  // Injected client (tests) bypasses lib/llm and any provider requirement.
   let client: InterviewChatClient;
   if (opts.client) {
     client = opts.client;
   } else {
-    const apiKey = opts.apiKey ?? process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      throw new InterviewGenerationError(
-        "OPENAI_API_KEY is not set — add it to the environment (never the client bundle).",
-      );
+    const timeout = opts.timeoutMs ?? (isLocalLlm() ? LOCAL_TIMEOUT_MS : DEFAULT_TIMEOUT_MS);
+    try {
+      client = makeLlmClient({ timeout, maxRetries: 1 }) as unknown as InterviewChatClient;
+    } catch (err) {
+      throw new InterviewGenerationError(`No model is configured for the interview: ${(err as Error)?.message ?? err}`, err);
     }
-    client = new OpenAI({ apiKey, timeout, maxRetries: 1 }) as unknown as InterviewChatClient;
   }
 
   let content: string;
   try {
-    const completion = await client.chat.completions.create(
+    const msg = await client.messages.create(
       {
         model,
         temperature: 0.2, // routing is a near-deterministic task; keep it stable
         max_tokens: 1200,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: `COMPANY DESCRIPTION:\n${text}` },
-        ],
+        system: `${systemPrompt}\n\nRespond with a single JSON object and nothing else.`,
+        messages: [{ role: "user", content: `COMPANY DESCRIPTION:\n${text}` }],
       },
       { signal: opts.signal },
     );
-    content = completion.choices[0]?.message?.content ?? "";
+    content = msg.content
+      .filter((b) => b.type === "text")
+      .map((b) => b.text ?? "")
+      .join("");
   } catch (err) {
-    throw new InterviewGenerationError("OpenAI request failed", err);
+    throw new InterviewGenerationError("Interview model request failed", err);
   }
 
   let parsedJson: unknown;
   try {
-    parsedJson = JSON.parse(content);
+    parsedJson = parseModelJson(content);
   } catch (err) {
     throw new InterviewGenerationError(
       "model did not return valid JSON",
