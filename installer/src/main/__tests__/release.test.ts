@@ -95,7 +95,12 @@ describe("the Windows install command", () => {
     const script = buildWindowsInstallScript("C:\\Temp\\it's.json", "v0.2.0");
     const lines = script.split("\r\n");
     assert.equal(lines[0], "$env:GRANTED_STATUS_FILE = 'C:\\Temp\\it''s.json'");
-    assert.equal(lines[1], windowsInstallCommand("v0.2.0"));
+    assert.equal(lines[1], "$env:GRANTED_REF = 'v0.2.0'");
+    // REGRESSION (user, v0.2.0 install): the download is retried, then reported plainly -- never a bare irm | iex.
+    assert.ok(script.includes("Invoke-RestMethod -UseBasicParsing -Uri 'https://raw.githubusercontent.com/KurtLehnardt/granted/v0.2.0/install-windows.ps1'"));
+    assert.ok(script.includes("foreach ($wait in @(0, 3, 6, 12, 20))"));
+    assert.ok(script.includes("Couldn't download the Granted installer from GitHub"));
+    assert.ok(script.includes("\r\nInvoke-Expression $grantedInstaller\r\n"));
     assert.match(script, /Get-Content -LiteralPath 'C:\\Temp\\it''s\.json' -Raw -ErrorAction Stop \| ConvertFrom-Json/);
     assert.match(script, /if \(\$grantedStatus -and \$grantedStatus\.state -eq 'done'\) \{[\s\S]*\[Environment\]::Exit\(0\)[\s\S]*\}/);
     assert.ok(!/(?<!\r)\n/.test(script), "CRLF throughout");
