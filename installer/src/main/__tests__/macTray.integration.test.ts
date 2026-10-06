@@ -44,6 +44,22 @@ const PORT = 3977;
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * What granted-tray.sh's stop_helper logs when it gives up waiting and SIGKILLs
+ * the menu-bar helper — the one outward difference between the two ways a stop
+ * can finish, since the lock directory and the pid file end up gone either way
+ * (the kill branch's own rmdir/rm backstop sees to that). Its absence is what
+ * proves a stop went through the helper's graceful shutdown rather than through
+ * that backstop.
+ */
+const HELPER_KILLED_NOTE = /did not exit within \d+s of SIGTERM/;
+
+/** granted-tray.sh's own log (its `note`s), or "" if it never wrote one. */
+function trayLog(root: string): string {
+  const path = join(root, "logs", "tray.log");
+  return existsSync(path) ? readFileSync(path, "utf8") : "";
+}
+
 async function until<T>(fn: () => Promise<T>, ok: (v: T) => boolean, timeoutMs = 60_000): Promise<T> {
   const deadline = Date.now() + timeoutMs;
   let last = await fn();
@@ -645,11 +661,131 @@ describe(
       // stopped quickly.
       assert.ok(elapsed > 10_000, `the slow shutdown must outlast the old deadline (took ${elapsed}ms)`);
       assert.throws(() => process.kill(pid, 0), "the helper exited");
+      // THE discriminating assertion. The lock directory and the pid file below
+      // are gone whichever way this stop finished — stop_helper's kill branch
+      // removes both itself, as a last resort — so on their own they prove
+      // nothing about the deadline. This says the kill branch was never reached:
+      // the helper was still shutting itself down 14 seconds in, and the wait
+      // was long enough to let it finish. Shorten HELPER_STOP_WAIT and this is
+      // the line that fails, while everything else still passes.
+      assert.doesNotMatch(
+        trayLog(fake.root),
+        HELPER_KILLED_NOTE,
+        "the helper shut itself down inside the deadline — it was never killed partway through",
+      );
       // The two things only the helper's own cleanup removes. A leaked lock
       // directory is the bug: permanent, and invisible to everything but this.
       assert.equal(existsSync(macStatusLockPath(fake.statusPath)), false, "the status lock directory is released, not leaked");
       assert.equal(existsSync(fake.helperPidFile), false, "and the pid file is gone");
       // And the stop did what a stop is for.
+      assert.equal(await probeGranted(`http://127.0.0.1:${PORT}/`, 3000), "down", "the server is stopped");
+      assert.equal(fake.agentLoaded(), false, "nothing left registered with launchd");
+    });
+  },
+);
+
+describe(
+  "`granted-tray.sh stop` against a menu-bar helper that is genuinely wedged",
+  {
+    skip: (process.platform !== "darwin" || !existsSync(TRAY_SCRIPT)) && "macOS only, run from installer/",
+  },
+  () => {
+    /**
+     * The other half of the pair above. There a helper was merely slow and the
+     * wait was long enough, so stop_helper's SIGKILL branch must never run;
+     * here the helper never exits at all, so that branch must run, say so, and
+     * still leave the install clean.
+     *
+     * The stand-in below is not the Swift helper: it is a script that holds the
+     * `<status>.lock.d` directory and ignores SIGTERM forever — the one thing
+     * the real helper will not do on demand, and the only way to reach the kill
+     * branch deliberately. Everything the branch touches (the pid file
+     * start_helper wrote, the signals, the lock directory) is the real thing,
+     * and it is started the real way, through start_helper's own nohup path.
+     * Running without Swift or a GUI session is a bonus: no icon ever appears
+     * on anyone's menu bar for this one.
+     */
+    let fake: FakeInstall;
+    /** Where the wedged stand-in lives — outside the install, so it exists before `start` runs. */
+    let helperDir: string;
+    let helperPid = 0;
+
+    before(async () => {
+      helperDir = realpathSync(await mkdtemp(join(tmpdir(), "granted-wedged-helper-")));
+      const wedged = join(helperDir, "wedged-helper.sh");
+      await writeFile(
+        wedged,
+        [
+          "#!/bin/bash",
+          "# A menu-bar helper that hangs: it takes the status lock as the real one",
+          "# does, then ignores SIGTERM for good, so stop_helper has to kill it.",
+          "trap '' TERM INT",
+          'mkdir "$GRANTED_STATUS_FILE.lock.d" 2>/dev/null || true',
+          // sleep, not `wait`, so SIGKILL on this shell orphans nothing for
+          // longer than a second.
+          "while :; do sleep 1; done",
+          "",
+        ].join("\n"),
+        { mode: 0o755 },
+      );
+      fake = await setUpFakeInstall({ helper: wedged });
+      await execFileAsync("/bin/bash", [fake.trayScript, "start", "--port", String(PORT)], {
+        env: { ...process.env, ...fake.env },
+        timeout: 180_000,
+      });
+      assert.equal(await until(() => probeGranted(`http://127.0.0.1:${PORT}/`, 3000), (p) => p === "granted"), "granted");
+    });
+
+    after(async () => {
+      // Before the shared teardown, which only knows about a pid file that by
+      // then should be gone: nothing of this may outlive the test.
+      if (helperPid > 0) {
+        try {
+          process.kill(helperPid, "SIGKILL");
+        } catch {
+          /* already gone, which is the point */
+        }
+      }
+      await fake.cleanup();
+      await rm(helperDir, { recursive: true, force: true, maxRetries: 5 });
+    });
+
+    test("the wedged helper is really running, from start_helper's own nohup path, holding the status lock", async () => {
+      assert.ok(existsSync(fake.helperPidFile), "start_helper wrote a pid file");
+      helperPid = Number(readFileSync(fake.helperPidFile, "utf8").trim());
+      assert.ok(Number.isInteger(helperPid) && helperPid > 0, "start_helper recorded the helper's pid");
+      assert.doesNotThrow(() => process.kill(helperPid, 0), "and that process is alive");
+      assert.equal(
+        await until(() => Promise.resolve(existsSync(macStatusLockPath(fake.statusPath))), (there) => there, 60_000),
+        true,
+        "the helper holds the <status>.lock.d directory",
+      );
+      // And it really is deaf to the signal a stop sends first — otherwise this
+      // test would be the graceful one over again.
+      process.kill(helperPid, "SIGTERM");
+      await sleep(2_000);
+      assert.doesNotThrow(() => process.kill(helperPid, 0), "SIGTERM alone does not move it");
+    });
+
+    test("stop kills it, says so in the log, and still releases the status lock and the pid file", async () => {
+      const startedAt = Date.now();
+      await execFileAsync("/bin/bash", [fake.trayScript, "stop", "--port", String(PORT)], {
+        env: { ...process.env, ...fake.env },
+        timeout: 180_000,
+      });
+      const elapsed = Date.now() - startedAt;
+
+      // It gave the helper a full nested shutdown's worth of time first — two
+      // 15-second stop_server waits — before deciding it was never coming back.
+      assert.ok(elapsed > 30_000, `the kill must come only after a whole stop_server could have run (took ${elapsed}ms)`);
+      assert.match(trayLog(fake.root), HELPER_KILLED_NOTE, "a killed helper is recorded in the tray log, not silently absorbed");
+      assert.throws(() => process.kill(helperPid, 0), "the helper is gone");
+      // The backstop earning its keep: the helper itself cleaned up nothing, so
+      // without these the lock directory would be leaked for good.
+      assert.equal(existsSync(macStatusLockPath(fake.statusPath)), false, "stop_helper released the lock directory on its behalf");
+      assert.equal(existsSync(fake.helperPidFile), false, "and removed the pid file");
+      // And the stop still did what a stop is for, the helper having never run
+      // the server shutdown it was asked to.
       assert.equal(await probeGranted(`http://127.0.0.1:${PORT}/`, 3000), "down", "the server is stopped");
       assert.equal(fake.agentLoaded(), false, "nothing left registered with launchd");
     });

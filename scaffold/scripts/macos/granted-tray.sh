@@ -367,6 +367,15 @@ stop_helper() {
     # has been cleaned up, and nothing ever will be. When this call was told
     # the status path, release the lock directory on its behalf -- rmdir, not
     # rm -rf, so it can only ever remove the empty directory a lock is.
+    #
+    # Say so in the log first. This line is the only outward difference between
+    # the two ways stop_helper can finish, because the cleanup below runs the
+    # same either way: a helper that shut itself down gracefully and a helper
+    # that had to be killed both end with no lock directory and no pid file.
+    # Reaching here is always abnormal -- either the helper really is stuck, or
+    # HELPER_STOP_WAIT above has been set too short for the shutdown it covers
+    # -- so it must leave a trace rather than looking like an ordinary stop.
+    note "the menu-bar helper (pid $pid) did not exit within ${HELPER_STOP_WAIT}s of SIGTERM -- killing it, and releasing its status lock on its behalf"
     kill -KILL "$pid" 2>/dev/null || true
     [ -n "$STATUS_PATH" ] && rmdir "$STATUS_PATH.lock.d" 2>/dev/null || true
   fi
