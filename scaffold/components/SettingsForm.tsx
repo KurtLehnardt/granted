@@ -15,6 +15,7 @@ import { stageLabel } from "@/lib/corpus/refreshProgress";
 import type { RefreshProgress } from "@/lib/corpus/refreshStatus";
 import { useReplayWelcomeGuide } from "@/components/WelcomeGuide";
 import ModelSection from "@/components/ModelSection";
+import AppUpdateSection from "@/components/AppUpdateSection";
 
 interface CorpusStatus {
   builtAt: string | null;
@@ -302,6 +303,8 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
           </span>
         </label>
       </div>
+
+      <AppUpdateSection />
 
       <div className="mt-6 flex flex-wrap items-center gap-4">
         <button type="submit" className={saveBtnClass}>

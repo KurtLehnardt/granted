@@ -228,6 +228,88 @@ describe("install-windows.ps1 with GRANTED_REF (a pinned release)", { skip: (pro
     assert.equal(versionIn(home), "0.2.0");
   });
 
+  /** Runs the installed copy's update.ps1 (what Settings → Update starts); returns its update-status.json. */
+  async function runUpdater(home: string, source: string, ref: string, extra: string[] = []): Promise<{ state?: string; message?: string; from?: string; to?: string }> {
+    const settings = join(root, `updater-${seq++}`, "settings.json");
+    mkdirSync(join(settings, ".."), { recursive: true });
+    await execFileAsync(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", join(home, "granted", "scaffold", "scripts", "windows", "update.ps1"), "-Ref", ref, "-Port", String(PORT), ...extra],
+      {
+        windowsHide: true,
+        timeout: 240_000,
+        env: {
+          ...process.env,
+          GRANTED_INSTALL_SCRIPT: INSTALL_SCRIPT,
+          GRANTED_REPO_URL: source,
+          GRANTED_SETTINGS_PATH: settings,
+          GRANTED_UNINSTALL_KEY_ROOT: `${keyParent}\\Uninstall`,
+          LOCALAPPDATA: join(root, "LocalAppData"),
+          npm_config_audit: "false",
+          npm_config_fund: "false",
+        },
+      },
+    ).catch(() => {});
+    try {
+      return JSON.parse(readFileSync(join(settings, "..", "update-status.json"), "utf8")) as { state?: string; message?: string };
+    } catch {
+      return {};
+    }
+  }
+  const stopTestTray = async (home: string): Promise<void> => {
+    await execFileAsync("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", join(home, "granted", "scaffold", "scripts", "windows", "granted-tray.ps1"), "-Stop", "-Port", String(PORT)]).catch(() => {});
+    const deadline = Date.now() + 30_000;
+    while ((await probeGranted(`http://127.0.0.1:${PORT}/`, 1000)) !== "down" && Date.now() < deadline) await sleep(500);
+  };
+
+  test("update.ps1 (Settings → Update): stops the running Granted, updates to the release, and starts Granted again on its port", async () => {
+    const source = makeSource();
+    const home = freshHome();
+    await runInstall(home, source, "v0.1.0");
+    const tray = spawn(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", join(home, "granted", "scaffold", "scripts", "windows", "granted-tray.ps1"), "-NoTray", "-Port", String(PORT)],
+      { windowsHide: true, stdio: "ignore", env: { ...process.env, LOCALAPPDATA: join(root, "LocalAppData") } },
+    );
+    started.push(tray);
+    let deadline = Date.now() + 60_000;
+    while ((await probeGranted(`http://127.0.0.1:${PORT}/`, 2000)) !== "granted" && Date.now() < deadline) await sleep(500);
+    try {
+      const status = await runUpdater(home, source, "v0.2.0");
+      assert.equal(status.state, "done", JSON.stringify(status));
+      assert.equal(status.from, "0.1.0");
+      assert.equal(status.to, "v0.2.0");
+      assert.equal(versionIn(home), "0.2.0");
+      assert.notEqual(tray.exitCode, null, "the Granted that was running was stopped");
+      // ...and started again, in the background, on the same port.
+      deadline = Date.now() + 90_000;
+      while ((await probeGranted(`http://127.0.0.1:${PORT}/`, 2000)) !== "granted" && Date.now() < deadline) await sleep(1000);
+      assert.equal(await probeGranted(`http://127.0.0.1:${PORT}/`, 2000), "granted", "Granted is back");
+    } finally {
+      await stopTestTray(home);
+    }
+  });
+
+  test("update.ps1: a failed update is reported (and the install left as it was); a declined one says why", async () => {
+    const source = makeSource();
+    const home = freshHome();
+    await runInstall(home, source, "v0.1.0");
+    const missing = await runUpdater(home, source, "v0.9.9", ["-NoRestart"]);
+    assert.equal(missing.state, "error", JSON.stringify(missing));
+    assert.match(missing.message ?? "", /didn't finish/);
+    assert.equal(versionIn(home), "0.1.0");
+
+    writeFileSync(join(home, "granted", "scaffold", "server.js"), "// my change\n");
+    const declined = await runUpdater(home, source, "v0.2.0", ["-NoRestart"]);
+    assert.equal(declined.state, "error", JSON.stringify(declined));
+    assert.match(declined.message ?? "", /wasn't updated to v0\.2\.0: Not changing .* it has local changes/);
+    assert.equal(versionIn(home), "0.1.0");
+
+    const bad = await runUpdater(home, source, "main", ["-NoRestart"]);
+    assert.equal(bad.state, "error");
+    assert.match(bad.message ?? "", /must be a release tag/);
+  });
+
   test("a folder the installer didn't make (someone's own checkout) is never switched to another release", async () => {
     const source = makeSource();
     const home = freshHome();
