@@ -299,6 +299,11 @@ export async function closeEverything(app: ElectronApplication | undefined, befo
     await new Promise((r) => setTimeout(r, 500));
   } while (Date.now() < deadline && openGrantedWindowPids().some((p) => !before.includes(p)));
   killNewWindows(before);
+  // A stand-in a window had already started (`node fake-setup-local.js`,
+  // run relative to the fake install, so no window sweep finds it by path)
+  // can outlive its window, holding the install folder (EBUSY on cleanup) and
+  // the app's pipes. These names are test-only: nothing real is matched.
+  killTestStandIns();
   if (!app) return;
   const pid = app.process().pid;
   const closed = await Promise.race([
@@ -310,6 +315,26 @@ export async function closeEverything(app: ElectronApplication | undefined, befo
       execFileSync("taskkill.exe", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore" });
     } catch {
       /* already gone */
+    }
+  }
+}
+
+/** Kills the fake installs' stand-in processes (fake-dev.js / fake-setup-local.js) and waits until none are left. */
+export function killTestStandIns(): void {
+  for (let i = 0; i < 10; i++) {
+    const pids = powershell(
+      "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'fake-(dev|setup-local)\\.js' } | ForEach-Object { $_.ProcessId }",
+    )
+      .split(/\r?\n/)
+      .map((l) => Number(l.trim()))
+      .filter((n) => Number.isInteger(n) && n > 0 && n !== process.pid);
+    if (pids.length === 0) return;
+    for (const pid of pids) {
+      try {
+        execFileSync("taskkill.exe", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore" });
+      } catch {
+        /* already gone */
+      }
     }
   }
 }
