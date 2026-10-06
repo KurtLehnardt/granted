@@ -104,15 +104,19 @@ describe("getSetupState / saveApiKeys against a real install folder", () => {
     });
   });
 
-  test("an install that has the Windows tray, shortcut and open-in-a-window scripts says so", async () => {
+  test("an install that has the Windows tray, shortcut and open-in-a-window scripts says so on win32 only — these files are tracked in the repo and present on every platform's clone, but the capability stays Windows-only regardless", async () => {
     await mkdir(join(install.scaffoldDir, "scripts", "windows"), { recursive: true });
     await writeFile(join(install.scaffoldDir, "scripts", "windows", "granted-tray.ps1"), "");
     await writeFile(join(install.scaffoldDir, "scripts", "windows", "shortcuts.ps1"), "");
     await writeFile(join(install.scaffoldDir, "scripts", "windows", "open-granted.ps1"), "");
     const state = await setupState(install.installDir);
-    assert.equal(state.trayAvailable, true);
-    assert.equal(state.shortcutsAvailable, true);
-    assert.equal(state.appWindowAvailable, true);
+    // REGRESSION (review): a bare existsSync with no platform guard here
+    // wrongly reads true on macOS too, since these files land on every
+    // clone — these flags must track process.platform, not just the files.
+    const expected = process.platform === "win32";
+    assert.equal(state.trayAvailable, expected);
+    assert.equal(state.shortcutsAvailable, expected);
+    assert.equal(state.appWindowAvailable, expected);
   });
 
   test("saveOpenIn creates the settings file, round-trips through getSetupState, and keeps other settings", async () => {

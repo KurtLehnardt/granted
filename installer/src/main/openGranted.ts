@@ -21,6 +21,7 @@ import {
   isAnthropicKeyFormat,
   isOpenAiKeyFormat,
   looksLikeGranted,
+  macStatusLockPath,
   parseOpenInSetting,
   parseStatusFile,
   resolveTaskStatus,
@@ -55,9 +56,16 @@ export async function getSetupState(installDir: string, settingsPath: string): P
     hostedKeysSet: envHasHostedKeys(env),
     localConfigured: envIsLocalConfigured(env, await readTextOrNull(join(scaffoldDir, "data", "local", "corpus-meta.json"))),
     settingsProviderSet: settingsHasProvider(await readTextOrNull(join(scaffoldDir, "data", "local", "llm-config.json"))),
-    trayAvailable: existsSync(windowsScriptPath(scaffoldDir, "granted-tray.ps1")),
-    shortcutsAvailable: existsSync(windowsScriptPath(scaffoldDir, "shortcuts.ps1")),
-    appWindowAvailable: existsSync(windowsScriptPath(scaffoldDir, "open-granted.ps1")),
+    // win32-gated, not just existsSync: scaffold/scripts/windows/*.ps1 are
+    // ordinary files tracked in the repo, present on a real clone on every
+    // platform, not only Windows's — without this guard these would read
+    // true on a real macOS install too, which is exactly what made
+    // startGranted's `background` wrongly route into the win32 tray path
+    // there (see ipc.ts). Tray/shortcuts/own-window stay Windows-only for
+    // now regardless of whether the files happen to be on disk.
+    trayAvailable: process.platform === "win32" && existsSync(windowsScriptPath(scaffoldDir, "granted-tray.ps1")),
+    shortcutsAvailable: process.platform === "win32" && existsSync(windowsScriptPath(scaffoldDir, "shortcuts.ps1")),
+    appWindowAvailable: process.platform === "win32" && existsSync(windowsScriptPath(scaffoldDir, "open-granted.ps1")),
     openIn: parseOpenInSetting(await readTextOrNull(settingsPath)),
   };
 }
@@ -138,25 +146,49 @@ export async function readStatusFile(statusPath: string): Promise<StatusFile | n
 }
 
 /**
- * Whether the window that writes `statusPath` is still open. Primary check:
- * its exclusive lock on `<status>.lock` (STATUS_LOCK_LINE) — Node's open
- * fails with EBUSY while that window holds it, and succeeds once Windows
- * has released it at process exit. That can't be fooled by PID reuse.
- * Fallback when there's no lock file (it couldn't be created, or an older
- * script): whether the recorded pid exists.
+ * Whether the window that writes `statusPath` is still open.
+ *
+ * win32: the primary check is its exclusive lock on `<status>.lock`
+ * (STATUS_LOCK_LINE) — Node's open fails with EBUSY while that window holds
+ * it, and succeeds once Windows has released it at process exit. That can't
+ * be fooled by PID reuse. Fallback when there's no lock file (it couldn't be
+ * created, or an older script): whether the recorded pid exists.
+ *
+ * Everywhere else (install-macos.sh's, and ipc.ts's launchMacScaffoldTask's
+ * own — see macStatusLockPath): both create the same `<status>.lock.d`
+ * DIRECTORY right as they start and remove it exactly when they're done
+ * (cleanly or with an error) — there's no OS-enforced exclusive hold to ask
+ * about the way win32 has, only whether the directory is still there. Gone
+ * means that side already ran its cleanup — it already wrote its final
+ * status, so there's nothing left "alive" to ask about (this is only ever
+ * consulted while state is still "running", so that race doesn't apply: a
+ * status that's already done/error is never routed through this function
+ * at all — see resolveTaskStatus). Still there means either genuinely still
+ * running, or killed outright in a way that skipped that cleanup (a
+ * SIGKILL, say) — the pid resolves that, the same fallback win32 uses when
+ * it has no lock file at all, and for the same reason: a bare pid check, on
+ * its own, can't tell this process from an unrelated one that later reused
+ * the same number. This requires BOTH macOS producers to keep creating and
+ * removing that directory — a producer that didn't would make "gone" mean
+ * nothing, which is exactly why launchMacScaffoldTask does too, even though
+ * it has no Windows-style console window to otherwise justify one.
  */
 export function isStatusWindowAlive(statusPath: string, pid: number): boolean {
-  const lockPath = statusLockPath(statusPath);
-  if (existsSync(lockPath)) {
-    try {
-      closeSync(openSync(lockPath, "r+"));
-      return false;
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code;
-      if (code === "EBUSY" || code === "EPERM" || code === "EACCES") return true;
-      // Anything else (it vanished between the checks, …): fall through to the pid.
+  if (process.platform === "win32") {
+    const lockPath = statusLockPath(statusPath);
+    if (existsSync(lockPath)) {
+      try {
+        closeSync(openSync(lockPath, "r+"));
+        return false;
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code === "EBUSY" || code === "EPERM" || code === "EACCES") return true;
+        // Anything else (it vanished between the checks, …): fall through to the pid.
+      }
     }
+    return isProcessAlive(pid);
   }
+  if (!existsSync(macStatusLockPath(statusPath))) return false;
   return isProcessAlive(pid);
 }
 

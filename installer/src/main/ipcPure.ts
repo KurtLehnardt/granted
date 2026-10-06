@@ -12,6 +12,7 @@
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join, win32 } from "node:path";
+import { INSTALL_ONE_LINERS } from "../shared/ipc";
 import type { InstallStatusEvent, InstallVersionPlan, OpenIn } from "../shared/ipc";
 
 /** The regex-extraction half of checkVersionedTool. */
@@ -95,6 +96,19 @@ export function escapeForAppleScript(value: string): string {
  * by doubling it. */
 export function psSingleQuoted(value: string): string {
   return `'${value.replace(/'/g, "''")}'`;
+}
+
+/**
+ * Single-quoted POSIX shell string literal — the bash/sh equivalent of
+ * psSingleQuoted, used the same way (and for the same reason): nothing
+ * inside single quotes is expanded (`$`, backticks, globs), regardless of
+ * what the value contains. There's no escape character inside single
+ * quotes in sh, so a literal single quote is produced by closing the
+ * quoted string, emitting an escaped one outside it, and reopening —
+ * the standard POSIX trick.
+ */
+export function shSingleQuoted(value: string): string {
+  return `'${value.replace(/'/g, `'"'"'`)}'`;
 }
 
 /**
@@ -332,6 +346,20 @@ export const STATUS_LOCK_LINE =
 /** The lock file a status-reporting window holds open for its lifetime (see STATUS_LOCK_LINE). */
 export function statusLockPath(statusPath: string): string {
   return `${statusPath}.lock`;
+}
+
+/**
+ * macOS's equivalent of statusLockPath: a DIRECTORY, not a file (see
+ * install-macos.sh's own comment on STATUS_LOCK_DIR for why — no flock(1) to
+ * rely on). `mkdir`'d right after $StatusPath is set, before anything else
+ * runs, same position as STATUS_LOCK_LINE; removed in install-macos.sh's
+ * EXIT trap, so — like the Windows file handle — it comes down the moment
+ * that process ends, however it ends (except SIGKILL, which no trap can
+ * catch). Must stay in sync with install-macos.sh's STATUS_LOCK_DIR — a test
+ * checks.
+ */
+export function macStatusLockPath(statusPath: string): string {
+  return `${statusPath}.lock.d`;
 }
 
 /**
@@ -716,4 +744,133 @@ export function grantedPort(envValue: string | undefined): number {
  */
 export function looksLikeGranted(html: string): boolean {
   return /federal funding intelligence/i.test(html);
+}
+
+// ---------------------------------------------------------------------------
+// The install escape hatch — macOS. Mirrors the Windows section above
+// (buildWindowsInstallScript / windowsDownloadAndRun / windowsInstallScriptFor)
+// exactly, in bash instead of PowerShell: a temp .sh the GUI runs in a new
+// Terminal window via `do script`, reporting status the same way
+// install-macos.sh itself does (write_status's {state,message,pid} shape —
+// so parseInstallStatusJson reads both), with retried downloads and the same
+// error wording. decideStatusPoll/shouldReattach need no macOS-specific
+// logic at all: both already work purely off the StatusFile shape, never the
+// platform that produced it.
+// ---------------------------------------------------------------------------
+
+/** Where install-macos.sh for `ref` (null = main) is downloaded from. */
+export function macInstallScriptUrl(ref: string | null): string {
+  if (ref !== null && !parseReleaseTag(ref)) throw new Error(`not a release tag: ${ref}`);
+  return `https://raw.githubusercontent.com/KurtLehnardt/granted/${ref ?? "main"}/install-macos.sh`;
+}
+
+/**
+ * The macOS one-liner for a release (or main, for null) — what's run, and
+ * what's copied to the clipboard. `ref === null` is the only case the GUI
+ * ever actually asks for today (macOS has no pinned-release build yet — see
+ * ipc.ts's versionPlanner, unchanged by this), but this stays ref-aware, like
+ * windowsInstallCommand, because install-macos.sh itself (below) supports
+ * GRANTED_REF regardless of whether anything currently sets it this way.
+ */
+export function macInstallCommand(ref: string | null): string {
+  if (ref === null) return INSTALL_ONE_LINERS.darwin;
+  if (!parseReleaseTag(ref)) throw new Error(`not a release tag: ${ref}`);
+  return `GRANTED_REF=${shSingleQuoted(ref)} bash -c "$(curl -fsSL https://raw.githubusercontent.com/KurtLehnardt/granted/${ref}/install-macos.sh)"`;
+}
+
+/**
+ * The temp .sh the GUI runs in a new Terminal window: where to report
+ * status, then the one-liner. Never put directly on osascript's command
+ * line (same reasoning as Windows's temp .ps1 — see openInstallTerminal;
+ * the macOS concern is escaping/robustness through AppleScript's own string
+ * literal, not Defender).
+ */
+export function buildMacInstallScript(statusPath: string, ref: string | null): string {
+  return macInstallScriptFor(statusPath, macDownloadAndRun(macInstallScriptUrl(ref), ref));
+}
+
+/**
+ * What the GUI's install window runs: the one-liner's `bash -c "$(curl …)"`,
+ * but downloading with retries first and reporting a plain failure to the
+ * status file if GitHub still can't be reached after all of them — the
+ * bash equivalent of windowsDownloadAndRun, same wait sequence
+ * (INSTALL_DOWNLOAD_RETRY_WAITS) and the same error wording. `-fSL` (not
+ * `-fsSL`): curl's own error text (on stderr, captured below) is the only
+ * way this script learns *why* GitHub couldn't be reached, and `-s` would
+ * suppress exactly that.
+ */
+export function macDownloadAndRun(url: string, ref: string | null, waits: number[] = INSTALL_DOWNLOAD_RETRY_WAITS): string {
+  if (ref !== null && !parseReleaseTag(ref)) throw new Error(`not a release tag: ${ref}`);
+  const waitList = [0, ...waits].join(" ");
+  return [
+    `GRANTED_INSTALLER=""`,
+    `GRANTED_ERROR=""`,
+    `for GRANTED_WAIT in ${waitList}; do`,
+    `  if [ "$GRANTED_WAIT" -gt 0 ]; then`,
+    `    echo "Couldn't reach GitHub ($GRANTED_ERROR) -- trying again in $GRANTED_WAIT seconds..."`,
+    `    sleep "$GRANTED_WAIT"`,
+    `  fi`,
+    `  GRANTED_TMP="$(mktemp)"`,
+    `  if GRANTED_CURL_ERR="$(curl -fSL -o "$GRANTED_TMP" ${shSingleQuoted(url)} 2>&1)"; then`,
+    `    GRANTED_INSTALLER="$(cat "$GRANTED_TMP")"`,
+    `    rm -f "$GRANTED_TMP"`,
+    `    break`,
+    `  else`,
+    `    GRANTED_ERROR="$GRANTED_CURL_ERR"`,
+    `    rm -f "$GRANTED_TMP"`,
+    `  fi`,
+    `done`,
+    `if [ -z "$GRANTED_INSTALLER" ]; then`,
+    `  GRANTED_MESSAGE="Couldn't download the Granted installer from GitHub ($GRANTED_ERROR). Check your internet connection (and your VPN, if you use one), then click Try again."`,
+    `  GRANTED_ESCAPED="$(printf '%s' "$GRANTED_MESSAGE" | sed 's/\\\\/\\\\\\\\/g; s/"/\\"/g')"`,
+    `  printf '{"state":"error","message":"%s","pid":%d}' "$GRANTED_ESCAPED" "$$" > "$GRANTED_STATUS_FILE" 2>/dev/null || true`,
+    `  echo "$GRANTED_MESSAGE" >&2`,
+    `  exit 1`,
+    `fi`,
+    ...(ref ? [`export GRANTED_REF=${shSingleQuoted(ref)}`] : []),
+    `bash -c "$GRANTED_INSTALLER"`,
+  ].join("\n");
+}
+
+/**
+ * The AppleScript-driven close, run from inside the script itself (not a
+ * wrapper watching from the main process) — chosen because it needed no new
+ * seam in the already-running poll, and a real run confirmed it closes the
+ * window cleanly with no "still running, close anyway?" prompt once nothing
+ * is left to run after it (see ipc.ts's openInstallTerminal for the real
+ * verification note). `|| true`: a window the user already closed by hand
+ * must not turn this into a visible error.
+ */
+export const MAC_CLOSE_WINDOW_COMMAND = 'osascript -e \'tell application "Terminal" to close front window\' >/dev/null 2>&1 || true';
+
+/**
+ * The script around `command`: report to `statusPath`, run it, and then —
+ * only if it reported "done" — close the window by itself after a few
+ * seconds (INSTALL_WINDOW_CLOSE_SECONDS, shared with windowsInstallScriptFor
+ * — the same pause, so "Installed" can be read either way). On an error (or
+ * anything else) the window is left exactly as the script left it (bash
+ * doesn't exit a Terminal tab on its own the way -NoExit keeps a PowerShell
+ * window around; nothing here needs to force that), so the message stays
+ * on screen. A plain substring check (not a JSON parse): the status file's
+ * shape is entirely ours (buildMacInstallScript's own error write above,
+ * or install-macos.sh's write_status), so it's always exactly
+ * `"state":"done"` or not, with no need for a JSON parser in bash.
+ */
+export function macInstallScriptFor(statusPath: string, command: string): string {
+  const status = shSingleQuoted(statusPath);
+  return [
+    `#!/usr/bin/env bash`,
+    `export GRANTED_STATUS_FILE=${status}`,
+    command,
+    // The window may stay open, and anything pasted into it later must not
+    // report into this attempt's status file.
+    `unset GRANTED_STATUS_FILE`,
+    `if [ -f ${status} ] && grep -q '"state":"done"' ${status} 2>/dev/null; then`,
+    `  echo`,
+    `  echo "Installed. This window closes in ${INSTALL_WINDOW_CLOSE_SECONDS} seconds -- carry on in the Granted installer."`,
+    `  sleep ${INSTALL_WINDOW_CLOSE_SECONDS}`,
+    `  ${MAC_CLOSE_WINDOW_COMMAND}`,
+    `fi`,
+    ``,
+  ].join("\n");
 }

@@ -11,6 +11,16 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { launchInstaller, makeFakeInstall, type FakeInstall } from "./fixtures";
 
+// PRE-EXISTING gap, found while adding macOS e2e coverage in a separate
+// task: this file has no platform skip, but the version-pinning it drives
+// (ipc.ts's versionPlanner `pinned: process.platform === "win32" ?
+// pinnedReleaseTag() : null`) is itself win32-only — a development build on
+// any other platform, GRANTED_RELEASE_TAG or not, always gets `pinned:
+// null`, so the "Check for and install the latest version" UI these tests
+// drive never renders there. Unrelated to macOS's new install-status
+// parity; release-pinning staying Windows-only is untouched by that work.
+test.skip(process.platform !== "win32", "Release-pin selection (ipc.ts's versionPlanner) is Windows-only so far");
+
 let install: FakeInstall;
 let app: ElectronApplication | undefined;
 let page: Page;

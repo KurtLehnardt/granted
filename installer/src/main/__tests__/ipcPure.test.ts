@@ -1,7 +1,9 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
+import { INSTALL_ONE_LINERS } from "../../shared/ipc";
 import {
   applyApiKeys,
+  buildMacInstallScript,
   buildTaskScript,
   decideStatusPoll,
   envHasHostedKeys,
@@ -14,6 +16,14 @@ import {
   grantedPort,
   grantedSettingsPath,
   isRealKey,
+  INSTALL_DOWNLOAD_RETRY_WAITS,
+  INSTALL_WINDOW_CLOSE_SECONDS,
+  macDownloadAndRun,
+  MAC_CLOSE_WINDOW_COMMAND,
+  macInstallCommand,
+  macInstallScriptFor,
+  macInstallScriptUrl,
+  macStatusLockPath,
   parseOpenGrantedOutput,
   parseOpenInSetting,
   withOpenInSetting,
@@ -26,6 +36,7 @@ import {
   parseVersionFromOutput,
   psSingleQuoted,
   resolveTaskStatus,
+  shSingleQuoted,
   shouldReattach,
   startProcessCommand,
   STATUS_LOCK_LINE,
@@ -683,5 +694,112 @@ describe("looksLikeGranted", () => {
   test("matches Granted's own <title>, not some other app on port 3000", () => {
     assert.equal(looksLikeGranted("<title>Granted — federal funding intelligence for everyone</title>"), true);
     assert.equal(looksLikeGranted("<title>My other dev server</title>"), false);
+  });
+});
+
+describe("shSingleQuoted", () => {
+  test("wraps in single quotes, closing/escaping/reopening an embedded single quote (POSIX's escape rule)", () => {
+    assert.equal(shSingleQuoted("/Users/test/temp.json"), "'/Users/test/temp.json'");
+    assert.equal(shSingleQuoted("O'Brien"), `'O'"'"'Brien'`);
+  });
+
+  test("does NOT expand $, backticks, or globs (the reason single-quoting was chosen)", () => {
+    assert.equal(shSingleQuoted("/Users/$weird/temp.json"), "'/Users/$weird/temp.json'");
+    assert.equal(shSingleQuoted("/Users/weird`cmd`/x"), "'/Users/weird`cmd`/x'");
+    assert.equal(shSingleQuoted("*.txt"), "'*.txt'");
+  });
+});
+
+describe("macInstallScriptUrl / macInstallCommand (macOS release-pin, mirroring installScriptUrl/windowsInstallCommand)", () => {
+  test("null (no pin) installs main", () => {
+    assert.equal(macInstallScriptUrl(null), "https://raw.githubusercontent.com/KurtLehnardt/granted/main/install-macos.sh");
+    assert.equal(macInstallCommand(null), INSTALL_ONE_LINERS.darwin);
+  });
+
+  test("a release tag targets that tag's raw script, and sets GRANTED_REF in the one-liner", () => {
+    assert.equal(macInstallScriptUrl("v1.2.3"), "https://raw.githubusercontent.com/KurtLehnardt/granted/v1.2.3/install-macos.sh");
+    assert.equal(
+      macInstallCommand("v1.2.3"),
+      `GRANTED_REF='v1.2.3' bash -c "$(curl -fsSL https://raw.githubusercontent.com/KurtLehnardt/granted/v1.2.3/install-macos.sh)"`,
+    );
+  });
+
+  test("refuses anything that isn't a release tag", () => {
+    assert.throws(() => macInstallScriptUrl("main"));
+    assert.throws(() => macInstallCommand("main"));
+  });
+});
+
+describe("macDownloadAndRun", () => {
+  test("retries with the same wait sequence as Windows's, before giving up", () => {
+    const script = macDownloadAndRun("https://example.com/install-macos.sh", null, [3, 6]);
+    assert.match(script, /for GRANTED_WAIT in 0 3 6; do/);
+  });
+
+  test("defaults to INSTALL_DOWNLOAD_RETRY_WAITS when no wait sequence is given", () => {
+    const script = macDownloadAndRun("https://example.com/install-macos.sh", null);
+    assert.match(script, new RegExp(`for GRANTED_WAIT in 0 ${INSTALL_DOWNLOAD_RETRY_WAITS.join(" ")}; do`));
+  });
+
+  test("on exhausted retries, writes the exact Windows-style error wording to $GRANTED_STATUS_FILE and exits 1", () => {
+    const script = macDownloadAndRun("https://example.com/install-macos.sh", null, []);
+    assert.match(
+      script,
+      /Couldn't download the Granted installer from GitHub \(\$GRANTED_ERROR\)\. Check your internet connection \(and your VPN, if you use one\), then click Try again\./,
+    );
+    assert.match(script, /> "\$GRANTED_STATUS_FILE"/);
+    assert.match(script, /exit 1/);
+  });
+
+  test("a release tag is exported (single-quoted) before running the downloaded installer", () => {
+    const script = macDownloadAndRun("https://example.com/install-macos.sh", "v1.2.3", []);
+    assert.match(script, /export GRANTED_REF='v1\.2\.3'/);
+    assert.ok(script.indexOf("export GRANTED_REF") < script.indexOf('bash -c "$GRANTED_INSTALLER"'));
+  });
+
+  test("the url is single-quoted into curl's argument (safe against $/backtick expansion)", () => {
+    const script = macDownloadAndRun("https://example.com/weird$path.sh", null, []);
+    assert.match(script, /curl -fSL -o "\$GRANTED_TMP" 'https:\/\/example\.com\/weird\$path\.sh'/);
+  });
+
+  test("refuses anything that isn't a release tag", () => {
+    assert.throws(() => macDownloadAndRun("https://example.com/x.sh", "main"));
+  });
+});
+
+describe("macInstallScriptFor / buildMacInstallScript", () => {
+  test("exports GRANTED_STATUS_FILE (single-quoted) before running the command, then unsets it", () => {
+    const script = macInstallScriptFor("/tmp/s.json", "echo hi");
+    assert.match(script, /^export GRANTED_STATUS_FILE='\/tmp\/s\.json'$/m);
+    assert.ok(script.indexOf("export GRANTED_STATUS_FILE") < script.indexOf("echo hi"));
+    assert.ok(script.indexOf("echo hi") < script.indexOf("unset GRANTED_STATUS_FILE"));
+  });
+
+  test("closes the window (MAC_CLOSE_WINDOW_COMMAND) only behind a check for a 'done' status, after the same pause Windows uses", () => {
+    const script = macInstallScriptFor("/tmp/s.json", "echo hi");
+    assert.match(script, /grep -q '"state":"done"' '\/tmp\/s\.json'/);
+    assert.match(script, new RegExp(`sleep ${INSTALL_WINDOW_CLOSE_SECONDS}\\b`));
+    assert.ok(script.includes(MAC_CLOSE_WINDOW_COMMAND));
+    const ifAt = script.indexOf("if [ -f '/tmp/s.json' ]");
+    const closeAt = script.indexOf(MAC_CLOSE_WINDOW_COMMAND);
+    assert.ok(ifAt > -1 && ifAt < closeAt, "the close command sits inside the done-check");
+  });
+
+  test("starts with a bash shebang", () => {
+    assert.match(macInstallScriptFor("/tmp/s.json", "echo hi"), /^#!\/usr\/bin\/env bash\n/);
+  });
+
+  test("buildMacInstallScript wires macDownloadAndRun's output through macInstallScriptFor", () => {
+    const script = buildMacInstallScript("/tmp/s.json", "v1.2.3");
+    assert.match(script, /export GRANTED_STATUS_FILE='\/tmp\/s\.json'/);
+    assert.match(script, /install-macos\.sh/);
+    assert.match(script, /export GRANTED_REF='v1\.2\.3'/);
+  });
+});
+
+describe("macStatusLockPath", () => {
+  test("a directory suffix, not install-windows.ps1's file suffix — must match install-macos.sh's STATUS_LOCK_DIR", () => {
+    assert.equal(macStatusLockPath("/tmp/s.json"), "/tmp/s.json.lock.d");
+    assert.notEqual(macStatusLockPath("/tmp/s.json"), statusLockPath("/tmp/s.json"));
   });
 });
