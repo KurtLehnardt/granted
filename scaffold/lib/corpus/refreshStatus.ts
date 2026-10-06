@@ -6,7 +6,7 @@ import { createPidLock } from "../fs/pidLock";
 
 export { isProcessAlive } from "../fs/pidLock";
 
-/** Single-flight refresh lock: see lib/fs/pidLock.ts (shared with the local-embeddings job). */
+/** Single-flight refresh lock: see lib/fs/pidLock.ts. */
 function dir(baseDir: string): string {
   return join(baseDir, "data", "local");
 }

@@ -46,6 +46,8 @@ interface RuntimeState {
   download: Promise<void> | null;
   progress: { pct: number; doneBytes: number } | null;
   lastError: string | null;
+  /** Why the model files are there but the model wouldn't load (e.g. the VC++ runtime is missing). */
+  lastLoadError: string | null;
   queue: Promise<unknown>;
   listeners: Set<(pct: number) => void>;
 }
@@ -53,7 +55,7 @@ interface RuntimeState {
 const KEY = Symbol.for("granted.builtinSearchModel");
 function state(): RuntimeState {
   const g = globalThis as unknown as Record<symbol, RuntimeState | undefined>;
-  return (g[KEY] ??= { embedder: null, download: null, progress: null, lastError: null, queue: Promise.resolve(), listeners: new Set() });
+  return (g[KEY] ??= { embedder: null, download: null, progress: null, lastError: null, lastLoadError: null, queue: Promise.resolve(), listeners: new Set() });
 }
 
 /** Test-only: forget the loaded embedder and any download state. */
@@ -87,7 +89,7 @@ export function builtinModelStatus(deps: Partial<BuiltinDeps> = {}): BuiltinMode
   const mirror = process.env.GRANTED_MODEL_URL?.trim() ? modelBaseUrl() : undefined;
   const base = { model: BUILTIN_MODEL.repo.split("/")[1], totalBytes: BUILTIN_MODEL_TOTAL_BYTES, ...(mirror ? { mirror } : {}) };
   if (s.download) return { ...base, state: "downloading", pct: s.progress?.pct ?? 0, doneBytes: s.progress?.doneBytes ?? 0 };
-  if (d.present(d.dir)) return { ...base, state: "ready" };
+  if (d.present(d.dir)) return s.lastLoadError ? { ...base, state: "failed", error: s.lastLoadError } : { ...base, state: "ready" };
   if (s.lastError) return { ...base, state: "failed", error: s.lastError };
   return { ...base, state: "missing" };
 }
@@ -128,7 +130,7 @@ export async function ensureBuiltinModel(onProgress?: (pct: number) => void, dep
         (e: unknown) => {
           s.download = null;
           s.progress = null;
-          s.lastError = `Couldn't download the search model: ${(e as Error)?.message ?? e}`;
+          s.lastError = `couldn't download the search model (${(e as Error)?.message ?? e})`;
           throw new Error(s.lastError);
         },
       );
@@ -144,6 +146,7 @@ export async function ensureBuiltinModel(onProgress?: (pct: number) => void, dep
 
 /** Start the download without waiting for it (Settings → "Download now"). Never throws. */
 export function startBuiltinModelDownload(deps: Partial<BuiltinDeps> = {}): void {
+  state().lastLoadError = null; // a Retry also retries loading
   ensureBuiltinModel(undefined, deps).catch(() => {
     /* recorded in the status as "failed" */
   });
@@ -154,7 +157,14 @@ async function getEmbedder(d: BuiltinDeps): Promise<Embedder> {
   if (!s.embedder) {
     s.embedder = (async () => {
       await ensureBuiltinModel(undefined, d);
-      return d.load(d.dir);
+      try {
+        const embedder = await d.load(d.dir);
+        s.lastLoadError = null;
+        return embedder;
+      } catch (err) {
+        s.lastLoadError = explainModelLoadError(err);
+        throw new Error(s.lastLoadError);
+      }
     })();
     // A failed load must not stick: the next search tries again.
     s.embedder.catch(() => {
@@ -188,6 +198,24 @@ export async function embedWithBuiltin(
   });
   s.queue = run.catch(() => undefined);
   return run;
+}
+
+/**
+ * A plain-language reason the model wouldn't load. On Windows the usual cause is
+ * a missing Microsoft Visual C++ runtime: onnxruntime's DLL needs msvcp140.dll,
+ * msvcp140_1.dll, vcruntime140.dll and vcruntime140_1.dll, which a clean Windows
+ * install lacks (the Windows installer adds them), and Node reports only "The
+ * specified module could not be found".
+ */
+export function explainModelLoadError(err: unknown, platform: NodeJS.Platform = process.platform): string {
+  const detail = String((err as Error)?.message ?? err ?? "").replace(/\s+/g, " ").trim();
+  if (platform === "win32" && /specified module could not be found|onnxruntime|\.node\b|\.dll\b|dlopen/i.test(detail)) {
+    return (
+      "the search model couldn't start because the Microsoft Visual C++ runtime is missing on this computer. " +
+      "Install it from https://aka.ms/vs/17/release/vc_redist.x64.exe (or run the Granted installer again), then restart Granted"
+    );
+  }
+  return `the search model couldn't start (${detail.length > 200 ? `${detail.slice(0, 197)}...` : detail})`;
 }
 
 export function isBuiltinModelPresent(): boolean {

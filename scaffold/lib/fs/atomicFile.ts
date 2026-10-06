@@ -2,8 +2,8 @@ import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node
 import { dirname } from "node:path";
 
 /**
- * Small file helpers shared by the corpus-refresh and local-embeddings state
- * files (lib/corpus/refreshStatus.ts, lib/embeddings/*). Path-parameterized,
+ * Small file helpers for the corpus-refresh state files
+ * (lib/corpus/refreshStatus.ts). Path-parameterized,
  * synchronous, never throw on read.
  */
 

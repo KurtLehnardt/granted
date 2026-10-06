@@ -12,6 +12,7 @@ export type LocalSearchView = {
 };
 
 const mb = (bytes: number) => `${Math.round(bytes / 1e6)} MB`;
+const fmt = (n: number) => n.toLocaleString("en-US");
 
 /**
  * Pure: the "Search" line in Settings → Model, from GET /api/llm/embeddings.
@@ -20,7 +21,25 @@ const mb = (bytes: number) => `${Math.round(bytes / 1e6)} MB`;
  */
 export function describeLocalSearchStatus(s: SearchStatus | undefined | null): LocalSearchView | null {
   if (!s) return null;
+  const view = describeSpace(s);
+  const extra = [coverageText(s), s.note].filter(Boolean).join(" ");
+  return extra ? { ...view, detail: view.detail ? `${view.detail} ${extra}` : extra } : view;
+}
 
+/** "4,120 of 4,698 grants are indexed for search; indexing the rest in the background (40%)." Empty when everything is indexed. */
+function coverageText(s: SearchStatus): string {
+  const c = s.coverage;
+  if (!c || c.withVectors >= c.total) return "";
+  const base = `${fmt(c.withVectors)} of ${fmt(c.total)} grants are indexed for search; the rest are found by keyword`;
+  if (c.backfill?.running) {
+    const pct = c.backfill.total ? Math.floor(((c.backfill.done ?? 0) / c.backfill.total) * 100) : 0;
+    return `${base} until they're indexed, which is running in the background (${pct}%).`;
+  }
+  if (c.backfill?.error) return `${base}: ${c.backfill.error}.`;
+  return `${base} until they're indexed in the background.`;
+}
+
+function describeSpace(s: SearchStatus): LocalSearchView {
   if (s.space === "openai") {
     return {
       tone: "info",
@@ -29,7 +48,7 @@ export function describeLocalSearchStatus(s: SearchStatus | undefined | null): L
     };
   }
   if (s.space === "custom") {
-    return { tone: "info", title: `Search: your embedding server (${s.model})`, detail: "Set by EMBEDDINGS_BASE_URL in .env.local." };
+    return { tone: "info", title: `Search: your embedding server (${s.model})`, detail: `Set in .env.local (${s.reason}).` };
   }
 
   const title = "Search: Built-in, on this computer";
@@ -44,7 +63,8 @@ export function describeLocalSearchStatus(s: SearchStatus | undefined | null): L
     };
   }
   if (b.state === "failed") {
-    return { tone: "error", title: b.error ?? "Downloading the search model failed.", action: "Retry" };
+    const reason = b.error ? `${b.error[0].toUpperCase()}${b.error.slice(1)}.` : "Downloading the search model failed.";
+    return { tone: "error", title: reason, detail: "Until this is fixed, search runs in keyword-only mode.", action: "Retry" };
   }
   if (b.state === "missing") {
     return {
@@ -77,7 +97,7 @@ export default function LocalSearchStatus({
     if (initialStatus) setStatus(initialStatus);
   }, [initialStatus]);
 
-  const downloading = status?.builtin.state === "downloading";
+  const downloading = status?.builtin.state === "downloading" || Boolean(status?.coverage?.backfill?.running);
   useEffect(() => {
     if (!downloading) return;
     let cancelled = false;

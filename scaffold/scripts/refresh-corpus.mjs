@@ -5,8 +5,9 @@
  * Records are embedded in the embedding space search uses (lib/embeddings/spaces.ts), so a refresh
  * needs no API key when search is built-in: new and changed records are embedded in this process
  * and written to data/local/vectors/, reusing every vector whose id and text are unchanged. With
- * OpenAI (or a custom embedder) the inline vectors are refreshed as before, and the built-in vectors
- * are kept up to date as well whenever the built-in model is downloaded.
+ * OpenAI (or a custom embedder) only the inline vectors are refreshed, as before, and no CPU time
+ * goes to the built-in model. If search later switches to the built-in model, the app fills in the
+ * missing built-in vectors in the background (lib/embeddings/backfill.ts).
  */
 import "./_loadEnvLocal.mjs"; // honor scaffold/.env.local when run as plain `node`
 import { spawnSync } from "node:child_process";
@@ -14,8 +15,8 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { embedBatch, EMBEDDINGS_DIMENSIONS, EMBEDDINGS_MODEL } from "../lib/embed.ts";
 import { activeSearchSpace, getSpace } from "../lib/embeddings/spaces.ts";
-import { embedWithBuiltin, ensureBuiltinModel, isBuiltinModelPresent } from "../lib/embeddings/builtin.ts";
-import { buildSpaceVectors } from "./lib/spaceVectors.mjs";
+import { embedWithBuiltin, ensureBuiltinModel } from "../lib/embeddings/builtin.ts";
+import { buildSpaceVectors, compatibleVectorFile } from "./lib/spaceVectors.mjs";
 import { readVectorFile, writeVectorFile } from "./lib/vectorFile.mjs";
 import { BUILTIN_MODEL } from "./lib/builtinModel.mjs";
 import { clampCorpusSize, DEFAULT_CORPUS_SIZE } from "../lib/searchSettings.ts";
@@ -30,6 +31,7 @@ import {
   findUnhealthySources,
   opportunityEmbedText,
   planEmbedding,
+  refreshEmbedsBuiltinVectors,
 } from "../lib/corpus/refresh.ts";
 import {
   acquireRefreshLock,
@@ -292,8 +294,8 @@ async function main() {
       );
     }
 
-    // Built-in vectors: required when search uses them, kept fresh otherwise if the model is here.
-    const builtinVectors = await refreshBuiltinVectors(fresh, { foundCount, keptCount, required: !INLINE_SPACE });
+    // Built-in vectors, only when search uses them: an OpenAI refresh never spends CPU on them.
+    const builtinVectors = refreshEmbedsBuiltinVectors(SEARCH_SPACE) ? await refreshBuiltinVectors(fresh, { foundCount, keptCount }) : null;
     if (builtinVectors?.stopped) {
       reportProgress("saving", { foundCount, keptCount });
       const kept = plan.reused.concat(plan.toEmbed.map(withoutEmbedding));
@@ -387,20 +389,17 @@ function localMeta(records, existingMeta) {
 
 /**
  * Bring data/local/vectors/ (the built-in space) up to date for `records`, embedding only
- * new or changed ones in this process. `required`: search uses these vectors, so the model is
- * downloaded if missing and a failure fails the refresh. Otherwise it only runs when the model
- * is already downloaded, and a failure is just a warning (search doesn't use them right now).
+ * new or changed ones in this process. Only called when search uses these vectors, so the
+ * model is downloaded if missing and a failure fails the refresh.
  */
-async function refreshBuiltinVectors(records, { foundCount, keptCount, required }) {
-  if (!required && !isBuiltinModelPresent()) return null;
-  try {
-    if (required) await ensureBuiltinModel((pct) => process.stdout.write(`\rdownloading the search model: ${pct}%`));
+async function refreshBuiltinVectors(records, { foundCount, keptCount }) {
+  {
+    await ensureBuiltinModel((pct) => process.stdout.write(`\rdownloading the search model: ${pct}%`));
     const name = BUILTIN_SPACE.vectors.name;
     // The committed vectors cover the shipped corpus; a previous refresh's cover what it added.
-    const prior = new Map([
-      ...(readVectorFile(COMMITTED_VECTORS, name)?.vectors ?? new Map()),
-      ...(readVectorFile(LOCAL_VECTORS, name)?.vectors ?? new Map()),
-    ]);
+    // Only vectors from this model and revision are ever reused.
+    const usable = (f) => (compatibleVectorFile(f, BUILTIN_SPACE) ? f.vectors : new Map());
+    const prior = new Map([...usable(readVectorFile(COMMITTED_VECTORS, name)), ...usable(readVectorFile(LOCAL_VECTORS, name))]);
     const result = await buildSpaceVectors(BUILTIN_SPACE, records, {
       prior,
       embed: (texts) => embedWithBuiltin(texts),
@@ -419,10 +418,6 @@ async function refreshBuiltinVectors(records, { foundCount, keptCount, required 
     );
     console.log(`\nBuilt-in search vectors: ${result.reused} reused, ${result.embedded} embedded.`);
     return result;
-  } catch (e) {
-    if (required) throw e;
-    console.warn(`\n(couldn't update the built-in search vectors: ${e.message}; search isn't using them right now)`);
-    return null;
   }
 }
 

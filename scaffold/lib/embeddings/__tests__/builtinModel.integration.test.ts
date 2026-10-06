@@ -25,7 +25,8 @@ import { getSpace } from "../spaces";
 const SCAFFOLD = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const MODELS = join(SCAFFOLD, "models");
 const present = builtinModelPresent(MODELS);
-const skip = present ? false : "model files not in scaffold/models (npm run model:fetch)";
+// CI's Windows model job sets GRANTED_REQUIRE_MODEL so a missing model fails instead of skipping.
+const skip = present || process.env.GRANTED_REQUIRE_MODEL ? false : "model files not in scaffold/models (npm run model:fetch)";
 
 const QUERY = "search_query: Community health clinic expanding mental health services for rural veterans";
 /** sha256 of the query vector's components rounded to 3 decimals and joined with ",". */

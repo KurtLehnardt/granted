@@ -2,6 +2,7 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { EMBEDDING_SPACES, getSpace, resolveSearchSpace } from "../spaces";
 import { CALIBRATION } from "../../match";
+import { customEmbedderFromEnv } from "../../../scripts/lib/spaces.mjs";
 
 const KEY = "sk-proj-abcdefghijklmnopqrstuvwxyz1234567890";
 
@@ -70,5 +71,32 @@ describe("the space registry", () => {
       assert.ok(s.candidateFloor > 0 && s.candidateFloor < 1, s.id);
       assert.ok(s.weakFieldThreshold >= 1, s.id);
     }
+  });
+});
+
+describe("a non-default OpenAI model or size is the custom space, at runtime and in data:embed alike", () => {
+  test("EMBEDDINGS_MODEL other than text-embedding-3-small -> custom", () => {
+    const r = resolveSearchSpace({ provider: "cloud", openAiKey: KEY, embeddingsModel: "text-embedding-3-large" });
+    assert.equal(r.space.id, "custom");
+    assert.equal(r.reason, "EMBEDDINGS_MODEL is set");
+  });
+
+  test("EMBEDDINGS_DIMENSIONS other than 512 -> custom", () => {
+    assert.equal(resolveSearchSpace({ provider: "cloud", openAiKey: KEY, embeddingsDimensions: "1536" }).space.id, "custom");
+  });
+
+  test("the defaults spelled out explicitly are still the openai space", () => {
+    const r = resolveSearchSpace({ provider: "cloud", openAiKey: KEY, embeddingsModel: "text-embedding-3-small", embeddingsDimensions: "512", embeddingsBaseUrl: "https://api.openai.com/v1" });
+    assert.equal(r.space.id, "openai");
+  });
+
+  test("SEARCH_EMBEDDINGS=openai with a custom model -> custom (those settings say which OpenAI-compatible embedder)", () => {
+    assert.equal(resolveSearchSpace({ setting: "openai", provider: "cloud", openAiKey: KEY, embeddingsModel: "text-embedding-3-large" }).space.id, "custom");
+  });
+
+  test("data:embed without --space follows the same rule", () => {
+    assert.equal(customEmbedderFromEnv({ EMBEDDINGS_MODEL: "text-embedding-3-large" }), "EMBEDDINGS_MODEL is set");
+    assert.equal(customEmbedderFromEnv({ EMBEDDINGS_BASE_URL: "http://localhost:11434/v1" }), "EMBEDDINGS_BASE_URL is set");
+    assert.equal(customEmbedderFromEnv({}), null);
   });
 });

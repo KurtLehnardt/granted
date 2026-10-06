@@ -10,6 +10,23 @@
  */
 import { corpusEmbedText } from "./embedCorpus.mjs";
 import { textHash } from "./vectorFile.mjs";
+import { BUILTIN_MODEL } from "./builtinModel.mjs";
+
+/**
+ * Whether a vector file (readVectorFile's result) belongs to `space`: same model and
+ * size, and for the built-in space the same pinned revision. Vectors from any other
+ * model are never mixed in, whatever their ids and text hashes say.
+ *
+ * @param {{ meta: { model?: string, dims?: number, revision?: string } } | null | undefined} file
+ * @param {{ id: string, model: string, dims?: number }} space
+ */
+export function compatibleVectorFile(file, space) {
+  if (!file) return false;
+  if (file.meta.model !== space.model) return false;
+  if (space.dims != null && file.meta.dims !== space.dims) return false;
+  if (space.id === "builtin" && file.meta.revision && file.meta.revision !== BUILTIN_MODEL.revision) return false;
+  return true;
+}
 
 /** The exact text a space embeds for one program: its document prefix + the shared program text. */
 export function spaceDocumentText(space, opp) {

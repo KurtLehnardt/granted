@@ -25,13 +25,17 @@ async function spaceUsedBySearch(): Promise<EmbedOptions["space"]> {
   let seen: EmbedOptions | undefined;
   await assert.rejects(
     buildOpportunityMap("We build sensing hardware.", undefined, {
-      extractProfile: async () => ({ profile: { description: "x" }, followUps: [] }) as any,
+      // On the built-in space a failed embedding means keyword-only search, so the run
+      // continues to the profile; stopping there ends both kinds of run.
+      extractProfile: async () => {
+        throw new Error("stop after the profile");
+      },
       embed: (async (_t: string, _m: unknown, _s: unknown, opts?: EmbedOptions) => {
         seen = opts;
         throw new Error("stop after the first embed");
       }) as any,
     }),
-    /stop after the first embed/,
+    /stop after/,
   );
   return seen?.space;
 }

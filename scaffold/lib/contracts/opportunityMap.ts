@@ -299,6 +299,12 @@ export const OpportunityMapSchema = z.object({
     }),
   ),
   /**
+   * Set when this search couldn't use its embedding model (the built-in model
+   * couldn't be downloaded or loaded) and fell back to keyword (BM25) retrieval.
+   * The UI shows `message` above the results. Optional; absent on a normal search.
+   */
+  searchNotice: z.object({ kind: z.literal("keyword_only"), message: z.string() }).optional(),
+  /**
    * Additive version tag (§3.6). Optional so v1 producers and cached responses
    * remain valid; stamp it with `CURRENT_OPPORTUNITY_MAP_VERSION` on new writes.
    */

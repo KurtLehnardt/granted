@@ -225,7 +225,9 @@ export function assertEmbeddingDimsMatch(queryDim: number, corpusDim: number | n
   if (queryDim === corpusDim) return;
   throw new Error(
     `Embedding dimension mismatch: your query embeds to ${queryDim} dims but the corpus is ${corpusDim} dims — these must match for retrieval to work. ` +
-      "You likely changed EMBEDDINGS_MODEL without re-embedding the corpus. Re-embed it with the same model: run `npm run data:embed:local` from the scaffold/ directory.",
+      "You likely changed EMBEDDINGS_BASE_URL, EMBEDDINGS_MODEL or EMBEDDINGS_DIMENSIONS in .env.local without re-embedding the corpus. " +
+      "Re-embed it with the same settings (`npm run data:embed:local` in scaffold/ writes the gitignored data/local/ copy; `npm run data:embed` the committed one), " +
+      "or remove those settings to search with the built-in model, which needs no re-embedding.",
   );
 }
 

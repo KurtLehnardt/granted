@@ -181,6 +181,16 @@ export default function OpportunityMap({ map }: { map: MapT }) {
   return (
     <Boundary>
       <div className="reveal">
+        {/* The search couldn't use its embedding model and fell back to keyword matching: say so up front. */}
+        {map.searchNotice?.message && (
+          <p
+            className="mb-4 rounded-r-sm border-l-2 border-warning bg-canvas-alt px-3 py-2 font-body text-[13px] text-foreground"
+            data-testid="search-notice"
+            role="status"
+          >
+            {map.searchNotice.message}
+          </p>
+        )}
         {/* On a weak-field finding the honest panel is the hero — an empty
             "0 / $0" band above it would read as a failed query, so we drop it. */}
         {!w && (

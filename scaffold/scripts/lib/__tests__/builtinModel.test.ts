@@ -122,3 +122,10 @@ describe("downloadBuiltinModel", () => {
     });
   });
 });
+
+describe("modelsDir default", () => {
+  test("is <working directory>/models when run from scaffold/, not a path frozen at build time", () => {
+    // npm test runs from scaffold/, like the app and every script.
+    assert.equal(modelsDir({}), join(process.cwd(), "models"));
+  });
+});

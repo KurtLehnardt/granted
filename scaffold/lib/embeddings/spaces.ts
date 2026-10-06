@@ -40,6 +40,8 @@ export interface SpaceInputs {
   provider: ProviderName;
   openAiKey?: string;
   embeddingsBaseUrl?: string;
+  embeddingsModel?: string;
+  embeddingsDimensions?: string;
 }
 
 export interface ResolvedSpace {
@@ -61,6 +63,8 @@ export function currentSpaceInputs(): SpaceInputs {
     provider: resolveProvider(),
     openAiKey: process.env.EMBEDDINGS_API_KEY || process.env.OPENAI_API_KEY,
     embeddingsBaseUrl: process.env.EMBEDDINGS_BASE_URL,
+    embeddingsModel: process.env.EMBEDDINGS_MODEL,
+    embeddingsDimensions: process.env.EMBEDDINGS_DIMENSIONS,
   };
 }
 

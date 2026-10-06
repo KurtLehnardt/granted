@@ -1,6 +1,8 @@
 import { embed, cosine, assertEmbeddingDimsMatch, type EmbedOptions } from "./embed";
 import type { EmbeddingSpace } from "./embeddings/spaces";
 import { ensureBuiltinModel, isBuiltinModelPresent } from "./embeddings/builtin";
+import { startBuiltinVectorBackfill } from "./embeddings/backfill";
+import { needsBuiltinBackfill } from "./embeddings/searchStatus";
 import { extractProfile, explainMatches, explainMatchesTwoPass, explainWeakField, type Assessment, type TwoPassProgressDetail } from "./claude";
 import type { Opportunity, OpportunityMap, StartupProfile, Match, Tier, AwardHistory } from "./types";
 import { screen } from "./eligibility/screen";
@@ -123,7 +125,7 @@ export type BuildDeps = {
   screen: typeof screen;
   corpus: Opportunity[];
   /** The embedding space of an injected corpus (its floor and weak-field threshold). Defaults to CALIBRATION's values. */
-  space?: Pick<EmbeddingSpace, "candidateFloor" | "weakFieldThreshold">;
+  space?: Pick<EmbeddingSpace, "candidateFloor" | "weakFieldThreshold"> & Partial<Pick<EmbeddingSpace, "backend">>;
 };
 
 const REAL_DEPS: Omit<BuildDeps, "corpus"> = {
@@ -402,19 +404,21 @@ export async function buildOpportunityMap(
   const fullCorpus = deps.corpus ?? corpusInfo!.opportunities;
   const embedOpts: EmbedOptions = corpusInfo ? { space: corpusInfo.space } : {};
   const spaceCalibration = corpusInfo?.space ?? deps.space ?? CALIBRATION;
+  // Records without a built-in vector (an older data:refresh copy) are still searched by
+  // keyword now, and get indexed in the background for next time.
+  if (corpusInfo && needsBuiltinBackfill(corpusInfo)) startBuiltinVectorBackfill();
   const d: BuildDeps = { ...REAL_DEPS, ...deps, corpus: deps.corpus ?? dropExpiredOpportunities(fullCorpus) };
   // Progress is best-effort: a reporting error must never fail the search.
   const step = (e: StepEvent) => { try { onStep?.(e); } catch { /* ignore */ } };
   step({ key: "start", label: "Reading the federal register…", pct: 5 });
 
-  // The built-in search model is normally downloaded by the installer. If it isn't
-  // there yet, fetch it now (once; Settings → Model shows the same progress) rather
-  // than failing the search.
-  if (corpusInfo?.space.backend === "inprocess" && !deps.embed && !isBuiltinModelPresent()) {
-    await ensureBuiltinModel((pct) =>
-      step({ key: "model", label: `Downloading the search model (one time): ${pct}%`, pct: 5 }),
-    );
-  }
+  // Built-in search (the in-process model). If the model can't be downloaded or
+  // loaded (offline on first use, a missing Visual C++ runtime on Windows, ...),
+  // the search falls back to keyword (BM25) retrieval and says so in the result,
+  // rather than failing outright.
+  const builtinSearch = (corpusInfo?.space ?? deps.space)?.backend === "inprocess";
+  let keywordOnly: string | null = null;
+  const keywordNotice = () => (keywordOnly ? { kind: "keyword_only" as const, message: `Search is running in keyword-only mode: ${keywordOnly}` } : undefined);
 
   // R4b — one CostMeter per search, threaded through every LLM/embedding
   // call below (including the weakField() early-exit path). Every method on
@@ -440,6 +444,31 @@ export async function buildOpportunityMap(
   // promise and rejects exactly as before.
   profilePromise.catch(() => {});
 
+  // The built-in search model is normally downloaded by the installer. If it isn't
+  // there yet, start the one-time download now, alongside profile extraction (Settings
+  // → Model shows the same progress). The first embedding below waits for it.
+  if (builtinSearch && !deps.embed && !isBuiltinModelPresent()) {
+    step({ key: "model", label: "Downloading the search model (one time)…", pct: 5 });
+    ensureBuiltinModel((pct) =>
+      step({ key: "model", label: `Downloading the search model (one time): ${pct}%`, pct: 5 }),
+    ).catch(() => {
+      /* the embedding below reports it, and the search goes keyword-only */
+    });
+  }
+
+  /** The query's vector, or null once the built-in model has proved unusable (keyword-only from then on). */
+  async function embedQuery(text: string): Promise<number[] | null> {
+    if (keywordOnly) return null;
+    try {
+      return await d.embed(text, meter, signal, embedOpts);
+    } catch (err) {
+      if (!builtinSearch || signal?.aborted) throw err;
+      keywordOnly = (err as Error)?.message ?? String(err);
+      step({ key: "keyword-only", label: keywordNotice()!.message, pct: 15 });
+      return null;
+    }
+  }
+
   // Shared retrieval helper: cosine-floor + C1a per-type quota selection
   // (byte-for-byte the pre-hybrid, origin/main algorithm — optionally
   // re-ranked by the B2 enrichment boost, exactly as main did), plus a small
@@ -453,7 +482,29 @@ export async function buildOpportunityMap(
   // `quotaOnlyIds`/`bm25OnlyIds` mark ids added ONLY by the quota or the BM25
   // supplement — never by the global top-N cut — so a later trim (the scored-
   // set cap below) knows which entries it must not evict.
-  function retrieve(queryVec: number[], queryText: string, enrich?: ReturnType<typeof deriveEnrichmentSignal>) {
+  const corpusById = new Map(d.corpus.map((o) => [o.id, o]));
+
+  /** Keyword-only retrieval (no query vector): BM25's top candidateCount, plus the same per-type quota. */
+  function retrieveByKeywords(queryText: string) {
+    const hits = bm25Query(bm25Index, queryText).filter((h) => corpusById.has(h.id));
+    const ranked = hits.map((h) => ({ o: corpusById.get(h.id)!, sim: 0, rank: h.score }));
+    const candidateCount = clampCandidateCount(maxCandidates);
+    const selectedIds = new Set(ranked.slice(0, candidateCount).map((x) => x.o.id));
+    const quotaOnlyIds = new Set<string>();
+    const perKindTaken = new Map<string, number>();
+    for (const x of ranked) {
+      const taken = perKindTaken.get(x.o.kind) ?? 0;
+      if (taken < CALIBRATION.perTypeQuota) {
+        perKindTaken.set(x.o.kind, taken + 1);
+        if (!selectedIds.has(x.o.id)) quotaOnlyIds.add(x.o.id);
+        selectedIds.add(x.o.id);
+      }
+    }
+    return { scored: ranked.filter((x) => selectedIds.has(x.o.id)), quotaOnlyIds, bm25OnlyIds: new Set<string>() };
+  }
+
+  function retrieve(queryVec: number[] | null, queryText: string, enrich?: ReturnType<typeof deriveEnrichmentSignal>) {
+    if (!queryVec) return retrieveByKeywords(queryText);
     // Rank the WHOLE corpus, then split at the floor. The below-floor tail is
     // kept (not discarded) so the BM25 supplement can reach into it — see the
     // rescue step below. Cosine+quota selection reads `floorCleared` only, so
@@ -522,13 +573,13 @@ export async function buildOpportunityMap(
 
   // 3. Instant retrieval — embed the RAW description directly (sub-second),
   //    so a provisional candidate set can stream before the profile resolves.
-  const rawQueryVec = await d.embed(description, meter, signal, embedOpts);
+  const rawQueryVec = await embedQuery(description);
   // Fail loudly if the live query and the committed corpus don't share an
   // embedding space (switched EMBEDDINGS_MODEL without re-embedding) — otherwise
   // cosine() silently returns NaN for every opp and the run looks like a weak
   // field for no visible reason. Sampled from the first embedded opp (uniform dim).
   const corpusDim = d.corpus.find((o) => Array.isArray(o.embedding) && o.embedding.length > 0)?.embedding?.length;
-  assertEmbeddingDimsMatch(rawQueryVec.length, corpusDim);
+  if (rawQueryVec) assertEmbeddingDimsMatch(rawQueryVec.length, corpusDim);
   step({ key: "embed", label: `Searching ${d.corpus.length} programs`, pct: 15 });
 
   const provisionalScored = retrieve(rawQueryVec, description).scored;
@@ -578,8 +629,8 @@ export async function buildOpportunityMap(
     (profile.expandedTerms ?? []).join(", "),
     enrich ? enrichmentQueryTerms(enrich).join(", ") : "",
   ].filter(Boolean).join("\n");
-  const queryVec = await d.embed(queryText, meter, signal, embedOpts);
-  assertEmbeddingDimsMatch(queryVec.length, corpusDim);
+  const queryVec = await embedQuery(queryText);
+  if (queryVec) assertEmbeddingDimsMatch(queryVec.length, corpusDim);
   const { scored: profileScored, quotaOnlyIds, bm25OnlyIds } = retrieve(queryVec, queryText, enrich);
 
   // Final candidate set = the profile-based retrieval UNION every provisional
@@ -608,7 +659,9 @@ export async function buildOpportunityMap(
 
   if (scored.length === 0) {
     step({ key: "weak", label: "Writing your finding…", pct: 80 });
-    return weakField(profile, followUps, meter, d.explainWeakField, signal);
+    const weakResult = await weakField(profile, followUps, meter, d.explainWeakField, signal);
+    const notice = keywordNotice();
+    return notice ? { ...weakResult, searchNotice: notice } : weakResult;
   }
 
   // RESOLVE EVERY PROVISIONAL ID (§1): every id that has already had a
@@ -869,6 +922,7 @@ export async function buildOpportunityMap(
     matches,
     weakFieldFinding: weak,
     agencyIntelligence,
+    ...(keywordNotice() ? { searchNotice: keywordNotice() } : {}),
   };
   finalizeCost(meter, result);
   return result;

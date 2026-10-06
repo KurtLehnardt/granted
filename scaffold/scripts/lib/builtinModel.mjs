@@ -40,7 +40,8 @@ export const BUILTIN_MODEL_TOTAL_BYTES = BUILTIN_MODEL.files.reduce((n, f) => n 
 const SCAFFOLD_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 /**
- * Where model files live: GRANTED_MODELS_DIR, else scaffold/models. Under node:test with no
+ * Where model files live: GRANTED_MODELS_DIR, else <working directory>/models when that is
+ * scaffold/ (as it is for the app and the scripts), else scaffold/models next to this file. Under node:test with no
  * override, a folder that never exists, so a developer's downloaded model never leaks into
  * unit tests (the integration test points GRANTED_MODELS_DIR at the real one).
  *
@@ -49,6 +50,10 @@ const SCAFFOLD_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 export function modelsDir(env = process.env) {
   if (env.GRANTED_MODELS_DIR) return env.GRANTED_MODELS_DIR;
   if (env.NODE_TEST_CONTEXT) return join(tmpdir(), `granted-models-unset-${process.pid}`);
+  // The app and every script run from scaffold/. Prefer that over this file's own location,
+  // which a bundler may have frozen to the path of the machine that built the app.
+  const cwd = process.cwd();
+  if (existsSync(join(cwd, "scripts", "fetch-model.mjs"))) return join(cwd, "models");
   return join(SCAFFOLD_DIR, "models");
 }
 

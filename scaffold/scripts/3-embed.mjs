@@ -12,8 +12,9 @@
  *   --space=openai    OpenAI text-embedding-3-small @ 512, stored inline in
  *                     opportunities.json (needs OPENAI_API_KEY).
  *   --space=custom    the EMBEDDINGS_BASE_URL / EMBEDDINGS_MODEL embedder, inline.
- *   (no --space)      openai, or custom when EMBEDDINGS_BASE_URL points elsewhere:
- *                     what this script always did.
+ *   (no --space)      openai, or custom when EMBEDDINGS_BASE_URL, EMBEDDINGS_MODEL or
+ *                     EMBEDDINGS_DIMENSIONS describe another embedder (the same rule
+ *                     search uses): what this script always did.
  *
  * Env for the HTTP spaces:
  *   EMBEDDINGS_BASE_URL    OpenAI-compatible base  (default https://api.openai.com/v1)
@@ -35,8 +36,8 @@ import "./_loadEnvLocal.mjs"; // honor scaffold/.env.local when run as plain `no
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { corpusDims, embedOpportunities } from "./lib/embedCorpus.mjs";
-import { SPACES, hasCustomEmbedder } from "./lib/spaces.mjs";
-import { buildSpaceVectors } from "./lib/spaceVectors.mjs";
+import { SPACES, customEmbedderFromEnv } from "./lib/spaces.mjs";
+import { buildSpaceVectors, compatibleVectorFile } from "./lib/spaceVectors.mjs";
 import { readVectorFile, writeVectorFile } from "./lib/vectorFile.mjs";
 import { BUILTIN_MODEL, builtinModelPresent, loadBuiltinEmbedder } from "./lib/builtinModel.mjs";
 
@@ -49,7 +50,8 @@ if (spaceArg && !SPACES[spaceArg]) {
   console.error(`Unknown --space=${spaceArg}. Use one of: ${Object.keys(SPACES).join(", ")}.`);
   process.exit(1);
 }
-const SPACE_ID = spaceArg ?? (hasCustomEmbedder(process.env.EMBEDDINGS_BASE_URL) ? "custom" : "openai");
+// No --space: the same rule search uses (scripts/lib/spaces.mjs), minus the built-in default.
+const SPACE_ID = spaceArg ?? (customEmbedderFromEnv() ? "custom" : "openai");
 
 if (SPACES[SPACE_ID].vectors.kind === "file") {
   await embedVectorFileSpace(SPACES[SPACE_ID]);
@@ -65,8 +67,10 @@ async function embedVectorFileSpace(space) {
   const opps = JSON.parse(await readFile(`${IN_DIR}/opportunities.json`, "utf8"));
   const vecDir = `${OUT_DIR}/vectors`;
   // A local run starts from the committed vectors, so only records a refresh changed get embedded.
-  const prior =
-    readVectorFile(vecDir, space.vectors.name) ?? (TARGET_LOCAL ? readVectorFile("data/vectors", space.vectors.name) : null);
+  // Only vectors from this model and revision are ever reused.
+  const prior = [readVectorFile(vecDir, space.vectors.name), TARGET_LOCAL ? readVectorFile("data/vectors", space.vectors.name) : null].find((f) =>
+    compatibleVectorFile(f, space),
+  );
   const embedder = await loadBuiltinEmbedder();
   const t0 = Date.now();
   const result = await buildSpaceVectors(space, opps, {

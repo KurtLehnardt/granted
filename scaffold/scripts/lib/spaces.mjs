@@ -84,33 +84,64 @@ export function looksLikeOpenAiKey(key) {
   return k.length >= 20 && k.length <= 200 && !/\s/.test(k) && k.startsWith("sk-") && !k.startsWith("sk-...");
 }
 
-/** EMBEDDINGS_BASE_URL set to something other than OpenAI: the user runs their own embedder. */
-export function hasCustomEmbedder(embeddingsBaseUrl) {
+/**
+ * Why the env describes an embedder other than the openai space's own
+ * (text-embedding-3-small at 512 dims on api.openai.com), or null if it doesn't:
+ * EMBEDDINGS_BASE_URL pointing elsewhere (your own server), or a different
+ * EMBEDDINGS_MODEL / EMBEDDINGS_DIMENSIONS on OpenAI itself. Such a setup is the
+ * "custom" space, at runtime and in `npm run data:embed` alike, so the query and
+ * the corpus it re-embedded always agree.
+ *
+ * @param {{ embeddingsBaseUrl?: string, embeddingsModel?: string, embeddingsDimensions?: string }} env
+ * @returns {string | null}
+ */
+export function customEmbedderReason({ embeddingsBaseUrl, embeddingsModel, embeddingsDimensions } = {}) {
   const url = String(embeddingsBaseUrl ?? "").trim();
-  return url !== "" && !/api\.openai\.com/i.test(url);
+  if (url !== "" && !/api\.openai\.com/i.test(url)) return "EMBEDDINGS_BASE_URL is set";
+  const model = String(embeddingsModel ?? "").trim();
+  if (model !== "" && model !== SPACES.openai.model) return "EMBEDDINGS_MODEL is set";
+  const dims = String(embeddingsDimensions ?? "").trim();
+  if (dims !== "" && Number(dims) !== SPACES.openai.dims) return "EMBEDDINGS_DIMENSIONS is set";
+  return null;
+}
+
+/**
+ * The custom-embedder check for a process environment (see customEmbedderReason).
+ *
+ * @param {Record<string, string | undefined>} [env]
+ */
+export function customEmbedderFromEnv(env = process.env) {
+  return customEmbedderReason({
+    embeddingsBaseUrl: env.EMBEDDINGS_BASE_URL,
+    embeddingsModel: env.EMBEDDINGS_MODEL,
+    embeddingsDimensions: env.EMBEDDINGS_DIMENSIONS,
+  });
 }
 
 /**
  * Which space search uses. Pure: every input is explicit.
  *
- *   SEARCH_EMBEDDINGS=openai   -> openai (needs a key; a missing one is reported when search runs)
  *   SEARCH_EMBEDDINGS=builtin  -> builtin
+ *   EMBEDDINGS_BASE_URL / _MODEL / _DIMENSIONS describe another embedder -> custom
+ *                                 (unchanged from before; this also applies with SEARCH_EMBEDDINGS=openai,
+ *                                 since those settings say which OpenAI-compatible embedder to use)
+ *   SEARCH_EMBEDDINGS=openai   -> openai (needs a key; a missing one is reported when search runs)
  *   auto (the default):
- *     EMBEDDINGS_BASE_URL points at your own embedder -> custom (unchanged from before)
  *     Local (Ollama) selected                          -> builtin (Ollama's nomic vectors are the same)
  *     a valid OpenAI key                               -> openai (existing users see no change)
  *     otherwise                                        -> builtin
  *
  * Returns { id, reason } so Settings can say why.
  *
- * @param {{ setting?: string, provider: string, openAiKey?: string, embeddingsBaseUrl?: string }} input
+ * @param {{ setting?: string, provider: string, openAiKey?: string, embeddingsBaseUrl?: string, embeddingsModel?: string, embeddingsDimensions?: string }} input
  * @returns {{ id: "openai" | "builtin" | "custom", reason: string }}
  */
-export function resolveSpaceId({ setting, provider, openAiKey, embeddingsBaseUrl }) {
+export function resolveSpaceId({ setting, provider, openAiKey, embeddingsBaseUrl, embeddingsModel, embeddingsDimensions }) {
   const s = parseSearchEmbeddingsSetting(setting);
-  if (s === "openai") return { id: "openai", reason: "SEARCH_EMBEDDINGS=openai" };
   if (s === "builtin") return { id: "builtin", reason: "SEARCH_EMBEDDINGS=builtin" };
-  if (hasCustomEmbedder(embeddingsBaseUrl)) return { id: "custom", reason: "EMBEDDINGS_BASE_URL is set" };
+  const custom = customEmbedderReason({ embeddingsBaseUrl, embeddingsModel, embeddingsDimensions });
+  if (custom) return { id: "custom", reason: custom };
+  if (s === "openai") return { id: "openai", reason: "SEARCH_EMBEDDINGS=openai" };
   if (provider === "ollama") return { id: "builtin", reason: "Local model selected" };
   if (looksLikeOpenAiKey(openAiKey)) return { id: "openai", reason: "OpenAI key present" };
   return { id: "builtin", reason: "No OpenAI key" };

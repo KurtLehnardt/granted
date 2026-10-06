@@ -56,6 +56,61 @@ function Ok($msg)   { Write-Host "  [ok] $msg" -ForegroundColor Green }
 function Warn($msg) { Write-Host "  [!] $msg" -ForegroundColor Yellow }
 function Die($msg)  { Write-Status "error" $msg; Write-Host "  [x] $msg" -ForegroundColor Red; exit 1 }
 
+# The Microsoft Visual C++ runtime. The built-in search model runs on
+# onnxruntime, whose DLL needs these four files; a clean Windows install
+# doesn't have them, and without them the model can't load (search then runs
+# keyword-only and Settings says why). Defined up here, before the script does
+# anything, so the installer's tests can run them on their own.
+$VCRuntimeDlls = @("msvcp140.dll", "msvcp140_1.dll", "vcruntime140.dll", "vcruntime140_1.dll")
+$VCRedistUrl = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
+
+# Which of the four DLLs are missing from $SystemDir (System32 by default).
+function Get-MissingVCRuntime([string]$SystemDir = (Join-Path $env:SystemRoot "System32")) {
+  return @($VCRuntimeDlls | Where-Object { -not (Test-Path -LiteralPath (Join-Path $SystemDir $_)) })
+}
+
+# Installs the runtime if any DLL is missing: winget first (Microsoft.VCRedist.
+# 2015+.x64), else Microsoft's own installer from aka.ms. Both ask for
+# Administrator rights through a UAC prompt when not already elevated (the
+# runtime is machine-wide). Never fails the install: Granted works without it,
+# keyword-only, so anything that goes wrong is a warning. Returns $true when the
+# DLLs are all there afterwards. The install steps are parameters so tests can
+# stand in for winget and the download.
+function Install-VCRuntime {
+  param(
+    [string]$SystemDir = (Join-Path $env:SystemRoot "System32"),
+    [bool]$UseWinget = [bool](Get-Command "winget" -ErrorAction SilentlyContinue),
+    [scriptblock]$WingetInstall = {
+      winget install -e --id Microsoft.VCRedist.2015+.x64 --silent --accept-package-agreements --accept-source-agreements
+    },
+    [scriptblock]$DownloadInstall = {
+      $installer = Join-Path $env:TEMP "vc_redist.x64.exe"
+      Invoke-WebRequest -Uri $VCRedistUrl -OutFile $installer -UseBasicParsing
+      # /install /quiet /norestart; exit 3010 means "installed, restart later", 1638 "a newer one is there".
+      $p = Start-Process -FilePath $installer -ArgumentList "/install", "/quiet", "/norestart" -Wait -PassThru
+      Remove-Item $installer -ErrorAction SilentlyContinue
+      if ($p.ExitCode -notin 0, 1638, 3010) { throw "vc_redist.x64.exe exited with code $($p.ExitCode)" }
+    }
+  )
+  $missing = @(Get-MissingVCRuntime $SystemDir)
+  if ($missing.Count -eq 0) { Ok "Microsoft Visual C++ runtime already installed"; return $true }
+  Log "Installing the Microsoft Visual C++ runtime (the built-in search model needs it; missing: $($missing -join ', '))..."
+  if (-not $script:IsElevated) { Warn "This needs Administrator rights: approve the Windows prompt if one appears." }
+  $attempts = @()
+  if ($UseWinget) { $attempts += @{ name = "winget"; run = $WingetInstall } }
+  $attempts += @{ name = "Microsoft's installer"; run = $DownloadInstall }
+  foreach ($attempt in $attempts) {
+    try {
+      & $attempt.run | Out-Host
+    } catch {
+      Warn "Installing the Visual C++ runtime with $($attempt.name) didn't work ($($_.Exception.Message))."
+    }
+    if (@(Get-MissingVCRuntime $SystemDir).Count -eq 0) { Ok "Microsoft Visual C++ runtime installed"; return $true }
+  }
+  Warn "The Microsoft Visual C++ runtime still isn't installed, so search will run in keyword-only mode until it is. Install it from $VCRedistUrl, then restart Granted."
+  return $false
+}
+
 # Catches anything Die() doesn't -- a terminating error PowerShell itself
 # raises (a failed Invoke-WebRequest/Invoke-RestMethod, for example) would
 # otherwise unwind straight out of the script with the status file still
@@ -351,6 +406,15 @@ Log "Installing npm dependencies..."
 npm ci --no-audit --no-fund
 Assert-LastExitCode "npm ci failed -- see the output above for the underlying error."
 Ok "dependencies installed"
+
+# 4a) The Microsoft Visual C++ runtime the search model needs (see
+# Install-VCRuntime above). A no-op when it's already there, as it is on most
+# machines; never fails the install.
+try {
+  [void](Install-VCRuntime)
+} catch {
+  Warn "Couldn't check for the Microsoft Visual C++ runtime ($($_.Exception.Message)). If search says it's keyword-only, install it from $VCRedistUrl."
+}
 
 # 4b) The built-in search model (about 275 MB), so search works offline and
 # needs no API key. scripts\fetch-model.mjs verifies the files it already has

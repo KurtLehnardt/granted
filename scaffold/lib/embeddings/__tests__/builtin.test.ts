@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   builtinModelStatus,
   embedWithBuiltin,
+  explainModelLoadError,
   ensureBuiltinModel,
   resetBuiltinRuntime,
   startBuiltinModelDownload,
@@ -139,7 +140,7 @@ describe("ensureBuiltinModel / status", () => {
     await assert.rejects(p, /HTTP 503/);
     const st = builtinModelStatus(f.deps);
     assert.equal(st.state, "failed");
-    assert.match(st.error!, /Couldn't download the search model: HTTP 503/);
+    assert.match(st.error!, /couldn't download the search model \(HTTP 503\)/);
     startBuiltinModelDownload(f.deps);
     await new Promise((r) => setImmediate(r));
     assert.equal(f.downloads(), 2);
@@ -163,5 +164,37 @@ describe("ensureBuiltinModel / status", () => {
       if (saved === undefined) delete process.env.GRANTED_MODEL_URL;
       else process.env.GRANTED_MODEL_URL = saved;
     }
+  });
+});
+
+describe("a model that won't load (e.g. no Visual C++ runtime on Windows)", () => {
+  test("on Windows, a native-module load failure names the VC++ runtime and where to get it", () => {
+    const msg = explainModelLoadError(new Error("\\?\C:\granted\node_modules\onnxruntime-node\bin\napi-v6\win32\x64\onnxruntime_binding.node: The specified module could not be found."), "win32");
+    assert.match(msg, /Microsoft Visual C\+\+ runtime is missing/);
+    assert.match(msg, /aka\.ms\/vs\/17\/release\/vc_redist\.x64\.exe/);
+  });
+
+  test("elsewhere, the underlying reason is kept (shortened)", () => {
+    assert.equal(explainModelLoadError(new Error("bad model file"), "linux"), "the search model couldn't start (bad model file)");
+    assert.ok(explainModelLoadError(new Error("x".repeat(500)), "darwin").length < 260);
+  });
+
+  test("the load failure shows as 'failed' in the status, embedding rejects with it, and a Retry clears it", async () => {
+    let fail = true;
+    const f = fakeDeps({
+      load: async () => {
+        if (fail) throw new Error("The specified module could not be found.");
+        return { dims: 2, embed: async (t: string[]) => t.map(() => [1, 0]) };
+      },
+    });
+    f.setPresent(true);
+    await assert.rejects(() => embedWithBuiltin(["x"], {}, f.deps), /search model couldn't start/);
+    const st = builtinModelStatus(f.deps);
+    assert.equal(st.state, "failed");
+    assert.match(st.error!, /search model couldn't start/);
+    fail = false;
+    startBuiltinModelDownload(f.deps);
+    assert.equal(builtinModelStatus(f.deps).state, "ready");
+    assert.deepEqual(await embedWithBuiltin(["x"], {}, f.deps), [[1, 0]]);
   });
 });

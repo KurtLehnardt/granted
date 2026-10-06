@@ -3,8 +3,9 @@ import { join } from "node:path";
 import type { Opportunity } from "../types";
 import { dropPastAwards } from "./pastAwards";
 import { activeSearchSpace, type EmbeddingSpace } from "../embeddings/spaces";
+import { removeLegacyLocalEmbeddingsOnce } from "../embeddings/legacyCleanup";
 import { readVectorFile, textHash, vectorFilePaths } from "../../scripts/lib/vectorFile.mjs";
-import { spaceDocumentText } from "../../scripts/lib/spaceVectors.mjs";
+import { compatibleVectorFile, spaceDocumentText } from "../../scripts/lib/spaceVectors.mjs";
 
 export interface CorpusMeta {
   builtAt?: string;
@@ -23,6 +24,8 @@ export interface CorpusInfo {
   space: EmbeddingSpace;
   /** How many records have a vector in that space (the rest are reachable only by keyword search). */
   withVectors: number;
+  /** Set when the store had to pass over the data:refresh copy, and why (shown on Settings' Search line). */
+  note?: string;
 }
 
 function readJson<T>(path: string, fallback: T): T {
@@ -76,6 +79,12 @@ export function attachSpaceVectors(
   return { opportunities: out, withVectors };
 }
 
+/** Length of the first inline vector, or null when no record has one. */
+function inlineDims(opportunities: Opportunity[]): number | null {
+  const v = opportunities.find((o) => Array.isArray(o.embedding) && o.embedding.length > 0)?.embedding;
+  return v ? v.length : null;
+}
+
 interface CorpusCache extends CorpusInfo {
   key: string;
 }
@@ -125,17 +134,33 @@ export class CorpusStore {
     }
 
     let source: CorpusSource = hostedSource;
+    let note: string | undefined;
     let opportunities = tryReadOpportunities(hosted.oppsPath);
     if (opportunities == null && source === "local") {
       source = "committed";
       opportunities = tryReadOpportunities(committed.oppsPath);
+    }
+    // An inline space with a fixed size (OpenAI: 512) can't search a data:refresh copy whose
+    // inline vectors are another size (e.g. 768-dim nomic vectors written by an older
+    // `setup:local` re-embed): serve the shipped snapshot instead of failing every search.
+    if (source === "local" && space.vectors.kind === "inline" && space.dims != null) {
+      const localDims = inlineDims(opportunities ?? []);
+      if (localDims != null && localDims !== space.dims) {
+        source = "committed";
+        opportunities = tryReadOpportunities(committed.oppsPath);
+        note =
+          `Your refreshed grant list was embedded with another model (${localDims}-dimension vectors), so search is using the shipped list. ` +
+          "Run Refresh cached grants to rebuild it for the current search.";
+      }
     }
     opportunities = dropPastAwards(opportunities ?? []);
 
     let withVectors: number;
     if (space.vectors.kind === "file") {
       const name = space.vectors.name;
-      const sources = source === "local" ? [readVectorFile(local.vectorsDir, name), readVectorFile(committed.vectorsDir, name)] : [readVectorFile(committed.vectorsDir, name)];
+      // A refresh's own vectors win; the committed ones cover every unchanged record. Either
+      // file is used only if it was made by this space's model (and, when pinned, revision).
+      const sources = [readVectorFile(local.vectorsDir, name), readVectorFile(committed.vectorsDir, name)].filter((f) => compatibleVectorFile(f, space));
       ({ opportunities, withVectors } = attachSpaceVectors(space, opportunities, sources.map((s) => s?.vectors as VectorMap | undefined)));
     } else {
       withVectors = opportunities.filter((o) => Array.isArray(o.embedding) && o.embedding.length > 0).length;
@@ -143,7 +168,7 @@ export class CorpusStore {
 
     const { metaPath } = this.paths(source);
     const meta: CorpusMeta = { ...readJson<CorpusMeta>(metaPath, {}), count: opportunities.length };
-    const info: CorpusInfo = { opportunities, meta, source, space, withVectors };
+    const info: CorpusInfo = { opportunities, meta, source, space, withVectors, ...(note ? { note } : {}) };
     this.cache = { ...info, key };
     return info;
   }
@@ -156,6 +181,7 @@ export class CorpusStore {
 const defaultStore = new CorpusStore(process.cwd());
 
 export function getCorpusInfo(): CorpusInfo {
+  removeLegacyLocalEmbeddingsOnce();
   return defaultStore.load();
 }
 
