@@ -63,19 +63,22 @@ export async function getSetupState(installDir: string, settingsPath: string): P
     // install too, which is exactly what made startGranted's `background`
     // wrongly route into the win32 tray path on macOS (see ipc.ts).
     // Each platform's own background runner: granted-tray.ps1 on Windows,
-    // granted-tray.sh (LaunchAgent + Swift menu-bar helper) on macOS.
-    // Shortcuts and own-window stay Windows-only for now regardless of
-    // whether the files happen to be on disk.
+    // granted-tray.sh (LaunchAgent + Swift menu-bar helper) on macOS; and its
+    // own window: open-granted.ps1 on Windows, open-granted.sh (Chrome/Edge
+    // --app=, else a browser tab) on macOS. Shortcuts stay Windows-only for
+    // now regardless of whether the files happen to be on disk.
     trayAvailable:
       (process.platform === "win32" && existsSync(windowsScriptPath(scaffoldDir, "granted-tray.ps1"))) ||
       (process.platform === "darwin" && existsSync(macScriptPath(scaffoldDir, "granted-tray.sh"))),
     shortcutsAvailable: process.platform === "win32" && existsSync(windowsScriptPath(scaffoldDir, "shortcuts.ps1")),
-    appWindowAvailable: process.platform === "win32" && existsSync(windowsScriptPath(scaffoldDir, "open-granted.ps1")),
+    appWindowAvailable:
+      (process.platform === "win32" && existsSync(windowsScriptPath(scaffoldDir, "open-granted.ps1"))) ||
+      (process.platform === "darwin" && existsSync(macScriptPath(scaffoldDir, "open-granted.sh"))),
     openIn: parseOpenInSetting(await readTextOrNull(settingsPath)),
   };
 }
 
-/** Saves the "open in" preference to the settings file the tray and open-granted.ps1 read, keeping its other settings. */
+/** Saves the "open in" preference to the settings file the trays and both open-granted scripts read, keeping its other settings. */
 export async function saveOpenIn(settingsPath: string, openIn: OpenIn): Promise<ActionResult> {
   try {
     await mkdir(dirname(settingsPath), { recursive: true });
@@ -92,8 +95,8 @@ export function windowsScriptPath(scaffoldDir: string, name: "granted-tray.ps1" 
   return join(scaffoldDir, "scripts", "windows", name);
 }
 
-/** scaffold/scripts/macos/<name> — macOS's background runner (the LaunchAgent + menu-bar helper). */
-export function macScriptPath(scaffoldDir: string, name: "granted-tray.sh"): string {
+/** scaffold/scripts/macos/<name> — macOS's background runner (the LaunchAgent + menu-bar helper) and its own-window opener. */
+export function macScriptPath(scaffoldDir: string, name: "granted-tray.sh" | "open-granted.sh"): string {
   return join(scaffoldDir, "scripts", "macos", name);
 }
 

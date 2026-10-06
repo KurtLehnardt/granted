@@ -29,7 +29,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { promisify } from "node:util";
-import { macStatusLockPath, macTrayLaunchCommand } from "../ipcPure";
+import { macStatusLockPath, macTrayLaunchCommand, parseOpenInSetting } from "../ipcPure";
 import { probeGranted, readStatusFile, readTaskStatus } from "../openGranted";
 
 const execFileAsync = promisify(execFile);
@@ -37,6 +37,7 @@ const execFileAsync = promisify(execFile);
 // `npm test` runs from installer/; the scripts live in scaffold/.
 const MACOS_SCRIPTS = resolve(process.cwd(), "..", "scaffold", "scripts", "macos");
 const TRAY_SCRIPT = join(MACOS_SCRIPTS, "granted-tray.sh");
+const OPEN_SCRIPT = join(MACOS_SCRIPTS, "open-granted.sh");
 const MENUBAR_PKG = join(MACOS_SCRIPTS, "menubar");
 const HELPER_SOURCE = join(MENUBAR_PKG, "Sources", "GrantedMenuBar", "main.swift");
 const GRANTED_HTML = "<title>Granted — federal funding intelligence for everyone</title>";
@@ -184,6 +185,9 @@ async function setUpFakeInstall(options: FakeInstallOptions = {}): Promise<FakeI
   mkdirSync(join(root, "LaunchAgents"), { recursive: true });
   const trayScript = join(scaffold, "scripts", "macos", "granted-tray.sh");
   await writeFile(trayScript, readFileSync(TRAY_SCRIPT, "utf8"), "utf8");
+  // open-granted.sh beside it, as a real install has: the tray's `open` and
+  // the menu's "Open in its own window" both go through it.
+  await writeFile(join(scaffold, "scripts", "macos", "open-granted.sh"), readFileSync(OPEN_SCRIPT, "utf8"), "utf8");
   await writeFile(
     join(scaffold, "package.json"),
     JSON.stringify({ name: "fake-granted", private: true, scripts: { dev: "node fake-dev.js" } }),
@@ -226,6 +230,11 @@ async function setUpFakeInstall(options: FakeInstallOptions = {}): Promise<FakeI
     // No menu-bar icon unless a test asks for one by running the helper
     // itself: a test must not leave an icon on anyone's menu bar.
     GRANTED_MENUBAR_HELPER: options.helper ?? "none",
+    // And never a real app-mode browser window: `open` goes through
+    // open-granted.sh, which would otherwise find the real Chrome or Edge on
+    // the machine running the tests and open a real window at the fake
+    // server. Anything a test does open goes to GRANTED_OPEN_CMD's stand-in.
+    GRANTED_APP_BROWSER: "none",
   };
   const agentLoaded = (): boolean => {
     try {
@@ -305,6 +314,17 @@ test(
     for (const title of ["Open Granted", "Open in its own window", "Show log", "Restart", "Quit Granted"]) {
       assert.ok(source.includes(`title: "${title}"`), `the menu must have "${title}", like the Windows tray`);
     }
+    // Where Granted opens is decided in ONE place — open-granted.sh, reached
+    // through granted-tray.sh — so the menu, the installer's checkbox and the
+    // ~/Applications launcher can never disagree. The helper only ever reads
+    // the preference for its tick (see openInWindow) and asks the script to
+    // change it; it must never find a browser or build an --app= line itself.
+    assert.match(source, /tray\(\["open"\]/, "Open Granted goes through granted-tray.sh");
+    assert.match(source, /tray\(\["set-open-in", "--mode", mode\]/, "and so does saving the preference");
+    // A string literal starting an --app= argument, not the words in a
+    // comment: the helper must never build an app-mode command line itself.
+    assert.ok(!source.includes('"--app='), "the helper must not build an app-mode command line of its own");
+    assert.match(source, /\(parsed\["openIn"\] as\? String\) != "browser"/, "the tick is the shared openIn setting, read by the one rule");
     assert.match(source, /func describe\([\s\S]*?setAccessibilityLabel[\s\S]*?setAccessibilityHelp/, "a real VoiceOver label and help");
     // Six describe()d items: the five above plus the status line.
     assert.ok((source.match(/^\s*describe\(/gm) ?? []).length >= 6, "every menu item is described, not just some");
@@ -481,10 +501,11 @@ describe(
         assert.ok(icon, "the self test reports what the status item ended up showing");
         assert.ok(icon[1] === "yes" || icon[2].length > 0, "an image, or a title — never neither");
         assert.ok(Number(icon[3]) > 0, "and a real width");
-        const items = [...stdout.matchAll(/item "(.+?)" enabled=(true|false) a11y="(.*)"/g)].map((m) => ({
+        const items = [...stdout.matchAll(/item "(.+?)" enabled=(true|false) state=(on|off) a11y="(.*)"/g)].map((m) => ({
           title: m[1],
           enabled: m[2] === "true",
-          a11y: m[3],
+          ticked: m[3] === "on",
+          a11y: m[4],
         }));
         assert.deepEqual(
           items.map((i) => i.title),
@@ -492,12 +513,49 @@ describe(
           "the Windows tray's menu, item for item",
         );
         for (const item of items) assert.ok(item.a11y.length > 0, `"${item.title}" must have a VoiceOver label`);
-        // The status line is a label, not a command; "its own window" is
-        // deliberately shown-but-disabled until that feature lands on macOS.
+        // The status line is a label, not a command. Everything else is
+        // clickable — "Open in its own window" included, since it is a real
+        // tick now rather than a placeholder.
         assert.deepEqual(
           items.filter((i) => !i.enabled).map((i) => i.title),
-          ["Starting…", "Open in its own window"],
+          ["Starting…"],
         );
+        // And it is the only ticked item, on by default (no settings file
+        // here, so the default applies — the same default every other reader
+        // has).
+        assert.deepEqual(
+          items.filter((i) => i.ticked).map((i) => i.title),
+          ["Open in its own window"],
+        );
+      },
+    );
+
+    test(
+      "the 'Open in its own window' tick follows the shared settings file, in both directions",
+      { skip: !inAquaSession() && "needs a GUI (Aqua) session for NSStatusBar" },
+      async () => {
+        const settings = join(root, "settings.json");
+        const selfTest = async (mode?: string): Promise<string> => {
+          if (mode === undefined) rmSync(settings, { force: true });
+          else writeFileSync(settings, JSON.stringify({ openIn: mode, autoUpdate: true }), "utf8");
+          const { stdout } = await execFileAsync(helperBinary(), [], {
+            env: {
+              ...process.env,
+              GRANTED_MENUBAR_SELF_TEST: "1",
+              GRANTED_PORT: String(PORT),
+              GRANTED_TRAY_SCRIPT: TRAY_SCRIPT,
+              GRANTED_SETTINGS_PATH: settings,
+            },
+            timeout: 60_000,
+          });
+          return /item "Open in its own window" enabled=true state=(on|off)/.exec(stdout)?.[1] ?? "missing";
+        };
+        assert.equal(await selfTest(undefined), "on", "no settings file at all: its own window, the default");
+        assert.equal(await selfTest("browser"), "off");
+        assert.equal(await selfTest("window"), "on");
+        // The same rule every other reader applies: only the exact string
+        // "browser" means a browser tab (ipcPure.ts's parseOpenInSetting).
+        assert.equal(await selfTest("Browser"), "on");
       },
     );
 
@@ -543,8 +601,10 @@ describe(
   },
   () => {
     let fake: FakeInstall;
-    /** What the menu asked the system to open (the GRANTED_OPEN_CMD stand-in's log). */
+    /** What the menu asked the system to open in a browser TAB (the GRANTED_OPEN_CMD stand-in's log). */
     let openedLog: string;
+    /** What it asked an app-mode browser to open in its OWN WINDOW (the GRANTED_APP_BROWSER stand-in's log). */
+    let appWindowLog: string;
     let helperEnv: Record<string, string>;
 
     /**
@@ -564,15 +624,24 @@ describe(
       return stdout;
     };
 
-    const opened = (): string[] =>
-      existsSync(openedLog) ? readFileSync(openedLog, "utf8").split("\n").map((l) => l.trim()).filter(Boolean) : [];
+    const lines = (path: string): string[] =>
+      existsSync(path) ? readFileSync(path, "utf8").split("\n").map((l) => l.trim()).filter(Boolean) : [];
+    const opened = (): string[] => lines(openedLog);
+    const appWindows = (): string[] => lines(appWindowLog);
 
     before(async () => {
       await execFileAsync("swift", ["build", "-c", "release", "--package-path", MENUBAR_PKG], { timeout: 10 * 60_000 });
       fake = await setUpFakeInstall();
       openedLog = join(fake.root, "opened.log");
+      appWindowLog = join(fake.root, "app-window.log");
       const openStandIn = join(fake.root, "fake-open.sh");
       await writeFile(openStandIn, `#!/bin/sh\nprintf '%s\\n' "$@" >> ${JSON.stringify(openedLog)}\n`, { mode: 0o755 });
+      // A stand-in for Chrome's app mode, so "its own window" and "a browser
+      // tab" are told apart by which log the URL lands in — and so no real
+      // Chrome window is ever opened by a test (this replaces
+      // setUpFakeInstall's GRANTED_APP_BROWSER=none for this block only).
+      const appBrowserStandIn = join(fake.root, "fake-app-browser.sh");
+      await writeFile(appBrowserStandIn, `#!/bin/sh\nprintf '%s\\n' "$@" >> ${JSON.stringify(appWindowLog)}\n`, { mode: 0o755 });
       helperEnv = {
         ...fake.env,
         GRANTED_PORT: String(PORT),
@@ -581,6 +650,7 @@ describe(
         GRANTED_HELPER_PID_FILE: join(fake.root, "menubar.pid"),
         // Never really open a browser or a log viewer from a test.
         GRANTED_OPEN_CMD: openStandIn,
+        GRANTED_APP_BROWSER: appBrowserStandIn,
       };
       // A real, running Granted for the menu to act on.
       await execFileAsync("/bin/bash", [fake.trayScript, "start", "--port", String(PORT)], {
@@ -594,9 +664,30 @@ describe(
       await fake.cleanup();
     });
 
-    test("Open Granted opens Granted's URL", async () => {
+    test("Open Granted opens Granted's URL — in its own window, which is the default", async () => {
       await click("Open Granted");
-      assert.deepEqual(opened(), [`http://localhost:${PORT}`]);
+      assert.deepEqual(await until(async () => appWindows(), (l) => l.length > 0, 20_000), [`--app=http://localhost:${PORT}`]);
+      assert.deepEqual(opened(), [], "and no browser tab on top of it");
+    });
+
+    test("Open in its own window saves where Granted opens, and the next Open Granted follows it", async () => {
+      const settings = helperEnv["GRANTED_SETTINGS_PATH"];
+      // Each click is a fresh helper, which reads the preference as it builds
+      // its menu — so this really is "untick it, then tick it again".
+      await click("Open in its own window");
+      assert.equal(parseOpenInSetting(readFileSync(settings, "utf8")), "browser", "the installer's own parser reads what the menu saved");
+      await click("Open Granted");
+      assert.deepEqual(opened(), [`http://localhost:${PORT}`], "a browser tab now");
+      assert.equal(appWindows().length, 1, "and still only the one app window, from the test before");
+
+      await click("Open in its own window");
+      assert.equal(parseOpenInSetting(readFileSync(settings, "utf8")), "window");
+      await click("Open Granted");
+      assert.deepEqual(await until(async () => appWindows(), (l) => l.length > 1, 20_000), [
+        `--app=http://localhost:${PORT}`,
+        `--app=http://localhost:${PORT}`,
+      ]);
+      assert.equal(opened().length, 1, "and no second tab");
     });
 
     test("Show log opens the server log for this port", async () => {

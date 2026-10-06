@@ -120,18 +120,30 @@ describe("getSetupState / saveApiKeys against a real install folder", () => {
     assert.equal(state.appWindowAvailable, expected);
   });
 
-  test("an install that has scripts/macos/granted-tray.sh can run in the background on darwin only (same rule, each platform its own runner)", async () => {
+  test("an install that has scripts/macos/granted-tray.sh and open-granted.sh can run in the background and in its own window on darwin only (same rule, each platform its own scripts)", async () => {
     await mkdir(join(install.scaffoldDir, "scripts", "macos"), { recursive: true });
     await writeFile(join(install.scaffoldDir, "scripts", "macos", "granted-tray.sh"), "");
+    await writeFile(join(install.scaffoldDir, "scripts", "macos", "open-granted.sh"), "");
     const state = await setupState(install.installDir);
-    // On Windows the .ps1 written by the test above is still there, so tray
-    // stays true there; what this pins down is that the .sh alone makes it
-    // true on macOS, and on neither platform does the other's file count.
-    assert.equal(state.trayAvailable, process.platform === "win32" || process.platform === "darwin");
-    // Shortcuts and its own window remain Windows-only: scripts/macos has no
-    // counterpart for either yet.
+    // On Windows the .ps1 files written by the test above are still there, so
+    // both stay true there; what this pins down is that the .sh files alone
+    // make them true on macOS, and on neither platform does the other's file
+    // count.
+    const eitherPlatform = process.platform === "win32" || process.platform === "darwin";
+    assert.equal(state.trayAvailable, eitherPlatform);
+    assert.equal(state.appWindowAvailable, eitherPlatform);
+    // Shortcuts remain Windows-only: scripts/macos has no counterpart yet.
     assert.equal(state.shortcutsAvailable, process.platform === "win32");
-    assert.equal(state.appWindowAvailable, process.platform === "win32");
+  });
+
+  test("on macOS, its own window needs open-granted.sh specifically — the tray script alone isn't it", async () => {
+    const dir = join(install.root, "mac-tray-only", "scaffold");
+    await mkdir(join(dir, "scripts", "macos"), { recursive: true });
+    await writeFile(join(dir, "package.json"), "{}");
+    await writeFile(join(dir, "scripts", "macos", "granted-tray.sh"), "");
+    const state = await getSetupState(join(install.root, "mac-tray-only"), SETTINGS);
+    assert.equal(state.trayAvailable, process.platform === "darwin");
+    assert.equal(state.appWindowAvailable, false);
   });
 
   test("saveOpenIn creates the settings file, round-trips through getSetupState, and keeps other settings", async () => {
