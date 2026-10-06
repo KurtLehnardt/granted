@@ -192,10 +192,19 @@ const RECENT_LAUNCH_MS = 60_000;
 // soon as `spawn` resolved (tens of ms), not when the install finished.
 let installInFlight = false;
 
+// Platform-worded (win32's PowerShell/UAC/taskbar text makes no sense on
+// macOS's Terminal, and the closed-window one especially is not a rare
+// edge case there — a mac user closing Terminal mid-install is completely
+// ordinary). Same ternary-at-the-point-of-use pattern as runLocalSetup/
+// startGranted below.
 const INSTALL_WINDOW_CLOSED_MESSAGE =
-  "The installer's PowerShell window was closed before it finished. Click the button below to start it again.";
+  process.platform === "win32"
+    ? "The installer's PowerShell window was closed before it finished. Click the button below to start it again."
+    : "The installer's Terminal window was closed before it finished. Click the button below to start it again.";
 const INSTALL_STILL_WAITING_MESSAGE =
-  "The installer is still running in its PowerShell window. If it's waiting for you — a Windows permission (UAC) prompt, which may be behind other windows or flashing in the taskbar — answer it. If it's stuck, close that window to cancel.";
+  process.platform === "win32"
+    ? "The installer is still running in its PowerShell window. If it's waiting for you — a Windows permission (UAC) prompt, which may be behind other windows or flashing in the taskbar — answer it. If it's stuck, close that window to cancel."
+    : "The installer is still running in its Terminal window. If it's waiting for you — a permission prompt, which may be behind other windows — answer it. If it's stuck, close that window to cancel.";
 
 /** Every console window this app launches that reports through a status file. */
 type WindowTask = "install" | "local-setup" | "start-app";
@@ -261,8 +270,13 @@ function pollInstallStatus(sender: WebContents, statusPath: string): void {
       startedTimeoutMs: STATUS_STARTED_TIMEOUT_MS,
       overallTimeoutMs: STATUS_OVERALL_TIMEOUT_MS,
       notStartedMessage:
-        "Couldn't confirm the installer actually started — a security policy on this machine may have blocked it. Paste the command from your clipboard into PowerShell yourself to see the real error.",
-      timedOutMessage: "The installer is taking much longer than expected — check the PowerShell window directly.",
+        process.platform === "win32"
+          ? "Couldn't confirm the installer actually started — a security policy on this machine may have blocked it. Paste the command from your clipboard into PowerShell yourself to see the real error."
+          : "Couldn't confirm the installer actually started — a security policy on this machine may have blocked it. Paste the command from your clipboard into Terminal yourself to see the real error.",
+      timedOutMessage:
+        process.platform === "win32"
+          ? "The installer is taking much longer than expected — check the PowerShell window directly."
+          : "The installer is taking much longer than expected — check the Terminal window directly.",
       closedMessage: INSTALL_WINDOW_CLOSED_MESSAGE,
       waitWhileAlive: true,
       onStillWaiting: () => send({ state: "running", message: INSTALL_STILL_WAITING_MESSAGE }),
@@ -691,24 +705,38 @@ async function launchMacScaffoldTask(opts: {
     removeLock();
     throw err;
   }
-  child.unref();
-  rememberLaunch(opts.task, statusPath);
   const withPid = (status: Omit<StatusFile, "pid">): StatusFile => (child.pid !== undefined ? { ...status, pid: child.pid } : status);
-  await writeStatus(withPid({ state: "running", message: null }));
-  child.once("exit", (code) => {
-    removeLock();
-    void writeStatus(
+  // Registered immediately, before any `await` below: spawn()'s own
+  // failure (ENOENT, if `opts.command` isn't on PATH — a real risk here,
+  // see the PATH-snapshot comment above) reports via an 'error' event fired
+  // from process.nextTick, which drains BEFORE this function would resume
+  // after an `await` — registering after one, as an earlier version of
+  // this function did, missed it entirely: zero listeners were attached
+  // yet, so the error threw uncaught in the main process. Same hazard,
+  // same fix as launchConsoleWindow's own comment above.
+  child.once("exit", async (code) => {
+    // The status write first, lock removal after: openGranted.ts's
+    // isStatusWindowAlive treats a gone lock directory as "this side
+    // already wrote its final status" — removing it first would let a
+    // poll tick land in between and read a stale "running" status with no
+    // lock, wrongly reporting a run that's actually about to succeed as
+    // having "ended unexpectedly before it finished."
+    await writeStatus(
       withPid(
         code === 0
           ? { state: "done", message: null }
           : { state: "error", message: `${opts.failureMessage} See ${logPath} for details.` },
       ),
     );
-  });
-  child.once("error", (err) => {
     removeLock();
-    void writeStatus(withPid({ state: "error", message: `${opts.failureMessage} (${err.message})` }));
   });
+  child.once("error", async (err) => {
+    await writeStatus(withPid({ state: "error", message: `${opts.failureMessage} (${err.message})` }));
+    removeLock();
+  });
+  child.unref();
+  rememberLaunch(opts.task, statusPath);
+  await writeStatus(withPid({ state: "running", message: null }));
   return statusPath;
 }
 
@@ -739,7 +767,14 @@ async function openInBrowser(url: string): Promise<boolean> {
  */
 async function openGrantedPage(url: string): Promise<OpenIn | null> {
   const script = windowsScriptPath(scaffoldDir(), "open-granted.ps1");
-  if (existsSync(script)) {
+  // win32-gated, not just existsSync: open-granted.ps1 is an ordinary file
+  // tracked in the repo, present on a real clone on every platform, not
+  // only Windows's — without this guard this would spawn powershell.exe on
+  // macOS too (nonexistent there; ENOENT is caught below so this doesn't
+  // crash, but it's a wasted spawn and a spurious logged error on every
+  // "Open Granted" click, and inconsistent with the guard this PR already
+  // added at every other scripts/windows call site).
+  if (process.platform === "win32" && existsSync(script)) {
     try {
       const { stdout } = await execFileAsync(
         "powershell.exe",
@@ -997,8 +1032,11 @@ async function launchTray(): Promise<string> {
  * separate work from this task's status-reporting parity. Not reusing
  * NOT_WINDOWS's text here: that now says macOS is supported too, which
  * would be wrong for this specific feature. In practice this path is dead
- * on darwin anyway — getSetupState's shortcutsAvailable is false there (no
- * scripts/windows), so the UI never shows the checkboxes that would call this.
+ * on darwin anyway — getSetupState's shortcutsAvailable is explicitly
+ * gated on process.platform === "win32" there (NOT because the install
+ * lacks scripts/windows — shortcuts.ps1 is an ordinary file tracked in the
+ * repo and present on a real clone on every platform), so the UI never
+ * shows the checkboxes that would call this.
  */
 async function createShortcuts(choice: ShortcutChoice): Promise<ShortcutsResult> {
   if (process.platform !== "win32") {

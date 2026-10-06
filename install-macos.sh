@@ -295,6 +295,42 @@ version_gt() {
   [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -1)" = "$1" ]
 }
 
+# PIDs of node/npm processes whose command line mentions $1 (an absolute
+# path), excluding our own pid. REGRESSION (review): `pgrep -f` alone
+# matches ANY process whose args happen to contain the path at all -- an
+# editor with the folder open, a `tail -f`, `rg` -- and kill -9 on an
+# editor can lose unsaved work. Narrowed the same way install-windows.ps1's
+# Stop-GrantedIn is scoped: filtered to Name='powershell.exe'/
+# Name='node.exe' AND the install path as a specific argument, not just
+# anywhere in the command line -- here, the process name is checked on its
+# own (via ps's columns) rather than folded into one pgrep pattern against
+# the whole line.
+#
+# Checked two ways, not just `comm`: macOS's `ps` truncates the `comm`
+# column to a short fixed width once it's combined with other `-o` fields
+# (verified live -- a Homebrew node invoked via its real, long Cellar path
+# showed up there as "/opt/homebrew/Ce", not "node"), which would silently
+# never match a real node/npm process invoked that way. argv[0]'s basename,
+# read from the (untruncated) args field instead, is the fallback.
+matching_pids() {
+  local full="$1"
+  ps -axo pid=,comm=,args= | awk -v full="$full" -v me="$$" '
+    {
+      pid = $1; comm = $2;
+      args = "";
+      for (i = 3; i <= NF; i++) args = args (i > 3 ? " " : "") $i;
+      if (pid == me) next;
+      split(args, argv0_parts, " ");
+      exe = argv0_parts[1];
+      n = split(exe, path_parts, "/");
+      exe_base = path_parts[n];
+      if (comm != "node" && comm != "npm" && exe_base != "node" && exe_base != "npm") next;
+      if (index(args, full) == 0) next;
+      print pid;
+    }
+  '
+}
+
 # Stops a Granted this script is about to overwrite, so npm ci never runs
 # under a server that holds its own files open. Lower-stakes than
 # install-windows.ps1's Stop-GrantedIn (POSIX lets you replace a file a
@@ -307,16 +343,16 @@ version_gt() {
 stop_granted_in() {
   local dir="$1" full pids deadline
   full="$(cd "$dir" 2>/dev/null && pwd -P)" || return 0
-  pids="$(pgrep -f "$full" 2>/dev/null | grep -v "^$$\$" || true)"
+  pids="$(matching_pids "$full")"
   [ -z "$pids" ] && return 0
   for pid in $pids; do kill "$pid" 2>/dev/null || true; done
   deadline=$(($(date +%s) + 15))
   while [ "$(date +%s)" -lt "$deadline" ]; do
-    pids="$(pgrep -f "$full" 2>/dev/null | grep -v "^$$\$" || true)"
+    pids="$(matching_pids "$full")"
     [ -z "$pids" ] && break
     sleep 1
   done
-  pids="$(pgrep -f "$full" 2>/dev/null | grep -v "^$$\$" || true)"
+  pids="$(matching_pids "$full")"
   for pid in $pids; do kill -9 "$pid" 2>/dev/null || true; done
   ok "stopped the Granted that was running (it starts again when you open it)"
 }
@@ -348,7 +384,22 @@ if [ -f "$TARGET_DIR/scaffold/package.json" ]; then
       if git -C "$TARGET_DIR" merge-base --is-ancestor "refs/tags/$GRANTED_REF" HEAD; then
         ok "already includes Granted $GRANTED_REF -- nothing to update"
       else
-        HAVE_RAW="$(node -p "require('./${TARGET_DIR}/scaffold/package.json').version" 2>/dev/null)" || HAVE_RAW=""
+        # REGRESSION (review): the installed version used to be read via
+        # `node -p "require('./${TARGET_DIR}/...)...` -- string-interpolated
+        # straight into the JS source. That breaks (throws, caught, and
+        # $HAVE degrades to empty) whenever GRANTED_INSTALL_DIR is an
+        # absolute path (require() only treats a BARE relative path like
+        # "granted/scaffold/..." as a file path when it's given a leading
+        # "./" -- an absolute GRANTED_INSTALL_DIR has neither) or contains a
+        # quote character -- and an empty $HAVE silently skips the very
+        # no-backwards-move guard two lines below promises never happens.
+        # Resolved to an absolute path first, then passed through argv
+        # (never spliced into the JS source), so neither can break it.
+        ABS_TARGET_DIR="$(cd "$TARGET_DIR" 2>/dev/null && pwd -P)" || ABS_TARGET_DIR=""
+        HAVE_RAW=""
+        if [ -n "$ABS_TARGET_DIR" ]; then
+          HAVE_RAW="$(node -e 'console.log(require(process.argv[1]).version)' "$ABS_TARGET_DIR/scaffold/package.json" 2>/dev/null)" || HAVE_RAW=""
+        fi
         HAVE="$(version_number "$HAVE_RAW")"
         WANT="$(version_number "$GRANTED_REF")"
         if [ -n "$HAVE" ] && [ -n "$WANT" ] && version_gt "$HAVE" "$WANT" && [ "${GRANTED_ALLOW_DOWNGRADE:-}" != "1" ]; then

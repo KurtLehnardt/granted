@@ -196,6 +196,39 @@ describe(
       assert.equal(versionIn(home), "0.2.0");
     });
 
+    test("REGRESSION (review), reproduced live: an absolute GRANTED_INSTALL_DIR (here with a space and an apostrophe, the exact characters flagged) doesn't break the no-backwards-move version check", async () => {
+      // The installed version used to be read via
+      // `node -p "require('./${TARGET_DIR}/scaffold/package.json').version"`
+      // -- string-interpolated straight into the JS source. require() only
+      // treats a leading "./" as a relative file path; splicing an ABSOLUTE
+      // GRANTED_INSTALL_DIR in after one does not produce that, so the call
+      // threw, was caught, and $HAVE silently came back empty -- at which
+      // point the no-backwards-move guard a few lines later never fires at
+      // all, letting an older release overwrite newer code with zero
+      // warning: exactly the one outcome that guard exists to prevent.
+      const source = makeSource();
+      const parentDir = join(root, "it's an abs install dir");
+      mkdirSync(parentDir, { recursive: true });
+      const absInstallDir = join(parentDir, "granted");
+      const versionAt = (): string =>
+        (JSON.parse(readFileSync(join(absInstallDir, "scaffold", "package.json"), "utf8")) as { version: string }).version;
+      const home = freshHome();
+      await runInstall(home, source, "v0.2.0", { GRANTED_INSTALL_DIR: absInstallDir });
+      assert.equal(versionAt(), "0.2.0");
+
+      // A genuinely older release, not in v0.2.0's history (same shape as
+      // the "never backwards" test above): must be refused by version, not
+      // silently applied because $HAVE came back unparseable.
+      git(source, "checkout", "-q", "-b", "maint-0.1", "v0.1.0");
+      commitVersion(source, "0.1.5", "v0.1.5", "patch.txt");
+      git(source, "checkout", "-q", "main");
+      const r = await runInstall(home, source, "v0.1.5", { GRANTED_INSTALL_DIR: absInstallDir });
+      assert.equal(r.state, "done", r.output);
+      assert.doesNotMatch(r.output, /Failed at line/, "the ERR trap must not have fired");
+      assert.match(r.output, /already has a newer Granted \(0\.2\.0\)/, "the version check correctly saw 0.2.0, not an empty/unparseable $HAVE");
+      assert.equal(versionAt(), "0.2.0", "not silently downgraded");
+    });
+
     test("a folder the installer didn't make (someone's own checkout) is never switched to another release", async () => {
       const source = makeSource();
       const home = freshHome();
