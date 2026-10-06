@@ -587,6 +587,17 @@ final class GrantedMenuBar: NSObject, NSApplicationDelegate, NSMenuDelegate {
   /// isn't stored. (The Windows tray shows a balloon tip saying so; a menu bar
   /// extra has nowhere to put one without a bundle and notification
   /// permission, so this says it in the helper's log instead.)
+  ///
+  /// Written to stderr, not with `print`, so that log line actually lands.
+  /// granted-tray.sh's start_helper runs this process as
+  /// `nohup "$binary" >> "$LOG_DIR/menubar.log" 2>&1`: stdout is a regular
+  /// file, which libc fully buffers (_IOFBF), and this helper then runs for
+  /// hours without exiting, so a `print` here sits in that buffer indefinitely
+  /// and is lost outright if the helper is ever killed rather than quit. stderr
+  /// is unbuffered and the `2>&1` already merges it into the very same
+  /// menubar.log, so this needs no change to how the helper is logged -- only
+  /// which stream this one message takes. (The self-test prints below stay on
+  /// stdout on purpose: that path exits immediately, which flushes.)
   @objc private func toggleOwnWindow() {
     guard let item = ownWindowItem else { return }
     let wanted = item.state != .on
@@ -595,7 +606,8 @@ final class GrantedMenuBar: NSObject, NSApplicationDelegate, NSMenuDelegate {
     inBackground(returning: { self.tray(["set-open-in", "--mode", mode], timeout: 20).status == 0 }) { saved in
       guard !saved else { return }
       item.state = wanted ? .off : .on
-      print("granted-menubar: couldn't save where Granted opens — it will keep opening the way it did")
+      FileHandle.standardError.write(
+        Data("granted-menubar: couldn't save where Granted opens — it will keep opening the way it did\n".utf8))
     }
   }
 

@@ -56,11 +56,27 @@ usage() {
   printf '       open-granted.sh --set-open-in window|browser | --get-open-in | --find-browser\n' >&2
 }
 
+# An option that takes a value must actually have been given one, and must say
+# so when it wasn't -- checked before the `shift 2` rather than left to it.
+# `shift 2` with only one argument left fails, and under `set -e` that ends the
+# script with exit 1 and no message whatsoever. Exit 1 is the one code this
+# script's contract reserves for "I opened nothing, fall back" (see the header,
+# granted-tray.sh's open_granted and ipc.ts's runOpenGrantedScript), so
+# `--url` with the URL left off would be silently treated as a failed open and
+# answered with a browser tab, instead of being reported as the typo it is.
+# Every other bad input here prints a message and exits 64; so does this.
+need_value() {
+  [ "$1" -ge 2 ] && return 0
+  printf 'open-granted.sh: %s needs a value\n' "$2" >&2
+  usage
+  exit 64
+}
+
 while [ $# -gt 0 ]; do
   case "$1" in
-    --url) URL="${2:-}"; shift 2 ;;
+    --url) need_value "$#" --url; URL="$2"; shift 2 ;;
     --no-browser-fallback) NO_BROWSER_FALLBACK=1; shift ;;
-    --set-open-in) SET_OPEN_IN="${2:-}"; shift 2 ;;
+    --set-open-in) need_value "$#" --set-open-in; SET_OPEN_IN="$2"; shift 2 ;;
     --get-open-in) GET_OPEN_IN=1; shift ;;
     --find-browser) FIND_BROWSER=1; shift ;;
     *) printf 'open-granted.sh: unknown option %s\n' "$1" >&2; usage; exit 64 ;;

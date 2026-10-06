@@ -77,13 +77,26 @@ NO_HELPER=0
 SERVER_ONLY=0
 MODE=""
 
+# An option that takes a value must actually have been given one, and must say
+# so when it wasn't -- checked before `$2` is read rather than left to it. With
+# `set -u` a bare `--mode` at the end of the line dies on `$2: unbound
+# variable`, which exits 1 with a raw shell diagnostic instead of this script's
+# own message and its own exit 64 for bad input. Exit 1 also means something
+# else entirely here: it is what a failed `stop` or `set-open-in` reports, and
+# what open-granted.sh reserves for "I opened nothing, fall back".
+need_value() {
+  [ "$1" -ge 2 ] && return 0
+  printf 'granted-tray.sh: %s needs a value\n' "$2" >&2
+  exit 64
+}
+
 COMMAND="${1:-}"
 if [ $# -gt 0 ]; then shift; fi
 while [ $# -gt 0 ]; do
   case "$1" in
-    --port) PORT="$2"; shift 2 ;;
-    --status-path) STATUS_PATH="$2"; shift 2 ;;
-    --mode) MODE="$2"; shift 2 ;;
+    --port) need_value "$#" --port; PORT="$2"; shift 2 ;;
+    --status-path) need_value "$#" --status-path; STATUS_PATH="$2"; shift 2 ;;
+    --mode) need_value "$#" --mode; MODE="$2"; shift 2 ;;
     --open-browser) OPEN_BROWSER=1; shift ;;
     --no-helper) NO_HELPER=1; shift ;;
     --server-only) SERVER_ONLY=1; shift ;;
