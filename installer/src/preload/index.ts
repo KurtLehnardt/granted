@@ -45,6 +45,7 @@ const api: GrantedInstallerApi = {
   createShortcuts: (choice: ShortcutChoice): Promise<ShortcutsResult> => ipcRenderer.invoke("granted:create-shortcuts", choice),
   setOpenIn: (openIn: OpenIn): Promise<ActionResult> => ipcRenderer.invoke("granted:set-open-in", openIn),
   quit: (): void => ipcRenderer.send("app:quit"),
+  reportProblem: (message: string, where: string): Promise<ActionResult> => ipcRenderer.invoke("app:report-problem", message, where),
 };
 
 contextBridge.exposeInMainWorld("api", api);

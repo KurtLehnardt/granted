@@ -4,6 +4,9 @@ import React, { useEffect, useState } from "react";
 import type { AppUpdateInfo } from "@/app/api/app/update/handler";
 import { waitForUpdate } from "@/components/useAppUpdate";
 import { isNewerRelease } from "@/lib/appUpdate/releases";
+import ReportProblemLink from "@/components/ReportProblemLink";
+import { reportClientError } from "@/lib/errorLog/client";
+import { isErrorId } from "@/lib/errorLog/errorId";
 
 /**
  * The bottom of Settings: this install's version, "Check for updates", and
@@ -19,7 +22,7 @@ type CheckState =
   | { id: "checking" }
   | { id: "starting" }
   | { id: "updating"; to: string }
-  | { id: "error"; message: string };
+  | { id: "error"; message: string; errorId?: string };
 
 export default function AppUpdateSection({ initialInfo }: { initialInfo?: AppUpdateInfo }) {
   const [info, setInfo] = useState<AppUpdateInfo | null>(initialInfo ?? null);
@@ -43,8 +46,8 @@ export default function AppUpdateSection({ initialInfo }: { initialInfo?: AppUpd
       setInfo(await res.json());
       setChecked(true);
       setState({ id: "idle" });
-    } catch {
-      setState({ id: "error", message: "Couldn't check for updates." });
+    } catch (err) {
+      setState({ id: "error", message: "Couldn't check for updates.", errorId: reportClientError("app-update", err) });
     }
   }
 
@@ -57,17 +60,17 @@ export default function AppUpdateSection({ initialInfo }: { initialInfo?: AppUpd
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "install" }),
       });
-      const body = (await res.json().catch(() => ({}))) as { started?: boolean; to?: string; startedAt?: string; error?: string };
+      const body = (await res.json().catch(() => ({}))) as { started?: boolean; to?: string; startedAt?: string; error?: string; errorId?: string };
       if (!body.started || !body.to) {
-        setState({ id: "error", message: body.error ?? "Granted is already up to date." });
+        setState({ id: "error", message: body.error ?? "Granted is already up to date.", errorId: isErrorId(body.errorId) ? body.errorId : undefined });
         return;
       }
       setState({ id: "updating", to: body.to });
       const outcome = await waitForUpdate(body.to, body.startedAt ?? null);
       if (outcome.ok) window.location.reload();
-      else setState({ id: "error", message: outcome.message });
-    } catch {
-      setState({ id: "error", message: "Couldn't start the update." });
+      else setState({ id: "error", message: outcome.message, errorId: reportClientError("app-update", outcome.message) });
+    } catch (err) {
+      setState({ id: "error", message: "Couldn't start the update.", errorId: reportClientError("app-update", err) });
     }
   }
 
@@ -113,6 +116,11 @@ export default function AppUpdateSection({ initialInfo }: { initialInfo?: AppUpd
       <p className={textClass} aria-live="polite" data-testid="app-update-note">
         {noteFor(info, checked, state)}
       </p>
+      {state.id === "error" && state.errorId && (
+        <p className="mt-1">
+          <ReportProblemLink errorId={state.errorId} area="app-update" message={state.message} />
+        </p>
+      )}
 
       {info?.canUpdate && (
         <label className="mt-3 flex items-center gap-2 font-body text-[13px] text-foreground">

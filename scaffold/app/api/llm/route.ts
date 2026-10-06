@@ -3,6 +3,7 @@ import { isLocalLlm } from "@/lib/llm/client";
 import { getOllamaStatus } from "@/lib/llm/ollamaStatus";
 import { resolveCloudConfig, resolveCloudApiKey, publicKeySource, isEnvCloudConfig } from "@/lib/llm/config";
 import { buildSearchStatus } from "@/lib/embeddings/searchStatus";
+import { withErrorLogging } from "@/lib/errorLog/withErrorLogging";
 
 // Next 14 would otherwise prerender this at build time, freezing the backend/model list.
 export const dynamic = "force-dynamic";
@@ -28,7 +29,7 @@ function buildCloudBlock(cfg: NonNullable<ReturnType<typeof resolveCloudConfig>>
   };
 }
 
-export async function GET() {
+async function getLlmStatus() {
   const cfg = resolveCloudConfig();
   const cloud = cfg ? buildCloudBlock(cfg) : undefined;
   // The "Search" line: which embeddings search uses and the built-in model's download state
@@ -60,3 +61,5 @@ export async function GET() {
     cloud,
   });
 }
+
+export const GET = withErrorLogging("llm-config", getLlmStatus);

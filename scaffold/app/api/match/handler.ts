@@ -8,13 +8,39 @@ import { isLocalLlm } from "@/lib/llm/client";
 import { withLocalModel } from "@/lib/llm/modelContext";
 import { prepareLocalSearch } from "@/lib/llm/localPreflight";
 import { ollamaHost } from "@/lib/llm/ollamaInfo";
-import { describeSearchError, shortProviderLabel } from "@/lib/llm/searchErrors";
+import { describeSearchError, LocalSetupError, shortProviderLabel } from "@/lib/llm/searchErrors";
 import { resolveCloudConfig } from "@/lib/llm/config";
 import { getCloudProvider } from "@/lib/llm/providers";
 import type { LlmInfo } from "@/lib/llm/types";
 import { dropExpiredMatches } from "@/lib/corpus/expiry";
 import { dropPastAwardMatches } from "@/lib/corpus/pastAwards";
 import { sanitizedProviderErrorFor4xx } from "@/lib/llm/errors";
+import { logError, messageOf } from "@/lib/errorLog/server";
+
+/**
+ * Whether a failed search's specific message (describeSearchError) is a Local
+ * setup step the user can take themselves -- Ollama not running, the model
+ * not installed, no chat model yet, the local server not answering -- rather
+ * than a problem worth logging and reporting. Every Local message it returns
+ * is one of those; a LocalSetupError (the pre-search check) is one wherever it
+ * comes from.
+ */
+export function isLocalSetupGuidance(err: unknown, local: boolean): boolean {
+  if (local) return true;
+  let cur: unknown = err;
+  for (let i = 0; cur != null && i < 6; i++) {
+    if (cur instanceof LocalSetupError) return true;
+    cur = (cur as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
+/** What goes in the error log: the message the user saw, then the underlying error (both sanitized by logError). */
+export function withShownMessage(err: unknown, shown: string | undefined): unknown {
+  if (!shown) return err;
+  const stack = err instanceof Error ? err.stack : undefined;
+  return { message: `${shown} (cause: ${messageOf(err)})`, stack };
+}
 
 /**
  * Boundary validation is OBSERVABILITY ONLY (arch review MEDIUM — the payload
@@ -246,7 +272,17 @@ export async function handleMatchRequest(
             : { local, provider: (deps.cloudProviderName ?? cloudProviderName)(), baseUrl: (deps.cloudBaseUrl ?? cloudBaseUrl)() },
         );
         const providerMessage = specific ?? sanitizedProviderErrorFor4xx(err);
-        send({ type: "error", error: providerMessage ?? "The search didn't complete. Please try again." });
+        // A Local setup the user can fix (Ollama not running, the model not installed, no chat
+        // model yet) is guidance, not a problem: the message says what to do, nothing is logged,
+        // and there's no report link. Anything else goes to the error log (sanitized), with the
+        // message the user saw, and its id to the page for "Report this problem".
+        if (specific && isLocalSetupGuidance(err, local)) {
+          // guidance: the page doesn't log it either, and shows no report link
+          send({ type: "error", error: specific, guidance: true });
+        } else {
+          const errorId = logError(providerMessage ? "llm-provider" : "search", withShownMessage(err, specific), { path: "/api/match" });
+          send({ type: "error", error: providerMessage ?? "The search didn't complete. Please try again.", errorId });
+        }
         controller.close();
       }
     },

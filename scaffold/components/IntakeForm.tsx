@@ -9,6 +9,8 @@ import { clearAllLocalData } from "@/lib/mockAuth";
 import { getMaxCandidates, getModel, LAST_SEARCH_MS_KEY } from "@/lib/searchSettings";
 import type { LlmInfo } from "@/lib/llm/types";
 import SearchProgress from "@/components/SearchProgress";
+import ReportProblemLink from "@/components/ReportProblemLink";
+import { errorWithId, reportClientError } from "@/lib/errorLog/client";
 import { useWelcomeGuideSampleHandler } from "@/components/WelcomeGuide";
 import PreSearchInterview from "@/components/PreSearchInterview";
 import ProfileQuestionnaire from "@/components/ProfileQuestionnaire";
@@ -87,6 +89,8 @@ export default function IntakeForm({
   const [loading, setLoading] = useState(false);
   const [formCollapsed, setFormCollapsed] = useState<boolean | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
+  // The error's correlation id (the server's, or one logged from here), for "Report this problem".
+  const [errorId, setErrorId] = useState<string | null>(null);
   // H1: the exact description the last search actually ran on, so the error
   // state can offer a real "Try again" that re-runs it (independent of later
   // edits to `text`, and correct for the sample-pick / interview-enriched paths).
@@ -210,13 +214,16 @@ export default function IntakeForm({
       if (!res.ok) {
         const ctype = res.headers.get("content-type") ?? "";
         let message = "The search didn't complete — please try again.";
+        let serverErrorId: unknown;
         if (ctype.includes("application/json")) {
           try {
             const j = await res.json();
             if (j?.error) message = j.error;
+            serverErrorId = j?.errorId;
           } catch { /* non-JSON body — keep the generic message */ }
         }
-        throw new Error(message);
+        // A 4xx is about the request (too short, too many searches): the message says what to do, nothing to report.
+        throw Object.assign(errorWithId(message, serverErrorId), { notAProblem: res.status >= 400 && res.status < 500 });
       }
       // Fallback for environments without a readable stream: parse as one JSON blob.
       if (!res.body) {
@@ -276,7 +283,8 @@ export default function IntakeForm({
             onSearchDuration?.(tookMs);
             onResult(msg.map);
           } else if (msg.type === "error") {
-            throw new Error(msg.error ?? "Matching failed.");
+            // guidance: a setup step the user can take (start Ollama, pick an installed model) -- not a problem to report.
+            throw Object.assign(errorWithId(msg.error ?? "Matching failed.", msg.errorId), { notAProblem: msg.guidance === true });
           }
         }
       }
@@ -287,6 +295,8 @@ export default function IntakeForm({
       }
     } catch (e: any) {
       setError(e?.message ?? "The search didn't complete — please try again.");
+      // Logged by the server already (its id came back with the error), or logged from here now.
+      setErrorId(e?.notAProblem ? null : reportClientError("search", e ?? "The search didn't complete"));
     } finally {
       setLoading(false);
       onLoadingChange?.(false);
@@ -527,6 +537,7 @@ export default function IntakeForm({
             >
               Try again
             </button>
+            {errorId && <ReportProblemLink errorId={errorId} area="search" message={error} />}
           </div>
         </div>
       )}

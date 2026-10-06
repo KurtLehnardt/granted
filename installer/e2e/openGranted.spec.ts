@@ -115,6 +115,32 @@ test("a failed install stays on the check screen, never Installation complete", 
   await expect(page.getByRole("button", { name: INSTALL_BUTTON })).toBeEnabled();
 });
 
+test("a failed install offers Report this problem: a pre-filled GitHub issue, sanitized, opened in the browser", async () => {
+  const a = await launch();
+  await page.getByRole("button", { name: "Get Started" }).click();
+  await page.getByRole("heading", { name: "Checking your computer" }).waitFor();
+  await sendInstallStatus(a, {
+    state: "error",
+    message: "git clone failed in C:\\Users\\Jane Doe\\granted: auth sk-ant-api03-AAAAAAAAAAAAAAAA for jane@example.com",
+  });
+  await expect(page.getByText(/git clone failed/)).toBeVisible();
+  await page.getByRole("button", { name: "Report this problem" }).click();
+  await expect.poll(() => openedUrls(a), { timeout: 10_000 }).toHaveLength(1);
+  const url = new URL((await openedUrls(a))[0]);
+  expect(`${url.origin}${url.pathname}`).toBe("https://github.com/KurtLehnardt/granted/issues/new");
+  expect(url.searchParams.get("template")).toBe("bug_report.yml");
+  expect(url.searchParams.get("labels")).toBeNull();
+  expect(url.searchParams.get("title")).toMatch(/^Problem \(installer\): git clone failed/);
+  const body = [url.searchParams.get("recent-errors") ?? "", url.searchParams.get("environment") ?? ""].join("\n");
+  expect(body).toContain("git clone failed in ~\\granted: auth [redacted-key] for [email]");
+  expect(body).toMatch(/Granted installer version: \d+\.\d+\.\d+/);
+  expect(body).toMatch(/Operating system: win32/);
+  expect(decodeURIComponent(url.href)).not.toMatch(/Jane Doe|sk-ant-api03|jane@example\.com/);
+  await expect(page.getByText(/Opened a problem report in your browser/)).toBeVisible();
+  // Never Granted itself: only the report.
+  expect(appWindowUrls(install)).toEqual([]);
+});
+
 // Git and Node are installed wherever these tests run (they run under Node,
 // and CI's Windows runner has git), so the check screen shows the satisfied state.
 test("with Git and Node already installed, the check screen says so and the button continues with installing Granted", async () => {
@@ -363,6 +389,12 @@ test("a failed local setup shows the error with Try again, and doesn't start Gra
   await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
   await expectNothingOpened(a);
   expect(await testPortIsFree()).toBe(true);
+  // ...and offers to report it, with the error the screen showed.
+  await page.getByRole("button", { name: "Report this problem" }).click();
+  await expect.poll(() => openedUrls(a), { timeout: 10_000 }).toHaveLength(1);
+  const url = new URL((await openedUrls(a))[0]);
+  expect(url.searchParams.get("recent-errors")).toContain("The local setup didn't finish");
+  expect(url.searchParams.get("environment")).toContain("Reported from: installer (open-granted)");
 });
 
 test("Granted opens in its own window by default: the box is ticked, and Yes opens an app window, not a browser tab", async () => {

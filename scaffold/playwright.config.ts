@@ -1,4 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 /**
  * Lightweight Playwright journey harness (H6/H7).
@@ -17,6 +19,15 @@ import { defineConfig, devices } from "@playwright/test";
  * the relevant flag on, or see the fixme notes in e2e/journeys.spec.ts.
  */
 const BASE_URL = process.env.E2E_BASE_URL ?? "http://localhost:3001";
+
+/**
+ * Errors the journeys provoke must never land in the user's real error log
+ * (%LOCALAPPDATA%\Granted\logs): the server this config starts, and this
+ * process, log to a temp folder instead. (A server that's already running
+ * keeps its own setting -- reuseExistingServer can't change that.)
+ */
+const E2E_LOG_DIR = process.env.GRANTED_LOG_DIR ?? join(tmpdir(), "granted-e2e-error-log");
+process.env.GRANTED_LOG_DIR = E2E_LOG_DIR;
 
 export default defineConfig({
   testDir: "./e2e",
@@ -37,5 +48,6 @@ export default defineConfig({
     url: BASE_URL,
     reuseExistingServer: true,
     timeout: 120_000,
+    env: { ...(process.env as Record<string, string>), GRANTED_LOG_DIR: E2E_LOG_DIR },
   },
 });

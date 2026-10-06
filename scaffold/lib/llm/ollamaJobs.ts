@@ -6,6 +6,7 @@ import path from "node:path";
 import { ollamaHost } from "./ollamaInfo";
 import { locateOllama } from "./ollamaLocate";
 import type { OllamaJob } from "./ollamaModels";
+import { logError } from "../errorLog/server";
 import {
   launchOllamaDaemon,
   pickAutoInstallCommand,
@@ -57,6 +58,15 @@ export function resetOllamaJobs(): void {
 }
 
 const CANCELLED = "Cancelled.";
+
+/**
+ * A job the user started failed: shown on the job, and written (sanitized) to
+ * the error log. A cancel isn't a failure, and isn't logged.
+ */
+function failJob(kind: OllamaJobKind, job: OllamaJob, error: string): void {
+  const errorId = error === CANCELLED ? undefined : logError(`ollama-${kind}`, error, { stack: null });
+  Object.assign(job, { status: "error", error, ...(errorId ? { errorId } : {}) });
+}
 
 /** Cancel a running job (aborts its download, kills its installer). False when nothing of that kind is running. */
 export function cancelOllamaJob(kind: OllamaJobKind): boolean {
@@ -266,7 +276,7 @@ export function startOllamaAndWait(deps: Partial<OllamaJobDeps> = {}): Promise<b
       try {
         d.launch();
       } catch (e) {
-        Object.assign(job, { status: "error", error: `Couldn't launch Ollama: ${(e as Error).message}` });
+        failJob("start", job, `Couldn't launch Ollama: ${(e as Error).message}`);
         return false;
       }
       job.message = "Waiting for Ollama to start (the first start can take a minute)…";
@@ -276,10 +286,11 @@ export function startOllamaAndWait(deps: Partial<OllamaJobDeps> = {}): Promise<b
       });
       if (up) Object.assign(job, { status: "done", message: "Ollama is running." });
       else
-        Object.assign(job, {
-          status: "error",
-          error: `Ollama didn't start within ${Math.round(d.startTimeoutMs / 1000)} seconds. Open the Ollama app yourself (or run "ollama serve"), then check again.`,
-        });
+        failJob(
+          "start",
+          job,
+          `Ollama didn't start within ${Math.round(d.startTimeoutMs / 1000)} seconds. Open the Ollama app yourself (or run "ollama serve"), then check again.`,
+        );
       return up;
     } finally {
       state.startPromise = undefined;
@@ -434,7 +445,7 @@ export function pullModel(model: string, deps: Partial<OllamaJobDeps> = {}): { j
         if (job.status === "running") Object.assign(job, { status: "done", pct: 100, message: `Downloaded ${model}.` });
       },
       (e) => {
-        if (job.status === "running") Object.assign(job, { status: "error", error: (e as Error).message });
+        if (job.status === "running") failJob("pull", job, (e as Error).message);
       },
     )
     .finally(() => {
@@ -543,20 +554,17 @@ export function installOllama(deps: Partial<OllamaJobDeps> = {}): OllamaJob {
     if (state.controllers.install === ac) delete state.controllers.install;
     if (signal.aborted) return; // cancelOllamaJob already set the job's state
     if (!installed) {
-      update({
-        status: "error",
-        error: `${failure} Download it from https://ollama.com/download, run the installer, then check again.`,
-      });
+      const error = `${failure} Download it from https://ollama.com/download, run the installer, then check again.`;
+      update({ status: "error", error, errorId: logError("ollama-install", error, { stack: null }) });
       return;
     }
     update({ pct: 100, message: "Ollama is installed. Starting it…" });
     const up = await startOllamaAndWait(d);
     if (up) update({ status: "done", message: "Ollama is installed and running." });
-    else
-      update({
-        status: "error",
-        error: "Ollama is installed but didn't start. Open the Ollama app from the Start menu, then check again.",
-      });
+    else {
+      const error = "Ollama is installed but didn't start. Open the Ollama app from the Start menu, then check again.";
+      update({ status: "error", error, errorId: logError("ollama-install", error, { stack: null }) });
+    }
   })();
   return { ...job };
 }

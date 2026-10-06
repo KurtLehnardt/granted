@@ -16,6 +16,7 @@ import { join } from "node:path";
 import { embedBatch, EMBEDDINGS_DIMENSIONS, EMBEDDINGS_MODEL } from "../lib/embed.ts";
 import { activeSearchSpace, getSpace } from "../lib/embeddings/spaces.ts";
 import { embedWithBuiltin, ensureBuiltinModel } from "../lib/embeddings/builtin.ts";
+import { logError } from "../lib/errorLog/server.ts";
 import { buildSpaceVectors, compatibleVectorFile } from "./lib/spaceVectors.mjs";
 import { readVectorFile, writeVectorFile } from "./lib/vectorFile.mjs";
 import { BUILTIN_MODEL } from "./lib/builtinModel.mjs";
@@ -365,6 +366,7 @@ async function main() {
   } catch (e) {
     console.error(`\ndata:refresh FAILED — ${e.message}`);
     writeRefreshStatus({ lastAttemptAt: attemptAt, lastError: e.message });
+    logError("corpus-refresh", e);
     process.exitCode = 1;
   } finally {
     releaseRefreshLock();

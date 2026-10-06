@@ -1,4 +1,4 @@
-import { BrowserWindow, clipboard, ipcMain, shell } from "electron";
+import { app, BrowserWindow, clipboard, ipcMain, shell } from "electron";
 import type { WebContents } from "electron";
 import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -37,6 +37,7 @@ import {
   windowsScriptPath,
 } from "./openGranted";
 import { createVersionPlanner, LATEST_RELEASE_API, pinnedReleaseTag } from "./release";
+import { installerIssueUrl } from "./reportProblem";
 import {
   INSTALL_ONE_LINERS,
   NODE_MAJOR_MIN,
@@ -866,4 +867,11 @@ export function registerIpcHandlers(): void {
   ipcMain.handle("granted:start", (event) => startGranted(event.sender));
   ipcMain.handle("granted:create-shortcuts", (_event, choice: ShortcutChoice) => createShortcuts(choice));
   ipcMain.on("app:quit", (event) => BrowserWindow.fromWebContents(event.sender)?.close());
+  // "Report this problem" under an error: a pre-filled, sanitized GitHub issue in the user's browser.
+  ipcMain.handle("app:report-problem", async (_event, message: unknown, where: unknown) => {
+    const url = installerIssueUrl(message, where, { version: app.getVersion(), scaffoldDir: scaffoldDir() });
+    return (await openInBrowser(url))
+      ? { ok: true, message: "Opened a problem report in your browser. Review it, then press Submit on GitHub." }
+      : { ok: false, message: "Couldn't open your browser for the problem report." };
+  });
 }

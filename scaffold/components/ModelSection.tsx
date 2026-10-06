@@ -1,6 +1,9 @@
 "use client";
 
 import React, { useEffect, useId, useState } from "react";
+import ReportProblemLink from "@/components/ReportProblemLink";
+import { reportClientError } from "@/lib/errorLog/client";
+import { isErrorId } from "@/lib/errorLog/errorId";
 import { getModel, setModel } from "@/lib/searchSettings";
 import type { OllamaModel, OllamaStatus } from "@/lib/llm/ollamaModels";
 import { CLOUD_PROVIDERS, isSameCloudTarget, type CloudProviderId } from "@/lib/llm/providers";
@@ -122,10 +125,14 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
   const [filePath, setFilePath] = useState(cloud?.keySource.type === "file" ? cloud.keySource.path : "");
   const [cloudModelsList, setCloudModelsList] = useState<string[]>([]);
   const [modelsError, setModelsError] = useState<string | null>(null);
+  const [modelsErrorId, setModelsErrorId] = useState<string | null>(null);
   const [loadingModels, setLoadingModels] = useState(false);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Set only for real failures (a 5xx, or the server unreachable): "please enter a key" and other
+  // things the user fixes in this form are guidance, with nothing to report.
+  const [errorId, setErrorId] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; error?: string } | null>(null);
 
@@ -175,6 +182,7 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
   async function selectLocal() {
     if (uiProvider === "ollama" && info?.provider === "ollama") return;
     setError(null);
+    setErrorId(null);
     setTestResult(null);
     setSaving(true);
     try {
@@ -186,11 +194,13 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(json?.error ?? `HTTP ${res.status}`);
+        if (res.status >= 500) setErrorId(problemId(json, res.status));
         return;
       }
       await refresh();
-    } catch {
+    } catch (err) {
       setError("Couldn't reach the server. Try again.");
+      setErrorId(reportClientError("llm-config", err));
     } finally {
       setSaving(false);
     }
@@ -204,6 +214,7 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
   async function handleSaveCloud() {
     setSaving(true);
     setError(null);
+    setErrorId(null);
     setTestResult(null);
     try {
       const body = {
@@ -223,11 +234,13 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(json?.error ?? "Please enter a key for your cloud provider.");
+        if (res.status >= 500) setErrorId(problemId(json, res.status));
         return;
       }
       await refresh();
-    } catch {
+    } catch (err) {
       setError("Couldn't reach the server. Try again.");
+      setErrorId(reportClientError("llm-config", err));
     } finally {
       setSaving(false);
     }
@@ -236,6 +249,7 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
   async function handleRemoveCloud() {
     setSaving(true);
     setError(null);
+    setErrorId(null);
     setTestResult(null);
     try {
       const res = await fetch("/api/llm/config", {
@@ -246,12 +260,14 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(json?.error ?? `HTTP ${res.status}`);
+        if (res.status >= 500) setErrorId(problemId(json, res.status));
         return;
       }
       setUiProvider("ollama");
       await refresh();
-    } catch {
+    } catch (err) {
       setError("Couldn't reach the server. Try again.");
+      setErrorId(reportClientError("llm-config", err));
     } finally {
       setSaving(false);
     }
@@ -283,6 +299,7 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
   async function handleLoadModels() {
     setLoadingModels(true);
     setModelsError(null);
+    setModelsErrorId(null);
     try {
       const res = await fetch("/api/llm/models", {
         method: "POST",
@@ -296,11 +313,14 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
       const json = await res.json().catch(() => ({}));
       if (!res.ok || json?.error) {
         setModelsError(json?.error ?? `HTTP ${res.status}`);
+        if (isErrorId(json?.errorId)) setModelsErrorId(json.errorId);
+        else if (res.status >= 500) setModelsErrorId(reportClientError("llm-provider", `HTTP ${res.status}`));
         return;
       }
       setCloudModelsList(json.models ?? []);
-    } catch {
+    } catch (err) {
       setModelsError("Couldn't reach the server.");
+      setModelsErrorId(reportClientError("llm-provider", err));
     } finally {
       setLoadingModels(false);
     }
@@ -525,6 +545,7 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
                 {loadingModels ? "Loading models…" : "Load models"}
               </button>
               {modelsError && <span className="font-body text-[12px] text-foreground">{modelsError}</span>}
+              {modelsError && modelsErrorId && <ReportProblemLink errorId={modelsErrorId} area="llm-provider" message={modelsError} />}
             </div>
           </div>
 
@@ -560,8 +581,19 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
       {error && (
         <p className="mt-2 rounded-r-sm border-l-2 border-error bg-canvas-alt px-3 py-2 font-body text-[12px] text-foreground">
           {error}
+          {errorId && (
+            <span className="mt-1 block">
+              <ReportProblemLink errorId={errorId} area="llm-config" message={error} />
+            </span>
+          )}
         </p>
       )}
     </div>
   );
+}
+
+/** The id of a failed request's log entry: the server's (withErrorLogging adds it to a 5xx), or one logged from here. */
+function problemId(json: unknown, status: number): string {
+  const id = (json as { errorId?: unknown } | null)?.errorId;
+  return isErrorId(id) ? id : reportClientError("llm-config", `HTTP ${status}`);
 }

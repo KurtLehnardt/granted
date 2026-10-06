@@ -2,7 +2,7 @@
 #
 # Starts `npm run dev` for this scaffold as a hidden process (no console
 # window), puts a Granted icon in the notification area (Open Granted /
-# status / Show log / Restart / Quit), and opens Granted once it answers --
+# status / Show log / Report a problem / Restart / Quit), and opens Granted once it answers --
 # in its own window (Edge/Chrome app mode) unless the user prefers a browser
 # tab (see open-granted.ps1). Only runs while you've opened it -- nothing starts at sign-in.
 #
@@ -43,6 +43,7 @@ $LogDir = Join-Path $env:LOCALAPPDATA "Granted\logs"
 $LogPath = Join-Path $LogDir "server-$Port.log"
 $IconPath = Join-Path $PSScriptRoot "granted.ico"
 $OpenScript = Join-Path $PSScriptRoot "open-granted.ps1"
+$ReportScript = Join-Path $PSScriptRoot "report-problem.ps1"
 
 # --- -Stop / -Restart: signal a running tray and leave ----------------------
 if ($Stop -or $Restart) {
@@ -311,6 +312,11 @@ if (Test-Path -LiteralPath $OpenScript) {
 }
 [void]$menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
 $logItem = $menu.Items.Add("Show log")
+$reportItem = $null
+if (Test-Path -LiteralPath $ReportScript) {
+  # A pre-filled GitHub issue (sanitized server log tail) in the browser; the user reviews and submits it.
+  $reportItem = $menu.Items.Add("Report a problem")
+}
 $restartItem = $menu.Items.Add("Restart")
 [void]$menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
 $quitItem = $menu.Items.Add("Quit Granted")
@@ -356,6 +362,13 @@ $openItem.add_Click({
 $icon.add_DoubleClick({ if ($script:LastState -eq "running") { Open-Granted } else { $script:OpenWhenReady = $true } })
 $logItem.add_Click({ if (Test-Path $LogPath) { Start-Process notepad.exe -ArgumentList "`"$LogPath`"" } })
 $restartItem.add_Click({ Invoke-Restart })
+if ($reportItem) {
+  $reportItem.add_Click({
+    try { & $ReportScript -LogPath $LogPath -ScaffoldDir $ScaffoldDir } catch {
+      $icon.ShowBalloonTip(5000, "Granted", "Couldn't open the problem report. The log is in $LogDir", [System.Windows.Forms.ToolTipIcon]::Warning)
+    }
+  })
+}
 $quitItem.add_Click({ Invoke-Quit })
 if ($windowItem) {
   # Re-read on every open: the installer can change the preference too.

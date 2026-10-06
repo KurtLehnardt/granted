@@ -26,6 +26,8 @@ export type OllamaJob = {
   /** Human-readable progress line ("Downloading 1.2 GB of 4.7 GB"). */
   message?: string;
   error?: string;
+  /** A failed job's id in the error log (lib/errorLog), for "Report this problem". None for a cancel. */
+  errorId?: string;
 };
 
 /** GET /api/llm/ollama — everything Settings → Model → Local needs to say what's wrong and offer the fix. */

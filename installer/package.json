@@ -1,6 +1,6 @@
 {
   "name": "granted-installer",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": true,
   "description": "Granted installer",
   "author": "Kurt Lehnardt",

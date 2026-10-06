@@ -10,6 +10,9 @@ import {
   type OllamaState,
   type OllamaStatus,
 } from "@/lib/llm/ollamaModels";
+import ReportProblemLink from "@/components/ReportProblemLink";
+import { reportClientError } from "@/lib/errorLog/client";
+import { isErrorId } from "@/lib/errorLog/errorId";
 
 /** Ollama has chat models, but not the configured default (Default then runs another installed one). */
 export function configuredMissing(s: OllamaStatus): boolean {
@@ -84,6 +87,12 @@ function JobLine({ job, testId, onCancel }: { job?: OllamaJob; testId: string; o
     return (
       <p className="mt-2 rounded-r-sm border-l-2 border-error bg-canvas-alt px-3 py-2 font-body text-[12px] text-foreground" data-testid={testId}>
         {job.error}
+        {/* A failed download / install / start is a problem worth reporting; a cancel isn't (no id). */}
+        {job.errorId && (
+          <span className="mt-1 block">
+            <ReportProblemLink errorId={job.errorId} area="ollama" message={job.error} />
+          </span>
+        )}
       </p>
     );
   }
@@ -128,6 +137,9 @@ export default function LocalModelPanel({
   const [status, setStatus] = useState<OllamaStatus | undefined>(initialStatus);
   const [checking, setChecking] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  // Only for real failures (the server's, or the server unreachable): "start Ollama first" and
+  // the like are guidance, with nothing to report.
+  const [actionErrorId, setActionErrorId] = useState<string | null>(null);
   const autoStarted = useRef(false);
   const pullTarget = useRef<string | null>(null);
 
@@ -164,6 +176,7 @@ export default function LocalModelPanel({
 
   async function act(action: "start" | "pull" | "install" | "cancel", model?: string, job?: "pull" | "install") {
     setActionError(null);
+    setActionErrorId(null);
     if (action === "pull") pullTarget.current = model ?? null;
     try {
       const res = await fetch("/api/llm/ollama", {
@@ -172,9 +185,13 @@ export default function LocalModelPanel({
         body: JSON.stringify({ action, ...(model ? { model } : {}), ...(job ? { job } : {}) }),
       });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) setActionError(json?.error ?? `HTTP ${res.status}`);
-    } catch {
+      if (!res.ok) {
+        setActionError(json?.error ?? `HTTP ${res.status}`);
+        if (res.status >= 500) setActionErrorId(isErrorId(json?.errorId) ? json.errorId : reportClientError("ollama", `HTTP ${res.status}`));
+      }
+    } catch (err) {
       setActionError("Couldn't reach the server. Try again.");
+      setActionErrorId(reportClientError("ollama", err));
     }
     await refresh();
   }
@@ -319,6 +336,7 @@ export default function LocalModelPanel({
           {checking ? "Checking…" : "Check again"}
         </button>
         {actionError && <span className="font-body text-[12px] text-foreground">{actionError}</span>}
+        {actionError && actionErrorId && <ReportProblemLink errorId={actionErrorId} area="ollama" message={actionError} />}
       </div>
     </div>
   );

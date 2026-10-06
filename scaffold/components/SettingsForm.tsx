@@ -16,6 +16,7 @@ import type { RefreshProgress } from "@/lib/corpus/refreshStatus";
 import { useReplayWelcomeGuide } from "@/components/WelcomeGuide";
 import ModelSection from "@/components/ModelSection";
 import AppUpdateSection from "@/components/AppUpdateSection";
+import ProblemsSection from "@/components/ProblemsSection";
 
 interface CorpusStatus {
   builtAt: string | null;
@@ -303,6 +304,8 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
           </span>
         </label>
       </div>
+
+      <ProblemsSection />
 
       <AppUpdateSection />
 

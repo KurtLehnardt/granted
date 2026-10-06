@@ -7,6 +7,7 @@ import {
   modelBaseUrl,
   modelsDir,
 } from "../../scripts/lib/builtinModel.mjs";
+import { logError } from "../errorLog/server";
 
 /**
  * The built-in search model at runtime (the in-process backend of the
@@ -131,6 +132,7 @@ export async function ensureBuiltinModel(onProgress?: (pct: number) => void, dep
           s.download = null;
           s.progress = null;
           s.lastError = `couldn't download the search model (${(e as Error)?.message ?? e})`;
+          logError("builtin-model", e);
           throw new Error(s.lastError);
         },
       );
@@ -163,6 +165,7 @@ async function getEmbedder(d: BuiltinDeps): Promise<Embedder> {
         return embedder;
       } catch (err) {
         s.lastLoadError = explainModelLoadError(err);
+        logError("builtin-model", err);
         throw new Error(s.lastLoadError);
       }
     })();

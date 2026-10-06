@@ -1,6 +1,5 @@
 import type { NextRequest } from "next/server";
 import { handleRefreshStopPost } from "./handler";
+import { withErrorLogging } from "@/lib/errorLog/withErrorLogging";
 
-export async function POST(req: NextRequest) {
-  return handleRefreshStopPost(req);
-}
+export const POST = withErrorLogging("corpus-refresh", async (req: NextRequest) => handleRefreshStopPost(req));
