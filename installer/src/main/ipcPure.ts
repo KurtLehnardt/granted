@@ -11,7 +11,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
-import { join, win32 } from "node:path";
+import { join, posix, win32 } from "node:path";
 import { INSTALL_ONE_LINERS } from "../shared/ipc";
 import type { InstallStatusEvent, InstallVersionPlan, OpenIn } from "../shared/ipc";
 
@@ -575,6 +575,14 @@ export function parseShortcutsOutput(stdout: string): string[] | null {
  * app, the menu-bar helper and the installer share one file (and so the
  * `openIn` the installer saves is the one the menu-bar helper later reads).
  * GRANTED_SETTINGS_PATH overrides both, for tests.
+ *
+ * Each branch joins with the separator of the platform it describes —
+ * `posix.join` for the macOS path, `win32.join` for the Windows one — never the
+ * ambient `join`, which is whichever platform this process happens to be
+ * running on. REGRESSION (CI): the macOS branch used plain `join`, so on the
+ * windows-latest runner it returned
+ * `\Users\a\Library\Application Support\Granted\settings.json` and the test
+ * asserting the real path failed there while passing everywhere else.
  */
 export function grantedSettingsPath(
   env: Record<string, string | undefined>,
@@ -584,7 +592,7 @@ export function grantedSettingsPath(
   if (env["GRANTED_SETTINGS_PATH"]) return env["GRANTED_SETTINGS_PATH"];
   // LOCALAPPDATA before the platform check, so a Windows-path test runs on any OS.
   if (platform === "darwin" && !env["LOCALAPPDATA"]) {
-    return join(home, "Library", "Application Support", "Granted", "settings.json");
+    return posix.join(home, "Library", "Application Support", "Granted", "settings.json");
   }
   return win32.join(env["LOCALAPPDATA"] || win32.join(home, "AppData", "Local"), "Granted", "settings.json");
 }

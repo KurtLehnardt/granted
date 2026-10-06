@@ -53,6 +53,15 @@ export interface StoreOptions {
   keep?: number;
 }
 
+/**
+ * Each per-platform branch below joins with the separator of the platform it
+ * describes, never the ambient `path.join` (which is whichever platform this
+ * process happens to be running on). The same mistake in
+ * installer/src/main/ipcPure.ts's grantedSettingsPath did fail CI on the
+ * windows-latest runner; here it stayed hidden because the test re-derived its
+ * expected value with the same ambient `path.join`, which cannot catch a
+ * separator bug. The tests now assert literal paths instead.
+ */
 export function errorLogDir(
   env: Record<string, string | undefined> = process.env,
   platform: NodeJS.Platform = process.platform,
@@ -64,9 +73,9 @@ export function errorLogDir(
   if (env["NODE_TEST_CONTEXT"]) return path.join(os.tmpdir(), `granted-test-logs-${process.pid}`);
   // LOCALAPPDATA before the platform check, like settingsPath's: it lets a
   // Windows-path test run on any OS. `home` is injectable for the same reason.
-  if (env["LOCALAPPDATA"]) return path.join(env["LOCALAPPDATA"], "Granted", "logs");
-  if (platform === "darwin") return path.join(home, "Library", "Logs", "Granted");
-  return path.join(home, ".granted", "logs");
+  if (env["LOCALAPPDATA"]) return path.win32.join(env["LOCALAPPDATA"], "Granted", "logs");
+  if (platform === "darwin") return path.posix.join(home, "Library", "Logs", "Granted");
+  return (platform === "win32" ? path.win32 : path.posix).join(home, ".granted", "logs");
 }
 
 /** errors.jsonl, errors.1.jsonl, errors.2.jsonl… (0 = the current file). */

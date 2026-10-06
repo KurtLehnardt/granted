@@ -67,6 +67,14 @@ export function installInfo(
  * GRANTED_SETTINGS_PATH overrides all of them (tests). LOCALAPPDATA is
  * checked before the platform so a Windows-path test can run on any OS.
  * `home` is injectable for the same reason.
+ *
+ * Each branch joins with the separator of the platform it describes, never the
+ * ambient `join` (which is whichever platform this process happens to be
+ * running on). The same mistake in installer/src/main/ipcPure.ts's
+ * grantedSettingsPath did fail CI on the windows-latest runner; here it stayed
+ * hidden because the test re-derived its expected value with the same ambient
+ * `join`, which cannot catch a separator bug. The tests now assert literal
+ * paths instead.
  */
 export function settingsPath(
   env: Record<string, string | undefined> = process.env,
@@ -74,9 +82,9 @@ export function settingsPath(
   home: string = homedir(),
 ): string {
   if (env["GRANTED_SETTINGS_PATH"]) return env["GRANTED_SETTINGS_PATH"];
-  if (env["LOCALAPPDATA"]) return join(env["LOCALAPPDATA"], "Granted", "settings.json");
-  if (platform === "darwin") return join(home, "Library", "Application Support", "Granted", "settings.json");
-  return join(home, ".granted", "settings.json");
+  if (env["LOCALAPPDATA"]) return path.win32.join(env["LOCALAPPDATA"], "Granted", "settings.json");
+  if (platform === "darwin") return path.posix.join(home, "Library", "Application Support", "Granted", "settings.json");
+  return (platform === "win32" ? path.win32 : path.posix).join(home, ".granted", "settings.json");
 }
 
 function readSettings(path: string): Record<string, unknown> {

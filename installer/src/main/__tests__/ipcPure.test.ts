@@ -688,12 +688,21 @@ describe("opening Granted in its own window: the settings file and open-granted.
   // The same path scaffold/lib/appUpdate/install.ts's settingsPath() resolves
   // on darwin, so the installer, the app and the menu-bar helper share one
   // settings file rather than each keeping its own openIn.
+  //
+  // REGRESSION (CI, windows-latest): this expectation is a literal string on
+  // purpose, and the macOS branch joins with posix.join on purpose. Written
+  // with the ambient `join` on either side, a macOS path built with Windows
+  // separators passes everywhere — which is exactly how the same bug went
+  // unnoticed in the two scaffold functions this one mirrors.
   test("macOS: ~/Library/Application Support/Granted/settings.json, with the same overrides", () => {
     assert.equal(
       grantedSettingsPath({}, "/Users/a", "darwin"),
       "/Users/a/Library/Application Support/Granted/settings.json",
     );
     assert.equal(grantedSettingsPath({ GRANTED_SETTINGS_PATH: "/t/s.json" }, "/Users/a", "darwin"), "/t/s.json");
+    // Neither path may pick up the separator of whatever OS is running this.
+    assert.ok(!grantedSettingsPath({}, "/Users/a", "darwin").includes("\\"), "the macOS path is POSIX on every runner");
+    assert.ok(!grantedSettingsPath({}, "C:\\Users\\a", "win32").includes("/"), "the Windows path is win32 on every runner");
   });
 
   test("its own window is the default; only an explicit 'browser' changes that", () => {
