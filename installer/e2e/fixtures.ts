@@ -63,7 +63,12 @@ export interface FakeInstall {
   startMenuDir: string;
   /** The settings file (open in a window / a browser tab) the installer and scripts are pointed at. */
   settingsPath: string;
-  /** A stand-in for Edge's app mode: a batch file that logs its arguments to browserLog. */
+  /**
+   * A stand-in for Chrome's/Edge's app mode that logs its arguments to
+   * browserLog: a batch file on Windows, a shell script on macOS (where
+   * open-granted.sh runs it through execve, so it has to be executable and
+   * carry a #!).
+   */
   fakeBrowser: string;
   browserLog: string;
   cleanup: () => void;
@@ -91,7 +96,7 @@ export function makeFakeInstall(opts: { withWindowsScripts?: boolean; withMacScr
   if (opts.withMacScripts) {
     const dest = join(scaffoldDir, "scripts", "macos");
     mkdirSync(dest, { recursive: true });
-    copyFileSync(join(MACOS_SCRIPTS, "granted-tray.sh"), join(dest, "granted-tray.sh"));
+    for (const f of ["granted-tray.sh", "open-granted.sh"]) copyFileSync(join(MACOS_SCRIPTS, f), join(dest, f));
   }
   writeFileSync(
     join(scaffoldDir, "package.json"),
@@ -105,8 +110,12 @@ export function makeFakeInstall(opts: { withWindowsScripts?: boolean; withMacScr
   writeFileSync(join(scaffoldDir, "fake-dev.js"), FAKE_DEV_SERVER);
   writeFileSync(join(scaffoldDir, "fake-setup-local.js"), FAKE_SETUP_LOCAL);
   const browserLog = join(root, "browser.log");
-  const fakeBrowser = join(root, "fake-browser.cmd");
-  writeFileSync(fakeBrowser, `@echo %*>>"${browserLog}"\r\n`);
+  const fakeBrowser = join(root, process.platform === "win32" ? "fake-browser.cmd" : "fake-browser.sh");
+  if (process.platform === "win32") {
+    writeFileSync(fakeBrowser, `@echo %*>>"${browserLog}"\r\n`);
+  } else {
+    writeFileSync(fakeBrowser, `#!/bin/sh\nprintf '%s\\n' "$@" >> ${JSON.stringify(browserLog)}\n`, { mode: 0o755 });
+  }
   return {
     root,
     installDir,
@@ -176,7 +185,12 @@ export async function openedUrls(app: ElectronApplication): Promise<string[]> {
   return app.evaluate(() => (globalThis as unknown as { __opened: string[] }).__opened);
 }
 
-/** URLs opened in Granted's OWN WINDOW: what the stand-in app-mode browser was started with (`--app=<url>`). */
+/**
+ * URLs opened in Granted's OWN WINDOW: what the stand-in app-mode browser was
+ * started with (`--app=<url>`). Windows's batch stand-in logs the quotes
+ * open-granted.ps1 puts round the URL; the macOS shell one logs the single
+ * argv entry open-granted.sh passes, unquoted — hence the optional quotes.
+ */
 export function appWindowUrls(install: FakeInstall): string[] {
   if (!existsSync(install.browserLog)) return [];
   return readFileSync(install.browserLog, "utf8")

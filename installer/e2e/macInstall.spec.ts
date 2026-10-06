@@ -17,12 +17,13 @@
  */
 import { test, expect, type ElectronApplication, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import {
   GRANTED_HTML,
   TEST_PORT,
   TEST_URL,
+  appWindowUrls,
   launchInstaller,
   makeFakeInstall,
   openedUrls,
@@ -113,11 +114,14 @@ function configureHostedKeys(): void {
   writeFileSync(join(install.scaffoldDir, ".env.local"), "OPENAI_API_KEY=sk-already-key-0000000000\nANTHROPIC_API_KEY=sk-ant-already-0000000000\n");
 }
 
-test("a finished install shows Installation complete and asks to open Granted, with no shortcut checkboxes (tray/shortcuts/own-window stay Windows-only even though the real .ps1 files are present on this clone)", async () => {
+test("a finished install shows Installation complete and asks to open Granted, with no shortcut checkboxes (shortcuts stay Windows-only, and own-window needs scripts/macos, even though the real .ps1 files are present on this clone)", async () => {
   await start();
   await expect(page.getByText(`Granted is installed in ${install.installDir}.`)).toBeVisible();
   await expect(page.getByText("Open Granted now?")).toBeVisible();
   await expect(page.getByLabel("The desktop")).toHaveCount(0);
+  // No scripts/macos in this install (see beforeEach), so no own-window box
+  // either — and crucially not because of scripts/windows/open-granted.ps1,
+  // which IS present here and must never count on macOS.
   await expect(page.getByLabel("Open Granted", { exact: true })).toHaveCount(0);
 });
 
@@ -184,16 +188,69 @@ test("an install with scripts/macos runs Granted in the background under its Lau
   const a = await start();
   await page.getByRole("button", { name: "Yes, open Granted" }).click();
   await expect(page.getByText(/Starting Granted in the background/)).toBeVisible();
-  await expect(page.getByText(/Granted is open in your browser/)).toBeVisible({ timeout: 60_000 });
+  // This install has scripts/macos/open-granted.sh too, so Granted opens in
+  // its own window (the stand-in app-mode browser) — the default preference.
+  await expect(page.getByText(/Granted is open in its own window/)).toBeVisible({ timeout: 60_000 });
   await expect(page.getByText(/look for the/)).toBeVisible();
   await expect(page.getByText(/icon.*in the menu bar at the top of your screen/)).toBeVisible();
   await expect(page.getByText(/by the clock/)).toHaveCount(0);
-  expect(await openedUrls(a)).toEqual([TEST_URL]);
+  await expect.poll(() => appWindowUrls(install), { timeout: 10_000 }).toEqual([TEST_URL]);
+  expect(await openedUrls(a)).toEqual([]);
   // launchd really is running it: the agent is loaded and the server's
   // output is in the install's log folder, not a terminal.
   const loaded = execFileSync("launchctl", ["print", `gui/${process.getuid?.() ?? 0}/${install.launchLabel}`], { encoding: "utf8" });
   expect(loaded).toMatch(/state = running/);
   expect(readFileSync(join(install.logDir, `server-${TEST_PORT}.log`), "utf8")).toMatch(/fake Granted listening/);
+});
+
+test("an install with scripts/macos opens Granted in its own window by default: the box is ticked, and Yes opens an app window, not a browser tab", async () => {
+  install.cleanup();
+  install = makeFakeInstall({ withMacScripts: true });
+  configureHostedKeys();
+  const a = await start();
+  await expect(page.getByLabel("Open Granted", { exact: true })).toBeChecked();
+  await page.getByRole("button", { name: "Yes, open Granted" }).click();
+  await expect(page.getByText(/Granted is open in its own window/)).toBeVisible({ timeout: 60_000 });
+  // The stand-in app-mode browser logs from its own process, a moment after
+  // the installer started it.
+  await expect.poll(() => appWindowUrls(install), { timeout: 10_000 }).toEqual([TEST_URL]);
+  expect(await openedUrls(a)).toEqual([]);
+  // Left at the default: nothing needed saving.
+  expect(existsSync(install.settingsPath)).toBe(false);
+});
+
+test("unticking 'its own window' opens a browser tab instead, and saves that for the menu-bar icon", async () => {
+  install.cleanup();
+  install = makeFakeInstall({ withMacScripts: true });
+  configureHostedKeys();
+  const a = await start();
+  await page.getByLabel("Open Granted", { exact: true }).uncheck();
+  await page.getByRole("button", { name: "Yes, open Granted" }).click();
+  await expect(page.getByText(/Granted is open in your browser/)).toBeVisible({ timeout: 60_000 });
+  expect(await openedUrls(a)).toEqual([TEST_URL]);
+  expect(appWindowUrls(install)).toEqual([]);
+  // The very same file, and the same key, the menu-bar helper reads.
+  expect(JSON.parse(readFileSync(install.settingsPath, "utf8"))).toEqual({ openIn: "browser" });
+});
+
+test("a browser-tab preference saved earlier (from the menu-bar icon, say) starts the box unticked", async () => {
+  install.cleanup();
+  install = makeFakeInstall({ withMacScripts: true });
+  mkdirSync(dirname(install.settingsPath), { recursive: true });
+  writeFileSync(install.settingsPath, JSON.stringify({ openIn: "browser" }));
+  await start();
+  await expect(page.getByLabel("Open Granted", { exact: true })).not.toBeChecked();
+});
+
+test("with no Chrome or Edge on the Mac, Granted still opens, in a browser tab, and says so", async () => {
+  install.cleanup();
+  install = makeFakeInstall({ withMacScripts: true });
+  configureHostedKeys();
+  const a = await start({ GRANTED_APP_BROWSER: "none" });
+  await page.getByRole("button", { name: "Yes, open Granted" }).click();
+  await expect(page.getByText(/Granted is open in your browser/)).toBeVisible({ timeout: 60_000 });
+  expect(await openedUrls(a)).toEqual([TEST_URL]);
+  expect(appWindowUrls(install)).toEqual([]);
 });
 
 test("already running: Yes just opens the browser, without starting a second server", async () => {

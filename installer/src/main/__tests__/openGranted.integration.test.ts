@@ -19,12 +19,14 @@ import {
   getSetupState,
   isProcessAlive,
   isStatusWindowAlive,
+  macScriptPath,
   probeGranted,
   readStatusFile,
   readTaskStatus,
   saveApiKeys,
   saveOpenIn,
   waitForGrantedToStart,
+  windowsScriptPath,
 } from "../openGranted";
 
 const execFileAsync = promisify(execFile);
@@ -105,6 +107,33 @@ describe("getSetupState / saveApiKeys against a real install folder", () => {
     });
   });
 
+  // Deliberately in THIS describe, which runs on every platform, rather than
+  // beside the rest of the open-granted.sh tests in
+  // macOpenGranted.integration.test.ts: that whole describe is skipped on
+  // win32 (it needs a POSIX bash), and windows-latest is the one runner where
+  // a macOS path built with the ambient `join` comes out with backslashes —
+  // so an assertion living there could never run where it matters. The same
+  // CI failure grantedSettingsPath's comment records.
+  test("each platform's script path is spelled with that platform's separators, on whatever runner this is", () => {
+    // Literal expectations, never re-derived with the join that built them:
+    // re-deriving a path with the same call cannot catch the path being wrong.
+    assert.equal(macScriptPath("/granted/scaffold", "open-granted.sh"), "/granted/scaffold/scripts/macos/open-granted.sh");
+    assert.equal(macScriptPath("/granted/scaffold", "granted-tray.sh"), "/granted/scaffold/scripts/macos/granted-tray.sh");
+    assert.equal(
+      windowsScriptPath("C:\\granted\\scaffold", "open-granted.ps1"),
+      "C:\\granted\\scaffold\\scripts\\windows\\open-granted.ps1",
+    );
+    assert.equal(
+      windowsScriptPath("C:\\granted\\scaffold", "granted-tray.ps1"),
+      "C:\\granted\\scaffold\\scripts\\windows\\granted-tray.ps1",
+    );
+    assert.ok(!macScriptPath("/granted/scaffold", "granted-tray.sh").includes("\\"), "the macOS path is POSIX on every runner");
+    assert.ok(
+      !windowsScriptPath("C:\\granted\\scaffold", "granted-tray.ps1").includes("/"),
+      "the Windows path is win32 on every runner",
+    );
+  });
+
   test("an install that has the Windows tray, shortcut and open-in-a-window scripts says so on win32 only — these files are tracked in the repo and present on every platform's clone, but the capability stays Windows-only regardless", async () => {
     await mkdir(join(install.scaffoldDir, "scripts", "windows"), { recursive: true });
     await writeFile(join(install.scaffoldDir, "scripts", "windows", "granted-tray.ps1"), "");
@@ -120,18 +149,30 @@ describe("getSetupState / saveApiKeys against a real install folder", () => {
     assert.equal(state.appWindowAvailable, expected);
   });
 
-  test("an install that has scripts/macos/granted-tray.sh can run in the background on darwin only (same rule, each platform its own runner)", async () => {
+  test("an install that has scripts/macos/granted-tray.sh and open-granted.sh can run in the background and in its own window on darwin only (same rule, each platform its own scripts)", async () => {
     await mkdir(join(install.scaffoldDir, "scripts", "macos"), { recursive: true });
     await writeFile(join(install.scaffoldDir, "scripts", "macos", "granted-tray.sh"), "");
+    await writeFile(join(install.scaffoldDir, "scripts", "macos", "open-granted.sh"), "");
     const state = await setupState(install.installDir);
-    // On Windows the .ps1 written by the test above is still there, so tray
-    // stays true there; what this pins down is that the .sh alone makes it
-    // true on macOS, and on neither platform does the other's file count.
-    assert.equal(state.trayAvailable, process.platform === "win32" || process.platform === "darwin");
-    // Shortcuts and its own window remain Windows-only: scripts/macos has no
-    // counterpart for either yet.
+    // On Windows the .ps1 files written by the test above are still there, so
+    // both stay true there; what this pins down is that the .sh files alone
+    // make them true on macOS, and on neither platform does the other's file
+    // count.
+    const eitherPlatform = process.platform === "win32" || process.platform === "darwin";
+    assert.equal(state.trayAvailable, eitherPlatform);
+    assert.equal(state.appWindowAvailable, eitherPlatform);
+    // Shortcuts remain Windows-only: scripts/macos has no counterpart yet.
     assert.equal(state.shortcutsAvailable, process.platform === "win32");
-    assert.equal(state.appWindowAvailable, process.platform === "win32");
+  });
+
+  test("on macOS, its own window needs open-granted.sh specifically — the tray script alone isn't it", async () => {
+    const dir = join(install.root, "mac-tray-only", "scaffold");
+    await mkdir(join(dir, "scripts", "macos"), { recursive: true });
+    await writeFile(join(dir, "package.json"), "{}");
+    await writeFile(join(dir, "scripts", "macos", "granted-tray.sh"), "");
+    const state = await getSetupState(join(install.root, "mac-tray-only"), SETTINGS);
+    assert.equal(state.trayAvailable, process.platform === "darwin");
+    assert.equal(state.appWindowAvailable, false);
   });
 
   test("saveOpenIn creates the settings file, round-trips through getSetupState, and keeps other settings", async () => {

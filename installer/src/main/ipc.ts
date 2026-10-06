@@ -652,12 +652,15 @@ async function launchScaffoldTask(opts: {
  * launchScaffoldTask's does, and as the fallback for starting the server on an
  * install too old to have scripts/macos/granted-tray.sh — the LaunchAgent and
  * menu-bar icon that launchMacTray uses instead (the counterpart of Windows's
- * launchTray). getSetupState's shortcutsAvailable/appWindowAvailable stay
- * false on darwin because they're explicitly gated on process.platform ===
- * "win32" — NOT because this install lacks scripts/windows: those .ps1 files
- * are ordinary files tracked in the repo, so a real `git clone` on macOS has
- * them too, the same as on Windows. Detached so it outlives the installer the same way
- * Windows's console window does, writing the exact same {state,message,pid}
+ * launchTray). Of getSetupState's capability flags, shortcutsAvailable is the
+ * only one that stays false on darwin — it's explicitly gated on
+ * process.platform === "win32", NOT because this install lacks
+ * scripts/windows: shortcuts.ps1 is an ordinary file tracked in the repo, so a
+ * real `git clone` on macOS has it too, the same as on Windows. trayAvailable
+ * and appWindowAvailable are true on darwin as well, via
+ * scripts/macos/granted-tray.sh and scripts/macos/open-granted.sh (also
+ * tracked, so also on every clone). Detached so it outlives the installer the
+ * same way Windows's console window does, writing the exact same {state,message,pid}
  * status-file shape buildTaskScript's PowerShell writes — so it's read back
  * by the SAME readTaskStatus/pollStatusFile/decideStatusPoll Windows uses,
  * completely unchanged. There's no window to show output in, so stdout/
@@ -760,40 +763,73 @@ async function openInBrowser(url: string): Promise<boolean> {
 }
 
 /**
- * Opens Granted the way the user prefers: in its own window (Edge/Chrome app
- * mode, via scripts/windows/open-granted.ps1 — the same script the tray and
- * shortcuts use) or a browser tab. The browser-tab part stays here
- * (shell.openExternal), so an install without the script, a machine with no
- * app-mode browser, or a script that failed all still open Granted.
+ * Runs one of the open-granted scripts with its "never open a browser tab
+ * yourself" flag and says what happened: "window" (it opened one), null (it
+ * may have, so a tab on top would open Granted twice) or "fallback" (it
+ * opened nothing, and the caller should open a tab).
+ *
+ * Both scripts print the same one-line JSON and are read by the same
+ * parseOpenGrantedOutput, so the only per-platform part is how they're run.
+ */
+async function runOpenGrantedScript(label: string, file: string, args: string[]): Promise<OpenIn | null | "fallback"> {
+  try {
+    const { stdout } = await execFileAsync(file, args, { windowsHide: true, timeout: 30_000 });
+    const opened = parseOpenGrantedOutput(stdout);
+    if (opened === "window") return "window";
+    // Unreadable output after a clean exit: it may have launched the window — don't risk a second one.
+    if (opened !== "none") return null;
+  } catch (err) {
+    console.error(`${label} failed:`, err);
+    // Killed on the timeout: it may already have started the window.
+    if ((err as { killed?: boolean }).killed) return null;
+    // Otherwise it failed before launching anything (e.g. the shell couldn't run it): a tab it is.
+  }
+  return "fallback";
+}
+
+/**
+ * Opens Granted the way the user prefers: in its own window (Chrome/Edge app
+ * mode, via scripts/windows/open-granted.ps1 or scripts/macos/open-granted.sh
+ * — the same scripts the tray, the menu-bar helper and the shortcuts use) or
+ * a browser tab. The browser-tab part stays here (shell.openExternal), so an
+ * install without the script, a machine with no app-mode browser, or a script
+ * that failed all still open Granted.
  * Returns how it opened, or null if nothing could be opened — including when
  * the script timed out: it may already have started the window, and a tab on
  * top of that would open Granted twice (the caller then shows the URL).
  */
 async function openGrantedPage(url: string): Promise<OpenIn | null> {
-  const script = windowsScriptPath(scaffoldDir(), "open-granted.ps1");
-  // win32-gated, not just existsSync: open-granted.ps1 is an ordinary file
-  // tracked in the repo, present on a real clone on every platform, not
-  // only Windows's — without this guard this would spawn powershell.exe on
-  // macOS too (nonexistent there; ENOENT is caught below so this doesn't
-  // crash, but it's a wasted spawn and a spurious logged error on every
-  // "Open Granted" click, and inconsistent with the guard this PR already
-  // added at every other scripts/windows call site).
-  if (process.platform === "win32" && existsSync(script)) {
-    try {
-      const { stdout } = await execFileAsync(
-        "powershell.exe",
-        ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script, "-Url", url, "-NoBrowserFallback"],
-        { windowsHide: true, timeout: 30_000 },
-      );
-      const opened = parseOpenGrantedOutput(stdout);
-      if (opened === "window") return "window";
-      // Unreadable output after a clean exit: it may have launched the window — don't risk a second one.
-      if (opened !== "none") return null;
-    } catch (err) {
-      console.error("open-granted.ps1 failed:", err);
-      if ((err as { killed?: boolean }).killed) return null;
-      // Otherwise it failed before launching anything (e.g. PowerShell couldn't run it): a tab it is.
-    }
+  // Platform-gated, not just existsSync: both scripts are ordinary files
+  // tracked in the repo, present on a real clone on every platform — without
+  // this guard this would spawn powershell.exe on macOS too (nonexistent
+  // there; ENOENT is caught above so this doesn't crash, but it's a wasted
+  // spawn and a spurious logged error on every "Open Granted" click, and
+  // inconsistent with the guard at every other scripts/windows call site).
+  const script =
+    process.platform === "win32"
+      ? windowsScriptPath(scaffoldDir(), "open-granted.ps1")
+      : process.platform === "darwin"
+        ? macScriptPath(scaffoldDir(), "open-granted.sh")
+        : null;
+  if (script !== null && existsSync(script)) {
+    const opened =
+      process.platform === "win32"
+        ? await runOpenGrantedScript("open-granted.ps1", "powershell.exe", [
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            script,
+            "-Url",
+            url,
+            "-NoBrowserFallback",
+          ])
+        : // /bin/bash explicitly, not the script itself: a file copied out of a
+          // zip or restored from a backup can arrive without its execute bit,
+          // and this must not be the thing that fails then.
+          await runOpenGrantedScript("open-granted.sh", "/bin/bash", [script, "--url", url, "--no-browser-fallback"]);
+    if (opened !== "fallback") return opened;
   }
   return (await openInBrowser(url)) ? "browser" : null;
 }
@@ -1086,16 +1122,17 @@ async function launchTray(): Promise<string> {
 
 /**
  * Creates the "Granted" shortcut(s) via scripts/windows/shortcuts.ps1 —
- * win32 only, unlike NOT_WINDOWS's other two call sites above: shortcuts
- * (and the tray, and Granted's own app window) stay Windows-only for now,
- * separate work from this task's status-reporting parity. Not reusing
- * NOT_WINDOWS's text here: that now says macOS is supported too, which
- * would be wrong for this specific feature. In practice this path is dead
- * on darwin anyway — getSetupState's shortcutsAvailable is explicitly
- * gated on process.platform === "win32" there (NOT because the install
- * lacks scripts/windows — shortcuts.ps1 is an ordinary file tracked in the
- * repo and present on a real clone on every platform), so the UI never
- * shows the checkboxes that would call this.
+ * win32 only, unlike NOT_WINDOWS's other two call sites above: shortcuts are
+ * what's still Windows-only, separate work from the macOS parity done so far
+ * (the tray and Granted's own app window both have macOS counterparts now —
+ * granted-tray.sh and open-granted.sh). Not reusing NOT_WINDOWS's text here:
+ * that now says macOS is supported too, which would be wrong for this
+ * specific feature. In practice this path is dead on darwin anyway —
+ * getSetupState's shortcutsAvailable is explicitly gated on
+ * process.platform === "win32" there (NOT because the install lacks
+ * scripts/windows — shortcuts.ps1 is an ordinary file tracked in the repo
+ * and present on a real clone on every platform), so the UI never shows the
+ * checkboxes that would call this.
  */
 async function createShortcuts(choice: ShortcutChoice): Promise<ShortcutsResult> {
   if (process.platform !== "win32") {

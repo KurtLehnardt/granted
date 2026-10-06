@@ -5,17 +5,17 @@
 //
 //   Open Granted
 //   <status>                      (not clickable: starting / running / stopped)
-//   Open in its own window        (disabled until that feature lands on macOS)
+//   Open in its own window        (a tick: Chrome/Edge app mode, or a browser tab)
 //   ---
 //   Show log
 //   Restart
 //   ---
 //   Quit Granted
 //
-// Every action shells back into scripts/macos/granted-tray.sh, so the launchd
-// and status-file logic lives in one place and is tested there; this process
-// only draws the menu, polls that script for the server's state, and reports
-// it the way the installer already reads it.
+// Every action shells back into scripts/macos/granted-tray.sh, so the launchd,
+// status-file and open-in-a-window logic lives in one place and is tested
+// there; this process only draws the menu, polls that script for the server's
+// state, and reports it the way the installer already reads it.
 //
 // Status reporting is the installer's existing mechanism, unchanged: this
 // process holds the `<status>.lock.d` directory for its lifetime (the macOS
@@ -31,6 +31,8 @@
 //   GRANTED_LOG_FILE          the server log "Show log" opens
 //   GRANTED_STATUS_FILE       where to report status (optional)
 //   GRANTED_HELPER_PID_FILE   this process's pid file, removed on quit (optional)
+//   GRANTED_SETTINGS_PATH     the shared settings file, read for the "its own
+//                             window" tick (optional; defaults to the real one)
 //   GRANTED_MENUBAR_ICON      the icon file to use (optional)
 //   GRANTED_MENUBAR_SELF_TEST "1", or "click:<menu item title>" — build
 //                             everything, report it (and choose that item,
@@ -223,7 +225,7 @@ func env(_ name: String) -> String? {
 
 // MARK: - The helper
 
-final class GrantedMenuBar: NSObject, NSApplicationDelegate {
+final class GrantedMenuBar: NSObject, NSApplicationDelegate, NSMenuDelegate {
   private let port: Int
   private let trayScript: String
   private let logFile: String
@@ -231,10 +233,12 @@ final class GrantedMenuBar: NSObject, NSApplicationDelegate {
   private let lockDir: String?
   private let pidFile: String?
   private let iconPath: String?
+  private let settingsPath: String
   private let url: String
 
   private var statusItem: NSStatusItem?
   private var statusLabel: NSMenuItem?
+  private var ownWindowItem: NSMenuItem?
   private var everReady = false
   private var reportedFailure = false
   private var openWhenReady = false
@@ -254,8 +258,42 @@ final class GrantedMenuBar: NSObject, NSApplicationDelegate {
     lockDir = env("GRANTED_STATUS_FILE").map { "\($0).lock.d" }
     pidFile = env("GRANTED_HELPER_PID_FILE")
     iconPath = env("GRANTED_MENUBAR_ICON")
+    settingsPath =
+      env("GRANTED_SETTINGS_PATH") ?? "\(NSHomeDirectory())/Library/Application Support/Granted/settings.json"
     url = "http://localhost:\(Int(env("GRANTED_PORT") ?? "") ?? 3000)"
     super.init()
+  }
+
+  // MARK: Where Granted opens (the shared settings file's `openIn`)
+
+  /// Whether the "Open in its own window" tick should be on, read straight
+  /// from the settings file — the same file, and the same key, the installer
+  /// and the Windows tray use.
+  ///
+  /// Read here rather than through `granted-tray.sh open-in` for one reason:
+  /// this is called from `menuWillOpen`, on the main thread, at the instant
+  /// the menu appears (the preference can have been changed by the installer,
+  /// or by another copy of the menu, since the last time it was looked at —
+  /// the Windows tray re-reads it on every menu open for exactly that
+  /// reason). A subprocess there would stall the menu; a file read cannot.
+  ///
+  /// The rule is the one every other reader applies: its own window unless the
+  /// file says, in exactly those letters, "browser" (ipcPure.ts's
+  /// parseOpenInSetting, open-granted.sh's read_open_in). Nothing decides how
+  /// Granted actually opens here — that is open-granted.sh's job, through
+  /// `granted-tray.sh open` — so this is a mirror of the preference, never a
+  /// second opinion about it.
+  private func openInWindow() -> Bool {
+    guard let data = FileManager.default.contents(atPath: settingsPath),
+          let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    else { return true }
+    return (parsed["openIn"] as? String) != "browser"
+  }
+
+  /// The menu is about to be shown: re-read the preference, so the tick is
+  /// never stale (see openInWindow).
+  func menuWillOpen(_ menu: NSMenu) {
+    ownWindowItem?.state = openInWindow() ? .on : .off
   }
 
   // MARK: Status file (the installer's own mechanism)
@@ -358,20 +396,22 @@ final class GrantedMenuBar: NSObject, NSApplicationDelegate {
     menu.addItem(status)
     statusLabel = status
 
-    // The counterpart of the Windows tray's "Open in its own window" tick.
-    // Opening Granted as its own app window (Chrome/Edge --app=) is the next
-    // piece of macOS work; until it lands this item is shown and disabled,
-    // rather than hidden, so the menu is the same shape as Windows's and the
-    // state is honest about itself.
-    let ownWindow = NSMenuItem(title: "Open in its own window", action: nil, keyEquivalent: "")
-    ownWindow.isEnabled = false
-    ownWindow.toolTip = "Not available on macOS yet — Granted opens in your browser."
+    // The counterpart of the Windows tray's "Open in its own window" tick:
+    // ticked, Granted opens as its own app window (Chrome/Edge --app=);
+    // unticked, in an ordinary browser tab. The tick is the shared settings
+    // file's `openIn`, so the installer's own checkbox and this one are the
+    // same setting.
+    let ownWindow = NSMenuItem(title: "Open in its own window", action: #selector(toggleOwnWindow), keyEquivalent: "")
+    ownWindow.target = self
+    ownWindow.state = openInWindow() ? .on : .off
+    ownWindow.toolTip = "Open Granted like an app, in a window with no tabs or address bar (needs Chrome or Edge)."
     describe(
       ownWindow,
-      label: "Open in its own window (not available on macOS yet)",
-      help: "Not available on macOS yet — Granted opens in your browser."
+      label: "Open in its own window",
+      help: "Ticked: Granted opens like an app, in its own window (needs Chrome or Edge). Unticked: in a browser tab."
     )
     menu.addItem(ownWindow)
+    ownWindowItem = ownWindow
 
     menu.addItem(NSMenuItem.separator())
 
@@ -392,6 +432,7 @@ final class GrantedMenuBar: NSObject, NSApplicationDelegate {
     describe(quit, label: "Quit Granted", help: "Stops Granted and removes this icon.")
     menu.addItem(quit)
 
+    menu.delegate = self
     item.menu = menu
     statusItem = item
   }
@@ -513,12 +554,20 @@ final class GrantedMenuBar: NSObject, NSApplicationDelegate {
   /// Anything that shells out, off the main thread so the menu never blocks,
   /// counted so the self-test below can tell when a clicked item has finished.
   private func inBackground(_ work: @escaping () -> Void, then done: @escaping () -> Void = {}) {
+    inBackground(returning: { work() }, then: { (_: Void) in done() })
+  }
+
+  /// The same, for an action whose outcome the completion needs — saving the
+  /// preference below has to know whether it worked to put the tick back. The
+  /// result travels through the queue hop, so nothing is shared across
+  /// threads.
+  private func inBackground<Result>(returning work: @escaping () -> Result, then done: @escaping (Result) -> Void) {
     pending += 1
     DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-      work()
+      let result = work()
       DispatchQueue.main.async {
         self?.pending -= 1
-        done()
+        done(result)
       }
     }
   }
@@ -529,6 +578,36 @@ final class GrantedMenuBar: NSObject, NSApplicationDelegate {
     } else {
       // Not up yet: open it as soon as it answers, like the Windows tray.
       openWhenReady = true
+    }
+  }
+
+  /// The "Open in its own window" tick. Ticked straight away, as the Windows
+  /// tray's CheckOnClick item is, and saved in the background — and if the
+  /// save fails the tick goes back, so the menu never claims a setting that
+  /// isn't stored. (The Windows tray shows a balloon tip saying so; a menu bar
+  /// extra has nowhere to put one without a bundle and notification
+  /// permission, so this says it in the helper's log instead.)
+  ///
+  /// Written to stderr, not with `print`, so that log line actually lands.
+  /// granted-tray.sh's start_helper runs this process as
+  /// `nohup "$binary" >> "$LOG_DIR/menubar.log" 2>&1`: stdout is a regular
+  /// file, which libc fully buffers (_IOFBF), and this helper then runs for
+  /// hours without exiting, so a `print` here sits in that buffer indefinitely
+  /// and is lost outright if the helper is ever killed rather than quit. stderr
+  /// is unbuffered and the `2>&1` already merges it into the very same
+  /// menubar.log, so this needs no change to how the helper is logged -- only
+  /// which stream this one message takes. (The self-test prints below stay on
+  /// stdout on purpose: that path exits immediately, which flushes.)
+  @objc private func toggleOwnWindow() {
+    guard let item = ownWindowItem else { return }
+    let wanted = item.state != .on
+    item.state = wanted ? .on : .off
+    let mode = wanted ? "window" : "browser"
+    inBackground(returning: { self.tray(["set-open-in", "--mode", mode], timeout: 20).status == 0 }) { saved in
+      guard !saved else { return }
+      item.state = wanted ? .off : .on
+      FileHandle.standardError.write(
+        Data("granted-menubar: couldn't save where Granted opens — it will keep opening the way it did\n".utf8))
     }
   }
 
@@ -581,7 +660,10 @@ final class GrantedMenuBar: NSObject, NSApplicationDelegate {
     print("granted-menubar: self test ok (port \(port), items: \(menu?.items.count ?? 0))")
     print("granted-menubar: icon=\(statusItem?.button?.image == nil ? "none" : "yes") title=\"\(statusItem?.button?.title ?? "")\" width=\(statusItem?.button?.frame.width ?? 0)")
     for item in menu?.items ?? [] where !item.isSeparatorItem {
-      print("granted-menubar: item \"\(item.title)\" enabled=\(item.isEnabled) a11y=\"\(item.accessibilityLabel() ?? "")\"")
+      print(
+        "granted-menubar: item \"\(item.title)\" enabled=\(item.isEnabled) "
+          + "state=\(item.state == .on ? "on" : "off") a11y=\"\(item.accessibilityLabel() ?? "")\""
+      )
     }
     guard mode.hasPrefix("click:"), let menu else {
       releaseStatusLock()

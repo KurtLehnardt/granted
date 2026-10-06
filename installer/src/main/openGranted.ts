@@ -11,7 +11,7 @@
  */
 import { closeSync, existsSync, openSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, posix, win32 } from "node:path";
 import type { ActionResult, ApiKeysInput, GrantedSetupState, OpenIn, SaveKeysResult } from "../shared/ipc";
 import {
   applyApiKeys,
@@ -63,19 +63,22 @@ export async function getSetupState(installDir: string, settingsPath: string): P
     // install too, which is exactly what made startGranted's `background`
     // wrongly route into the win32 tray path on macOS (see ipc.ts).
     // Each platform's own background runner: granted-tray.ps1 on Windows,
-    // granted-tray.sh (LaunchAgent + Swift menu-bar helper) on macOS.
-    // Shortcuts and own-window stay Windows-only for now regardless of
-    // whether the files happen to be on disk.
+    // granted-tray.sh (LaunchAgent + Swift menu-bar helper) on macOS; and its
+    // own window: open-granted.ps1 on Windows, open-granted.sh (Chrome/Edge
+    // --app=, else a browser tab) on macOS. Shortcuts stay Windows-only for
+    // now regardless of whether the files happen to be on disk.
     trayAvailable:
       (process.platform === "win32" && existsSync(windowsScriptPath(scaffoldDir, "granted-tray.ps1"))) ||
       (process.platform === "darwin" && existsSync(macScriptPath(scaffoldDir, "granted-tray.sh"))),
     shortcutsAvailable: process.platform === "win32" && existsSync(windowsScriptPath(scaffoldDir, "shortcuts.ps1")),
-    appWindowAvailable: process.platform === "win32" && existsSync(windowsScriptPath(scaffoldDir, "open-granted.ps1")),
+    appWindowAvailable:
+      (process.platform === "win32" && existsSync(windowsScriptPath(scaffoldDir, "open-granted.ps1"))) ||
+      (process.platform === "darwin" && existsSync(macScriptPath(scaffoldDir, "open-granted.sh"))),
     openIn: parseOpenInSetting(await readTextOrNull(settingsPath)),
   };
 }
 
-/** Saves the "open in" preference to the settings file the tray and open-granted.ps1 read, keeping its other settings. */
+/** Saves the "open in" preference to the settings file the trays and both open-granted scripts read, keeping its other settings. */
 export async function saveOpenIn(settingsPath: string, openIn: OpenIn): Promise<ActionResult> {
   try {
     await mkdir(dirname(settingsPath), { recursive: true });
@@ -87,14 +90,31 @@ export async function saveOpenIn(settingsPath: string, openIn: OpenIn): Promise<
   }
 }
 
-/** scaffold/scripts/windows/<name> — the tray, shortcut and icon files (one place builds this path). */
+/**
+ * scaffold/scripts/windows/<name> — the tray, shortcut and icon files (one
+ * place builds this path).
+ *
+ * `win32.join`, never the ambient `join`: each of these two functions names a
+ * path on one specific platform, so it joins with that platform's separator
+ * rather than with whichever platform happens to be running the process —
+ * the convention grantedSettingsPath's own comment records, written after a
+ * macOS path built with the ambient `join` returned Windows separators on the
+ * windows-latest CI runner and failed only there. Neither call site can reach
+ * the other platform's branch today (both are gated on process.platform), so
+ * this is consistency rather than a live bug — but these are exactly the
+ * functions a later caller would reuse unguarded.
+ */
 export function windowsScriptPath(scaffoldDir: string, name: "granted-tray.ps1" | "shortcuts.ps1" | "open-granted.ps1"): string {
-  return join(scaffoldDir, "scripts", "windows", name);
+  return win32.join(scaffoldDir, "scripts", "windows", name);
 }
 
-/** scaffold/scripts/macos/<name> — macOS's background runner (the LaunchAgent + menu-bar helper). */
-export function macScriptPath(scaffoldDir: string, name: "granted-tray.sh"): string {
-  return join(scaffoldDir, "scripts", "macos", name);
+/**
+ * scaffold/scripts/macos/<name> — macOS's background runner (the LaunchAgent +
+ * menu-bar helper) and its own-window opener. `posix.join` for the same reason
+ * windowsScriptPath above uses `win32.join`.
+ */
+export function macScriptPath(scaffoldDir: string, name: "granted-tray.sh" | "open-granted.sh"): string {
+  return posix.join(scaffoldDir, "scripts", "macos", name);
 }
 
 /**

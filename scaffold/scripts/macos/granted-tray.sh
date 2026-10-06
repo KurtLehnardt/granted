@@ -28,6 +28,9 @@
 #   granted-tray.sh restart                restart the server
 #   granted-tray.sh status                 one JSON line: state, url, log, label
 #   granted-tray.sh open                   open Granted (how the user prefers)
+#   granted-tray.sh open-in                one JSON line: {"openIn":"window"|"browser"}
+#   granted-tray.sh set-open-in --mode window|browser
+#                                          save where Granted opens
 #   granted-tray.sh show-log               open the server log
 #   granted-tray.sh log-path               the server log for this port
 #   granted-tray.sh plist                  print the LaunchAgent plist
@@ -52,11 +55,13 @@
 #   GRANTED_MENUBAR_HELPER     the helper binary ("none" = don't run one)
 #   GRANTED_NPM                the npm binary to run the server with
 #   GRANTED_OPEN_CMD           what opens Granted and the log (instead of `open`)
+#   GRANTED_APP_BROWSER        the app-mode browser ("none" = pretend there isn't one)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 SCAFFOLD_DIR="$(cd -- "$SCRIPT_DIR/../.." && pwd -P)"
 MENUBAR_PKG="$SCRIPT_DIR/menubar"
+OPEN_SCRIPT="$SCRIPT_DIR/open-granted.sh"
 
 LABEL="${GRANTED_LAUNCH_LABEL:-com.granted.server}"
 LAUNCH_AGENTS_DIR="${GRANTED_LAUNCH_AGENTS_DIR:-$HOME/Library/LaunchAgents}"
@@ -70,13 +75,28 @@ PORT="${GRANTED_PORT:-3000}"
 OPEN_BROWSER=0
 NO_HELPER=0
 SERVER_ONLY=0
+MODE=""
+
+# An option that takes a value must actually have been given one, and must say
+# so when it wasn't -- checked before `$2` is read rather than left to it. With
+# `set -u` a bare `--mode` at the end of the line dies on `$2: unbound
+# variable`, which exits 1 with a raw shell diagnostic instead of this script's
+# own message and its own exit 64 for bad input. Exit 1 also means something
+# else entirely here: it is what a failed `stop` or `set-open-in` reports, and
+# what open-granted.sh reserves for "I opened nothing, fall back".
+need_value() {
+  [ "$1" -ge 2 ] && return 0
+  printf 'granted-tray.sh: %s needs a value\n' "$2" >&2
+  exit 64
+}
 
 COMMAND="${1:-}"
 if [ $# -gt 0 ]; then shift; fi
 while [ $# -gt 0 ]; do
   case "$1" in
-    --port) PORT="$2"; shift 2 ;;
-    --status-path) STATUS_PATH="$2"; shift 2 ;;
+    --port) need_value "$#" --port; PORT="$2"; shift 2 ;;
+    --status-path) need_value "$#" --status-path; STATUS_PATH="$2"; shift 2 ;;
+    --mode) need_value "$#" --mode; MODE="$2"; shift 2 ;;
     --open-browser) OPEN_BROWSER=1; shift ;;
     --no-helper) NO_HELPER=1; shift ;;
     --server-only) SERVER_ONLY=1; shift ;;
@@ -437,13 +457,48 @@ stop_helper() {
 # Both of the menu's "open something" actions go through here, so there is one
 # place to override in tests (GRANTED_OPEN_CMD, a stand-in that just records
 # what it was asked to open — the counterpart of the Windows tests'
-# GRANTED_APP_BROWSER) and one place for "its own window" to land in later.
+# GRANTED_APP_BROWSER) and one place where "its own window" is decided.
 #
-# Granted in a browser tab today. "Its own window" (Chrome/Edge --app=, the
-# openIn preference the Windows tray's open-granted.ps1 handles) is the next
-# piece of macOS work; it lands here, so the menu-bar helper and the installer
-# need no change when it does.
-open_granted() { "${GRANTED_OPEN_CMD:-open}" "$URL" >/dev/null 2>&1 || true; }
+# In its own window or a browser tab, as the user prefers (open-granted.sh
+# does the deciding, the browser-finding and the launching); a plain browser
+# tab if that script is missing or fails. Exactly the shape of the Windows
+# tray's Open-Granted.
+#
+# open-granted.sh exits non-zero only when it opened nothing at all, so the
+# fallback below can never open Granted a second time on top of an app window
+# it did start.
+open_granted() {
+  if [ -f "$OPEN_SCRIPT" ]; then
+    if /bin/bash "$OPEN_SCRIPT" --url "$URL" >/dev/null 2>&1; then return 0; fi
+  fi
+  "${GRANTED_OPEN_CMD:-open}" "$URL" >/dev/null 2>&1 || true
+}
+
+# The saved preference, and saving it — the menu-bar helper's "Open in its own
+# window" tick, which is the counterpart of the Windows tray asking
+# open-granted.ps1 with -GetOpenIn/-SetOpenIn. Routed through this script
+# because the helper is given only GRANTED_TRAY_SCRIPT, not the scripts
+# folder, and so that every settings write still goes through the one place
+# that owns the preference.
+#
+# With no open-granted.sh (an install too old to have it), reading reports the
+# default and saving fails — the helper puts its tick back and says so, the
+# same as when the write itself fails.
+open_in_pref() {
+  if [ -f "$OPEN_SCRIPT" ]; then
+    /bin/bash "$OPEN_SCRIPT" --get-open-in && return 0
+  fi
+  printf '{"openIn":"window"}\n'
+}
+
+set_open_in() {
+  case "$1" in
+    window|browser) ;;
+    *) printf 'granted-tray.sh: set-open-in needs --mode window or --mode browser\n' >&2; return 64 ;;
+  esac
+  [ -f "$OPEN_SCRIPT" ] || { printf 'granted-tray.sh: no %s in this install\n' "$OPEN_SCRIPT" >&2; return 1; }
+  /bin/bash "$OPEN_SCRIPT" --set-open-in "$1"
+}
 
 # The server log, in whatever the user opens .log files with (Console, by
 # default) — the menu's "Show log", the counterpart of the Windows tray
@@ -541,6 +596,8 @@ case "$COMMAND" in
   restart) cmd_restart ;;
   status) cmd_status ;;
   open) open_granted ;;
+  open-in) open_in_pref ;;
+  set-open-in) set_open_in "$MODE" ;;
   show-log) show_log ;;
   log-path) printf '%s\n' "$LOG_FILE" ;;
   plist) emit_plist ;;
@@ -548,7 +605,7 @@ case "$COMMAND" in
   build-helper) build_helper && printf '\n' ;;
   helper-path) helper_path && printf '\n' ;;
   *)
-    printf 'usage: granted-tray.sh {start|stop|restart|status|open|show-log|log-path|plist|plist-path|build-helper|helper-path} [--port N]\n' >&2
+    printf 'usage: granted-tray.sh {start|stop|restart|status|open|open-in|set-open-in|show-log|log-path|plist|plist-path|build-helper|helper-path} [--port N]\n' >&2
     exit 64
     ;;
 esac
