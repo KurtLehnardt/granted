@@ -65,6 +65,25 @@ describe("<OpportunityCard/> — ProvisionalCard (no score yet)", () => {
     assert.match(html, /ANALYZING/);
     assert.match(html, /<svg[^>]*aria-hidden="true"[^>]*>[\s\S]*ANALYZING/);
   });
+
+  test("usable while scoring: the title and an 'Open the official listing' link open the grant in a new tab", () => {
+    const withUrl: PreviewItem = { opportunity: { ...opp("p-2"), url: "https://www.grants.gov/search-results-detail/123" }, provisional: true };
+    const html = renderToStaticMarkup(React.createElement(OpportunityCard, { m: withUrl, index: 0 }));
+    const links = html.match(/<a [^>]*href="https:\/\/www\.grants\.gov\/search-results-detail\/123"[^>]*>/g) ?? [];
+    assert.equal(links.length, 2, "the title and the listing link");
+    for (const a of links) {
+      assert.match(a, /target="_blank"/);
+      assert.match(a, /rel="noreferrer"/);
+    }
+    assert.match(html, /data-testid="provisional-listing-link"[\s\S]*Open the official listing/);
+    assert.match(html, /opens in a new tab/);
+  });
+
+  test("no URL: no dead links, just the program name", () => {
+    const html = renderToStaticMarkup(React.createElement(OpportunityCard, { m: provisional, index: 0 }));
+    assert.doesNotMatch(html, /<a /);
+    assert.match(html, /Program p-1/);
+  });
 });
 
 describe("<OpportunityCard/> — ANALYZING ring on a scored card", () => {
