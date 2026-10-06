@@ -2,10 +2,11 @@
 
 import React, { useEffect, useId, useState } from "react";
 import { getModel, setModel } from "@/lib/searchSettings";
-import type { OllamaModel } from "@/lib/llm/ollamaInfo";
+import type { OllamaModel, OllamaStatus } from "@/lib/llm/ollamaModels";
 import { CLOUD_PROVIDERS, isSameCloudTarget, type CloudProviderId } from "@/lib/llm/providers";
 import type { SearchStatus } from "@/lib/embeddings/searchStatus";
 import LocalSearchStatus from "@/components/LocalSearchStatus";
+import LocalModelPanel from "@/components/LocalModelPanel";
 
 export type KeySourceType = "inline" | "env" | "file";
 export type PublicKeySource = { type: "inline" } | { type: "env"; name: string } | { type: "file"; path: string };
@@ -69,6 +70,8 @@ export type LlmProviderInfo = {
   local: boolean;
   model?: string;
   models?: OllamaModel[];
+  /** Local only: Ollama installed / running / models / what to download (GET /api/llm, lib/llm/ollamaStatus.ts). */
+  ollama?: OllamaStatus;
   cloud?: CloudInfo;
   /** The "Search" line: which embeddings search uses, and the built-in model's download state (lib/embeddings/searchStatus.ts). */
   search?: SearchStatus;
@@ -98,7 +101,6 @@ export function draftOnProviderSwitch(
 // resolvable, format-valid key (POST /api/llm/config, loopback-only).
 export default function ModelSection({ initialInfo }: { initialInfo?: LlmProviderInfo }) {
   const uid = useId();
-  const modelId = `${uid}-model`;
   const providerSelectId = `${uid}-provider`;
   const baseUrlId = `${uid}-base-url`;
   const keySourceId = `${uid}-key-source`;
@@ -317,7 +319,6 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
       active ? "bg-structure text-token-white" : "bg-canvas text-structure-on-canvas hover:bg-canvas-alt"
     }`;
 
-  const localModels = info?.models ?? null;
   const preset = CLOUD_PROVIDERS.find((p) => p.id === providerId);
   // The persisted provider (what actually runs searches), independent of
   // which panel is open for editing — a revealed-but-unsaved Cloud panel, or
@@ -365,39 +366,14 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
 
       {uiProvider === "ollama" && (
         <div data-testid="model-panel-local" className="mt-3">
-          {localModels && localModels.length > 0 ? (
-            <>
-              <label className={legendClass} htmlFor={modelId}>
-                Local model
-              </label>
-              <select
-                id={modelId}
-                value={localModel ?? ""}
-                onChange={(e) => {
-                  const v = e.target.value || null;
-                  setLocalModelState(v);
-                  setModel(v);
-                }}
-                className={inputClass}
-              >
-                <option value="">Default{info?.model ? ` (${info.model})` : ""}</option>
-                {localModels.map((m) => (
-                  <option key={m.name} value={m.name}>
-                    {m.name}
-                    {m.paramsB != null ? ` (${m.paramsB}B)` : ""}
-                  </option>
-                ))}
-              </select>
-              <p className="mt-1.5 font-body text-[12px] text-foreground opacity-80">
-                Which installed Ollama model runs your search. Larger models are more capable but
-                slower.
-              </p>
-            </>
-          ) : (
-            <p className="font-body text-[12px] text-foreground opacity-80">
-              Runs on your own machine via Ollama — nothing leaves your computer.
-            </p>
-          )}
+          <LocalModelPanel
+            initialStatus={info?.ollama}
+            selectedModel={localModel}
+            onSelectModel={(v) => {
+              setLocalModelState(v);
+              setModel(v);
+            }}
+          />
         </div>
       )}
 

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { isLocalLlm, defaultLocalModel } from "@/lib/llm/client";
-import { listOllamaChatModels } from "@/lib/llm/ollamaInfo";
+import { isLocalLlm } from "@/lib/llm/client";
+import { getOllamaStatus } from "@/lib/llm/ollamaStatus";
 import { resolveCloudConfig, resolveCloudApiKey, publicKeySource, isEnvCloudConfig } from "@/lib/llm/config";
 import { buildSearchStatus } from "@/lib/embeddings/searchStatus";
 
@@ -36,11 +36,14 @@ export async function GET() {
   const search = buildSearchStatus();
 
   if (isLocalLlm()) {
+    // Settings → Model → Local: installed / running / models / what to download (lib/llm/ollamaStatus.ts).
+    const ollama = await getOllamaStatus();
     return NextResponse.json({
       local: true,
       provider: "ollama" as const,
-      model: defaultLocalModel(),
-      models: await listOllamaChatModels(),
+      model: ollama.defaultModel, // what "Default" actually runs: an installed model when there is one
+      models: ollama.chatModels,
+      ollama,
       search,
       ...(cloud ? { cloud } : {}),
     });

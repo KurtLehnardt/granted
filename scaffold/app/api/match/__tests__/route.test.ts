@@ -143,8 +143,8 @@ test("buildOpportunityMap throwing mid-stream emits a type:'error' line and the 
 
 // Real-world finding: a key with no credit passes Test key / Load models
 // (models.list is free) and every search then fails with a provider 400 the
-// old code buried behind "The search didn't complete." — this is the fix.
-test("a provider 400 (e.g. Anthropic credit-balance error) surfaces the sanitized provider message, not the generic text", async () => {
+// old code buried behind "The search didn't complete." Now it says what to do.
+test("a provider 400 (Anthropic credit-balance error) says the account is out of credits and how to fix it", async () => {
   const providerErr = Anthropic.APIError.generate(
     400,
     { error: { message: "Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits." } },
@@ -154,26 +154,100 @@ test("a provider 400 (e.g. Anthropic credit-balance error) surfaces the sanitize
   const deps: MatchDeps = {
     cached: () => undefined,
     buildOpportunityMap: async () => { throw providerErr; },
+    cloudProviderName: () => "Anthropic",
   };
   const res = await handleMatchRequest(post(JSON.stringify({ description: VALID_DESCRIPTION })), deps);
   const lines = await readLines(res);
   const err = lines.find((l) => l.type === "error");
   assert.ok(err);
-  assert.match(err.error, /credit balance is too low/);
+  assert.equal(err.error, "Your Anthropic account is out of credits — add credits, or switch to Local in Settings → Model.");
   assert.doesNotMatch(err.error, /didn't complete/);
 });
 
-test("an OpenAI-compatible provider 4xx (ProviderHttpError) also surfaces its sanitized message", async () => {
+test("an OpenAI-compatible 402 (ProviderHttpError) is reported as out of credits for that provider", async () => {
   const deps: MatchDeps = {
     cached: () => undefined,
     buildOpportunityMap: async () => {
       throw new ProviderHttpError(402, JSON.stringify({ error: { message: "Insufficient balance for this request." } }));
     },
+    cloudProviderName: () => "OpenAI",
   };
   const res = await handleMatchRequest(post(JSON.stringify({ description: VALID_DESCRIPTION })), deps);
   const lines = await readLines(res);
   const err = lines.find((l) => l.type === "error");
-  assert.equal(err.error, "Insufficient balance for this request.");
+  assert.match(err.error, /^Your OpenAI account is out of credits/);
+});
+
+test("a revoked key (401) says the key was rejected and where to update it", async () => {
+  const providerErr = Anthropic.APIError.generate(401, { error: { type: "authentication_error", message: "invalid x-api-key" } }, undefined, {});
+  const res = await handleMatchRequest(post(JSON.stringify({ description: VALID_DESCRIPTION })), {
+    cached: () => undefined,
+    buildOpportunityMap: async () => { throw providerErr; },
+    cloudProviderName: () => "Anthropic",
+  });
+  const err = (await readLines(res)).find((l) => l.type === "error");
+  assert.match(err.error, /Anthropic API key was rejected/);
+  assert.match(err.error, /Settings → Model/);
+});
+
+test("an unrecognized provider 4xx still surfaces its sanitized message", async () => {
+  const deps: MatchDeps = {
+    cached: () => undefined,
+    buildOpportunityMap: async () => {
+      throw new ProviderHttpError(400, JSON.stringify({ error: { message: "max_tokens is too large for this model." } }));
+    },
+    cloudProviderName: () => "OpenAI",
+  };
+  const res = await handleMatchRequest(post(JSON.stringify({ description: VALID_DESCRIPTION })), deps);
+  const err = (await readLines(res)).find((l) => l.type === "error");
+  assert.equal(err.error, "max_tokens is too large for this model.");
+});
+
+test("Local: Ollama unreachable before the search -> says to start it in Settings → Model, never calls the model", async () => {
+  let built = false;
+  const { LocalSetupError } = await import("@/lib/llm/searchErrors");
+  const res = await handleMatchRequest(post(JSON.stringify({ description: VALID_DESCRIPTION })), {
+    cached: () => undefined,
+    buildOpportunityMap: async () => { built = true; return fakeMap; },
+    resolveLlm: async () => { throw new LocalSetupError("ollama_unreachable"); },
+  });
+  const err = (await readLines(res)).find((l) => l.type === "error");
+  assert.match(err.error, /couldn't reach Ollama/);
+  assert.match(err.error, /start it in Settings → Model/);
+  assert.equal(built, false);
+});
+
+test("Local: the configured model missing -> names the model and the fix", async () => {
+  const { LocalSetupError } = await import("@/lib/llm/searchErrors");
+  const res = await handleMatchRequest(post(JSON.stringify({ description: VALID_DESCRIPTION })), {
+    cached: () => undefined,
+    buildOpportunityMap: async () => fakeMap,
+    resolveLlm: async () => { throw new LocalSetupError("local_model_missing", "gemma4:latest"); },
+  });
+  const err = (await readLines(res)).find((l) => l.type === "error");
+  assert.match(err.error, /"gemma4:latest" isn't installed/);
+});
+
+test("Local: Ollama stopping mid-search (fetch failed, wrapped by the batch fan-out) -> 'couldn't reach Ollama'", async () => {
+  const conn = Object.assign(new TypeError("fetch failed"), { cause: Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:11434"), { code: "ECONNREFUSED" }) });
+  const res = await handleMatchRequest(post(JSON.stringify({ description: VALID_DESCRIPTION })), {
+    cached: () => undefined,
+    buildOpportunityMap: async () => { throw new Error("All scoring batches failed: fetch failed", { cause: conn }); },
+    resolveLlm: async () => ({ local: true, model: "llama3.2:1b" }),
+  });
+  const err = (await readLines(res)).find((l) => l.type === "error");
+  assert.match(err.error, /couldn't reach Ollama/);
+});
+
+test("Local: the preflight's 'Starting Ollama…' status streams as progress before the search", async () => {
+  const res = await handleMatchRequest(post(JSON.stringify({ description: VALID_DESCRIPTION })), {
+    cached: () => undefined,
+    buildOpportunityMap: async () => fakeMap,
+    resolveLlm: async (_m, onStatus) => { onStatus("Starting Ollama…"); return { local: true, model: "llama3.2:1b" }; },
+  });
+  const lines = await readLines(res);
+  assert.ok(lines.some((l) => l.type === "progress" && l.label === "Starting Ollama…"));
+  assert.equal(lines.at(-1).type, "result");
 });
 
 test("a ProviderHttpError 4xx with an HTML body keeps the generic message", async () => {

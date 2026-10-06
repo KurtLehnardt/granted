@@ -47,7 +47,9 @@ import type { PreviewItem } from "@/lib/ui/previewReducer";
  * harmless "Open Settings" button next to "Try again", not a dead end.
  */
 export function looksLikeKeyOrAuthError(message: string): boolean {
-  return /\bapi[ -]?key\b|\bcredentials?\b|\bcredits?\b|\bquota\b|\bbilling\b|\bunauthorized\b|\bauthenticat|\bauth\b/i.test(
+  // "Settings → Model": every actionable search error (Ollama down, local model
+  // missing, out of credits, bad key) names where to fix it.
+  return /\bapi[ -]?key\b|\bcredentials?\b|\bcredits?\b|\bquota\b|\bbilling\b|\bunauthorized\b|\bauthenticat|\bauth\b|settings → model/i.test(
     message,
   );
 }

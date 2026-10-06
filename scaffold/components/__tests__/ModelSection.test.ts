@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import React from "react";
 
 import ModelSection, { draftOnProviderSwitch, type LlmProviderInfo } from "../ModelSection";
+import type { OllamaStatus } from "@/lib/llm/ollamaModels";
 
 /**
  * Settings' Local/Cloud switch. `initialInfo` is the hermetic test seam (no
@@ -12,6 +13,146 @@ import ModelSection, { draftOnProviderSwitch, type LlmProviderInfo } from "../Mo
 function render(initialInfo?: LlmProviderInfo) {
   return renderToStaticMarkup(React.createElement(ModelSection, { initialInfo }));
 }
+
+/** A GET /api/llm/ollama body: Ollama running with no models, on Windows, unless overridden. */
+function ollamaStatus(over: Partial<OllamaStatus> = {}): OllamaStatus {
+  return {
+    installed: true,
+    running: true,
+    isOllama: true,
+    host: "http://localhost:11434",
+    canManage: true,
+    platform: "win32",
+    chatModels: [],
+    embeddingModels: [],
+    defaultModel: "gemma4:latest",
+    configuredModel: "gemma4:latest",
+    recommended: { model: "qwen2.5:7b", note: "Strong, well-calibrated local default for 16–32GB.", memGB: 31 },
+    suggestions: ["qwen2.5:7b", "llama3.1:8b", "llama3.2:3b", "llama3.2:1b"],
+    install: { auto: "winget", command: "winget install -e --id Ollama.Ollama", url: "https://ollama.com/download" },
+    jobs: {},
+    ...over,
+  };
+}
+
+function renderLocal(over: Partial<OllamaStatus> = {}) {
+  const ollama = ollamaStatus(over);
+  return render({ provider: "ollama", local: true, model: ollama.defaultModel, models: ollama.chatModels, ollama });
+}
+
+const stateOf = (html: string) => /data-testid="local-setup" data-state="([a-z_]+)"/.exec(html)?.[1];
+
+describe("ModelSection — Local says what's wrong and offers the fix", () => {
+  test("not installed, Windows -> 'Install Ollama' button (winget, official installer fallback) and a download link", () => {
+    const html = renderLocal({ installed: false, running: false, isOllama: false });
+    assert.equal(stateOf(html), "not_installed");
+    assert.match(html, /Ollama isn&#x27;t installed/);
+    assert.match(html, />Install Ollama</);
+    assert.match(html, /winget install -e --id Ollama\.Ollama/);
+    assert.match(html, /official installer/);
+    assert.match(html, /href="https:\/\/ollama\.com\/download"/);
+    assert.match(html, />Check again</);
+  });
+
+  test("not installed, macOS/Linux -> a link and the install command, no install button", () => {
+    const html = renderLocal({
+      installed: false,
+      running: false,
+      isOllama: false,
+      platform: "linux",
+      install: { auto: null, command: "curl -fsSL https://ollama.com/install.sh | sh", url: "https://ollama.com/download" },
+    });
+    assert.equal(stateOf(html), "not_installed");
+    assert.doesNotMatch(html, />Install Ollama</);
+    assert.match(html, /Download Ollama from ollama\.com/);
+    assert.match(html, /curl -fsSL https:\/\/ollama\.com\/install\.sh \| sh/);
+  });
+
+  test("install in progress -> progress line and bar", () => {
+    const html = renderLocal({
+      installed: false,
+      running: false,
+      isOllama: false,
+      jobs: { install: { status: "running", pct: 40, message: "Downloading the Ollama installer: 40%" } },
+    });
+    assert.match(html, /Installing Ollama…/);
+    assert.match(html, /Downloading the Ollama installer: 40%/);
+    assert.match(html, /aria-valuenow="40"/);
+  });
+
+  test("installed but not running -> 'Start Ollama'", () => {
+    const html = renderLocal({ running: false, isOllama: false });
+    assert.equal(stateOf(html), "not_running");
+    assert.match(html, /installed but isn&#x27;t running/);
+    assert.match(html, />Start Ollama</);
+    assert.match(html, />Check again</);
+  });
+
+  test("a start that failed shows why", () => {
+    const html = renderLocal({ running: false, isOllama: false, jobs: { start: { status: "error", error: "Ollama didn't start within 90 seconds." } } });
+    assert.match(html, /didn&#x27;t start within 90 seconds/);
+  });
+
+  test("running, only an embedding model -> no picker, 'Download a model' with the recommended tier and alternatives", () => {
+    const html = renderLocal({ embeddingModels: ["nomic-embed-text:latest"] });
+    assert.equal(stateOf(html), "no_chat_models");
+    assert.doesNotMatch(html, /Local model<\/label>/);
+    assert.match(html, /nomic-embed-text:latest is an embedding model and can&#x27;t run searches/);
+    assert.match(html, /Download a model/);
+    assert.match(html, /Recommended for this computer \(31 GB of memory\)/);
+    assert.match(html, />Download qwen2\.5:7b \(recommended\)</);
+    assert.match(html, />Download llama3\.1:8b</);
+    assert.doesNotMatch(html, /<option[^>]*>nomic-embed-text/);
+  });
+
+  test("the user's report: configured gemma4:latest isn't installed -> Default shows and runs an installed model, says so, offers to download it", () => {
+    const html = renderLocal({
+      chatModels: [{ name: "qwen2.5:7b", paramsB: 7.6 }, { name: "llama3.2:1b", paramsB: 1.2 }],
+      embeddingModels: ["nomic-embed-text:latest"],
+      defaultModel: "qwen2.5:7b", // resolved by the server: the best installed chat model
+      configuredModel: "gemma4:latest",
+    });
+    assert.equal(stateOf(html), "ok");
+    assert.match(html, /<option value="" selected="">Default \(qwen2\.5:7b\)<\/option>/);
+    assert.doesNotMatch(html, /Default \(gemma4/);
+    assert.match(html, /The configured default, gemma4:latest, isn&#x27;t installed, so Default uses qwen2\.5:7b/);
+    assert.match(html, /<option value="llama3\.2:1b">llama3\.2:1b \(1\.2B\)<\/option>/);
+    assert.match(html, />Download gemma4:latest</);
+    assert.doesNotMatch(html, />Download qwen2\.5:7b/);
+    assert.doesNotMatch(html, /<option[^>]*>nomic-embed-text/);
+  });
+
+  test("a picked model that's no longer installed falls back to Default, never a model_missing dead end", () => {
+    const html = render({
+      provider: "ollama",
+      local: true,
+      ollama: ollamaStatus({ chatModels: [{ name: "llama3.2:1b" }], defaultModel: "llama3.2:1b" }),
+    });
+    assert.equal(stateOf(html), "ok");
+  });
+
+  test("pull in progress -> progress and the download buttons disabled", () => {
+    const html = renderLocal({ jobs: { pull: { status: "running", model: "qwen2.5:7b", pct: 37, message: "Downloading qwen2.5:7b: 1.7 GB of 4.7 GB" } } });
+    assert.match(html, /Downloading qwen2\.5:7b: 1\.7 GB of 4\.7 GB/);
+    assert.match(html, /aria-valuenow="37"/);
+    assert.match(html, /<button type="button"[^>]*disabled=""[^>]*>Download qwen2\.5:7b/);
+  });
+
+  test("ok -> the picker, no warnings, no download section", () => {
+    const html = renderLocal({ chatModels: [{ name: "gemma4:latest", paramsB: 4 }, { name: "qwen2.5:7b", paramsB: 7 }] });
+    assert.equal(stateOf(html), "ok");
+    assert.match(html, /Runs on your own machine via Ollama/);
+    assert.match(html, /Local model/);
+    assert.doesNotMatch(html, /not installed/);
+    assert.doesNotMatch(html, /Download a model/);
+    assert.match(html, />Check again</);
+  });
+
+  test("no status yet -> 'Checking Ollama…', never a blank panel", () => {
+    const html = render({ provider: "ollama", local: true });
+    assert.match(html, /Checking Ollama…/);
+  });
+});
 
 describe("ModelSection — renders the right panel per provider", () => {
   test("provider: ollama -> local panel, no key inputs, toggle says 'Cloud' (not 'Claude')", () => {
@@ -24,11 +165,13 @@ describe("ModelSection — renders the right panel per provider", () => {
   });
 
   test("provider: ollama with installed models -> renders the model picker", () => {
+    const models = [{ name: "gemma4:latest", paramsB: 4 }, { name: "qwen2.5:7b", paramsB: 7 }];
     const html = render({
       provider: "ollama",
       local: true,
       model: "gemma4:latest",
-      models: [{ name: "gemma4:latest", paramsB: 4 }, { name: "qwen2.5:7b", paramsB: 7 }],
+      models,
+      ollama: ollamaStatus({ chatModels: models }),
     });
     assert.match(html, /Local model/);
     assert.match(html, /qwen2\.5:7b/);

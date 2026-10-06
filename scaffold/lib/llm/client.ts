@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import Anthropic from "@anthropic-ai/sdk";
 import { normalizeOpenAiBaseUrl } from "./baseUrl";
 import { currentLocalModel } from "./modelContext";
+import { configuredLocalModel, resolveLocalDefaultModel } from "./localDefault";
 import { resolveProvider, resolveCloudConfig, resolveCloudApiKey, resolveCloudBaseUrl, resolveCloudModel, resolveAnthropicSdkBaseUrl } from "./config";
 import { getCloudProvider, type CloudProviderPreset } from "./providers";
 import { ProviderHttpError, redactKey, retryAfterMsFromResponse } from "./errors";
@@ -56,8 +57,10 @@ function provider(): "ollama" | "cloud" {
   return resolveProvider();
 }
 
+/** The configured local default (LOCAL_LLM_MODEL, else gemma4:latest), installed or not —
+ * calls resolve the model that actually runs with resolveLocalDefaultModel (./localDefault). */
 export function defaultLocalModel(): string {
-  return process.env.LOCAL_LLM_MODEL || "gemma4:latest";
+  return configuredLocalModel();
 }
 
 /** True when the local / OpenAI-compatible self-hosted backend is selected (not any cloud provider). */
@@ -88,7 +91,8 @@ export function makeLlmClient(opts: LlmClientOptions = {}): LlmClient {
     return makeOpenAiCompatClient({
       baseUrl: normalizeOpenAiBaseUrl(process.env.LLM_BASE_URL || "http://localhost:11434/v1"),
       apiKey: process.env.LLM_API_KEY || "local", // Ollama ignores this
-      getModel: () => currentLocalModel() || defaultLocalModel(),
+      // No model picked: the configured default if installed, else the best installed chat model.
+      getModel: async () => currentLocalModel() || (await resolveLocalDefaultModel()),
       timeoutMs: opts.timeout ?? 120_000,
     });
   }
@@ -186,7 +190,7 @@ export function adaptRejectedParams(payload: ChatPayload, errorBody: string): Ch
 function makeOpenAiCompatClient(opts: {
   baseUrl: string;
   apiKey: string;
-  getModel: () => string;
+  getModel: () => string | Promise<string>;
   timeoutMs: number;
 }): LlmClient {
   const { baseUrl, apiKey, getModel, timeoutMs } = opts;
@@ -195,7 +199,7 @@ function makeOpenAiCompatClient(opts: {
       // Signature-compatible with Anthropic's messages.create for the subset the
       // app uses: params.{model,max_tokens,system,messages}, options.{signal}.
       async create(params: any, options?: { signal?: AbortSignal }): Promise<any> {
-        const model = getModel();
+        const model = await getModel();
         const messages: Array<{ role: string; content: string }> = [];
         // `system` may be a plain string OR Anthropic content blocks
         // (`[{ type:"text", text, cache_control }]`, used for prompt caching).
