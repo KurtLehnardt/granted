@@ -202,5 +202,10 @@ describe("GET /api/llm", () => {
     assert.equal(j.local, true);
     assert.equal(j.model, "gemma3:12b");
     assert.deepEqual(j.models, [{ name: "gemma3:12b", paramsB: 12 }]);
+    // Settings → Model → Local's status rides along: running, chat vs embedding models, the default.
+    assert.equal(j.ollama.running, true);
+    assert.deepEqual(j.ollama.chatModels, [{ name: "gemma3:12b", paramsB: 12 }]);
+    assert.deepEqual(j.ollama.embeddingModels, ["nomic-embed-text"]);
+    assert.equal(j.ollama.defaultModel, "gemma3:12b");
   });
 });

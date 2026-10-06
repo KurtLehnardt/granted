@@ -109,6 +109,13 @@ describe("helpers", () => {
     assert.equal(messageOf({ message: "obj" }), "obj");
     assert.equal(messageOf({ a: 1 }), '{"a":1}');
     assert.equal(messageOf("x".repeat(5000)).length, 2000);
+    // the causes underneath, with their codes
+    const conn = new TypeError("fetch failed", { cause: Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:11434"), { code: "ECONNREFUSED" }) });
+    assert.equal(messageOf(conn), "TypeError: fetch failed <- connect ECONNREFUSED 127.0.0.1:11434");
+    assert.equal(messageOf(new Error("outer", { cause: Object.assign(new Error("inner"), { code: "E_X" }) })), "outer <- inner (E_X)");
+    const loop: Error & { cause?: unknown } = new Error("loop");
+    loop.cause = loop;
+    assert.equal(messageOf(loop), "loop");
   });
 
   test("shortStack keeps only frames, at most 8", () => {

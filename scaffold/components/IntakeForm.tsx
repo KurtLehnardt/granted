@@ -49,7 +49,9 @@ import type { PreviewItem } from "@/lib/ui/previewReducer";
  * harmless "Open Settings" button next to "Try again", not a dead end.
  */
 export function looksLikeKeyOrAuthError(message: string): boolean {
-  return /\bapi[ -]?key\b|\bcredentials?\b|\bcredits?\b|\bquota\b|\bbilling\b|\bunauthorized\b|\bauthenticat|\bauth\b/i.test(
+  // "Settings → Model": every actionable search error (Ollama down, local model
+  // missing, out of credits, bad key) names where to fix it.
+  return /\bapi[ -]?key\b|\bcredentials?\b|\bcredits?\b|\bquota\b|\bbilling\b|\bunauthorized\b|\bauthenticat|\bauth\b|settings → model/i.test(
     message,
   );
 }
@@ -281,7 +283,8 @@ export default function IntakeForm({
             onSearchDuration?.(tookMs);
             onResult(msg.map);
           } else if (msg.type === "error") {
-            throw errorWithId(msg.error ?? "Matching failed.", msg.errorId);
+            // guidance: a setup step the user can take (start Ollama, pick an installed model) -- not a problem to report.
+            throw Object.assign(errorWithId(msg.error ?? "Matching failed.", msg.errorId), { notAProblem: msg.guidance === true });
           }
         }
       }

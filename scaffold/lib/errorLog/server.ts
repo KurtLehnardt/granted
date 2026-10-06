@@ -133,6 +133,16 @@ export function messageOf(err: unknown): string {
   else if (err && typeof err === "object" && typeof (err as { message?: unknown }).message === "string") msg = (err as { message: string }).message;
   else msg = safe(() => JSON.stringify(err) ?? String(err), String(err));
   msg = msg || "Unknown error";
+  // The causes underneath ("fetch failed" says little; "connect ECONNREFUSED …" says what happened).
+  const seen = new Set<unknown>([err]);
+  let cause = err && typeof err === "object" ? (err as { cause?: unknown }).cause : undefined;
+  for (let i = 0; cause != null && i < 4 && !seen.has(cause); i++) {
+    seen.add(cause);
+    const c = cause instanceof Error ? (cause.name && cause.name !== "Error" ? `${cause.name}: ${cause.message}` : cause.message) : typeof cause === "string" ? cause : "";
+    const code = cause && typeof cause === "object" && typeof (cause as { code?: unknown }).code === "string" ? (cause as { code: string }).code : "";
+    if (c || code) msg += ` <- ${c || code}${code && c && !c.includes(code) ? ` (${code})` : ""}`;
+    cause = cause && typeof cause === "object" ? (cause as { cause?: unknown }).cause : undefined;
+  }
   return msg.length > MAX_MESSAGE_CHARS ? `${msg.slice(0, MAX_MESSAGE_CHARS - 1)}…` : msg;
 }
 

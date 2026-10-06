@@ -1,11 +1,15 @@
 "use client";
 
 import React, { useEffect, useId, useState } from "react";
+import ReportProblemLink from "@/components/ReportProblemLink";
+import { reportClientError } from "@/lib/errorLog/client";
+import { isErrorId } from "@/lib/errorLog/errorId";
 import { getModel, setModel } from "@/lib/searchSettings";
-import type { OllamaModel } from "@/lib/llm/ollamaInfo";
+import type { OllamaModel, OllamaStatus } from "@/lib/llm/ollamaModels";
 import { CLOUD_PROVIDERS, isSameCloudTarget, type CloudProviderId } from "@/lib/llm/providers";
 import type { SearchStatus } from "@/lib/embeddings/searchStatus";
 import LocalSearchStatus from "@/components/LocalSearchStatus";
+import LocalModelPanel from "@/components/LocalModelPanel";
 
 export type KeySourceType = "inline" | "env" | "file";
 export type PublicKeySource = { type: "inline" } | { type: "env"; name: string } | { type: "file"; path: string };
@@ -69,6 +73,8 @@ export type LlmProviderInfo = {
   local: boolean;
   model?: string;
   models?: OllamaModel[];
+  /** Local only: Ollama installed / running / models / what to download (GET /api/llm, lib/llm/ollamaStatus.ts). */
+  ollama?: OllamaStatus;
   cloud?: CloudInfo;
   /** The "Search" line: which embeddings search uses, and the built-in model's download state (lib/embeddings/searchStatus.ts). */
   search?: SearchStatus;
@@ -98,7 +104,6 @@ export function draftOnProviderSwitch(
 // resolvable, format-valid key (POST /api/llm/config, loopback-only).
 export default function ModelSection({ initialInfo }: { initialInfo?: LlmProviderInfo }) {
   const uid = useId();
-  const modelId = `${uid}-model`;
   const providerSelectId = `${uid}-provider`;
   const baseUrlId = `${uid}-base-url`;
   const keySourceId = `${uid}-key-source`;
@@ -120,10 +125,14 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
   const [filePath, setFilePath] = useState(cloud?.keySource.type === "file" ? cloud.keySource.path : "");
   const [cloudModelsList, setCloudModelsList] = useState<string[]>([]);
   const [modelsError, setModelsError] = useState<string | null>(null);
+  const [modelsErrorId, setModelsErrorId] = useState<string | null>(null);
   const [loadingModels, setLoadingModels] = useState(false);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Set only for real failures (a 5xx, or the server unreachable): "please enter a key" and other
+  // things the user fixes in this form are guidance, with nothing to report.
+  const [errorId, setErrorId] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; error?: string } | null>(null);
 
@@ -173,6 +182,7 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
   async function selectLocal() {
     if (uiProvider === "ollama" && info?.provider === "ollama") return;
     setError(null);
+    setErrorId(null);
     setTestResult(null);
     setSaving(true);
     try {
@@ -184,11 +194,13 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(json?.error ?? `HTTP ${res.status}`);
+        if (res.status >= 500) setErrorId(problemId(json, res.status));
         return;
       }
       await refresh();
-    } catch {
+    } catch (err) {
       setError("Couldn't reach the server. Try again.");
+      setErrorId(reportClientError("llm-config", err));
     } finally {
       setSaving(false);
     }
@@ -202,6 +214,7 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
   async function handleSaveCloud() {
     setSaving(true);
     setError(null);
+    setErrorId(null);
     setTestResult(null);
     try {
       const body = {
@@ -221,11 +234,13 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(json?.error ?? "Please enter a key for your cloud provider.");
+        if (res.status >= 500) setErrorId(problemId(json, res.status));
         return;
       }
       await refresh();
-    } catch {
+    } catch (err) {
       setError("Couldn't reach the server. Try again.");
+      setErrorId(reportClientError("llm-config", err));
     } finally {
       setSaving(false);
     }
@@ -234,6 +249,7 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
   async function handleRemoveCloud() {
     setSaving(true);
     setError(null);
+    setErrorId(null);
     setTestResult(null);
     try {
       const res = await fetch("/api/llm/config", {
@@ -244,12 +260,14 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(json?.error ?? `HTTP ${res.status}`);
+        if (res.status >= 500) setErrorId(problemId(json, res.status));
         return;
       }
       setUiProvider("ollama");
       await refresh();
-    } catch {
+    } catch (err) {
       setError("Couldn't reach the server. Try again.");
+      setErrorId(reportClientError("llm-config", err));
     } finally {
       setSaving(false);
     }
@@ -281,6 +299,7 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
   async function handleLoadModels() {
     setLoadingModels(true);
     setModelsError(null);
+    setModelsErrorId(null);
     try {
       const res = await fetch("/api/llm/models", {
         method: "POST",
@@ -294,11 +313,14 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
       const json = await res.json().catch(() => ({}));
       if (!res.ok || json?.error) {
         setModelsError(json?.error ?? `HTTP ${res.status}`);
+        if (isErrorId(json?.errorId)) setModelsErrorId(json.errorId);
+        else if (res.status >= 500) setModelsErrorId(reportClientError("llm-provider", `HTTP ${res.status}`));
         return;
       }
       setCloudModelsList(json.models ?? []);
-    } catch {
+    } catch (err) {
       setModelsError("Couldn't reach the server.");
+      setModelsErrorId(reportClientError("llm-provider", err));
     } finally {
       setLoadingModels(false);
     }
@@ -317,7 +339,6 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
       active ? "bg-structure text-token-white" : "bg-canvas text-structure-on-canvas hover:bg-canvas-alt"
     }`;
 
-  const localModels = info?.models ?? null;
   const preset = CLOUD_PROVIDERS.find((p) => p.id === providerId);
   // The persisted provider (what actually runs searches), independent of
   // which panel is open for editing — a revealed-but-unsaved Cloud panel, or
@@ -365,39 +386,14 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
 
       {uiProvider === "ollama" && (
         <div data-testid="model-panel-local" className="mt-3">
-          {localModels && localModels.length > 0 ? (
-            <>
-              <label className={legendClass} htmlFor={modelId}>
-                Local model
-              </label>
-              <select
-                id={modelId}
-                value={localModel ?? ""}
-                onChange={(e) => {
-                  const v = e.target.value || null;
-                  setLocalModelState(v);
-                  setModel(v);
-                }}
-                className={inputClass}
-              >
-                <option value="">Default{info?.model ? ` (${info.model})` : ""}</option>
-                {localModels.map((m) => (
-                  <option key={m.name} value={m.name}>
-                    {m.name}
-                    {m.paramsB != null ? ` (${m.paramsB}B)` : ""}
-                  </option>
-                ))}
-              </select>
-              <p className="mt-1.5 font-body text-[12px] text-foreground opacity-80">
-                Which installed Ollama model runs your search. Larger models are more capable but
-                slower.
-              </p>
-            </>
-          ) : (
-            <p className="font-body text-[12px] text-foreground opacity-80">
-              Runs on your own machine via Ollama — nothing leaves your computer.
-            </p>
-          )}
+          <LocalModelPanel
+            initialStatus={info?.ollama}
+            selectedModel={localModel}
+            onSelectModel={(v) => {
+              setLocalModelState(v);
+              setModel(v);
+            }}
+          />
         </div>
       )}
 
@@ -549,6 +545,7 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
                 {loadingModels ? "Loading models…" : "Load models"}
               </button>
               {modelsError && <span className="font-body text-[12px] text-foreground">{modelsError}</span>}
+              {modelsError && modelsErrorId && <ReportProblemLink errorId={modelsErrorId} area="llm-provider" message={modelsError} />}
             </div>
           </div>
 
@@ -584,8 +581,19 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
       {error && (
         <p className="mt-2 rounded-r-sm border-l-2 border-error bg-canvas-alt px-3 py-2 font-body text-[12px] text-foreground">
           {error}
+          {errorId && (
+            <span className="mt-1 block">
+              <ReportProblemLink errorId={errorId} area="llm-config" message={error} />
+            </span>
+          )}
         </p>
       )}
     </div>
   );
+}
+
+/** The id of a failed request's log entry: the server's (withErrorLogging adds it to a 5xx), or one logged from here. */
+function problemId(json: unknown, status: number): string {
+  const id = (json as { errorId?: unknown } | null)?.errorId;
+  return isErrorId(id) ? id : reportClientError("llm-config", `HTTP ${status}`);
 }
