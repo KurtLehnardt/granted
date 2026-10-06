@@ -104,6 +104,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\shortcuts.ps
 - **The Granted shortcut** starts Granted if it isn't already running, then opens it. Nothing starts at sign-in.
 - **Its own window:** Granted opens like an app, in an Edge window with no tabs or address bar and its own taskbar entry (Edge's app mode, `msedge --app=…`; Chrome if there's no Edge). To use a normal browser tab instead, untick **Open in its own window** in the tray icon's menu or on the installer's last screen. The choice is saved in `%LOCALAPPDATA%\Granted\settings.json`. Links to other sites open in a regular Edge (or Chrome) window, not in your default browser.
 - **The Granted icon by the clock** has a right-click menu: **Open Granted**, its status, **Open in its own window**, **Show log** (the server output, in `%LOCALAPPDATA%\Granted\logs`), **Restart** and **Quit Granted**. Quitting stops the server.
+- **Updates:** **Settings → About Granted** shows the version, with **Check for updates**. On an install made by the installer, **Update to vX.Y.Z** updates in place: Granted closes, installs the release, reopens, and the page reloads. **Install updates automatically** does the same when Granted is opened, at most every 6 hours. A developer checkout is told to `git pull` instead, and is never changed.
 - **Uninstalling:** the install adds Granted to **Settings → Apps → Installed apps** (per-user, no admin needed). **Uninstall** there:
   - quits Granted;
   - removes its shortcuts, its folder and its settings and logs;

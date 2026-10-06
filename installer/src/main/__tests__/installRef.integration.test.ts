@@ -228,6 +228,161 @@ describe("install-windows.ps1 with GRANTED_REF (a pinned release)", { skip: (pro
     assert.equal(versionIn(home), "0.2.0");
   });
 
+  /** Runs the installed copy's update.ps1 (what Settings → Update starts); returns its update-status.json. */
+  async function runUpdater(home: string, source: string, ref: string, extra: string[] = []): Promise<{ state?: string; message?: string; from?: string; to?: string }> {
+    const settings = join(root, `updater-${seq++}`, "settings.json");
+    mkdirSync(join(settings, ".."), { recursive: true });
+    await execFileAsync(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", join(home, "granted", "scaffold", "scripts", "windows", "update.ps1"), "-Ref", ref, "-Port", String(PORT), ...extra],
+      {
+        windowsHide: true,
+        timeout: 240_000,
+        env: {
+          ...process.env,
+          GRANTED_INSTALL_SCRIPT: INSTALL_SCRIPT,
+          GRANTED_REPO_URL: source,
+          GRANTED_SETTINGS_PATH: settings,
+          GRANTED_UNINSTALL_KEY_ROOT: `${keyParent}\\Uninstall`,
+          LOCALAPPDATA: join(root, "LocalAppData"),
+          npm_config_audit: "false",
+          npm_config_fund: "false",
+        },
+      },
+    ).catch(() => {});
+    try {
+      return JSON.parse(readFileSync(join(settings, "..", "update-status.json"), "utf8")) as { state?: string; message?: string };
+    } catch {
+      return {};
+    }
+  }
+  const stopTestTray = async (home: string): Promise<void> => {
+    await execFileAsync("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", join(home, "granted", "scaffold", "scripts", "windows", "granted-tray.ps1"), "-Stop", "-Port", String(PORT)]).catch(() => {});
+    const deadline = Date.now() + 30_000;
+    while ((await probeGranted(`http://127.0.0.1:${PORT}/`, 1000)) !== "down" && Date.now() < deadline) await sleep(500);
+  };
+
+  test("update.ps1 (Settings → Update): stops the running Granted, updates to the release, and starts Granted again on its port", async () => {
+    const source = makeSource();
+    const home = freshHome();
+    await runInstall(home, source, "v0.1.0");
+    const tray = spawn(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", join(home, "granted", "scaffold", "scripts", "windows", "granted-tray.ps1"), "-NoTray", "-Port", String(PORT)],
+      { windowsHide: true, stdio: "ignore", env: { ...process.env, LOCALAPPDATA: join(root, "LocalAppData") } },
+    );
+    started.push(tray);
+    let deadline = Date.now() + 60_000;
+    while ((await probeGranted(`http://127.0.0.1:${PORT}/`, 2000)) !== "granted" && Date.now() < deadline) await sleep(500);
+    try {
+      const status = await runUpdater(home, source, "v0.2.0");
+      assert.equal(status.state, "done", JSON.stringify(status));
+      assert.equal(status.from, "0.1.0");
+      assert.equal(status.to, "v0.2.0");
+      assert.equal(versionIn(home), "0.2.0");
+      assert.notEqual(tray.exitCode, null, "the Granted that was running was stopped");
+      // ...and started again, in the background, on the same port.
+      deadline = Date.now() + 90_000;
+      while ((await probeGranted(`http://127.0.0.1:${PORT}/`, 2000)) !== "granted" && Date.now() < deadline) await sleep(1000);
+      assert.equal(await probeGranted(`http://127.0.0.1:${PORT}/`, 2000), "granted", "Granted is back");
+    } finally {
+      await stopTestTray(home);
+    }
+  });
+
+  test("update.ps1: a failed update is reported (and the install left as it was); a declined one says why", async () => {
+    const source = makeSource();
+    const home = freshHome();
+    await runInstall(home, source, "v0.1.0");
+    const missing = await runUpdater(home, source, "v0.9.9", ["-NoRestart"]);
+    assert.equal(missing.state, "error", JSON.stringify(missing));
+    assert.match(missing.message ?? "", /didn't finish/);
+    assert.equal(versionIn(home), "0.1.0");
+
+    // REGRESSION (review): declined BEFORE anything is stopped -- a running Granted keeps running.
+    writeFileSync(join(home, "granted", "scaffold", "server.js"), readFileSync(join(home, "granted", "scaffold", "server.js"), "utf8") + "\n// my change\n");
+    const tray = spawn(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", join(home, "granted", "scaffold", "scripts", "windows", "granted-tray.ps1"), "-NoTray", "-Port", String(PORT)],
+      { windowsHide: true, stdio: "ignore", env: { ...process.env, LOCALAPPDATA: join(root, "LocalAppData") } },
+    );
+    started.push(tray);
+    const deadline = Date.now() + 60_000;
+    while ((await probeGranted(`http://127.0.0.1:${PORT}/`, 2000)) !== "granted" && Date.now() < deadline) await sleep(500);
+    try {
+      const declined = await runUpdater(home, source, "v0.2.0", ["-NoRestart"]);
+      assert.equal(declined.state, "error", JSON.stringify(declined));
+      assert.match(declined.message ?? "", /wasn't updated to v0\.2\.0: it has local changes/);
+      assert.equal(versionIn(home), "0.1.0");
+      assert.equal(tray.exitCode, null, "the running Granted wasn't stopped for a declined update");
+      assert.equal(await probeGranted(`http://127.0.0.1:${PORT}/`, 2000), "granted");
+    } finally {
+      await stopTestTray(home);
+    }
+
+    const bad = await runUpdater(home, source, "main", ["-NoRestart"]);
+    assert.equal(bad.state, "error");
+    assert.match(bad.message ?? "", /must be a release tag/);
+  });
+
+  test("REGRESSION (review): update.ps1 puts the previous version back when the update fails half-way (npm ci)", async () => {
+    const source = makeSource();
+    // v0.2.1: a release whose npm ci fails (lockfile out of sync with package.json).
+    git(source, "checkout", "-q", "-b", "broken", "v0.2.0");
+    writeFileSync(
+      join(source, "scaffold", "package.json"),
+      JSON.stringify({ name: "granted", version: "0.2.1", private: true, scripts: { dev: "node server.js" }, dependencies: { "left-pad": "1.3.0" } }, null, 2),
+    );
+    git(source, "add", "-A");
+    git(source, "commit", "-q", "-m", "broken 0.2.1");
+    git(source, "tag", "-a", "v0.2.1", "-m", "v0.2.1");
+    git(source, "checkout", "-q", "main");
+    const home = freshHome();
+    await runInstall(home, source, "v0.1.0");
+    const status = await runUpdater(home, source, "v0.2.1", ["-NoRestart"]);
+    assert.equal(status.state, "error", JSON.stringify(status));
+    assert.match(status.message ?? "", /The update to v0\.2\.1 didn't finish: .*Granted v0\.1\.0 was put back\. Details are in /);
+    assert.doesNotMatch(status.message ?? "", /see the output above/);
+    assert.equal(versionIn(home), "0.1.0");
+    assert.equal(git(join(home, "granted"), "describe", "--tags", "--exact-match"), "v0.1.0");
+    // ("was put back" is only said once the restore's npm ci succeeded.)
+  });
+
+  test("REGRESSION (review): the app's real startUpdater launches update.ps1, which outlives the server that started it", async () => {
+    // A stand-in update.ps1 that records how it was started, waits, then
+    // records that it finished -- after its "server" has been killed.
+    const dir = join(root, `launch-${seq++}`, "scaffold");
+    mkdirSync(join(dir, "scripts", "windows"), { recursive: true });
+    const startedFile = join(dir, "started.txt");
+    const finishedFile = join(dir, "finished.txt");
+    const q = (p: string): string => `'${p.replace(/'/g, "''")}'`;
+    writeFileSync(
+      join(dir, "scripts", "windows", "update.ps1"),
+      `param([string]$Ref, [int]$Port)\r\nSet-Content -LiteralPath ${q(startedFile)} -Value "$Ref $Port"\r\nStart-Sleep -Seconds 6\r\nSet-Content -LiteralPath ${q(finishedFile)} -Value done\r\n`,
+    );
+    // The "server": a node process calling the app's real startUpdater (scaffold/lib/appUpdate/install.ts).
+    const installTs = resolve(REPO_ROOT, "scaffold", "lib", "appUpdate", "install.ts").replace(/\\/g, "/");
+    const serverScript = join(dir, "server.mts");
+    writeFileSync(
+      serverScript,
+      `import { startUpdater } from "file:///${installTs}";\nawait startUpdater("v9.9.9", 3456, { dir: ${JSON.stringify(dir)} });\nconsole.log("launched");\nsetInterval(() => {}, 1000);\n`,
+    );
+    const server = spawn(process.execPath, ["--import", "tsx", serverScript], { cwd: process.cwd(), windowsHide: true, stdio: ["ignore", "pipe", "inherit"] });
+    started.push(server);
+    let out = "";
+    server.stdout?.on("data", (b: Buffer) => (out += b.toString()));
+    let deadline = Date.now() + 60_000;
+    while (!existsSync(startedFile) && Date.now() < deadline) await sleep(250);
+    assert.ok(existsSync(startedFile), "update.ps1 was actually started");
+    assert.match(readFileSync(startedFile, "utf8"), /v9\.9\.9 3456/);
+    // The update stops the server (its whole tree): the updater must survive that.
+    execFileSync("taskkill.exe", ["/PID", String(server.pid), "/T", "/F"], { stdio: "ignore" });
+    deadline = Date.now() + 30_000;
+    while (!existsSync(finishedFile) && Date.now() < deadline) await sleep(250);
+    assert.ok(existsSync(finishedFile), "update.ps1 ran to the end after its server was killed");
+    assert.match(out, /launched/);
+  });
+
   test("a folder the installer didn't make (someone's own checkout) is never switched to another release", async () => {
     const source = makeSource();
     const home = freshHome();
