@@ -67,10 +67,13 @@ describe("what it says", () => {
     assert.equal(noteFor({ ...base, status: { state: "error", to: "v0.2.0", message: "npm ci failed" } }, false, idle), "npm ci failed");
     // An old failure to reach a version that IS now installed: not news.
     assert.equal(noteFor({ ...base, status: { state: "error", to: "v0.1.1", message: "old" } }, false, idle), "");
+    // REGRESSION (review): nor one for a version older than what's now installed (updated another way since).
+    assert.equal(noteFor({ ...base, version: "0.3.0", status: { state: "error", to: "v0.2.0", message: "old" } }, false, idle), "");
   });
 
   test("while updating", () => {
-    assert.match(String(noteFor(base, true, { id: "updating", to: "v0.2.0" })), /Updating to Granted v0\.2\.0… Granted will close and reopen by itself/);
+    assert.match(String(noteFor(base, true, { id: "updating", to: "v0.2.0" })), /Updating Granted to v0\.2\.0… Granted will close and reopen by itself/);
+    assert.equal(noteFor(base, true, { id: "starting" }), "Starting the update…");
   });
 });
 
@@ -90,22 +93,29 @@ describe("waiting through the restart", () => {
 
   test("server down for a while, then back on the new version -> ok", async () => {
     const c = fakeClock();
-    const outcome = await waitForUpdate("v0.2.0", { ...c, fetchImpl: answers([base, "down", "down", { ...base, version: "0.2.0" }]) });
+    const outcome = await waitForUpdate("v0.2.0", null, { ...c, fetchImpl: answers([base, "down", "down", { ...base, version: "0.2.0" }]) });
     assert.deepEqual(outcome, { ok: true });
   });
 
   test("the updater reports an error -> its message", async () => {
     const c = fakeClock();
     const failed = { ...base, status: { state: "error" as const, to: "v0.2.0", message: "The update didn't finish: npm ci failed" } };
-    assert.deepEqual(await waitForUpdate("v0.2.0", { ...c, fetchImpl: answers(["down", failed]) }), {
+    assert.deepEqual(await waitForUpdate("v0.2.0", null, { ...c, fetchImpl: answers(["down", failed]) }), {
       ok: false,
       message: "The update didn't finish: npm ci failed",
     });
   });
 
+  test("REGRESSION (review): an earlier attempt's error for the same release is ignored — only this attempt's counts", async () => {
+    const c = fakeClock();
+    const old = { ...base, status: { state: "error" as const, to: "v0.2.0", message: "old failure", at: "2026-01-01T00:00:00.000Z" } };
+    const outcome = await waitForUpdate("v0.2.0", "2026-10-05T12:00:00.000Z", { ...c, fetchImpl: answers([old, "down", { ...base, version: "0.2.0" }]) });
+    assert.deepEqual(outcome, { ok: true });
+  });
+
   test("never comes back -> gives up with a clear message", async () => {
     const c = fakeClock();
-    const outcome = await waitForUpdate("v0.2.0", { ...c, timeoutMs: 60_000, fetchImpl: answers(["down"]) });
+    const outcome = await waitForUpdate("v0.2.0", null, { ...c, timeoutMs: 60_000, fetchImpl: answers(["down"]) });
     assert.equal(outcome.ok, false);
     assert.match((outcome as { message: string }).message, /taking much longer than expected/);
   });

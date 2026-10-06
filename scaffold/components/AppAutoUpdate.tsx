@@ -23,11 +23,11 @@ export default function AppAutoUpdate() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ action: "auto" }),
         });
-        const body = (await res.json().catch(() => ({}))) as { started?: boolean; to?: string };
+        const body = (await res.json().catch(() => ({}))) as { started?: boolean; to?: string; startedAt?: string };
         if (!body.started || !body.to) return;
         const to = body.to;
         setUpdating({ to });
-        const outcome = await waitForUpdate(to);
+        const outcome = await waitForUpdate(to, body.startedAt ?? null);
         if (outcome.ok) window.location.reload();
         else setUpdating({ to, error: outcome.message });
       } catch {
@@ -52,7 +52,7 @@ export default function AppAutoUpdate() {
           </button>
         </>
       ) : (
-        <>Updating Granted to {updating.to}… Granted will close and reopen by itself in a minute or two.</>
+        <>Updating Granted to {updating.to}… Granted will close and reopen by itself, and this page reloads when it's back.</>
       )}
     </div>
   );

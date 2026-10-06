@@ -113,20 +113,20 @@ describe("starting the updater", () => {
     );
   });
 
-  test("runs update.ps1 for the release and port, hidden (conhost --headless), detached from this server", () => {
+  test("runs update.ps1 for the release and port, hidden (conhost --headless), out of this server's tree", async () => {
     const calls: Array<{ file: string; args: string[]; options: Record<string, unknown> }> = [];
     const spawnImpl = ((file: string, args: string[], options: Record<string, unknown>) => {
       calls.push({ file, args, options });
-      return { on() {}, unref() {} };
+      return { once(event: string, cb: (code: number) => void) { if (event === "exit") setTimeout(() => cb(0), 0); } };
     }) as unknown as typeof import("node:child_process").spawn;
-    startUpdater("v0.2.0", 3123, { dir: "C:\\g\\scaffold", systemRoot: "C:\\Windows", spawnImpl });
+    await startUpdater("v0.2.0", 3123, { dir: "C:\\g\\scaffold", systemRoot: "C:\\Windows", spawnImpl });
     assert.equal(calls.length, 1);
     const { file, args, options } = calls[0];
     assert.match(file, /powershell\.exe$/i);
     const command = args[args.indexOf("-Command") + 1];
     assert.match(command, /^Start-Process -FilePath 'C:\\Windows\\System32\\conhost\.exe' -ArgumentList '--headless /);
     assert.match(command, /-File C:\\g\\scaffold\\scripts\\windows\\update\.ps1 -Ref v0\.2\.0 -Port 3123'$/);
-    assert.equal(options["detached"], true);
+    assert.equal(options["detached"], undefined, "REGRESSION (review): detached gives PowerShell no console, and it never runs the update");
     assert.equal(options["stdio"], "ignore");
     assert.equal(options["windowsHide"], true);
   });

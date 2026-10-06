@@ -9,7 +9,8 @@
 # same update path as running a newer Granted-Setup .exe: it stops Granted
 # (the tray and its server, which is why this can't run inside the server),
 # moves this install to the release (never backwards, never over local
-# changes), runs npm ci and refreshes the Installed apps entry. Then it starts
+# changes), runs npm ci and refreshes the Installed apps entry -- and if that
+# fails half-way, puts the previous version back. Then it starts
 # Granted in the background again (the tray), and the open page reloads once
 # the new version answers.
 #
@@ -72,6 +73,36 @@ trap {
 if ($Ref -notmatch '^v\d+\.\d+\.\d+$') { throw "-Ref must be a release tag like v1.2.3 (got '$Ref')" }
 Write-UpdateStatus "running" $null
 
+# git, as a plain process (never PowerShell's native-command handling, which
+# turns git's stderr into terminating errors here). Returns exit code + stdout.
+function Invoke-Git([string]$GitArgs) {
+  $psi = New-Object System.Diagnostics.ProcessStartInfo
+  $psi.FileName = "git"
+  $psi.Arguments = "-C `"$InstallDir`" $GitArgs"
+  $psi.UseShellExecute = $false
+  $psi.CreateNoWindow = $true
+  $psi.RedirectStandardOutput = $true
+  $psi.RedirectStandardError = $true
+  $proc = [System.Diagnostics.Process]::Start($psi)
+  $out = $proc.StandardOutput.ReadToEnd(); [void]$proc.StandardError.ReadToEnd()
+  $proc.WaitForExit()
+  return @{ code = $proc.ExitCode; out = $out.Trim() }
+}
+
+# What the install script would decline anyway -- checked BEFORE it stops
+# Granted, so a declined update doesn't shut Granted down and reinstall it
+# for nothing (and, with automatic updates, every few hours).
+if (-not [System.IO.File]::Exists([System.IO.Path]::Combine($InstallDir, ".git\granted-installer"))) {
+  Write-UpdateStatus "error" "Granted wasn't updated to ${Ref}: this folder wasn't installed by the Granted installer."
+  exit 0
+}
+if ((Invoke-Git "status --porcelain").out) {
+  Write-UpdateStatus "error" "Granted wasn't updated to ${Ref}: it has local changes in $InstallDir."
+  exit 0
+}
+# Where to go back to if the update fails half-way.
+$previousHead = (Invoke-Git "rev-parse HEAD").out
+
 # That release's own install script (or a local one, in tests).
 $installScript = $env:GRANTED_INSTALL_SCRIPT
 if (-not $installScript) {
@@ -106,8 +137,23 @@ if ($p.ExitCode -eq 0 -and $result -and $result.state -eq "done") {
     Write-UpdateStatus "done" $null
   }
 } else {
-  $msg = if ($result -and $result.message) { $result.message } else { "the install step failed (exit code $($p.ExitCode))" }
-  Write-UpdateStatus "error" "The update didn't finish: $msg Details are in $LogPath"
+  $msg = if ($result -and $result.message) { $result.message } else { "the install step failed (exit code $($p.ExitCode))." }
+  # The install script's own wording points at its console; there is none here.
+  $msg = $msg -replace ' -- see the output above for the underlying error\.?', '.'
+  # Failed half-way (say npm ci, after the switch to the new release): put the
+  # previous version back, so Granted still starts.
+  $restored = ""
+  if ($previousHead -and (Invoke-Git "rev-parse HEAD").out -ne $previousHead) {
+    $back = Invoke-Git "-c advice.detachedHead=false checkout --quiet $previousHead"
+    if ($back.code -eq 0) {
+      $npm = Start-Process -FilePath $env:ComSpec -ArgumentList "/d /c npm.cmd ci --no-audit --no-fund" `
+        -WorkingDirectory $Scaffold -RedirectStandardOutput "$LogPath.restore" -RedirectStandardError "$LogPath.restore.err" `
+        -WindowStyle Hidden -Wait -PassThru
+      if ($npm.ExitCode -eq 0) { $restored = " Granted v$From was put back." }
+    }
+  }
+  if (-not $msg.TrimEnd().EndsWith(".")) { $msg = "$($msg.TrimEnd())." }
+  Write-UpdateStatus "error" "The update to $Ref didn't finish: $msg$restored Details are in $LogPath."
 }
 if (-not $env:GRANTED_INSTALL_SCRIPT) { Remove-Item -LiteralPath $installScript -Force -ErrorAction SilentlyContinue }
 Remove-Item -LiteralPath $installStatus -Force -ErrorAction SilentlyContinue

@@ -7,6 +7,7 @@ import {
   readUpdateStatus,
   startUpdater,
   writeUpdateSettings,
+  writeUpdateStatus,
   type CannotUpdateReason,
   type UpdateStatus,
 } from "@/lib/appUpdate/install";
@@ -39,6 +40,8 @@ export interface AppUpdateInfo {
   releasesPage: string;
 }
 
+type Req = { headers: { get(name: string): string | null } };
+
 export type UpdateDeps = {
   isLoopbackRequest: typeof isLoopbackRequest;
   appVersion: () => string;
@@ -46,11 +49,25 @@ export type UpdateDeps = {
   readUpdateSettings: typeof readUpdateSettings;
   writeUpdateSettings: (changes: Parameters<typeof writeUpdateSettings>[0]) => void;
   readUpdateStatus: () => UpdateStatus | null;
+  writeUpdateStatus: (status: UpdateStatus) => void;
   fetchLatest: () => Promise<LatestRelease>;
-  startUpdater: (ref: string, port: number) => void;
+  startUpdater: (ref: string, port: number) => Promise<void>;
   now: () => number;
-  port: () => number;
+  /** The port Granted is serving on — where the updater starts it again. */
+  port: (req: Req) => number;
 };
+
+/**
+ * The port this request came in on (the page's own — whatever started the
+ * server), else PORT (the tray sets it), else Next's default.
+ */
+export function requestPort(req: Req, env: Record<string, string | undefined> = process.env): number {
+  const host = req.headers.get("host");
+  const m = host ? /:(\d+)$/.exec(host) : null;
+  const fromHost = m ? Number(m[1]) : NaN;
+  if (Number.isInteger(fromHost) && fromHost > 0 && fromHost < 65536) return fromHost;
+  return Number(env["PORT"]) || 3000;
+}
 
 const REAL_DEPS: UpdateDeps = {
   isLoopbackRequest,
@@ -59,16 +76,20 @@ const REAL_DEPS: UpdateDeps = {
   readUpdateSettings: () => readUpdateSettings(),
   writeUpdateSettings: (changes) => writeUpdateSettings(changes),
   readUpdateStatus: () => readUpdateStatus(),
+  writeUpdateStatus: (status) => writeUpdateStatus(status),
   fetchLatest: () => fetchLatestRelease(process.env["GRANTED_RELEASES_API"] || LATEST_RELEASE_API),
   startUpdater: (ref, port) => startUpdater(ref, port),
   now: () => Date.now(),
-  port: () => Number(process.env["PORT"]) || 3000,
+  port: (req) => requestPort(req),
 };
 
-// One cached successful check per server run (see CHECK_CACHE_MS).
+// One cached successful check per server run (see CHECK_CACHE_MS), and one
+// update being started at a time within this server.
 let cachedLatest: { result: LatestRelease; at: number } | null = null;
+let starting = false;
 export function resetUpdateCacheForTests(): void {
   cachedLatest = null;
+  starting = false;
 }
 
 async function latestRelease(d: UpdateDeps, force: boolean): Promise<LatestRelease> {
@@ -80,10 +101,11 @@ async function latestRelease(d: UpdateDeps, force: boolean): Promise<LatestRelea
   return result;
 }
 
+/** An update is under way (a missing or garbled timestamp counts as stale, never as forever). */
 function isRunning(status: UpdateStatus | null, now: number): boolean {
   if (status?.state !== "running") return false;
   const at = status.at ? Date.parse(status.at) : NaN;
-  return Number.isNaN(at) || now - at < RUNNING_STALE_MS;
+  return !Number.isNaN(at) && now - at < RUNNING_STALE_MS;
 }
 
 /** Whether an automatic check is due now (pure: the auto-update decision). */
@@ -115,10 +137,7 @@ async function info(d: UpdateDeps, check: boolean, force: boolean): Promise<AppU
  * newest release on GitHub. ?check=0 never contacts GitHub (the page polling
  * for the restart after an update).
  */
-export async function handleUpdateGet(
-  req: { headers: { get(name: string): string | null }; url: string },
-  deps: Partial<UpdateDeps> = {},
-) {
+export async function handleUpdateGet(req: Req & { url: string }, deps: Partial<UpdateDeps> = {}) {
   const d = { ...REAL_DEPS, ...deps };
   if (!d.isLoopbackRequest(req)) return NextResponse.json({ error: "Only available from this computer" }, { status: 403 });
   const check = new URL(req.url).searchParams.get("check");
@@ -132,11 +151,10 @@ export async function handleUpdateGet(
  *   { action: "auto" }                  sent when Granted opens: update now
  *                                       if automatic updates are on, a check
  *                                       is due, and a newer release exists
+ * A started update answers 202 { started, from, to, startedAt }: the page
+ * waits for that version, ignoring any status older than startedAt.
  */
-export async function handleUpdatePost(
-  req: { headers: { get(name: string): string | null }; json?: () => Promise<unknown> },
-  deps: Partial<UpdateDeps> = {},
-) {
+export async function handleUpdatePost(req: Req & { json?: () => Promise<unknown> }, deps: Partial<UpdateDeps> = {}) {
   const d = { ...REAL_DEPS, ...deps };
   if (!d.isLoopbackRequest(req)) return NextResponse.json({ error: "Only available from this computer" }, { status: 403 });
   const body = ((await req.json?.().catch(() => null)) ?? {}) as { action?: unknown; autoUpdate?: unknown };
@@ -152,12 +170,21 @@ export async function handleUpdatePost(
   if (body.action !== "install" && body.action !== "auto") {
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   }
-  if (!install.canUpdate) return NextResponse.json({ error: "This copy of Granted can't update itself", started: false }, { status: 409 });
-  if (isRunning(d.readUpdateStatus(), d.now())) {
-    return NextResponse.json({ error: "An update is already running", started: false }, { status: 409 });
+  const auto = body.action === "auto";
+  // Sent on every page load: quietly nothing, rather than an error, for a
+  // copy that can't update itself (a developer checkout, another platform).
+  if (!install.canUpdate) {
+    return auto
+      ? NextResponse.json({ started: false })
+      : NextResponse.json({ error: "This copy of Granted can't update itself", started: false }, { status: 409 });
+  }
+  if (starting || isRunning(d.readUpdateStatus(), d.now())) {
+    return auto
+      ? NextResponse.json({ started: false })
+      : NextResponse.json({ error: "An update is already running", started: false }, { status: 409 });
   }
 
-  if (body.action === "auto") {
+  if (auto) {
     const settings = d.readUpdateSettings();
     if (!autoCheckDue({ autoUpdate: settings.autoUpdate, canUpdate: true, lastAutoCheck: settings.lastAutoCheck, now: d.now() })) {
       return NextResponse.json({ started: false });
@@ -165,12 +192,38 @@ export async function handleUpdatePost(
     d.writeUpdateSettings({ lastAutoCheck: d.now() });
   }
 
-  const version = d.appVersion();
-  const latest = await latestRelease(d, body.action === "install");
-  if (latest.failed) return NextResponse.json({ error: "Couldn't check for updates — try again later", started: false }, { status: 502 });
-  if (!latest.tag || !isNewerRelease(latest.tag, versionToTag(version))) {
-    return NextResponse.json({ started: false, upToDate: true, version });
+  starting = true;
+  try {
+    const version = d.appVersion();
+    const latest = await latestRelease(d, !auto);
+    if (latest.failed) {
+      return auto
+        ? NextResponse.json({ started: false })
+        : NextResponse.json({ error: "Couldn't check for updates — try again later", started: false }, { status: 502 });
+    }
+    if (!latest.tag || !isNewerRelease(latest.tag, versionToTag(version))) {
+      return NextResponse.json({ started: false, upToDate: true, version });
+    }
+    // Automatic updates don't retry a release that already failed here — that
+    // would stop and restart Granted every few hours for the same error. The
+    // button still retries; a newer release is tried again.
+    const last = d.readUpdateStatus();
+    if (auto && last?.state === "error" && last.to === latest.tag) {
+      return NextResponse.json({ started: false, lastFailed: latest.tag });
+    }
+    // "running" BEFORE launching: update.ps1 takes seconds to start and write
+    // it, and a second click (or the automatic check) must not start another.
+    const startedAt = new Date(d.now()).toISOString();
+    d.writeUpdateStatus({ state: "running", from: version, to: latest.tag, message: null, at: startedAt });
+    try {
+      await d.startUpdater(latest.tag, d.port(req));
+    } catch (err) {
+      const message = `Couldn't start the update: ${err instanceof Error ? err.message : String(err)}`;
+      d.writeUpdateStatus({ state: "error", from: version, to: latest.tag, message, at: new Date(d.now()).toISOString() });
+      return NextResponse.json({ error: message, started: false }, { status: 500 });
+    }
+    return NextResponse.json({ started: true, from: version, to: latest.tag, startedAt }, { status: 202 });
+  } finally {
+    starting = false;
   }
-  d.startUpdater(latest.tag, d.port());
-  return NextResponse.json({ started: true, from: version, to: latest.tag }, { status: 202 });
 }

@@ -106,6 +106,12 @@ export interface UpdateStatus {
   at?: string;
 }
 
+/** Writes the update status (the server marks "running" itself before starting update.ps1). */
+export function writeUpdateStatus(status: UpdateStatus, file = updateStatusPath()): void {
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, JSON.stringify(status), "utf8");
+}
+
 export function readUpdateStatus(path = updateStatusPath()): UpdateStatus | null {
   try {
     const s = JSON.parse(readFileSync(path, "utf8").replace(/^\uFEFF/, "")) as UpdateStatus;
@@ -123,17 +129,22 @@ export function startProcessCommand(file: string, args: string[]): string {
 }
 
 /**
- * Starts scripts/windows/update.ps1 for `ref`, fully detached from this
- * server — the update stops this very server, so it must not be its child.
- * Same launch as the tray's: conhost --headless (no console window, even
- * where Windows Terminal is the default) through PowerShell's Start-Process
- * (ShellExecute: nothing inherited from this process).
+ * Starts scripts/windows/update.ps1 for `ref`, out of this server's process
+ * tree — the update stops this very server. A short-lived PowerShell starts
+ * conhost --headless (no console window, even where Windows Terminal is the
+ * default) with Start-Process (ShellExecute: nothing inherited) and exits;
+ * from then on nothing links the updater to the server, so stopping the
+ * server's tree doesn't reach it.
+ *
+ * NOT `detached: true`: that gives the PowerShell no console at all, and it
+ * then exits without running its -Command (seen on Windows 11) — the update
+ * would never start.
  */
 export function startUpdater(
   ref: string,
   port: number,
   deps: { dir?: string; systemRoot?: string; spawnImpl?: typeof spawn } = {},
-): void {
+): Promise<void> {
   const dir = deps.dir ?? scaffoldDir();
   const systemRoot = deps.systemRoot ?? process.env["SystemRoot"] ?? "C:\\Windows";
   // Windows-only: Windows paths whatever the test OS.
@@ -157,8 +168,13 @@ export function startUpdater(
     cwd: dir,
     windowsHide: true,
     stdio: "ignore",
-    detached: true,
   });
-  child.on?.("error", () => {});
-  child.unref?.();
+  // Resolves once the launcher has handed off (or rejects if it couldn't),
+  // so the caller can report a launch failure instead of "started".
+  return new Promise((resolveStart, rejectStart) => {
+    child.once?.("error", rejectStart);
+    child.once?.("exit", (code: number | null) =>
+      code === 0 ? resolveStart() : rejectStart(new Error(`the updater couldn't be started (exit code ${code})`)),
+    );
+  });
 }

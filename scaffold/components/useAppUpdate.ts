@@ -10,6 +10,8 @@ export type UpdateOutcome = { ok: true } | { ok: false; message: string };
 
 export async function waitForUpdate(
   to: string,
+  /** When the server started this attempt: statuses older than this are an earlier attempt's. */
+  startedAt: string | null,
   opts: { intervalMs?: number; timeoutMs?: number; fetchImpl?: typeof fetch; sleep?: (ms: number) => Promise<void>; now?: () => number } = {},
 ): Promise<UpdateOutcome> {
   const intervalMs = opts.intervalMs ?? 3000;
@@ -26,7 +28,8 @@ export async function waitForUpdate(
       if (res.ok) {
         const info = (await res.json()) as AppUpdateInfo;
         if (`v${info.version}` === to) return { ok: true };
-        if (info.status?.state === "error" && info.status.to === to) {
+        const fresh = !startedAt || !info.status?.at || Date.parse(info.status.at) >= Date.parse(startedAt);
+        if (info.status?.state === "error" && info.status.to === to && fresh) {
           return { ok: false, message: info.status.message ?? "The update didn't finish." };
         }
       }
