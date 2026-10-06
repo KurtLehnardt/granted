@@ -21,8 +21,8 @@
  */
 import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { execFile, execFileSync } from "node:child_process";
-import { existsSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { execFile, execFileSync, spawn } from "node:child_process";
+import { existsSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -58,6 +58,49 @@ const HELPER_KILLED_NOTE = /did not exit within \d+s of SIGTERM/;
 function trayLog(root: string): string {
   const path = join(root, "logs", "tray.log");
   return existsSync(path) ? readFileSync(path, "utf8") : "";
+}
+
+/** Whether `pid` is still alive. */
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A detached, long-lived process that is NOT Granted's menu-bar helper, for
+ * the pid-reuse test below — a stand-in for whatever unrelated program ends up
+ * holding a recycled pid after a reboot. It ignores SIGTERM on purpose, so a
+ * `stop` that wrongly signals it is caught twice over: the process survives,
+ * and the stop takes the whole HELPER_STOP_WAIT deadline before SIGKILLing it.
+ */
+function startInnocentProcess(): { pid: number; stop: () => void } {
+  const child = spawn("/bin/bash", ["-c", "trap '' TERM INT; while :; do sleep 1; done"], {
+    detached: true,
+    stdio: "ignore",
+  });
+  child.unref();
+  const pid = child.pid ?? 0;
+  assert.ok(pid > 0, "the stand-in process started");
+  return {
+    pid,
+    stop: () => {
+      // Its own process group (detached), so this takes the `sleep` with it.
+      try {
+        process.kill(-pid, "SIGKILL");
+      } catch {
+        /* already gone */
+      }
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        /* already gone */
+      }
+    },
+  };
 }
 
 async function until<T>(fn: () => Promise<T>, ok: (v: T) => boolean, timeoutMs = 60_000): Promise<T> {
@@ -788,6 +831,227 @@ describe(
       // the server shutdown it was asked to.
       assert.equal(await probeGranted(`http://127.0.0.1:${PORT}/`, 3000), "down", "the server is stopped");
       assert.equal(fake.agentLoaded(), false, "nothing left registered with launchd");
+    });
+  },
+);
+
+describe(
+  "`granted-tray.sh stop` when the pid file's pid now belongs to something else",
+  {
+    skip: (process.platform !== "darwin" || !existsSync(TRAY_SCRIPT)) && "macOS only, run from installer/",
+  },
+  () => {
+    /**
+     * REGRESSION. granted-tray.sh's helper_pid() used to accept any live pid in
+     * ~/Library/Application Support/Granted/menubar-<port>.pid. That file
+     * outlives a SIGKILL, a force-quit and a power loss — only the Swift side's
+     * own graceful quit() removes it — and pids restart low after a reboot, so
+     * a collision with an unrelated process is realistic, not theoretical.
+     * stop_helper would then SIGTERM that process, wait the full 45-second
+     * HELPER_STOP_WAIT deadline for it, and SIGKILL it.
+     *
+     * The same hazard, and the same fix, as install-macos.sh's matching_pids:
+     * confirm what a pid actually is before signalling it. Here the pid file is
+     * made to point at a real process that is plainly not the helper, and the
+     * stop must leave it completely alone while still cleaning Granted up.
+     */
+    let fake: FakeInstall;
+    /** Where the (never-built) helper the fake install is configured with would live. */
+    let helperDir: string;
+    let innocent: { pid: number; stop: () => void };
+
+    before(async () => {
+      // A helper path with the real binary's name, pointing at a file that does
+      // not exist: granted-tray.sh's start_helper finds nothing to run and
+      // writes no pid file (so the one below is entirely this test's), while
+      // helper_path() still reports the name a real helper would have. No
+      // Swift, no GUI session and no menu-bar icon are involved.
+      helperDir = realpathSync(await mkdtemp(join(tmpdir(), "granted-pid-reuse-")));
+      fake = await setUpFakeInstall({ helper: join(helperDir, "granted-menubar") });
+      await execFileAsync("/bin/bash", [fake.trayScript, "start", "--port", String(PORT)], {
+        env: { ...process.env, ...fake.env },
+        timeout: 180_000,
+      });
+      assert.equal(await until(() => probeGranted(`http://127.0.0.1:${PORT}/`, 3000), (p) => p === "granted"), "granted");
+      innocent = startInnocentProcess();
+    });
+
+    after(async () => {
+      innocent?.stop();
+      await fake.cleanup();
+      await rm(helperDir, { recursive: true, force: true, maxRetries: 5 });
+    });
+
+    test("the pid file points at a real, live process that is not the helper", () => {
+      assert.ok(alive(innocent.pid), "the stand-in process is running");
+      mkdirSync(join(fake.root, "support"), { recursive: true });
+      writeFileSync(fake.helperPidFile, String(innocent.pid), "utf8");
+      // Exactly the state a killed helper leaves behind: a pid file naming a
+      // pid that is alive, but is not the helper any more.
+      assert.equal(readFileSync(fake.helperPidFile, "utf8").trim(), String(innocent.pid));
+    });
+
+    test("stop leaves that process alone, drops the stale pid file, and still stops Granted", async () => {
+      const startedAt = Date.now();
+      await execFileAsync("/bin/bash", [fake.trayScript, "stop", "--port", String(PORT)], {
+        env: { ...process.env, ...fake.env },
+        timeout: 180_000,
+      });
+      const elapsed = Date.now() - startedAt;
+
+      // THE assertion. Before the fix this process was SIGTERMed, waited on for
+      // 45 seconds, and then SIGKILLed.
+      assert.ok(alive(innocent.pid), "the unrelated process was never signalled");
+      // And the second half of that bug: the stop did not sit out the whole
+      // HELPER_STOP_WAIT deadline waiting for a helper that was never there.
+      assert.ok(elapsed < 40_000, `stop must not wait out the helper deadline for a pid that isn't one (took ${elapsed}ms)`);
+      assert.doesNotMatch(trayLog(fake.root), HELPER_KILLED_NOTE, "nothing was killed, so nothing is logged as killed");
+      // The stale file is cleaned up rather than left to mislead the next stop.
+      assert.equal(existsSync(fake.helperPidFile), false, "the stale pid file is gone");
+      // And Granted's own state is stopped exactly as it would be with no pid
+      // file at all.
+      assert.equal(await probeGranted(`http://127.0.0.1:${PORT}/`, 3000), "down", "the server is stopped");
+      assert.equal(fake.agentLoaded(), false, "nothing left registered with launchd");
+    });
+  },
+);
+
+describe(
+  "the Swift helper's run(): a child that never exits is killed, and run() still returns",
+  {
+    skip:
+      (process.platform !== "darwin" || !existsSync(MENUBAR_PKG) || !hasSwift()) &&
+      "macOS with the Xcode Command Line Tools only, run from installer/",
+  },
+  () => {
+    /**
+     * REGRESSION. run() used to call readDataToEndOfFile() — which blocks until
+     * the child's stdout closes — and only then compute and check its timeout
+     * deadline. So the timeout bounded nothing: a wedged `launchctl` or `curl`
+     * meant run() never returned, serverState() never completed, the polling
+     * loop's `polling` flag never cleared, and the menu-bar status label froze
+     * permanently with no recovery path.
+     *
+     * Driven through the helper's own GRANTED_MENUBAR_RUN_TIMEOUT_TEST hook,
+     * which calls the very same run() the polling loop does. Deliberately
+     * before NSApplication, so this needs no GUI session and puts no icon on
+     * anyone's menu bar.
+     */
+    const TIMEOUT_SECONDS = 4;
+    let root: string;
+    /** The pids the wedging script records: the child bash, then its own child. */
+    let recorded: number[] = [];
+
+    const pidsFile = (): string => join(root, "pids.txt");
+
+    before(async () => {
+      await execFileAsync("swift", ["build", "-c", "release", "--package-path", MENUBAR_PKG], { timeout: 10 * 60_000 });
+      root = realpathSync(await mkdtemp(join(tmpdir(), "granted-run-timeout-")));
+      await writeFile(
+        join(root, "wedge.sh"),
+        [
+          "#!/bin/bash",
+          "# Wedges on purpose: ignores SIGTERM, starts a grandchild that also",
+          "# ignores SIGTERM, records both pids, and never exits on its own.",
+          "trap '' TERM INT",
+          'out="$WEDGE_PIDS"',
+          `/bin/bash -c 'trap "" TERM INT; printf "%s\\n" "$$" >> "$0"; while :; do sleep 300; done' "$out" &`,
+          'printf \'%s\\n\' "$$" >> "$out"',
+          'echo "wedging now"',
+          "while :; do sleep 300; done",
+          "",
+        ].join("\n"),
+        { mode: 0o755 },
+      );
+    });
+
+    after(async () => {
+      // Nothing of this may outlive the test, whatever it did or didn't manage.
+      for (const pid of recorded) {
+        try {
+          process.kill(pid, "SIGKILL");
+        } catch {
+          /* already gone, which is the point */
+        }
+      }
+      await rm(root, { recursive: true, force: true, maxRetries: 5 });
+    });
+
+    test("it returns within the timeout instead of blocking on a child that never closes stdout", async () => {
+      const startedAt = Date.now();
+      const { stdout } = await execFileAsync(helperBinary(), [], {
+        env: {
+          ...process.env,
+          GRANTED_MENUBAR_RUN_TIMEOUT_TEST: `${TIMEOUT_SECONDS}:${join(root, "wedge.sh")}`,
+          WEDGE_PIDS: pidsFile(),
+        },
+        // Generous, so a hang fails this assertion rather than the test runner.
+        timeout: 120_000,
+      });
+      const elapsed = Date.now() - startedAt;
+
+      recorded = readFileSync(pidsFile(), "utf8")
+        .split("\n")
+        .map((line) => Number(line.trim()))
+        .filter((pid) => Number.isInteger(pid) && pid > 0);
+      assert.equal(recorded.length, 2, "the wedging script recorded its own pid and its child's");
+
+      // The deadline, plus the one-second grace a SIGTERMed child gets before
+      // SIGKILL, plus room for process startup. Before the fix this never
+      // returned at all.
+      assert.ok(
+        elapsed >= TIMEOUT_SECONDS * 1000,
+        `it must actually wait out the timeout, not fail early (took ${elapsed}ms)`,
+      );
+      assert.ok(elapsed < (TIMEOUT_SECONDS + 15) * 1000, `it must return promptly after the timeout (took ${elapsed}ms)`);
+      // What run() reports for a child it had to kill, and what it managed to
+      // read before doing so — proof the pipe was being drained all along
+      // rather than read in one blocking call at the end.
+      assert.match(stdout, /run timeout test .*status=-1/);
+      assert.match(stdout, /run timeout test output=wedging now/);
+    });
+
+    test("the whole process group goes with it: the child, its child, and their sleeps", () => {
+      for (const pid of recorded) assert.equal(alive(pid), false, `pid ${pid} must have been killed with its group`);
+      // Nothing at all is left in the group run() spawned the child into — the
+      // point of POSIX_SPAWN_SETPGROUP. The child bash is the group leader, so
+      // its pid is the group id.
+      const groups = execFileSync("ps", ["-axo", "pgid="], { encoding: "utf8" })
+        .split("\n")
+        .map((line) => Number(line.trim()));
+      assert.ok(!groups.includes(recorded[0]), `nothing may be left in process group ${recorded[0]}`);
+    });
+
+    test("a child that exits normally is unaffected: full output, real exit status, no waiting", async () => {
+      // The other half, and the bug the original blocking-read ordering existed
+      // to avoid: a child whose output is far past the 64 KB pipe buffer blocks
+      // in write() until someone reads, so draining it concurrently must not
+      // have reintroduced a "wait for the child, then read" deadlock. ~900 KB,
+      // written with no subshell per line so the script itself is quick.
+      const script = join(root, "big.sh");
+      await writeFile(
+        script,
+        [
+          "#!/bin/bash",
+          "pad=$(printf 'a%.0s' {1..80})",
+          'for i in $(seq 1 10000); do printf \'line %06d %s\\n\' "$i" "$pad"; done',
+          "exit 7",
+          "",
+        ].join("\n"),
+        { mode: 0o755 },
+      );
+      const startedAt = Date.now();
+      const { stdout } = await execFileAsync(helperBinary(), [], {
+        env: { ...process.env, GRANTED_MENUBAR_RUN_TIMEOUT_TEST: `60:${script}` },
+        timeout: 120_000,
+      });
+      const elapsed = Date.now() - startedAt;
+      assert.ok(elapsed < 30_000, `it must return as soon as the child exits, not wait out the timeout (took ${elapsed}ms)`);
+      assert.match(stdout, /run timeout test .*status=7/, "the child's real exit status, not the timeout's -1");
+      // Every byte, not just the first pipe-buffer's worth.
+      const bytes = Number(/bytes=(\d+)/.exec(stdout)?.[1] ?? 0);
+      assert.ok(bytes > 870_000, `the whole output came through, past the pipe buffer (got ${bytes} bytes)`);
+      assert.match(stdout, /output=line 000001 a+\\nline 000002 /, "and it starts where the child started writing");
     });
   },
 );

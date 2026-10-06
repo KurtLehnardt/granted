@@ -290,12 +290,59 @@ helper_path() {
   printf '%s' "$MENUBAR_PKG/.build/release/granted-menubar"
 }
 
+# Is $1 really this install's menu-bar helper?
+#
+# REGRESSION (review). helper_pid below used to stop at `kill -0`, which only
+# says the pid is alive -- not that it is still the process the pid file was
+# written for. That file survives a SIGKILL, a force-quit and a power loss
+# (only the helper's own graceful quit removes it), and pids restart low after
+# a reboot, so a collision with an unrelated process is realistic rather than
+# theoretical. stop_helper would then SIGTERM that process, wait the whole
+# HELPER_STOP_WAIT deadline for it, and SIGKILL it -- someone's editor, say.
+# This is the same hazard, and the same fix, as install-macos.sh's
+# matching_pids: never signal a pid without first confirming what it is.
+#
+# Checked three ways, and never on `comm` alone, for the reason matching_pids
+# is checked two ways: macOS's `ps` truncates the `comm` column to a short
+# fixed width once it is combined with other `-o` fields (verified live there
+# -- a Homebrew node invoked via its real Cellar path showed up as
+# "/opt/homebrew/Ce"), so a comm-only test is one `ps` invocation away from
+# silently never matching. On top of that, a helper that is a #! script (the
+# integration tests' stand-ins) execs as its interpreter: its `comm` is
+# /bin/bash, and only its arguments name the helper at all -- verified on real
+# hardware, `comm=[/bin/bash] args=[/bin/bash /path/to/helper.sh]`.
+helper_is_running() {
+  local pid="$1" binary name comm args argv0
+  binary="$(helper_path)"
+  name="${binary##*/}"
+  comm="$(ps -p "$pid" -o comm= 2>/dev/null || true)"
+  args="$(ps -p "$pid" -o args= 2>/dev/null || true)"
+  [ -n "$comm$args" ] || return 1
+  # 1) the command name, by basename ("granted-menubar" as well as whatever
+  #    GRANTED_MENUBAR_HELPER points at, so a `stop` run without that override
+  #    still recognizes a helper started with one).
+  case "${comm##*/}" in "$name"|granted-menubar) return 0 ;; esac
+  # 2) argv[0]'s basename, from the untruncated args field.
+  argv0="${args%% *}"
+  case "${argv0##*/}" in "$name"|granted-menubar) return 0 ;; esac
+  # 3) the helper's own path as an argument -- how a #! script shows up. Only
+  #    for a real absolute path, never for the "none" sentinel.
+  case "$binary" in
+    /*) case "$args" in *"$binary"*) return 0 ;; esac ;;
+  esac
+  return 1
+}
+
+# The live menu-bar helper's pid, or failure. Failure means "no helper", which
+# is also what a pid file left behind by a killed one reads as: the caller
+# (stop_helper) removes the stale file and signals nothing.
 helper_pid() {
   local pid
   [ -f "$HELPER_PID_FILE" ] || return 1
   pid="$(cat "$HELPER_PID_FILE" 2>/dev/null || true)"
   case "$pid" in ''|*[!0-9]*) return 1 ;; esac
   kill -0 "$pid" 2>/dev/null || return 1
+  helper_is_running "$pid" || return 1
   printf '%s' "$pid"
 }
 
@@ -356,6 +403,9 @@ HELPER_STOP_WAIT=$(( SERVER_STOP_WAIT * 2 + 15 ))
 
 stop_helper() {
   local pid deadline
+  # No helper, or a pid file left behind by one that was killed and whose pid
+  # now belongs to something else entirely (see helper_is_running): drop the
+  # stale file and signal nothing.
   pid="$(helper_pid)" || { rm -f "$HELPER_PID_FILE"; return 1; }
   # SIGTERM, not SIGKILL: the helper's own handler stops the server, removes
   # its status lock directory and hides its icon before exiting.
