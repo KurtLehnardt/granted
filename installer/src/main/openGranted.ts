@@ -56,9 +56,16 @@ export async function getSetupState(installDir: string, settingsPath: string): P
     hostedKeysSet: envHasHostedKeys(env),
     localConfigured: envIsLocalConfigured(env, await readTextOrNull(join(scaffoldDir, "data", "local", "corpus-meta.json"))),
     settingsProviderSet: settingsHasProvider(await readTextOrNull(join(scaffoldDir, "data", "local", "llm-config.json"))),
-    trayAvailable: existsSync(windowsScriptPath(scaffoldDir, "granted-tray.ps1")),
-    shortcutsAvailable: existsSync(windowsScriptPath(scaffoldDir, "shortcuts.ps1")),
-    appWindowAvailable: existsSync(windowsScriptPath(scaffoldDir, "open-granted.ps1")),
+    // win32-gated, not just existsSync: scaffold/scripts/windows/*.ps1 are
+    // ordinary files tracked in the repo, present on a real clone on every
+    // platform, not only Windows's — without this guard these would read
+    // true on a real macOS install too, which is exactly what made
+    // startGranted's `background` wrongly route into the win32 tray path
+    // there (see ipc.ts). Tray/shortcuts/own-window stay Windows-only for
+    // now regardless of whether the files happen to be on disk.
+    trayAvailable: process.platform === "win32" && existsSync(windowsScriptPath(scaffoldDir, "granted-tray.ps1")),
+    shortcutsAvailable: process.platform === "win32" && existsSync(windowsScriptPath(scaffoldDir, "shortcuts.ps1")),
+    appWindowAvailable: process.platform === "win32" && existsSync(windowsScriptPath(scaffoldDir, "open-granted.ps1")),
     openIn: parseOpenInSetting(await readTextOrNull(settingsPath)),
   };
 }

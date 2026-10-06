@@ -632,10 +632,13 @@ async function launchScaffoldTask(opts: {
  * macOS, for now: a minimal, first-cut path, deliberately smaller than
  * Windows's — no visible console window (there's nothing here yet that
  * needs one kept open the way launchScaffoldTask's does), no tray, no own
- * app window (those are separate, later work; getSetupState's
- * trayAvailable/shortcutsAvailable/appWindowAvailable correctly stay false
- * on darwin, since this install has none of scripts/windows). `command`
- * is spawned directly, detached so it outlives the installer the same way
+ * app window (those are separate, later work). getSetupState's
+ * trayAvailable/shortcutsAvailable/appWindowAvailable stay false on darwin
+ * because they're explicitly gated on process.platform === "win32" — NOT
+ * because this install lacks scripts/windows: those .ps1 files are ordinary
+ * files tracked in the repo, so a real `git clone` on macOS has them too,
+ * the same as on Windows. `command` is spawned directly, detached so it
+ * outlives the installer the same way
  * Windows's console window does, writing the exact same {state,message,pid}
  * status-file shape buildTaskScript's PowerShell writes — so it's read back
  * by the SAME readTaskStatus/pollStatusFile/decideStatusPoll Windows uses,
@@ -828,10 +831,15 @@ async function startGranted(sender: WebContents): Promise<StartResult> {
 
   // Background (tray icon) when this install has the tray script; an older
   // install without it falls back to the console window it always used.
-  // On darwin there's no tray yet (a later, separate piece of work) and no
-  // scripts/windows at all, so this is always false there — the same
-  // fallback path win32 takes for an install that predates the tray.
-  const background = existsSync(trayScriptPath());
+  // win32-gated, not just existsSync: scaffold/scripts/windows/*.ps1 are
+  // ordinary files tracked in the repo, so a real `git clone` on macOS has
+  // them too, same as on Windows — without this guard, `background` would
+  // read true on a real mac install and route into launchTray() below,
+  // which unconditionally runs powershell.exe (nonexistent on macOS,
+  // throws, caught by the outer catch, and startGranted always fails).
+  // There's no tray on darwin yet (a later, separate piece of work); this
+  // is the same fallback path win32 takes for an install that predates it.
+  const background = process.platform === "win32" && existsSync(trayScriptPath());
   const whereErrorsAre = background
     ? "right-click the Granted icon by the clock and choose Show log"
     : process.platform === "win32"

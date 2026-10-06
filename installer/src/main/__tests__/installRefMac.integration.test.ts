@@ -168,6 +168,34 @@ describe(
       assert.equal(versionIn(at020), "0.1.5");
     });
 
+    test("REGRESSION (review), reproduced live: a non-numeric or missing installed version doesn't crash the update -- it degrades gracefully instead of refusing", async () => {
+      // Under `set -o pipefail`, version_number's `grep -oE ... | head -1`
+      // exits nonzero when grep matches nothing, and the bare assignment
+      // `HAVE="$(version_number "$HAVE_RAW")"` is NOT exempt from `set -e`
+      // -- so a currently-installed version that isn't x.y.z-shaped used to
+      // abort the whole script via the ERR trap right there, defeating the
+      // very next line's `[ -n "$HAVE" ] && ...` guard that exists
+      // specifically to tolerate exactly this.
+      const source = makeSource();
+      const home = freshHome();
+      await runInstall(home, source, "v0.1.0");
+      const installedPkgPath = join(home, "granted", "scaffold", "package.json");
+      const installedPkg = JSON.parse(readFileSync(installedPkgPath, "utf8")) as { version: string };
+      installedPkg.version = "unknown";
+      writeFileSync(installedPkgPath, JSON.stringify(installedPkg, null, 2));
+      // Committed into the installed clone itself, so the working tree
+      // stays clean -- this test is about the version-compare path, not
+      // the separate refuse-local-changes one.
+      git(join(home, "granted"), "add", "-A");
+      git(join(home, "granted"), "commit", "-q", "-m", "simulate a non-numeric installed version");
+
+      const r = await runInstall(home, source, "v0.2.0");
+      assert.equal(r.state, "done", r.output);
+      assert.doesNotMatch(r.output, /Failed at line/, "the ERR trap must not have fired");
+      assert.match(r.output, /now at v0\.2\.0/, "an unparseable HAVE skips the backwards-check and the update proceeds");
+      assert.equal(versionIn(home), "0.2.0");
+    });
+
     test("a folder the installer didn't make (someone's own checkout) is never switched to another release", async () => {
       const source = makeSource();
       const home = freshHome();

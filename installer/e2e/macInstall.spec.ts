@@ -68,10 +68,16 @@ async function closeApp(a: ElectronApplication | undefined): Promise<void> {
 
 test.beforeEach(async ({}, testInfo) => {
   testInfo.skip(!(await testPortIsFree()), `Port ${TEST_PORT} is in use on this machine — these tests need it free`);
-  // No scripts/windows: a real macOS install has none of these, so
-  // getSetupState's trayAvailable/shortcutsAvailable/appWindowAvailable
-  // must all read false, the same as a real one.
-  install = makeFakeInstall({ withWindowsScripts: false });
+  // The DEFAULT (scripts/windows present): scaffold/scripts/windows/*.ps1
+  // are ordinary files tracked in the repo (confirmed via `git ls-tree`),
+  // so a real `git clone` on macOS has them too, same as on Windows — they
+  // are not Windows-only by virtue of being absent from a mac checkout.
+  // getSetupState/startGranted must gate trayAvailable/shortcutsAvailable/
+  // appWindowAvailable/background on process.platform === "win32"
+  // themselves; this fixture deliberately does NOT rig that away by
+  // omitting the files, so a regression in that platform gate shows up here
+  // instead of only in a test built to avoid it.
+  install = makeFakeInstall();
 });
 
 test.afterEach(async () => {
@@ -98,12 +104,30 @@ function configureHostedKeys(): void {
   writeFileSync(join(install.scaffoldDir, ".env.local"), "OPENAI_API_KEY=sk-already-key-0000000000\nANTHROPIC_API_KEY=sk-ant-already-0000000000\n");
 }
 
-test("a finished install shows Installation complete and asks to open Granted, with no shortcut checkboxes (no scripts/windows on macOS)", async () => {
+test("a finished install shows Installation complete and asks to open Granted, with no shortcut checkboxes (tray/shortcuts/own-window stay Windows-only even though the real .ps1 files are present on this clone)", async () => {
   await start();
   await expect(page.getByText(`Granted is installed in ${install.installDir}.`)).toBeVisible();
   await expect(page.getByText("Open Granted now?")).toBeVisible();
   await expect(page.getByLabel("The desktop")).toHaveCount(0);
   await expect(page.getByLabel("Open Granted", { exact: true })).toHaveCount(0);
+});
+
+test("REGRESSION: a real clone's scripts/windows/*.ps1 files (present on every platform, not just Windows) must not route startGranted into the win32 tray path", async () => {
+  // If startGranted's `background` check ever regresses back to a bare
+  // existsSync(trayScriptPath()) with no platform guard, this would try to
+  // launch granted-tray.ps1 through powershell.exe — nonexistent on macOS,
+  // throwing, caught by the outer catch, always returning {ok:false,
+  // message:"Couldn't start Granted."} — the mac launchMacScaffoldTask path
+  // below would never run at all. Asserting the successful outcome here
+  // (not just the absence of checkboxes) directly locks in that it doesn't.
+  configureHostedKeys();
+  const a = await start();
+  await page.getByRole("button", { name: "Yes, open Granted" }).click();
+  await expect(page.getByText(/Starting Granted/)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Installation complete" })).toBeVisible();
+  await expect(page.getByText(/Couldn't start Granted/)).toHaveCount(0);
+  await expect(page.getByText(/Granted is open in your browser/)).toBeVisible({ timeout: 30_000 });
+  expect(await openedUrls(a)).toEqual([TEST_URL]);
 });
 
 test("API keys already set: Yes starts Granted via the background launchMacScaffoldTask path and opens a browser tab", async () => {

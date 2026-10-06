@@ -66,6 +66,15 @@ write_status() {
 }
 
 cleanup() { rmdir "$STATUS_LOCK_DIR" 2>/dev/null || true; }
+# NOTE (non-blocking, flagged in review): this rmdir's unconditional,
+# regardless of whether this process's own mkdir above actually succeeded.
+# If two installs ever shared the exact same fixed STATUS_PATH (never
+# happens from the real GUI flow, which always mints a fresh UUID path per
+# launch), the second one's cleanup would remove the FIRST one's still-held
+# lock out from under it. Low real-world risk given the fixed-name path is
+# only ever hit when run standalone outside the GUI; not fixed here since
+# that's a bigger change (tracking whether our own mkdir won) than this
+# review round called for.
 trap cleanup EXIT
 
 # Catches anything die() doesn't -- a command that fails outright (set -e's
@@ -268,8 +277,16 @@ fi
 
 # The first x.y.z-shaped version number found anywhere in $1 (e.g. "v1.2.3"
 # or the "0.2.0" a package.json's .version holds), empty if there isn't one.
+# REGRESSION (review), reproduced live: under `set -o pipefail`, a `grep`
+# that matches nothing (a missing/non-numeric installed version, e.g.
+# "unknown") makes the whole pipeline exit nonzero even though `head`
+# itself succeeded -- and a bare `HAVE="$(version_number ...)"` assignment
+# is NOT exempt from `set -e`, so that alone aborted the entire script via
+# the ERR trap, defeating the very next line's `[ -n "$HAVE" ] && ...`
+# guard, which exists specifically to tolerate this. `|| true` here (not
+# just at each call site) protects every current and future caller.
 version_number() {
-  printf '%s' "$1" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1
+  printf '%s' "$1" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true
 }
 # Whether version $1 is newer than version $2 (both plain x.y.z strings from
 # version_number -- this machine's sort -V, verified, handles the compare).
