@@ -211,10 +211,35 @@ function ProvisionalCard({ opportunity, index }: { opportunity: Match["opportuni
       <span className="spine bg-structure-on-canvas" aria-hidden />
       <div className="flex flex-wrap items-start justify-between gap-4 px-5 py-4 sm:flex-nowrap sm:gap-6 sm:px-6 sm:py-5">
         <div className="min-w-0">
+          {/* Usable while it's still being scored: the listing opens now, in a new tab. */}
           <h3 className="mt-1.5 text-balance font-display text-[19px] font-medium leading-snug text-foreground">
-            {opportunity.program}
+            {opportunity.url ? (
+              <a
+                href={opportunity.url}
+                target="_blank"
+                rel="noreferrer"
+                className="underline-offset-4 hover:underline focus-visible:underline focus-visible:outline-none"
+              >
+                {opportunity.program}
+              </a>
+            ) : (
+              opportunity.program
+            )}
           </h3>
           <p className="mt-1 text-pretty font-mono text-[12px] text-foreground">{opportunity.agency}</p>
+          {opportunity.url && (
+            <a
+              href={opportunity.url}
+              target="_blank"
+              rel="noreferrer"
+              data-testid="provisional-listing-link"
+              className="mt-2 inline-flex items-center gap-1 font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas underline underline-offset-4 hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2"
+            >
+              Open the official listing
+              <span aria-hidden="true">&#8599;</span>
+              <span className="sr-only"> (opens in a new tab)</span>
+            </a>
+          )}
         </div>
         <div className="shrink-0 text-right">
           <AnalyzingRing>

@@ -615,7 +615,47 @@ export function windowsInstallCommand(ref: string | null): string {
  * see openInstallTerminal: Defender flags `-Command "irm … | iex"`.)
  */
 export function buildWindowsInstallScript(statusPath: string, ref: string | null): string {
-  return windowsInstallScriptFor(statusPath, windowsInstallCommand(ref));
+  return windowsInstallScriptFor(statusPath, windowsDownloadAndRun(installScriptUrl(ref), ref));
+}
+
+/** Where install-windows.ps1 for `ref` (null = main) is downloaded from. */
+export function installScriptUrl(ref: string | null): string {
+  if (ref !== null && !parseReleaseTag(ref)) throw new Error(`not a release tag: ${ref}`);
+  return `https://raw.githubusercontent.com/KurtLehnardt/granted/${ref ?? "main"}/install-windows.ps1`;
+}
+
+/** Seconds to wait before each retry of the download (the first try is immediate). */
+export const INSTALL_DOWNLOAD_RETRY_WAITS = [3, 6, 12, 20];
+
+/**
+ * What the GUI's install window runs: the one-liner's `irm … | iex`, but
+ * downloading with retries first — a network hiccup (a VPN reconnecting, Wi-Fi
+ * waking up: "The remote name could not be resolved: 'raw.githubusercontent.com'")
+ * shouldn't fail the install — and, if GitHub still can't be reached, reporting
+ * that plainly to the installer app (its status file) instead of leaving it to
+ * guess at a security policy. The copy-paste one-liner (windowsInstallCommand)
+ * stays the plain `irm | iex`.
+ */
+export function windowsDownloadAndRun(url: string, ref: string | null, waits: number[] = INSTALL_DOWNLOAD_RETRY_WAITS): string {
+  if (ref !== null && !parseReleaseTag(ref)) throw new Error(`not a release tag: ${ref}`);
+  const lines = [
+    ...(ref ? [`$env:GRANTED_REF = '${ref}'`] : []),
+    `[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12`,
+    `$grantedInstaller = $null`,
+    `$grantedError = $null`,
+    `foreach ($wait in @(${[0, ...waits].join(", ")})) {`,
+    `  if ($wait -gt 0) { Write-Host "Couldn't reach GitHub ($grantedError) -- trying again in $wait seconds..." -ForegroundColor Yellow; Start-Sleep -Seconds $wait }`,
+    `  try { $grantedInstaller = Invoke-RestMethod -UseBasicParsing -Uri ${psSingleQuoted(url)}; break } catch { $grantedError = $_.Exception.Message }`,
+    `}`,
+    `if ($null -eq $grantedInstaller) {`,
+    `  $grantedMessage = "Couldn't download the Granted installer from GitHub ($grantedError). Check your internet connection (and your VPN, if you use one), then click Try again."`,
+    `  Set-Content -LiteralPath $env:GRANTED_STATUS_FILE -Value (@{ state = 'error'; message = $grantedMessage; pid = $PID } | ConvertTo-Json -Compress) -Encoding utf8`,
+    `  Write-Host $grantedMessage -ForegroundColor Red`,
+    `  exit 1`,
+    `}`,
+    `Invoke-Expression $grantedInstaller`,
+  ];
+  return lines.join("\r\n");
 }
 
 /** Seconds a successful install's window stays up (so "Installed" can be read) before closing itself. */

@@ -11,7 +11,9 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { INSTALL_WINDOW_CLOSE_SECONDS, windowsInstallScriptFor } from "../ipcPure";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
+import { INSTALL_WINDOW_CLOSE_SECONDS, windowsDownloadAndRun, windowsInstallScriptFor } from "../ipcPure";
 
 describe("the install window closes itself only after a successful install", { skip: process.platform !== "win32" && "Windows only" }, () => {
   let root: string;
@@ -71,5 +73,37 @@ describe("the install window closes itself only after a successful install", { s
 
   test("no status at all (the install never got going): the window stays open", async () => {
     assert.equal(await runWindow("nothing", "Write-Host 'something went wrong before reporting'", (INSTALL_WINDOW_CLOSE_SECONDS + 5) * 1000), "still open");
+  });
+
+  test("REGRESSION (user, v0.2.0 install): GitHub unreachable -> a plain error in the status file, and the window stays open", async () => {
+    const result = await runWindow("unreachable", windowsDownloadAndRun("http://127.0.0.1:9/install-windows.ps1", "v0.2.0", [1]), 25_000);
+    assert.equal(result, "still open");
+    const status = JSON.parse((await readFile(join(root, "unreachable.json"), "utf8")).replace(/^﻿/, "")) as { state: string; message: string };
+    assert.equal(status.state, "error");
+    assert.match(status.message, /^Couldn't download the Granted installer from GitHub \(.+\)\. Check your internet connection \(and your VPN, if you use one\), then click Try again\.$/);
+  });
+
+  test("a download that fails at first (a VPN reconnecting) is retried, and then the install runs", async () => {
+    let hits = 0;
+    const server = createServer((_req, res) => {
+      hits++;
+      if (hits < 3) {
+        res.writeHead(503);
+        res.end("busy");
+        return;
+      }
+      res.end(`${report("done")}
+return
+`);
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    try {
+      const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/install-windows.ps1`;
+      const result = await runWindow("retried", windowsDownloadAndRun(url, null, [1, 1, 1]), (INSTALL_WINDOW_CLOSE_SECONDS + 30) * 1000);
+      assert.equal(result, 0, "the install ran and the window closed itself");
+      assert.equal(hits, 3);
+    } finally {
+      server.close();
+    }
   });
 });

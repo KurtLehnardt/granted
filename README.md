@@ -70,7 +70,12 @@ Prefer the command line? The steps below do the same thing, from `main`.
 ```powershell
 irm https://raw.githubusercontent.com/KurtLehnardt/granted/main/install-windows.ps1 | iex
 ```
-Installs Node 22+ and git if missing — via `winget` where available, otherwise a direct official-installer download (winget isn't present on every Windows box, notably Windows Server, which this was verified against) — clones the repo into `.\granted`, and runs `npm ci`. Safe to re-run.
+Installs Node 22+ and git if missing — via `winget` where available, otherwise a direct official-installer download (winget isn't present on every Windows box, notably Windows Server, which this was verified against) — clones the repo into `.\granted` and runs `npm ci`. It then:
+- adds the Microsoft Visual C++ runtime if it's missing (the built-in search model needs it);
+- downloads the search model;
+- adds Granted to **Installed apps**.
+
+Safe to re-run.
 
 Prefer to do it by hand?
 ```powershell
@@ -263,6 +268,7 @@ Results **stream**. Progress and grounded evidence appear in seconds rather than
 
 ## Troubleshooting
 
+- **The installer says "Couldn't download the Granted installer from GitHub (The remote name could not be resolved: 'raw.githubusercontent.com')"** → the PC couldn't reach GitHub. It retries for about 40 seconds first. A VPN that's still connecting (or a DNS hiccup) is the usual cause: wait until you're online, then click **Try again**.
 - **`No cloud provider is configured`** → scoring needs one provider: add `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` to `scaffold/.env.local` (then restart `npm run dev`), pick one in Settings → Model, or switch to Local.
 - **"Search is running in keyword-only mode: couldn't download the search model (…)"** → run `npm run model:fetch` in `scaffold/` to see the full error. Behind a proxy or firewall, set `GRANTED_MODEL_URL` to a mirror (Node's `fetch` ignores `HTTPS_PROXY`).
 - **"Search is running in keyword-only mode: the search model couldn't start because the Microsoft Visual C++ runtime is missing on this computer"** → install it from https://aka.ms/vs/17/release/vc_redist.x64.exe (or run the Granted installer again), then restart Granted.
