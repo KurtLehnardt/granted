@@ -227,7 +227,10 @@ agent_field() {
 }
 
 agent_running() { [ "$(agent_field state)" = "running" ]; }
-agent_runs() { local r; r="$(agent_field runs)"; printf '%s' "${r:-0}"; }
+# `|| true`: with pipefail set, agent_field's pipeline reports launchctl's own
+# failure, and the job can go away between server_state's agent_loaded test and
+# this read. No answer means no runs, not an error.
+agent_runs() { local r; r="$(agent_field runs)" || true; printf '%s' "${r:-0}"; }
 
 load_agent() {
   write_plist || return 1
@@ -245,6 +248,12 @@ start_server() {
   launchctl kickstart "$DOMAIN/$LABEL" >/dev/null 2>&1
 }
 
+# How long each of stop_server's two waits runs: first for the launchd job to
+# exit, then for the port to be free again. A whole stop_server can therefore
+# take twice this, which is why stop_helper's own wait is derived from it
+# below rather than written out as its own number.
+SERVER_STOP_WAIT=15
+
 # Stops the server and unloads the agent, so nothing stays registered. Waits
 # for the port to be free afterwards, the way the Windows tray's
 # Stop-GrantedServer does, so a Restart's new server can bind it.
@@ -252,11 +261,11 @@ stop_server() {
   local deadline
   if agent_loaded; then
     launchctl kill SIGTERM "$DOMAIN/$LABEL" >/dev/null 2>&1 || true
-    deadline=$(( $(date +%s) + 15 ))
+    deadline=$(( $(date +%s) + SERVER_STOP_WAIT ))
     while agent_running && [ "$(date +%s)" -lt "$deadline" ]; do sleep 0.25; done
     launchctl bootout "$DOMAIN/$LABEL" >/dev/null 2>&1 || true
   fi
-  deadline=$(( $(date +%s) + 15 ))
+  deadline=$(( $(date +%s) + SERVER_STOP_WAIT ))
   while [ "$(probe_server 1)" != "down" ] && [ "$(date +%s)" -lt "$deadline" ]; do sleep 0.25; done
 }
 
@@ -332,15 +341,35 @@ start_helper() {
   return 0
 }
 
+# How long to wait for a SIGTERMed helper to finish and exit on its own.
+#
+# This is NOT "long enough to hide an icon". SIGTERM makes the helper run a
+# whole `granted-tray.sh stop --server-only` of its own -- the entire
+# stop_server above, both of its waits -- and only when that returns does it
+# release its `<status>.lock.d` directory and remove its pid file. So the wait
+# here has to outlast a full stop_server, with room for the shell and launchctl
+# invocations around it. A shorter wait SIGKILLs the helper partway through its
+# own shutdown, before it ever reaches that cleanup, and the lock directory it
+# was holding is then left behind for good: nothing else knows where it is, and
+# the next helper's createDirectory over it fails silently.
+HELPER_STOP_WAIT=$(( SERVER_STOP_WAIT * 2 + 15 ))
+
 stop_helper() {
   local pid deadline
   pid="$(helper_pid)" || { rm -f "$HELPER_PID_FILE"; return 1; }
-  # SIGTERM, not SIGKILL: the helper's own handler removes its status lock
-  # directory and hides its icon before exiting.
+  # SIGTERM, not SIGKILL: the helper's own handler stops the server, removes
+  # its status lock directory and hides its icon before exiting.
   kill -TERM "$pid" 2>/dev/null || true
-  deadline=$(( $(date +%s) + 10 ))
+  deadline=$(( $(date +%s) + HELPER_STOP_WAIT ))
   while kill -0 "$pid" 2>/dev/null && [ "$(date +%s)" -lt "$deadline" ]; do sleep 0.25; done
-  kill -0 "$pid" 2>/dev/null && kill -KILL "$pid" 2>/dev/null || true
+  if kill -0 "$pid" 2>/dev/null; then
+    # Wedged well past a whole stop_server: nothing it was going to clean up
+    # has been cleaned up, and nothing ever will be. When this call was told
+    # the status path, release the lock directory on its behalf -- rmdir, not
+    # rm -rf, so it can only ever remove the empty directory a lock is.
+    kill -KILL "$pid" 2>/dev/null || true
+    [ -n "$STATUS_PATH" ] && rmdir "$STATUS_PATH.lock.d" 2>/dev/null || true
+  fi
   rm -f "$HELPER_PID_FILE"
   return 0
 }
@@ -420,9 +449,13 @@ cmd_start() {
 cmd_stop() {
   local stopped=1
   if [ "$SERVER_ONLY" != "1" ]; then
-    # The helper first: its own quit stops the server and boots the agent out
-    # too, and asking it to go first means it never reports the shutdown it
-    # was told to perform as a crash.
+    # The helper first, and it is the one that actually stops the server: a
+    # live helper answers SIGTERM by running this script's own `stop
+    # --server-only`, and asking it to go first means it never reports the
+    # shutdown it was told to perform as a crash. stop_helper waits for all of
+    # that to finish, so the stop_server below is a backstop for the cases the
+    # helper didn't cover (no helper running, or one that had to be killed) and
+    # normally finds the agent already gone and the port already free.
     stop_helper && stopped=0
   fi
   agent_loaded && stopped=0

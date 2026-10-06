@@ -86,19 +86,36 @@ interface FakeInstall {
   /** A throwaway LaunchAgent label, never the real com.granted.server. */
   label: string;
   statusPath: string;
+  /** The pid file granted-tray.sh's own start_helper writes. */
+  helperPidFile: string;
   /** The test-only overrides to run the script (or the helper) with. */
   env: Record<string, string>;
   agentLoaded: () => boolean;
   cleanup: () => Promise<void>;
 }
 
+interface FakeInstallOptions {
+  /**
+   * The menu-bar helper granted-tray.sh should run. "none" (the default) means
+   * no icon at all: a test must not leave one on anyone's menu bar unless it
+   * is specifically testing the helper, and then only for its own duration.
+   */
+  helper?: string;
+  /**
+   * How long the fake server takes to exit after SIGTERM, in milliseconds.
+   * Zero (the default) means it exits at once, as a normal server does.
+   */
+  stopDelayMs?: number;
+}
+
 /**
  * A fake Granted install whose `npm run dev` is a tiny Node server, with the
  * real tray script in it, pointed entirely at throwaway paths and a throwaway
- * LaunchAgent label. `cleanup` stops anything running, boots the label out
- * directly as well (whatever state the test left), and deletes the folder.
+ * LaunchAgent label. `cleanup` stops anything running, kills any menu-bar
+ * helper this install started, boots the label out directly as well (whatever
+ * state the test left), and deletes the folder.
  */
-async function setUpFakeInstall(): Promise<FakeInstall> {
+async function setUpFakeInstall(options: FakeInstallOptions = {}): Promise<FakeInstall> {
   // realpath: mkdtemp hands back /var/folders/..., a symlink to
   // /private/var/folders/..., and the script resolves its own location with
   // `pwd -P` — so the paths in the plist are the resolved ones.
@@ -122,6 +139,13 @@ async function setUpFakeInstall(): Promise<FakeInstall> {
       // only PATH/PORT/HOME (deliberately), so nothing the test's own env
       // says reaches a launchd-started server.
       'if (require("node:fs").existsSync(__dirname + "/fail")) { console.error("fake dev server: failing on purpose"); process.exit(1); }',
+      // A server that is slow to shut down, for the same reason and by the
+      // same mechanism: a real `next dev` does not drop dead the instant it is
+      // signalled either.
+      `const stopDelayMs = ${JSON.stringify(options.stopDelayMs ?? 0)};`,
+      "if (stopDelayMs > 0) {",
+      '  process.on("SIGTERM", () => { console.log("fake dev server: exiting in " + stopDelayMs + "ms"); setTimeout(() => process.exit(0), stopDelayMs); });',
+      "}",
       'require("node:http")',
       `  .createServer((_req, res) => { res.writeHead(200, { "Content-Type": "text/html" }); res.end(${JSON.stringify(GRANTED_HTML)}); })`,
       '  .listen(port, "127.0.0.1", () => console.log("fake Granted listening on 127.0.0.1:" + port));',
@@ -130,6 +154,9 @@ async function setUpFakeInstall(): Promise<FakeInstall> {
   );
   const label = `com.granted.test.${randomUUID()}`;
   const statusPath = join(root, "status.json");
+  // Where granted-tray.sh's HELPER_PID_FILE lands: next to the settings file,
+  // named for the port.
+  const helperPidFile = join(root, "support", `menubar-${PORT}.pid`);
   const domain = `gui/${process.getuid?.() ?? 0}/${label}`;
   const env = {
     GRANTED_LAUNCH_LABEL: label,
@@ -139,7 +166,7 @@ async function setUpFakeInstall(): Promise<FakeInstall> {
     GRANTED_STATUS_FILE: statusPath,
     // No menu-bar icon unless a test asks for one by running the helper
     // itself: a test must not leave an icon on anyone's menu bar.
-    GRANTED_MENUBAR_HELPER: "none",
+    GRANTED_MENUBAR_HELPER: options.helper ?? "none",
   };
   const agentLoaded = (): boolean => {
     try {
@@ -155,6 +182,7 @@ async function setUpFakeInstall(): Promise<FakeInstall> {
     trayScript,
     label,
     statusPath,
+    helperPidFile,
     env,
     agentLoaded,
     cleanup: async () => {
@@ -164,7 +192,18 @@ async function setUpFakeInstall(): Promise<FakeInstall> {
         /* nothing was running */
       }
       // Belt and braces: whatever the test did or didn't manage, this label
-      // must not be left registered on the machine.
+      // must not be left registered on the machine — and no menu-bar helper
+      // this install started may be left on the menu bar either.
+      if (existsSync(helperPidFile)) {
+        const pid = Number(readFileSync(helperPidFile, "utf8").trim());
+        if (Number.isInteger(pid) && pid > 0) {
+          try {
+            process.kill(pid, "SIGKILL");
+          } catch {
+            /* already gone */
+          }
+        }
+      }
       try {
         execFileSync("launchctl", ["bootout", domain], { stdio: "ignore" });
       } catch {
@@ -523,6 +562,96 @@ describe(
       assert.equal(fake.agentLoaded(), false, "nothing left registered with launchd");
       assert.equal(existsSync(macStatusLockPath(fake.statusPath)), false, "the status lock is released");
       assert.equal(existsSync(helperEnv["GRANTED_HELPER_PID_FILE"]), false, "and the pid file is gone");
+    });
+  },
+);
+
+describe(
+  "`granted-tray.sh stop` against a live menu-bar helper that is slow to shut down",
+  {
+    skip:
+      (process.platform !== "darwin" || !existsSync(MENUBAR_PKG) || !hasSwift() || !inAquaSession()) &&
+      "macOS with the Xcode Command Line Tools and a GUI session only, run from installer/",
+  },
+  () => {
+    /**
+     * REGRESSION. This is the one shutdown nothing else here exercises: a plain
+     * `stop` (no --server-only) run from OUTSIDE, against a helper started the
+     * real way — granted-tray.sh's own start_helper, `nohup <binary> &`, a real
+     * process with a real pid file, not GRANTED_MENUBAR_HELPER=none and not the
+     * self-test.
+     *
+     * That stop is a two-step shutdown, not one. SIGTERM makes the helper run a
+     * whole `granted-tray.sh stop --server-only` of its own, and only when that
+     * returns does it release its `<status>.lock.d` directory and remove its
+     * pid file. stop_helper used to allow 10 seconds for all of it, while the
+     * nested stop_server it triggers can take two 15-second waits — so a server
+     * that was merely slow to exit got the helper SIGKILLed partway through its
+     * own cleanup, and its lock directory was left behind for good (nothing
+     * else knows where it is, and the next helper's createDirectory over it
+     * fails silently). Verified on real hardware before the fix: lock directory
+     * leaked; after it: gone.
+     *
+     * This is also the only test that puts a REAL icon on the menu bar of the
+     * machine running it. It is there for the length of this describe block and
+     * no longer: the test itself asserts the helper exited, and the teardown
+     * SIGKILLs the recorded pid whatever the test did.
+     */
+    // Longer than stop_helper's old 10-second deadline, so the bug is actually
+    // reached, and shorter than stop_server's own 15-second wait, so the whole
+    // shutdown still finishes promptly rather than timing out.
+    const STOP_DELAY_MS = 14_000;
+    let fake: FakeInstall;
+
+    before(async () => {
+      await execFileAsync("swift", ["build", "-c", "release", "--package-path", MENUBAR_PKG], { timeout: 10 * 60_000 });
+      fake = await setUpFakeInstall({ helper: helperBinary(), stopDelayMs: STOP_DELAY_MS });
+      await execFileAsync("/bin/bash", [fake.trayScript, "start", "--port", String(PORT)], {
+        env: { ...process.env, ...fake.env },
+        timeout: 180_000,
+      });
+      assert.equal(await until(() => probeGranted(`http://127.0.0.1:${PORT}/`, 3000), (p) => p === "granted"), "granted");
+    });
+
+    after(async () => {
+      await fake.cleanup();
+    });
+
+    test("the helper is really running, from start_helper's own nohup path", async () => {
+      assert.ok(existsSync(fake.helperPidFile), "start_helper wrote a pid file");
+      const pid = Number(readFileSync(fake.helperPidFile, "utf8").trim());
+      assert.ok(Number.isInteger(pid) && pid > 0, "start_helper recorded the helper's pid");
+      assert.doesNotThrow(() => process.kill(pid, 0), "and that process is alive");
+      // It took the installer's own status lock, which is what a plain `stop`
+      // must get it to release again.
+      assert.equal(
+        await until(() => Promise.resolve(existsSync(macStatusLockPath(fake.statusPath))), (there) => there, 60_000),
+        true,
+        "the helper holds the <status>.lock.d directory",
+      );
+    });
+
+    test("stop waits for the helper's whole shutdown, so the status lock and the pid file are both really gone", async () => {
+      const pid = Number(readFileSync(fake.helperPidFile, "utf8").trim());
+      const startedAt = Date.now();
+      await execFileAsync("/bin/bash", [fake.trayScript, "stop", "--port", String(PORT)], {
+        env: { ...process.env, ...fake.env },
+        timeout: 180_000,
+      });
+      const elapsed = Date.now() - startedAt;
+
+      // The shutdown really did outlast the old 10-second deadline — without
+      // this the rest could pass for the wrong reason, on a server that simply
+      // stopped quickly.
+      assert.ok(elapsed > 10_000, `the slow shutdown must outlast the old deadline (took ${elapsed}ms)`);
+      assert.throws(() => process.kill(pid, 0), "the helper exited");
+      // The two things only the helper's own cleanup removes. A leaked lock
+      // directory is the bug: permanent, and invisible to everything but this.
+      assert.equal(existsSync(macStatusLockPath(fake.statusPath)), false, "the status lock directory is released, not leaked");
+      assert.equal(existsSync(fake.helperPidFile), false, "and the pid file is gone");
+      // And the stop did what a stop is for.
+      assert.equal(await probeGranted(`http://127.0.0.1:${PORT}/`, 3000), "down", "the server is stopped");
+      assert.equal(fake.agentLoaded(), false, "nothing left registered with launchd");
     });
   },
 );
