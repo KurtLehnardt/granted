@@ -2,7 +2,10 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { Opportunity } from "../types";
 import { dropPastAwards } from "./pastAwards";
-import { localEmbeddingsActive, localEmbeddingsBaseDir, localEmbeddingsPaths } from "../embeddings/localEmbeddings";
+import { activeSearchSpace, type EmbeddingSpace } from "../embeddings/spaces";
+import { removeLegacyLocalEmbeddingsOnce } from "../embeddings/legacyCleanup";
+import { readVectorFile, textHash, vectorFilePaths } from "../../scripts/lib/vectorFile.mjs";
+import { compatibleVectorFile, spaceDocumentText } from "../../scripts/lib/spaceVectors.mjs";
 
 export interface CorpusMeta {
   builtAt?: string;
@@ -10,13 +13,19 @@ export interface CorpusMeta {
   [key: string]: unknown;
 }
 
-/** "local-embeddings": the index Settings → Local built (lib/embeddings), searched only while it's active. */
-export type CorpusSource = "local-embeddings" | "local" | "committed";
+/** "local": the gitignored data:refresh copy in data/local/; "committed": the shipped snapshot. */
+export type CorpusSource = "local" | "committed";
 
 export interface CorpusInfo {
   opportunities: Opportunity[];
   meta: CorpusMeta;
   source: CorpusSource;
+  /** The embedding space the records' `embedding` vectors belong to; a search embeds its query in this space. */
+  space: EmbeddingSpace;
+  /** How many records have a vector in that space (the rest are reachable only by keyword search). */
+  withVectors: number;
+  /** Set when the store had to pass over the data:refresh copy, and why (shown on Settings' Search line). */
+  note?: string;
 }
 
 function readJson<T>(path: string, fallback: T): T {
@@ -40,30 +49,56 @@ function mtimeOf(path: string): number {
   }
 }
 
+type VectorMap = Map<string, { vector: number[]; textHash?: string }>;
+
+/**
+ * Pure: give each record its vector in a vector-file space. A vector is used only
+ * when its text hash matches the record's current text (an edited record must not
+ * keep a stale vector). `sources` are tried in order, so a data:refresh's own
+ * vectors win and the committed ones fill in for unchanged records. Records with
+ * no usable vector get no `embedding` and stay reachable through keyword search.
+ */
+export function attachSpaceVectors(
+  space: EmbeddingSpace,
+  opportunities: Opportunity[],
+  sources: Array<VectorMap | null | undefined>,
+): { opportunities: Opportunity[]; withVectors: number } {
+  let withVectors = 0;
+  const out = opportunities.map((o) => {
+    const hash = textHash(spaceDocumentText(space, o));
+    for (const src of sources) {
+      const hit = src?.get(o.id);
+      if (hit && hit.textHash === hash && (space.dims == null || hit.vector.length === space.dims)) {
+        withVectors++;
+        return { ...o, embedding: hit.vector };
+      }
+    }
+    const { embedding: _drop, ...rest } = o;
+    return rest as Opportunity;
+  });
+  return { opportunities: out, withVectors };
+}
+
+/** Length of the first inline vector, or null when no record has one. */
+function inlineDims(opportunities: Opportunity[]): number | null {
+  const v = opportunities.find((o) => Array.isArray(o.embedding) && o.embedding.length > 0)?.embedding;
+  return v ? v.length : null;
+}
+
 interface CorpusCache extends CorpusInfo {
   key: string;
-  keyMtimeMs: number;
-  metaPath: string;
-  metaMtimeMs: number;
-  /** The hosted meta path this load resolved (before any corrupt-file fallback). */
-  hostedMetaPath: string;
 }
 
 export interface CorpusStoreOptions {
-  /**
-   * The Settings → Local index directory to search, or null when it isn't active.
-   * Must come from the same readiness decision the query embedding follows
-   * (lib/embeddings/localEmbeddings.ts's localEmbeddingsActive); the caller then
-   * embeds the query for `CorpusInfo.source`, so the two can never disagree.
-   */
-  localIndexDir?: () => string | null;
+  /** The space to serve vectors for; defaults to the active search space. */
+  space?: () => EmbeddingSpace;
 }
 
 /**
- * Prefers the gitignored `data/local/` refresh over the committed snapshot; reloads on mtime change.
- * While Settings → Local's index is active, serves its records instead (local-model vectors), but
- * freshness (`meta.builtAt`) still comes from that hosted corpus: the index is derived from it, and a
- * data:refresh must not look stale just because the index hasn't been re-embedded yet.
+ * Prefers the gitignored `data/local/` refresh over the committed snapshot and
+ * reloads when any file it read changes. Vectors come from the space search is
+ * using: inline in opportunities.json for OpenAI (and a custom embedder), or the
+ * space's own vector file (data/vectors/, data/local/vectors/) for the built-in model.
  */
 export class CorpusStore {
   private cache: CorpusCache | null = null;
@@ -73,44 +108,69 @@ export class CorpusStore {
     private readonly options: CorpusStoreOptions = {},
   ) {}
 
-  private paths(source: Exclude<CorpusSource, "local-embeddings">) {
+  private paths(source: CorpusSource) {
     const dir = source === "local" ? join(this.baseDir, "data", "local") : join(this.baseDir, "data");
-    return { oppsPath: join(dir, "opportunities.json"), metaPath: join(dir, "corpus-meta.json") };
+    return { dir, oppsPath: join(dir, "opportunities.json"), metaPath: join(dir, "corpus-meta.json"), vectorsDir: join(dir, "vectors") };
   }
 
   load(): CorpusInfo {
+    const space = (this.options.space ?? (() => activeSearchSpace().space))();
     const local = this.paths("local");
+    const committed = this.paths("committed");
     const hostedSource: CorpusSource = existsSync(local.oppsPath) ? "local" : "committed";
     const hosted = this.paths(hostedSource);
-    const indexDir = this.options.localIndexDir?.() ?? null;
-    const key = indexDir ? join(indexDir, "opportunities.json") : hosted.oppsPath;
-    const keyMtimeMs = mtimeOf(key);
-    const cache = this.cache;
-    if (
-      cache &&
-      cache.key === key &&
-      cache.keyMtimeMs === keyMtimeMs &&
-      // The meta (freshness) file can move on its own: a first data:refresh while the index is served.
-      cache.hostedMetaPath === hosted.metaPath &&
-      cache.metaMtimeMs === mtimeOf(cache.metaPath)
-    ) {
-      return { opportunities: cache.opportunities, meta: cache.meta, source: cache.source };
+
+    const watched = [hosted.oppsPath, hosted.metaPath];
+    if (space.vectors.kind === "file") {
+      for (const dir of [local.vectorsDir, committed.vectorsDir]) {
+        const { binPath, metaPath } = vectorFilePaths(dir, space.vectors.name);
+        watched.push(binPath, metaPath);
+      }
+    }
+    const key = `${space.id}|${watched.map((p) => `${p}@${mtimeOf(p)}`).join("|")}`;
+    if (this.cache && this.cache.key === key) {
+      const { key: _k, ...info } = this.cache;
+      return info;
     }
 
-    let source: CorpusSource = indexDir ? "local-embeddings" : hostedSource;
-    let opportunities = tryReadOpportunities(key);
-    // A corrupt local index must not fall back to OpenAI-dim vectors while queries embed locally: serve nothing instead.
+    let source: CorpusSource = hostedSource;
+    let note: string | undefined;
+    let opportunities = tryReadOpportunities(hosted.oppsPath);
     if (opportunities == null && source === "local") {
       source = "committed";
-      opportunities = tryReadOpportunities(this.paths(source).oppsPath);
+      opportunities = tryReadOpportunities(committed.oppsPath);
+    }
+    // An inline space with a fixed size (OpenAI: 512) can't search a data:refresh copy whose
+    // inline vectors are another size (e.g. 768-dim nomic vectors written by an older
+    // `setup:local` re-embed): serve the shipped snapshot instead of failing every search.
+    if (source === "local" && space.vectors.kind === "inline" && space.dims != null) {
+      const localDims = inlineDims(opportunities ?? []);
+      if (localDims != null && localDims !== space.dims) {
+        source = "committed";
+        opportunities = tryReadOpportunities(committed.oppsPath);
+        note =
+          `Your refreshed grant list was embedded with another model (${localDims}-dimension vectors), so search is using the shipped list. ` +
+          "Run Refresh cached grants to rebuild it for the current search.";
+      }
     }
     opportunities = dropPastAwards(opportunities ?? []);
-    // Freshness always comes from the hosted corpus the records were derived from.
-    const metaSource = source === "local-embeddings" ? hostedSource : source;
-    const { metaPath } = this.paths(metaSource);
+
+    let withVectors: number;
+    if (space.vectors.kind === "file") {
+      const name = space.vectors.name;
+      // A refresh's own vectors win; the committed ones cover every unchanged record. Either
+      // file is used only if it was made by this space's model (and, when pinned, revision).
+      const sources = [readVectorFile(local.vectorsDir, name), readVectorFile(committed.vectorsDir, name)].filter((f) => compatibleVectorFile(f, space));
+      ({ opportunities, withVectors } = attachSpaceVectors(space, opportunities, sources.map((s) => s?.vectors as VectorMap | undefined)));
+    } else {
+      withVectors = opportunities.filter((o) => Array.isArray(o.embedding) && o.embedding.length > 0).length;
+    }
+
+    const { metaPath } = this.paths(source);
     const meta: CorpusMeta = { ...readJson<CorpusMeta>(metaPath, {}), count: opportunities.length };
-    this.cache = { key, keyMtimeMs, metaPath, metaMtimeMs: mtimeOf(metaPath), hostedMetaPath: hosted.metaPath, opportunities, meta, source };
-    return { opportunities, meta, source };
+    const info: CorpusInfo = { opportunities, meta, source, space, withVectors, ...(note ? { note } : {}) };
+    this.cache = { ...info, key };
+    return info;
   }
 
   invalidate(): void {
@@ -118,14 +178,10 @@ export class CorpusStore {
   }
 }
 
-const defaultStore = new CorpusStore(process.cwd(), {
-  localIndexDir: () => {
-    const base = localEmbeddingsBaseDir();
-    return localEmbeddingsActive(base) ? localEmbeddingsPaths(base).dir : null;
-  },
-});
+const defaultStore = new CorpusStore(process.cwd());
 
 export function getCorpusInfo(): CorpusInfo {
+  removeLegacyLocalEmbeddingsOnce();
   return defaultStore.load();
 }
 

@@ -4,8 +4,7 @@ import { readJsonFile, writeFileAtomic } from "./atomicFile";
 
 /**
  * Cross-process single-flight lock: a file holding `{ pid, startedAt }`,
- * created with O_EXCL. Shared by the corpus refresh (data/local/refresh.lock)
- * and the local-embeddings job (data/local/local-embeddings.lock).
+ * created with O_EXCL. Used by the corpus refresh (data/local/refresh.lock).
  *
  * Rules that keep a second job from ever starting on the same files:
  *   - A lock whose owner pid is alive is held.

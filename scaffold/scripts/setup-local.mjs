@@ -10,12 +10,13 @@
  *   2. Verifies Ollama is installed and its daemon is reachable, offering to install
  *      it (winget on Windows, Homebrew on macOS 14+) before falling back to guidance.
  *   3. Installs a NEW recommended model or lets you pick an EXISTING one.
- *   4. ALWAYS pulls the SEPARATE embeddings model (`nomic-embed-text`) — the seam
- *      people miss: `LLM_PROVIDER=ollama` moves only scoring/explanations, NOT the
- *      query embedding, which otherwise 401s against OpenAI (or silently costs).
+ *   4. Makes sure the built-in search model is downloaded (`npm run model:fetch`).
+ *      Search doesn't go through Ollama: it runs nomic-embed-text-v1.5 in the app
+ *      itself, against corpus vectors that ship with Granted (the same vectors
+ *      Ollama's nomic-embed-text produces), so there is no embedding model to pull
+ *      and nothing to re-embed.
  *   5. Merges the local env into scaffold/.env.local (never clobbering a value you
- *      already set), then offers to re-embed the corpus so query + corpus dims
- *      match (a 512-dim OpenAI corpus vs a 768-dim local query = broken retrieval).
+ *      already set).
  *
  * Mirrors scripts/setup.mjs: idempotent, never overwrites an existing non-empty
  * value, never leaves a half-written .env.local. Cross-platform (no bash/
@@ -38,7 +39,6 @@ const EXAMPLE = join(SCAFFOLD, ".env.example");
 
 const OLLAMA_BASE_URL = "http://localhost:11434/v1";
 const OLLAMA_API_TAGS = "http://localhost:11434/api/tags";
-const EMBED_MODEL = "nomic-embed-text";
 // Non-interactive fallback when memory detection is unreliable and we can't ask:
 // a middling small model that runs on modest hardware.
 const DEFAULT_MODEL_WHEN_UNKNOWN = "llama3.2:3b";
@@ -299,36 +299,6 @@ export async function waitForDaemon(fetchTags, { timeoutMs = 120000, intervalMs 
   }
 }
 
-/**
- * Warm the embed model, run `data:embed`, and retry once on failure.
- *   `warmFn()`  → Promise<boolean> — one small embeddings request (with its
- *                 own retry) to burn off a cold-start before the real run.
- *   `runFn()`   → Promise<{ ok: boolean, output: string }> — runs `npm run
- *                 data:embed`, capturing output for the failure report.
- *   `waitFn(ms)`→ Promise<void> — injectable delay between attempts.
- * Never throws; always resolves { ok, output, attempts }.
- *
- * @param {{
- *   warmFn?: () => Promise<boolean>,
- *   runFn: () => Promise<{ ok: boolean, output: string }>,
- *   waitFn?: (ms: number) => Promise<void>,
- *   retryDelayMs?: number,
- * }} opts
- */
-export async function embedWithRetry({ warmFn, runFn, waitFn, retryDelayMs = 5000 }) {
-  const wait = waitFn || ((ms) => new Promise((r) => setTimeout(r, ms)));
-  if (warmFn) await warmFn();
-  let attempts = 0;
-  let last = { ok: false, output: "" };
-  for (let i = 0; i < 2; i++) {
-    attempts++;
-    last = await runFn();
-    if (last.ok) return { ok: true, output: last.output, attempts };
-    if (i === 0) await wait(retryDelayMs);
-  }
-  return { ok: false, output: last.output, attempts };
-}
-
 /** Platform → the human install guidance shown when Ollama is missing. */
 /**
  * Platform-specific Ollama install instructions.
@@ -453,59 +423,17 @@ async function ollamaDaemonModels() {
   }
 }
 
-/**
- * Send one small embeddings request to warm the model, retrying once. A cold
- * embed model can take long enough on its first request that `data:embed`'s
- * very first call times out/fails even though the daemon is healthy.
- */
-async function warmEmbedModel() {
-  for (let i = 0; i < 2; i++) {
-    try {
-      const ac = new AbortController();
-      const timer = setTimeout(() => ac.abort(), 30000);
-      const res = await fetch(`${OLLAMA_BASE_URL}/embeddings`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: EMBED_MODEL, input: "warmup" }),
-        signal: ac.signal,
-      });
-      clearTimeout(timer);
-      if (res.ok) return true;
-    } catch {
-      /* retry below */
-    }
-    if (i === 0) await new Promise((r) => setTimeout(r, 3000));
-  }
-  return false;
-}
-
 /** Extend the live env for THIS process's child_process calls (Windows PATH fix-up). */
 function childEnv() {
   return withOllamaOnPath(process.env, process.platform, process.env.LOCALAPPDATA);
 }
 
-/** `npm run data:embed:local` in scaffold/ (writes the gitignored data/local/, never the committed corpus), streaming output live while keeping a tail for the failure report. */
-function runDataEmbed() {
+/** `node scripts/fetch-model.mjs`: download (or verify) the built-in search model, output shown live. Resolves true on success. */
+function runFetchModel() {
   return new Promise((resolve) => {
-    let output = "";
-    const p = spawn("npm run data:embed:local", {
-      shell: true,
-      cwd: SCAFFOLD,
-      env: childEnv(),
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    for (const [stream, sink] of [
-      [p.stdout, process.stdout],
-      [p.stderr, process.stderr],
-    ]) {
-      stream.setEncoding("utf8");
-      stream.on("data", (s) => {
-        sink.write(s);
-        output = (output + s).slice(-8000);
-      });
-    }
-    p.on("error", (err) => resolve({ ok: false, output: `${output}\n${err.message}` }));
-    p.on("close", (code) => resolve({ ok: code === 0, output }));
+    const p = spawn(process.execPath, [join(SCAFFOLD, "scripts", "fetch-model.mjs")], { cwd: SCAFFOLD, stdio: "inherit" });
+    p.on("error", () => resolve(false));
+    p.on("close", (code) => resolve(code === 0));
   });
 }
 
@@ -780,28 +708,19 @@ async function main() {
     console.log(`  ${c.g("✓")} Pulled ${c.b(chosenModel)}`);
   }
 
-  // 5) ALWAYS ensure the SEPARATE embeddings model.
-  heading("Embeddings model (the seam people miss)");
+  // 5) The built-in search model. Search runs in the app, not through Ollama, so this is
+  //    a download of model files (not an Ollama pull), and failing it isn't fatal: the app
+  //    downloads them itself on the first search.
+  heading("Search model (built in)");
   console.log(
     c.dim(
-      "  Embeddings are a SEPARATE model from the chat LLM. Without a local embedder,\n" +
-        "  your query embedding still calls OpenAI — a 401 (or a silent hosted call) even\n" +
-        `  with LLM_PROVIDER=ollama. Pulling ${EMBED_MODEL} closes that seam.`,
+      "  Search runs on a small built-in model (nomic-embed-text-v1.5) inside Granted, against\n" +
+        "  vectors that ship with it. Nothing to re-embed and no key needed.",
     ),
   );
-  const haveEmbed = parseOllamaList(run("ollama", ["list"]) ?? "").some((m) => m.startsWith(EMBED_MODEL));
-  if (haveEmbed) {
-    console.log(`  ${c.g("✓")} ${EMBED_MODEL} already installed`);
-  } else {
-    console.log(c.dim(`  Pulling ${EMBED_MODEL} …`));
-    if (!runInherit("ollama", ["pull", EMBED_MODEL])) {
-      console.log(
-        c.r(`\n  Failed to pull "${EMBED_MODEL}".`) +
-          c.dim("\n  Retrieval can't go local without it. Fix the daemon and re-run. Nothing was written to .env.local."),
-      );
-      process.exit(1);
-    }
-    console.log(`  ${c.g("✓")} Pulled ${c.b(EMBED_MODEL)}`);
+  const modelOk = await runFetchModel();
+  if (!modelOk) {
+    console.log(c.y("  ! Couldn't download the search model now. Granted will download it on your first search."));
   }
 
   // 6) Merge into .env.local (single write; never half-written).
@@ -820,8 +739,6 @@ async function main() {
     LLM_PROVIDER: "ollama",
     LOCAL_LLM_MODEL: chosenModel,
     LLM_BASE_URL: OLLAMA_BASE_URL,
-    EMBEDDINGS_BASE_URL: OLLAMA_BASE_URL,
-    EMBEDDINGS_MODEL: EMBED_MODEL,
     // Competitor & market analysis is free on local inference — enable it so it
     // works out of the box. (mergeEnvLocal never clobbers a value you already set.)
     NEXT_PUBLIC_FLAG_R5_DEEP_ANALYSIS: "true",
@@ -839,54 +756,20 @@ async function main() {
     );
   }
 
-  // 7) Offer to re-embed the corpus with the local embedder.
-  heading("Re-embed the corpus (the step people forget)");
-  console.log(
-    c.dim(
-      "  The committed corpus is OpenAI 512-dim vectors. Your local query embeds at a\n" +
-        `  different size (${EMBED_MODEL} is 768-dim), so retrieval is broken until you\n` +
-        "  re-embed the corpus with the SAME local model. Runs `npm run data:embed:local` —\n" +
-        "  may take a while, from a few minutes to a half hour depending on your system\n" +
-        "  specifications and the number of grants being searched — writing to the gitignored\n" +
-        "  data/local/ — the committed corpus is untouched.",
-    ),
-  );
-  const doEmbed = await confirm("Re-embed the corpus now?", true);
-  if (doEmbed) {
-    console.log(c.dim("\n  Warming the embedding model (avoids a cold-start failure on the first request)…"));
-    console.log(c.dim("  Re-embedding locally … (reads scaffold/.env.local; nothing leaves your machine)"));
-    let attempt = 0;
-    const result = await embedWithRetry({
-      warmFn: warmEmbedModel,
-      runFn: () => {
-        if (attempt++) console.log(c.y("\n  data:embed failed — retrying once…"));
-        return runDataEmbed();
-      },
-    });
-    if (result.ok) {
-      console.log(`  ${c.g("✓")} Corpus re-embedded with ${EMBED_MODEL}`);
-    } else {
-      const tail = result.output.trim().split(/\r?\n/).slice(-20).join("\n");
-      console.log(
-        c.r(`\n  data:embed failed after ${result.attempts} attempt(s). Retrieval is still broken.\n`) +
-          c.dim(`\n  Last output:\n${tail}\n`),
-      );
-      console.log(c.y("\n  Fix the error above, then re-run: ") + c.g("npm run data:embed:local") + c.dim(" in scaffold/"));
-      process.exit(1);
-    }
-  } else {
+  // A setup from before the built-in model pointed EMBEDDINGS_BASE_URL at Ollama and re-embedded
+  // the corpus. That still works (search keeps using it), but the built-in model is simpler.
+  if (currentValue(text, "EMBEDDINGS_BASE_URL")) {
     console.log(
-      c.y("  Skipped.") +
-        c.dim(` Retrieval will be broken until you run ${"`npm run data:embed:local`"} (dim mismatch).`),
+      c.y("  • EMBEDDINGS_BASE_URL is set in .env.local, so search keeps using that embedder.") +
+        c.dim(" Remove EMBEDDINGS_BASE_URL and EMBEDDINGS_MODEL to use the built-in search model instead."),
     );
   }
 
-  // 8) Success summary.
+  // 7) Success summary.
   heading("You're fully local — next steps");
   console.log(`  ${c.dim("Chat model:")}      ${c.b(chosenModel)}`);
-  console.log(`  ${c.dim("Embeddings:")}      ${c.b(EMBED_MODEL)} ${c.dim(`@ ${OLLAMA_BASE_URL}`)}`);
+  console.log(`  ${c.dim("Search:")}          ${c.b("Built-in, on this computer")} ${c.dim("(nomic-embed-text-v1.5)")}`);
   console.log(`  ${c.dim("Config written:")}  scaffold/.env.local`);
-  if (!doEmbed) console.log(c.y("  ! Run `npm run data:embed:local` before searching — retrieval is broken otherwise."));
   console.log(`\n  ${c.b("Now run:")} ${c.g("npm run dev")}   ${c.dim("→ http://localhost:3000")}`);
   console.log(
     c.dim(

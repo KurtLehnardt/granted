@@ -6,7 +6,7 @@ import { __resetRateLimits } from "@/lib/security/rateLimit";
 
 /**
  * FE-03 /api/interview route — the "never a 5xx" contract. `generateQuestions`
- * (INT-01) reads `OPENAI_API_KEY` from the environment; the route promises the
+ * (INT-01) runs on the configured model provider (lib/llm); the route promises the
  * client it degrades to `{ questions: [] }` on ANY generation failure rather
  * than surfacing a 500, so a broken/slow interview never blocks the free
  * search path. Rate limits are reset per case so repeated calls in this file
@@ -47,10 +47,14 @@ test("invalid JSON body -> 400", async () => {
   assert.ok(j.error);
 });
 
-test("valid description with OPENAI_API_KEY unset -> generation fails internally but the route still returns 200 with { questions: [] } (never a 5xx)", async () => {
+test("valid description with no model provider configured -> generation fails internally but the route still returns 200 with { questions: [] } (never a 5xx)", async () => {
   __resetRateLimits();
   const saved = process.env.OPENAI_API_KEY;
+  const savedAnthropic = process.env.ANTHROPIC_API_KEY;
+  const savedProvider = process.env.LLM_PROVIDER;
   delete process.env.OPENAI_API_KEY;
+  delete process.env.ANTHROPIC_API_KEY;
+  delete process.env.LLM_PROVIDER;
   try {
     const res = await POST(post(JSON.stringify({ description: VALID_DESCRIPTION })));
     assert.equal(res.status, 200);
@@ -59,5 +63,9 @@ test("valid description with OPENAI_API_KEY unset -> generation fails internally
   } finally {
     if (saved === undefined) delete process.env.OPENAI_API_KEY;
     else process.env.OPENAI_API_KEY = saved;
+    if (savedAnthropic === undefined) delete process.env.ANTHROPIC_API_KEY;
+    else process.env.ANTHROPIC_API_KEY = savedAnthropic;
+    if (savedProvider === undefined) delete process.env.LLM_PROVIDER;
+    else process.env.LLM_PROVIDER = savedProvider;
   }
 });

@@ -1,7 +1,6 @@
 /**
- * The corpus-embedding loop, shared by scripts/3-embed.mjs (`npm run data:embed`,
- * `data:embed:local`) and the Settings-driven local re-embed
- * (lib/embeddings/localEmbedJob.ts). Plain .mjs so 3-embed.mjs keeps running
+ * The corpus-embedding loop for HTTP embedders, used by scripts/3-embed.mjs
+ * (`npm run data:embed`, `data:embed:local`). Plain .mjs so 3-embed.mjs keeps running
  * under bare `node` (no tsx).
  *
  * Everything that talks to the network takes an injectable `fetchFn` / `sleepFn`

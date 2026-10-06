@@ -96,6 +96,7 @@ describe("getSetupState / saveApiKeys against a real install folder", () => {
       anthropicKeySet: false,
       hostedKeysSet: false,
       localConfigured: false,
+      settingsProviderSet: false,
       trayAvailable: false,
       shortcutsAvailable: false,
       appWindowAvailable: false,
@@ -129,24 +130,50 @@ describe("getSetupState / saveApiKeys against a real install folder", () => {
     assert.equal(state.installed, false);
   });
 
-  test("a Claude key alone is rejected — with why, and the local-models way out — and writes nothing at all", async () => {
-    const result = await saveApiKeys(install.scaffoldDir, { openaiApiKey: "", anthropicApiKey: "sk-ant-only-claude-000000", exaApiKey: "" });
+  test("a Claude key alone is enough: it is saved, and setup state reads as ready (search needs no key)", async () => {
+    const other = await makeInstall();
+    try {
+      const result = await saveApiKeys(other.scaffoldDir, { openaiApiKey: "", anthropicApiKey: "sk-ant-only-claude-000000", exaApiKey: "" });
+      assert.deepEqual(result, { ok: true, message: "Saved your keys to .env.local." });
+      const env = await readFile(join(other.scaffoldDir, ".env.local"), "utf8");
+      assert.match(env, /^ANTHROPIC_API_KEY=sk-ant-only-claude-000000$/m);
+      assert.match(env, /^OPENAI_API_KEY=sk-\.\.\.$/m, "the OpenAI placeholder is left as-is");
+      const state = await setupState(other.installDir);
+      assert.equal(state.hostedKeysSet, true);
+      assert.equal(state.openaiKeySet, false);
+    } finally {
+      await rm(other.root, { recursive: true, force: true });
+    }
+  });
+
+  test("an empty form is rejected, says one scoring key (or local models) is needed, and writes nothing", async () => {
+    const result = await saveApiKeys(install.scaffoldDir, { openaiApiKey: "", anthropicApiKey: "", exaApiKey: "" });
     assert.equal(result.ok, false);
     assert.equal(result.suggestLocal, true);
-    assert.match(result.message, /Search works with an OpenAI key/);
+    assert.match(result.message, /needs one API key to score/);
+    assert.match(result.message, /Search itself runs on this computer and needs no key/);
     assert.match(result.message, /use local models instead/);
     assert.equal(existsSync(join(install.scaffoldDir, ".env.local")), false);
   });
 
-  test("an empty form is rejected the same way, and writes nothing", async () => {
-    const result = await saveApiKeys(install.scaffoldDir, { openaiApiKey: "", anthropicApiKey: "", exaApiKey: "" });
-    assert.equal(result.ok, false);
-    assert.equal(result.suggestLocal, true);
-    assert.match(result.message, /needs an OpenAI API key to search/);
-    assert.equal(existsSync(join(install.scaffoldDir, ".env.local")), false);
+  test("a provider saved in Settings (Gemini, say) counts as configured, with no keys in .env.local", async () => {
+    const other = await makeInstall();
+    try {
+      await mkdir(join(other.scaffoldDir, "data", "local"), { recursive: true });
+      await writeFile(
+        join(other.scaffoldDir, "data", "local", "llm-config.json"),
+        JSON.stringify({ provider: "cloud", cloud: { providerId: "gemini", keySource: { type: "env", name: "GEMINI_API_KEY" } } }),
+      );
+      const state = await setupState(other.installDir);
+      assert.equal(state.settingsProviderSet, true);
+      assert.equal(state.hostedKeysSet, false);
+      assert.equal((await setupState(install.installDir)).settingsProviderSet, false);
+    } finally {
+      await rm(other.root, { recursive: true, force: true });
+    }
   });
 
-  test("an OpenAI key alone is enough (it searches and can do the scoring)", async () => {
+  test("an OpenAI key alone is enough (it can do the scoring)", async () => {
     const other = await makeInstall();
     try {
       const result = await saveApiKeys(other.scaffoldDir, { openaiApiKey: "sk-only-openai-0000000000", anthropicApiKey: "", exaApiKey: "" });
@@ -187,7 +214,19 @@ describe("getSetupState / saveApiKeys against a real install folder", () => {
     assert.match(env, /^EXA_API_KEY=exa-new$/m);
   });
 
-  test("local setup only counts as configured once its corpus re-embed finished", async () => {
+  test("today's setup:local (no EMBEDDINGS_BASE_URL) counts as configured straight away", async () => {
+    const other = await makeInstall();
+    try {
+      await writeFile(join(other.scaffoldDir, ".env.local"), "LLM_PROVIDER=ollama\nLOCAL_LLM_MODEL=gemma4:latest\n");
+      const state = await setupState(other.installDir);
+      assert.equal(state.localConfigured, true);
+      assert.equal(state.hostedKeysSet, false);
+    } finally {
+      await rm(other.root, { recursive: true, force: true });
+    }
+  });
+
+  test("an older local setup (EMBEDDINGS_BASE_URL set) only counts as configured once its corpus re-embed finished", async () => {
     const other = await makeInstall();
     try {
       await writeFile(join(other.scaffoldDir, ".env.local"), LOCAL_ENV);

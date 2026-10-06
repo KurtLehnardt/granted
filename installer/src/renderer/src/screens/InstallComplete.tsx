@@ -3,7 +3,7 @@ import type { GrantedSetupState, OpenIn, ShortcutChoice, TaskStatusEvent } from 
 
 /**
  * Shown once the install finishes. Offers to do the README's "Next steps"
- * for the user — configure .env.local (their API keys, or the fully-local
+ * for the user — configure .env.local (an API key for scoring, or the fully-local
  * Ollama setup), start `npm run dev`, and open Granted (in its own window or
  * a browser tab) — instead of
  * leaving them to type those commands into the console.
@@ -110,7 +110,7 @@ export default function InstallComplete(): React.JSX.Element {
   const handleYes = (): void =>
     continueWith(() => {
       // Already configured on an earlier run — nothing to ask, just start it.
-      if (setup?.hostedKeysSet || setup?.localConfigured) start();
+      if (setup?.hostedKeysSet || setup?.localConfigured || setup?.settingsProviderSet) start();
       else setStep({ id: "choose" });
     });
 
@@ -203,13 +203,15 @@ export default function InstallComplete(): React.JSX.Element {
           <div className="choices">
             <button type="button" className="choice" onClick={() => setStep({ id: "keys" })}>
               <strong>Use my API keys</strong>
-              <span>Fastest. An OpenAI key is all you need (search uses it); add a Claude key too if you'd like.</span>
+              <span>
+                Fastest. Search runs on this computer with no key; one OpenAI or Claude key does the scoring.
+              </span>
             </button>
             <button type="button" className="choice" onClick={runLocalSetup}>
               <strong>Run everything on this computer</strong>
               <span>
-                No API keys, works offline. Downloads an AI model (several GB) and can take up to half an hour the first
-                time.
+                No API keys, works offline. Downloads an AI model for the scoring (several GB) through Ollama and can
+                take up to half an hour the first time.
               </span>
             </button>
           </div>
@@ -285,7 +287,7 @@ export default function InstallComplete(): React.JSX.Element {
           )}
           {shortcutPlaces.length === 0 && <p>To open Granted later, run these in PowerShell:</p>}
           <code className="command">{`cd "${installDir}\\scaffold"
-npm run setup                  # your API key (OpenAI; Claude optional), or
+npm run setup                  # an OpenAI or Claude key for scoring (each optional), or
 npm run setup:local -- --yes   # fully local via Ollama, no API keys
 npm run dev                    # then open http://localhost:3000`}</code>
           <div className="actions spaced">
@@ -360,11 +362,13 @@ function ApiKeysForm({
     <form className="keys-form" onSubmit={handleSubmit}>
       <p className="question">Your API keys</p>
       <p className="detail">
-        One key is enough: search works with an OpenAI key, and it can do the scoring too. Add a Claude key if you'd
-        like Claude to do the scoring. Saved only on this computer, in Granted's .env.local file.
+        Search runs on this computer with a built-in model and needs no key. Granted needs one key to score the grants
+        it finds: OpenAI or Anthropic (Claude). Either is enough; with both, Claude does the scoring. Other providers
+        (Gemini, Groq and more) can be set up in Settings → Model once Granted is open. Keys are saved only on this
+        computer, in Granted's .env.local file.
       </p>
       <label>
-        OpenAI API key <span className="detail">(needed for search — platform.openai.com/api-keys)</span>
+        OpenAI API key <span className="detail">(optional — scores the matches; platform.openai.com/api-keys)</span>
         <input
           type="password"
           autoComplete="off"
@@ -375,7 +379,7 @@ function ApiKeysForm({
       </label>
       <label>
         Anthropic (Claude) API key{" "}
-        <span className="detail">(optional — Claude does the scoring if you add it; console.anthropic.com/settings/keys)</span>
+        <span className="detail">(optional — Claude scores the matches; console.anthropic.com/settings/keys)</span>
         <input
           type="password"
           autoComplete="off"

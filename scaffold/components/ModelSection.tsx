@@ -4,7 +4,7 @@ import React, { useEffect, useId, useState } from "react";
 import { getModel, setModel } from "@/lib/searchSettings";
 import type { OllamaModel } from "@/lib/llm/ollamaInfo";
 import { CLOUD_PROVIDERS, isSameCloudTarget, type CloudProviderId } from "@/lib/llm/providers";
-import type { LocalEmbeddingsStatus } from "@/lib/embeddings/localEmbeddings";
+import type { SearchStatus } from "@/lib/embeddings/searchStatus";
 import LocalSearchStatus from "@/components/LocalSearchStatus";
 
 export type KeySourceType = "inline" | "env" | "file";
@@ -70,8 +70,8 @@ export type LlmProviderInfo = {
   model?: string;
   models?: OllamaModel[];
   cloud?: CloudInfo;
-  /** Settings → Local's background local-search setup (see lib/embeddings/localEmbeddings.ts). */
-  localEmbeddings?: LocalEmbeddingsStatus;
+  /** The "Search" line: which embeddings search uses, and the built-in model's download state (lib/embeddings/searchStatus.ts). */
+  search?: SearchStatus;
 };
 
 /** Base URL and, when it should change, key source for a switch to `next`: the saved
@@ -398,10 +398,6 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
               Runs on your own machine via Ollama — nothing leaves your computer.
             </p>
           )}
-          {/* Switching to Local starts the local-search setup server-side; this shows its progress, errors and Retry. */}
-          {activeProvider === "ollama" && (
-            <LocalSearchStatus initialStatus={info?.localEmbeddings} onReady={refresh} autoStart />
-          )}
         </div>
       )}
 
@@ -581,6 +577,9 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
           </div>
         </div>
       )}
+
+      {/* Search runs on its own embeddings, whichever model does the scoring: say which, and the built-in model's download state. */}
+      <LocalSearchStatus initialStatus={info?.search} />
 
       {error && (
         <p className="mt-2 rounded-r-sm border-l-2 border-error bg-canvas-alt px-3 py-2 font-body text-[12px] text-foreground">

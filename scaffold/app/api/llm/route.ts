@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { isLocalLlm, defaultLocalModel } from "@/lib/llm/client";
 import { listOllamaChatModels } from "@/lib/llm/ollamaInfo";
 import { resolveCloudConfig, resolveCloudApiKey, publicKeySource, isEnvCloudConfig } from "@/lib/llm/config";
-import { buildLocalEmbeddingsStatus } from "@/lib/embeddings/localEmbeddings";
+import { buildSearchStatus } from "@/lib/embeddings/searchStatus";
 
 // Next 14 would otherwise prerender this at build time, freezing the backend/model list.
 export const dynamic = "force-dynamic";
@@ -31,9 +31,9 @@ function buildCloudBlock(cfg: NonNullable<ReturnType<typeof resolveCloudConfig>>
 export async function GET() {
   const cfg = resolveCloudConfig();
   const cloud = cfg ? buildCloudBlock(cfg) : undefined;
-  // Settings → Local's background local-search setup (state/progress/error), built once per
-  // request — see lib/embeddings/localEmbeddings.ts.
-  const localEmbeddings = buildLocalEmbeddingsStatus();
+  // The "Search" line: which embeddings search uses and the built-in model's download state
+  // (lib/embeddings/searchStatus.ts), built once per request.
+  const search = buildSearchStatus();
 
   if (isLocalLlm()) {
     return NextResponse.json({
@@ -41,19 +41,19 @@ export async function GET() {
       provider: "ollama" as const,
       model: defaultLocalModel(),
       models: await listOllamaChatModels(),
-      localEmbeddings,
+      search,
       ...(cloud ? { cloud } : {}),
     });
   }
 
   if (!cfg) {
-    return NextResponse.json({ local: false, provider: "cloud" as const, localEmbeddings });
+    return NextResponse.json({ local: false, provider: "cloud" as const, search });
   }
 
   return NextResponse.json({
     local: false,
     provider: "cloud" as const,
-    localEmbeddings,
+    search,
     cloud,
   });
 }

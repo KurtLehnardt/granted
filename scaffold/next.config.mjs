@@ -36,6 +36,11 @@ const securityHeaders = [
 
 export default {
   reactStrictMode: true,
+  experimental: {
+    // The built-in search model (lib/embeddings/builtin.ts) runs on onnxruntime-node, a native
+    // addon: Next.js 14 must load these from node_modules at runtime rather than bundle them.
+    serverComponentsExternalPackages: ["@huggingface/transformers", "onnxruntime-node", "onnxruntime-common", "sharp"],
+  },
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },

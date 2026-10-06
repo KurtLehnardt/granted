@@ -23,7 +23,6 @@ import {
   ollamaWindowsDir,
   withOllamaOnPath,
   waitForDaemon,
-  embedWithRetry,
   launchOllamaDaemon,
 } from "../setup-local.mjs";
 
@@ -346,59 +345,6 @@ describe("waitForDaemon: poll with injectable fetch + sleep", () => {
   });
 });
 
-describe("embedWithRetry: warm + run data:embed, retry once, report failure", () => {
-  test("succeeds on the first attempt after warming", async () => {
-    let warmed = false;
-    const result = await embedWithRetry({
-      warmFn: async () => {
-        warmed = true;
-        return true;
-      },
-      runFn: async () => ({ ok: true, output: "791 embedded" }),
-      waitFn: async () => {},
-    });
-    assert.equal(warmed, true);
-    assert.equal(result.ok, true);
-    assert.equal(result.attempts, 1);
-  });
-  test("retries once after a failure, then succeeds", async () => {
-    let calls = 0;
-    const waits: number[] = [];
-    const result = await embedWithRetry({
-      runFn: async () => {
-        calls++;
-        return calls === 1 ? { ok: false, output: "ECONNRESET" } : { ok: true, output: "done" };
-      },
-      waitFn: async (ms: number) => {
-        waits.push(ms);
-      },
-    });
-    assert.equal(result.ok, true);
-    assert.equal(result.attempts, 2);
-    assert.deepEqual(waits, [5000]);
-  });
-  test("fails after two attempts, reporting the last output and attempt count", async () => {
-    let calls = 0;
-    const result = await embedWithRetry({
-      runFn: async () => {
-        calls++;
-        return { ok: false, output: `attempt ${calls} failed` };
-      },
-      waitFn: async () => {},
-    });
-    assert.equal(result.ok, false);
-    assert.equal(result.attempts, 2);
-    assert.equal(calls, 2);
-    assert.match(result.output, /attempt 2 failed/);
-  });
-  test("works without a warmFn", async () => {
-    const result = await embedWithRetry({
-      runFn: async () => ({ ok: true, output: "" }),
-      waitFn: async () => {},
-    });
-    assert.equal(result.ok, true);
-  });
-});
 
 describe("launchOllamaDaemon: never inherits stdio from a long-lived grandchild", () => {
   test("Windows: spawns via `cmd /c start` detached with stdio ignored", () => {

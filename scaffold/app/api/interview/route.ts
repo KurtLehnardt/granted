@@ -16,8 +16,8 @@ const INTERVIEW_RATE_WINDOW_MS = Number(process.env.INTERVIEW_RATE_WINDOW_MS) ||
  * FE-03 — R1 pre-search interview: question generation ROUTE.
  *
  * Thin server wrapper around INT-01 (`generateQuestions`). Runs the cheap/fast
- * model pass server-side ONLY — `generateQuestions` reads `OPENAI_API_KEY`
- * from the environment, which must never reach the client bundle.
+ * model pass server-side ONLY — `generateQuestions` uses the configured model
+ * provider (lib/llm) and its key, which must never reach the client bundle.
  *
  * Contract with the client (components/IntakeForm.tsx /
  * components/PreSearchInterview.tsx): this route NEVER 5xxs on a generation

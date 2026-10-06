@@ -138,17 +138,19 @@ export function isRealKey(value: string): boolean {
 }
 
 /**
- * Whether `npm run setup:local` got all the way through. Its env lines alone
- * aren't proof: setup-local.mjs writes them (step 6) BEFORE the corpus
- * re-embed (step 7), which can still fail — leaving an .env.local that
- * points at Ollama with a corpus whose vectors don't match (broken
- * retrieval). The re-embed's very last write is data/local/corpus-meta.json,
- * stamped with the model it used, so that must exist and match too.
+ * Whether `npm run setup:local` got all the way through. Today it ends by
+ * writing LLM_PROVIDER=ollama once the chat model is pulled; search runs on
+ * Granted's built-in model, so there is nothing else to check. Older
+ * setup:local runs also pointed EMBEDDINGS_BASE_URL at Ollama and re-embedded
+ * the corpus with it; for those the env lines alone aren't proof, because the
+ * re-embed could still fail after they were written, leaving vectors that don't
+ * match. That re-embed's last write is data/local/corpus-meta.json, stamped
+ * with the model it used, so when EMBEDDINGS_BASE_URL is set that file must
+ * exist and match too.
  */
 export function envIsLocalConfigured(text: string, localCorpusMetaJson: string | null): boolean {
-  if (currentEnvValue(text, "LLM_PROVIDER") !== "ollama" || currentEnvValue(text, "EMBEDDINGS_BASE_URL") === "") {
-    return false;
-  }
+  if (currentEnvValue(text, "LLM_PROVIDER").toLowerCase() !== "ollama") return false;
+  if (currentEnvValue(text, "EMBEDDINGS_BASE_URL") === "") return true;
   try {
     const raw = localCorpusMetaJson ?? "";
     const meta = JSON.parse(raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw) as { embeddingModel?: unknown; dims?: unknown };
@@ -158,6 +160,45 @@ export function envIsLocalConfigured(text: string, localCorpusMetaJson: string |
     return false;
   }
 }
+
+/**
+ * Whether the user already chose a model provider in Granted's Settings
+ * (scaffold/data/local/llm-config.json, written by Settings → Model). A saved
+ * cloud provider (Gemini, Groq, OpenRouter, the Claude proxy and so on) with a
+ * key source, or Local, means Granted can score without anything in
+ * .env.local, so the installer shouldn't ask for keys again. Mirrors the
+ * shapes scaffold/lib/llm/config.ts accepts, including the older
+ * `anthropicApiKey` field.
+ */
+export function settingsHasProvider(llmConfigJson: string | null): boolean {
+  if (!llmConfigJson) return false;
+  try {
+    const raw = llmConfigJson.charCodeAt(0) === 0xfeff ? llmConfigJson.slice(1) : llmConfigJson;
+    const parsed = JSON.parse(raw) as {
+      provider?: unknown;
+      cloud?: { providerId?: unknown; keySource?: { type?: unknown } } | null;
+      anthropicApiKey?: unknown;
+    };
+    if (!parsed || typeof parsed !== "object") return false;
+    if (parsed.provider === "ollama") return true;
+    const cloud = parsed.cloud;
+    const hasCloud =
+      !!cloud &&
+      typeof cloud === "object" &&
+      typeof cloud.providerId === "string" &&
+      cloud.providerId !== "" &&
+      !!cloud.keySource &&
+      typeof cloud.keySource === "object" &&
+      typeof cloud.keySource.type === "string";
+    const hasLegacy = typeof parsed.anthropicApiKey === "string" && parsed.anthropicApiKey.length > 0;
+    return (parsed.provider === undefined || parsed.provider === "cloud" || parsed.provider === "anthropic") && (hasCloud || hasLegacy);
+  } catch {
+    return false;
+  }
+}
+
+/** What `applyApiKeys` reports as missing when neither scoring key is set: one of OPENAI_API_KEY or ANTHROPIC_API_KEY. */
+export const SCORING_KEY = "OPENAI_API_KEY or ANTHROPIC_API_KEY";
 
 /**
  * Merge the form's keys into env text. A key the user typed replaces
@@ -182,12 +223,15 @@ export function applyApiKeys(
     const value = raw.trim();
     if (value !== "") out = upsertEnv(out, key, value);
   }
-  // One cloud key is enough — but it has to be OpenAI's: search embeds every
-  // query with it, and with no Anthropic key the app scores with OpenAI too
-  // (scaffold/lib/llm/config.ts resolveCloudConfig). ANTHROPIC_API_KEY is an
-  // optional upgrade (Claude does the scoring). A Claude key alone can't
-  // search: Anthropic has no embeddings API.
-  const missing = isOpenAiKeyFormat(currentEnvValue(out, "OPENAI_API_KEY")) ? [] : ["OPENAI_API_KEY"];
+  // Search needs no key: it runs on Granted's built-in model on this computer
+  // (an OpenAI key, when present, is used for search instead, as before). What
+  // a search does need is something to score the matches, and one key from
+  // either OpenAI or Anthropic (Claude) is enough for that
+  // (scaffold/lib/llm/config.ts resolveCloudConfig). Other providers are set up
+  // in Settings → Model once Granted is open.
+  const hasScoringKey =
+    isOpenAiKeyFormat(currentEnvValue(out, "OPENAI_API_KEY")) || isAnthropicKeyFormat(currentEnvValue(out, "ANTHROPIC_API_KEY"));
+  const missing = hasScoringKey ? [] : [SCORING_KEY];
   return { text: out, missing, invalid };
 }
 
@@ -206,14 +250,15 @@ export function isAnthropicKeyFormat(key: string): boolean {
 }
 
 /**
- * Whether .env.local is ready for hosted (API-key) mode: a valid OpenAI key
- * (see applyApiKeys), and NOT switched to a local model — a `setup:local`
- * that wrote LLM_PROVIDER=ollama but then failed its re-embed must still be
- * offered the choice again, not started as-is with broken retrieval.
+ * Whether .env.local is ready for hosted (API-key) mode: a valid OpenAI or
+ * Claude key to score with (see applyApiKeys), and NOT switched to a local
+ * model. A `setup:local` that wrote LLM_PROVIDER=ollama but didn't finish must
+ * still be offered the choice again, not started as-is.
  */
 export function envHasHostedKeys(text: string): boolean {
   const provider = currentEnvValue(text, "LLM_PROVIDER").toLowerCase();
-  return isOpenAiKeyFormat(currentEnvValue(text, "OPENAI_API_KEY")) && (provider === "" || provider === "anthropic");
+  const hasKey = isOpenAiKeyFormat(currentEnvValue(text, "OPENAI_API_KEY")) || isAnthropicKeyFormat(currentEnvValue(text, "ANTHROPIC_API_KEY"));
+  return hasKey && (provider === "" || provider === "anthropic");
 }
 
 // ---------------------------------------------------------------------------

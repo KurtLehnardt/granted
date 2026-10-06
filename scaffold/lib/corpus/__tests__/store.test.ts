@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CorpusStore } from "../store";
+import { CorpusStore, attachSpaceVectors } from "../store";
+import { getSpace, type EmbeddingSpace } from "../../embeddings/spaces";
+import { textHash, writeVectorFile } from "../../../scripts/lib/vectorFile.mjs";
+import { spaceDocumentText } from "../../../scripts/lib/spaceVectors.mjs";
 
 function makeBaseDir() {
   return mkdtempSync(join(tmpdir(), "granted-corpus-store-"));
@@ -176,61 +179,124 @@ describe("CorpusStore", () => {
   });
 });
 
-describe("CorpusStore — Settings → Local's index", () => {
-  function writeIndexed(baseDir: string, opps: unknown[], meta: object = {}) {
+describe("CorpusStore — vectors come from the active embedding space", () => {
+  // A small stand-in for the built-in space: same vector-file storage and prefixes, 3 dims.
+  const builtin3: EmbeddingSpace = { ...getSpace("builtin"), dims: 3 };
+  const NAME = "nomic-embed-text-v1.5";
+  const opp = (id: string, description = `About ${id}.`) => ({ id, program: `P ${id}`, agency: "A", description, embedding: [9, 9] });
+  const entry = (o: ReturnType<typeof opp>, vector: number[]) => ({ id: o.id, vector, textHash: textHash(spaceDocumentText(builtin3, o)) });
+  const meta = { space: "builtin", model: "nomic-embed-text-v1.5", dims: 3 };
+
+  test("OpenAI (inline): the vectors in opportunities.json, untouched", () => {
+    const baseDir = makeBaseDir();
+    writeCommitted(baseDir, [opp("a")]);
+    const info = new CorpusStore(baseDir, { space: () => getSpace("openai") }).load();
+    assert.equal(info.space.id, "openai");
+    assert.deepEqual(info.opportunities[0].embedding, [9, 9]);
+    assert.equal(info.withVectors, 1);
+    rmSync(baseDir, { recursive: true, force: true });
+  });
+
+  test("built-in: each record gets its vector from data/vectors by id, and the inline OpenAI vector is dropped", () => {
+    const baseDir = makeBaseDir();
+    const [a, b] = [opp("a"), opp("b")];
+    writeCommitted(baseDir, [a, b]);
+    writeVectorFile(join(baseDir, "data", "vectors"), NAME, meta, [entry(b, [0, 1, 0]), entry(a, [1, 0, 0])]);
+    const info = new CorpusStore(baseDir, { space: () => builtin3 }).load();
+    assert.deepEqual(info.opportunities.map((o) => o.embedding), [[1, 0, 0], [0, 1, 0]]);
+    assert.equal(info.withVectors, 2);
+    rmSync(baseDir, { recursive: true, force: true });
+  });
+
+  test("built-in after a data:refresh: the refresh's vectors win, the committed ones fill in, a changed record without one has none", () => {
+    const baseDir = makeBaseDir();
+    const [a, b] = [opp("a"), opp("b")];
+    writeCommitted(baseDir, [a, b]);
+    writeVectorFile(join(baseDir, "data", "vectors"), NAME, meta, [entry(a, [1, 0, 0]), entry(b, [0, 1, 0])]);
+    const bChanged = opp("b", "A rewritten description.");
+    const c = opp("c");
+    writeLocal(baseDir, [a, bChanged, c]);
+    writeVectorFile(join(baseDir, "data", "local", "vectors"), NAME, meta, [entry(c, [0, 0, 1])]);
+    const info = new CorpusStore(baseDir, { space: () => builtin3 }).load();
+    assert.equal(info.source, "local");
+    const byId = Object.fromEntries(info.opportunities.map((o) => [o.id, o.embedding]));
+    assert.deepEqual(byId.a, [1, 0, 0], "unchanged: the committed vector");
+    assert.equal(byId.b, undefined, "text changed since the committed vector: no stale vector");
+    assert.deepEqual(byId.c, [0, 0, 1], "new: the refresh's vector");
+    assert.equal(info.withVectors, 2);
+    rmSync(baseDir, { recursive: true, force: true });
+  });
+
+  test("switching spaces on the same store reloads with the other space's vectors", () => {
+    const baseDir = makeBaseDir();
+    const a = opp("a");
+    writeCommitted(baseDir, [a]);
+    writeVectorFile(join(baseDir, "data", "vectors"), NAME, meta, [entry(a, [1, 0, 0])]);
+    let space: EmbeddingSpace = getSpace("openai");
+    const store = new CorpusStore(baseDir, { space: () => space });
+    assert.deepEqual(store.load().opportunities[0].embedding, [9, 9]);
+    space = builtin3;
+    assert.deepEqual(store.load().opportunities[0].embedding, [1, 0, 0]);
+    space = getSpace("openai");
+    assert.deepEqual(store.load().opportunities[0].embedding, [9, 9]);
+    rmSync(baseDir, { recursive: true, force: true });
+  });
+
+  test("the retired Settings → Local index (data/local/local-embeddings/) is ignored", () => {
+    const baseDir = makeBaseDir();
+    writeCommitted(baseDir, [opp("committed")]);
     const dir = join(baseDir, "data", "local", "local-embeddings");
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "opportunities.json"), JSON.stringify(opps));
-    writeFileSync(join(dir, "corpus-meta.json"), JSON.stringify(meta));
-    return dir;
-  }
-
-  test("serves the local index only while it's active, and the hosted corpus again once it isn't", () => {
-    const baseDir = makeBaseDir();
-    writeCommitted(baseDir, [{ id: "committed", embedding: [1, 2] }], { builtAt: "2026-01-01T00:00:00.000Z" });
-    const indexDir = writeIndexed(baseDir, [{ id: "committed", embedding: [1, 2, 3] }], { builtAt: "2026-01-01T00:00:00.000Z" });
-    let active = true;
-    const store = new CorpusStore(baseDir, { localIndexDir: () => (active ? indexDir : null) });
-
-    const local = store.load();
-    assert.equal(local.source, "local-embeddings");
-    assert.equal(local.opportunities[0].embedding?.length, 3);
-
-    active = false; // e.g. switched back to a cloud model
-    const hosted = store.load();
-    assert.equal(hosted.source, "committed");
-    assert.equal(hosted.opportunities[0].embedding?.length, 2);
+    writeFileSync(join(dir, "opportunities.json"), JSON.stringify([{ id: "x" }]));
+    const info = new CorpusStore(baseDir, { space: () => getSpace("openai") }).load();
+    assert.equal(info.source, "committed");
+    assert.equal(info.opportunities[0].id, "committed");
     rmSync(baseDir, { recursive: true, force: true });
   });
 
-  test("freshness comes from the hosted corpus, not the index: a data:refresh is visible at once (no auto-refresh loop)", () => {
+  test("attachSpaceVectors never uses a vector of the wrong size", () => {
+    const a = opp("a");
+    const out = attachSpaceVectors(builtin3, [a as any], [new Map([["a", { vector: [1, 0], textHash: entry(a, []).textHash }]])]);
+    assert.equal(out.withVectors, 0);
+    assert.equal(out.opportunities[0].embedding, undefined);
+  });
+});
+
+describe("CorpusStore — a data:refresh copy from another model", () => {
+  const opp = (id: string, embedding: number[]) => ({ id, program: `P ${id}`, agency: "A", description: `About ${id}.`, embedding });
+
+  test("OpenAI search over a local copy with 768-dim inline vectors (an old setup:local) -> the shipped snapshot, with a note", () => {
     const baseDir = makeBaseDir();
-    writeCommitted(baseDir, [{ id: "a" }], { builtAt: "2026-01-01T00:00:00.000Z" });
-    // The index carries the OLD builtAt of the corpus it was built from.
-    const indexDir = writeIndexed(baseDir, [{ id: "a", embedding: [1, 2, 3] }], { builtAt: "2026-01-01T00:00:00.000Z" });
-    const store = new CorpusStore(baseDir, { localIndexDir: () => indexDir });
-    assert.equal(store.load().meta.builtAt, "2026-01-01T00:00:00.000Z");
-
-    // data:refresh writes a newer hosted corpus; the index hasn't been re-embedded yet.
-    writeLocal(baseDir, [{ id: "a" }, { id: "b" }], { builtAt: "2026-10-04T00:00:00.000Z" });
-    const after = store.load();
-    assert.equal(after.source, "local-embeddings", "still searching the local-model vectors");
-    assert.equal(after.meta.builtAt, "2026-10-04T00:00:00.000Z", "but reports the refreshed corpus' date");
-    assert.equal(after.meta.count, 1, "count is what's actually searchable");
-
-    // A later rewrite of the hosted meta alone (same index file) is picked up too (cache keyed on it).
-    const later = new Date(Date.now() + 5000);
-    writeFileSync(join(baseDir, "data", "local", "corpus-meta.json"), JSON.stringify({ builtAt: "2026-10-05T00:00:00.000Z" }));
-    utimesSync(join(baseDir, "data", "local", "corpus-meta.json"), later, later);
-    assert.equal(store.load().meta.builtAt, "2026-10-05T00:00:00.000Z");
+    writeCommitted(baseDir, [opp("shipped", new Array(512).fill(0.01))]);
+    writeLocal(baseDir, [opp("refreshed", new Array(768).fill(0.01))]);
+    const info = new CorpusStore(baseDir, { space: () => getSpace("openai") }).load();
+    assert.equal(info.source, "committed");
+    assert.equal(info.opportunities[0].id, "shipped");
+    assert.match(info.note!, /768-dimension vectors/);
+    assert.match(info.note!, /Refresh cached grants/);
     rmSync(baseDir, { recursive: true, force: true });
   });
 
-  test("without the option, behaves exactly as before (index ignored)", () => {
+  test("a local copy with matching inline vectors is used as before, with no note", () => {
     const baseDir = makeBaseDir();
-    writeCommitted(baseDir, [{ id: "committed" }]);
-    writeIndexed(baseDir, [{ id: "x" }]);
-    assert.equal(new CorpusStore(baseDir).load().source, "committed");
+    writeCommitted(baseDir, [opp("shipped", new Array(512).fill(0.01))]);
+    writeLocal(baseDir, [opp("refreshed", new Array(512).fill(0.01))]);
+    const info = new CorpusStore(baseDir, { space: () => getSpace("openai") }).load();
+    assert.equal(info.source, "local");
+    assert.equal(info.note, undefined);
+    rmSync(baseDir, { recursive: true, force: true });
+  });
+
+  test("a vector file made by another model (or revision) is never used", () => {
+    const baseDir = makeBaseDir();
+    const space: EmbeddingSpace = { ...getSpace("builtin"), dims: 2 };
+    const o = { id: "a", program: "P a", agency: "A", description: "About a." };
+    writeCommitted(baseDir, [o]);
+    const hash = textHash(spaceDocumentText(space, o));
+    writeVectorFile(join(baseDir, "data", "vectors"), "nomic-embed-text-v1.5", { space: "builtin", model: "some-other-model", dims: 2 }, [{ id: "a", vector: [1, 0], textHash: hash }]);
+    assert.equal(new CorpusStore(baseDir, { space: () => space }).load().withVectors, 0);
+    writeVectorFile(join(baseDir, "data", "vectors"), "nomic-embed-text-v1.5", { space: "builtin", model: "nomic-embed-text-v1.5", revision: "an-older-revision", dims: 2 }, [{ id: "a", vector: [1, 0], textHash: hash }]);
+    assert.equal(new CorpusStore(baseDir, { space: () => space }).load().withVectors, 0);
     rmSync(baseDir, { recursive: true, force: true });
   });
 });

@@ -6,6 +6,8 @@ import {
   decideStatusPoll,
   envHasHostedKeys,
   envIsLocalConfigured,
+  SCORING_KEY,
+  settingsHasProvider,
   isAnthropicKeyFormat,
   isOpenAiKeyFormat,
   escapeForAppleScript,
@@ -226,20 +228,29 @@ describe("applyApiKeys", () => {
     assert.doesNotMatch(r.text, /sk-stale-key-000000000000/);
   });
 
-  test("one cloud key is enough: an OpenAI key alone is complete (it searches and can score), and pasted whitespace is trimmed", () => {
+  test("one cloud key is enough: an OpenAI key alone is complete (it scores), and pasted whitespace is trimmed", () => {
     const r = applyApiKeys(ENV_EXAMPLE, { OPENAI_API_KEY: "  sk-real-key-0000000000000 \n", ANTHROPIC_API_KEY: "   ", EXA_API_KEY: "" });
     assert.match(r.text, /^OPENAI_API_KEY=sk-real-key-0000000000000$/m);
     assert.deepEqual(r.missing, []);
   });
 
-  test("a Claude key alone isn't enough — search needs OpenAI (Anthropic has no embeddings API)", () => {
+  test("a Claude key alone is enough: search runs on the built-in model and Claude does the scoring", () => {
     const r = applyApiKeys(ENV_EXAMPLE, { OPENAI_API_KEY: "", ANTHROPIC_API_KEY: "sk-ant-real-key-000000000", EXA_API_KEY: "" });
-    assert.deepEqual(r.missing, ["OPENAI_API_KEY"]);
+    assert.deepEqual(r.missing, []);
+    assert.match(r.text, /^ANTHROPIC_API_KEY=sk-ant-real-key-000000000$/m);
+    assert.match(r.text, /^OPENAI_API_KEY=sk-\.\.\.$/m, "the OpenAI placeholder is left as it was");
   });
 
-  test("envHasHostedKeys: the OpenAI key is what hosted mode needs", () => {
+  test("no key at all is reported as a missing scoring key (one of OpenAI or Anthropic)", () => {
+    const r = applyApiKeys(ENV_EXAMPLE, { OPENAI_API_KEY: "", ANTHROPIC_API_KEY: "", EXA_API_KEY: "exa-only" });
+    assert.deepEqual(r.missing, [SCORING_KEY]);
+    assert.deepEqual(r.invalid, []);
+  });
+
+  test("envHasHostedKeys: either an OpenAI or a Claude key is what hosted mode needs", () => {
     assert.equal(envHasHostedKeys("OPENAI_API_KEY=sk-real-key-0000000000000\nANTHROPIC_API_KEY=sk-ant-...\n"), true);
-    assert.equal(envHasHostedKeys("OPENAI_API_KEY=sk-...\nANTHROPIC_API_KEY=sk-ant-real-key-000000000\n"), false);
+    assert.equal(envHasHostedKeys("OPENAI_API_KEY=sk-...\nANTHROPIC_API_KEY=sk-ant-real-key-000000000\n"), true);
+    assert.equal(envHasHostedKeys("OPENAI_API_KEY=sk-...\nANTHROPIC_API_KEY=sk-ant-short\n"), false, "a malformed Claude key doesn't count");
     assert.equal(envHasHostedKeys(ENV_EXAMPLE), false);
   });
 
@@ -252,7 +263,7 @@ describe("applyApiKeys", () => {
   test("REGRESSION (review): a typed key the app would refuse is reported as invalid, by name", () => {
     const r = applyApiKeys(ENV_EXAMPLE, { OPENAI_API_KEY: "sk-proj-abc", ANTHROPIC_API_KEY: "claude-key-without-prefix-00", EXA_API_KEY: "" });
     assert.deepEqual(r.invalid, ["OPENAI_API_KEY", "ANTHROPIC_API_KEY"]);
-    assert.deepEqual(r.missing, ["OPENAI_API_KEY"], "a malformed OpenAI key doesn't count as the required key");
+    assert.deepEqual(r.missing, [SCORING_KEY], "malformed keys don't count as the scoring key");
   });
 });
 
@@ -295,7 +306,14 @@ describe("isRealKey", () => {
 });
 
 describe("envIsLocalConfigured", () => {
-  // What setup-local.mjs writes (step 6) — BEFORE the corpus re-embed (step 7).
+  test("today's setup:local (LLM_PROVIDER=ollama, no EMBEDDINGS_BASE_URL) counts: search runs on the built-in model", () => {
+    const env = "LLM_PROVIDER=ollama\nLLM_BASE_URL=http://localhost:11434/v1\nLOCAL_LLM_MODEL=gemma4:latest\n";
+    assert.equal(envIsLocalConfigured(env, null), true);
+    assert.equal(envIsLocalConfigured("LLM_PROVIDER=anthropic\n", null), false);
+    assert.equal(envIsLocalConfigured("", null), false);
+  });
+
+  // What an older setup-local.mjs wrote (step 6), BEFORE its corpus re-embed (step 7), which could still fail.
   const LOCAL_ENV =
     "LLM_PROVIDER=ollama\nEMBEDDINGS_BASE_URL=http://localhost:11434/v1\nEMBEDDINGS_MODEL=nomic-embed-text\n";
   // What 3-embed.mjs --target=local writes last, on success.
@@ -320,6 +338,26 @@ describe("envIsLocalConfigured", () => {
   test("hosted env, or junk corpus metadata, does not count", () => {
     assert.equal(envIsLocalConfigured(ENV_EXAMPLE, LOCAL_META), false);
     assert.equal(envIsLocalConfigured(LOCAL_ENV, "not json"), false);
+  });
+});
+
+describe("settingsHasProvider", () => {
+  test("a cloud provider saved in Settings (any provider, any key source) counts", () => {
+    assert.equal(
+      settingsHasProvider(JSON.stringify({ provider: "cloud", cloud: { providerId: "gemini", keySource: { type: "inline", key: "AIza-x" } } })),
+      true,
+    );
+    assert.equal(settingsHasProvider(JSON.stringify({ cloud: { providerId: "groq", keySource: { type: "env", name: "GROQ_API_KEY" } } })), true);
+    assert.equal(settingsHasProvider("﻿" + JSON.stringify({ provider: "ollama" })), true, "Local, BOM tolerated");
+    assert.equal(settingsHasProvider(JSON.stringify({ anthropicApiKey: "sk-ant-legacy-0000000000" })), true, "the older saved-key shape");
+  });
+
+  test("nothing usable saved does not count", () => {
+    assert.equal(settingsHasProvider(null), false);
+    assert.equal(settingsHasProvider("not json"), false);
+    assert.equal(settingsHasProvider("{}"), false);
+    assert.equal(settingsHasProvider(JSON.stringify({ provider: "cloud" })), false, "cloud with no provider saved");
+    assert.equal(settingsHasProvider(JSON.stringify({ provider: "cloud", cloud: { providerId: "gemini" } })), false, "no key source");
   });
 });
 

@@ -1,13 +1,15 @@
 import type { NextRequest } from "next/server";
-import { handleLocalEmbeddingsGet, handleLocalEmbeddingsPost } from "./handler";
+import { handleSearchModelDownloadPost, handleSearchStatusGet } from "./handler";
 
-// Never prerendered: status is read from disk per request.
+// Never prerendered: status is read per request.
 export const dynamic = "force-dynamic";
+// The built-in model runs on onnxruntime-node, which needs the Node.js runtime.
+export const runtime = "nodejs";
 
 export async function GET() {
-  return handleLocalEmbeddingsGet();
+  return handleSearchStatusGet();
 }
 
 export async function POST(req: NextRequest) {
-  return handleLocalEmbeddingsPost(req);
+  return handleSearchModelDownloadPost(req);
 }

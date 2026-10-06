@@ -140,24 +140,19 @@ test("Not now still adds the ticked shortcuts, says where they are, and Close in
   app = undefined;
 });
 
-test("API keys: an empty form or a Claude key alone is explained without writing anything; then saves, starts Granted and opens the browser", async () => {
+test("API keys: an empty form is explained without writing anything; then saves, starts Granted and opens the browser", async () => {
   const a = await start();
   await page.getByRole("button", { name: "Yes, open Granted" }).click();
   await page.getByRole("button", { name: /Use my API keys/ }).click();
-  await expect(page.getByText(/One key is enough: search works with an OpenAI key/)).toBeVisible();
+  await expect(page.getByText(/Search runs on this computer with a built-in model and needs no key/)).toBeVisible();
 
   const envLocal = join(install.scaffoldDir, ".env.local");
   await page.getByRole("button", { name: "Save and open Granted" }).click();
-  await expect(page.getByText(/Granted needs an OpenAI API key to search/)).toBeVisible();
-  await expect(page.getByRole("button", { name: "Use local models instead" })).toBeVisible();
-
-  // A Claude key alone: explained (search needs OpenAI), with the local-models way out.
-  await page.getByLabel(/Claude\) API key/).fill("sk-ant-e2e-anthropic");
-  await page.getByRole("button", { name: "Save and open Granted" }).click();
-  await expect(page.getByText(/Search works with an OpenAI key — Claude can do the scoring, but it can't search/)).toBeVisible();
+  await expect(page.getByText(/Granted needs one API key to score the grants it finds/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Use local models instead" })).toBeVisible();
   expect(existsSync(envLocal)).toBe(false);
 
+  await page.getByLabel(/Claude\) API key/).fill("sk-ant-e2e-anthropic");
   await page.getByLabel(/OpenAI API key/).fill("sk-e2e-openai-00000000000");
   await page.getByRole("button", { name: "Save and open Granted" }).click();
   await expect(page.getByText(/Starting Granted in the background/)).toBeVisible();
@@ -178,6 +173,23 @@ test("API keys: an empty form or a Claude key alone is explained without writing
   // The tray's own Quit stops it — and Granted with it.
   stopTestTray(install);
   await expect.poll(() => testPortIsFree(), { timeout: 15_000 }).toBe(true);
+});
+
+test("a Claude key alone is accepted: it is saved and Granted starts (search needs no OpenAI key)", async () => {
+  const a = await start();
+  await page.getByRole("button", { name: "Yes, open Granted" }).click();
+  await page.getByRole("button", { name: /Use my API keys/ }).click();
+  await page.getByLabel(/Claude\) API key/).fill("sk-ant-e2e-claude-only-0000");
+  await page.getByRole("button", { name: "Save and open Granted" }).click();
+  await expect(page.getByText(/Granted is open in its own window/)).toBeVisible();
+  await expect(page.getByText(TEST_URL, { exact: true })).toBeVisible();
+
+  const env = readFileSync(join(install.scaffoldDir, ".env.local"), "utf8");
+  expect(env).toMatch(/^ANTHROPIC_API_KEY=sk-ant-e2e-claude-only-0000$/m);
+  expect(env).toMatch(/^OPENAI_API_KEY=sk-\.\.\.$/m);
+  await expectOpenedInOwnWindow(a);
+  const res = await fetch(`http://127.0.0.1:${TEST_PORT}/`);
+  expect(await res.text()).toContain("federal funding intelligence");
 });
 
 test("the shortcut boxes are ticked by default and create both shortcuts, launching Granted hidden in the background", async () => {
@@ -302,8 +314,12 @@ test("an install folder that doesn't exist says so instead of offering to open G
 });
 
 test("API keys form: a key that's already set is marked, and leaving it blank keeps it", async () => {
-  // Only the Claude key is set — not enough on its own, so the form is shown.
-  writeFileSync(join(install.scaffoldDir, ".env.local"), "OPENAI_API_KEY=sk-...\nANTHROPIC_API_KEY=sk-ant-existing-000000000\n");
+  // A Claude key is set, but an older setup:local switched to Ollama and never finished its re-embed,
+  // so neither hosted nor local mode is ready and the form is shown.
+  writeFileSync(
+    join(install.scaffoldDir, ".env.local"),
+    "OPENAI_API_KEY=sk-...\nANTHROPIC_API_KEY=sk-ant-existing-000000000\nLLM_PROVIDER=ollama\nEMBEDDINGS_BASE_URL=http://localhost:11434/v1\nEMBEDDINGS_MODEL=nomic-embed-text\n",
+  );
   const a = await start();
   await page.getByRole("button", { name: "Yes, open Granted" }).click();
   await page.getByRole("button", { name: /Use my API keys/ }).click();
@@ -331,7 +347,6 @@ test("'Use local models instead' from the key form runs the local setup, then op
   const a = await start();
   await page.getByRole("button", { name: "Yes, open Granted" }).click();
   await page.getByRole("button", { name: /Use my API keys/ }).click();
-  await page.getByLabel(/Claude\) API key/).fill("sk-ant-only-key-000000000");
   await page.getByRole("button", { name: "Save and open Granted" }).click();
   await page.getByRole("button", { name: "Use local models instead" }).click();
   await expect(page.getByText(/Setting up the local AI model/)).toBeVisible();

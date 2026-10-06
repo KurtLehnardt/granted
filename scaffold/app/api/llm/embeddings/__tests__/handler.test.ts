@@ -1,21 +1,28 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { handleLocalEmbeddingsGet, handleLocalEmbeddingsPost, type LocalEmbeddingsRouteDeps } from "../handler";
-import type { LocalEmbeddingsStatus } from "@/lib/embeddings/localEmbeddings";
+import { handleSearchModelDownloadPost, handleSearchStatusGet, type SearchStatusRouteDeps } from "../handler";
+import type { SearchStatus } from "@/lib/embeddings/searchStatus";
+import type { BuiltinModelStatus } from "@/lib/embeddings/builtin";
 
 const req = { headers: { get: () => null } };
-const status = (s: Partial<LocalEmbeddingsStatus>): LocalEmbeddingsStatus => ({ state: "needed", model: "nomic-embed-text", active: false, ...s });
+const status = (builtin: Partial<BuiltinModelStatus> = {}): SearchStatus => ({
+  space: "builtin",
+  label: "Built-in, on this computer",
+  model: "nomic-embed-text-v1.5",
+  reason: "No OpenAI key",
+  setting: "auto",
+  builtin: { state: "missing", model: "nomic-embed-text-v1.5", totalBytes: 274574153, ...builtin },
+});
 
-function deps(over: Partial<LocalEmbeddingsRouteDeps> = {}) {
+function deps(over: Partial<SearchStatusRouteDeps> = {}) {
   let starts = 0;
-  let current = status({});
-  const d: LocalEmbeddingsRouteDeps = {
+  let current = status();
+  const d: SearchStatusRouteDeps = {
     isLoopbackRequest: () => true,
     buildStatus: () => current,
-    start: () => {
+    startDownload: () => {
       starts++;
-      current = status({ state: "running", progress: { stage: "checking" } });
-      return { started: true };
+      current = status({ state: "downloading", pct: 0 });
     },
     ...over,
   };
@@ -23,55 +30,56 @@ function deps(over: Partial<LocalEmbeddingsRouteDeps> = {}) {
 }
 
 describe("GET /api/llm/embeddings", () => {
-  test("returns the current status", async () => {
-    const { d } = deps({ buildStatus: () => status({ state: "running", progress: { stage: "pulling", pct: 40 } }) });
-    const res = handleLocalEmbeddingsGet(d);
+  test("returns which embeddings search uses and the model's download state", async () => {
+    const { d } = deps({ buildStatus: () => status({ state: "downloading", pct: 40 }) });
+    const res = handleSearchStatusGet(d);
     assert.equal(res.status, 200);
-    assert.deepEqual((await res.json()).progress, { stage: "pulling", pct: 40 });
+    const json = await res.json();
+    assert.equal(json.label, "Built-in, on this computer");
+    assert.equal(json.builtin.pct, 40);
   });
 });
 
 describe("POST /api/llm/embeddings", () => {
-  test("403 off loopback (it spawns a process)", async () => {
+  test("403 off loopback (it writes the model to disk)", async () => {
     const { d, starts } = deps({ isLoopbackRequest: () => false });
-    const res = handleLocalEmbeddingsPost(req, d);
+    const res = handleSearchModelDownloadPost(req, d);
     assert.equal(res.status, 403);
     assert.equal(starts(), 0);
   });
 
-  test("202 + the fresh running status when started (also the Retry path)", async () => {
+  test("starts the download when the model is missing", async () => {
     const { d, starts } = deps();
-    const res = handleLocalEmbeddingsPost(req, d);
+    const res = handleSearchModelDownloadPost(req, d);
     assert.equal(res.status, 202);
-    const j = await res.json();
-    assert.equal(j.started, true);
-    assert.equal(j.status.state, "running");
+    assert.equal(starts(), 1);
+    assert.equal((await res.json()).status.builtin.state, "downloading");
+  });
+
+  test("retries after a failed download", async () => {
+    const { d, starts } = deps({ buildStatus: () => status({ state: "failed", error: "offline" }) });
+    const res = handleSearchModelDownloadPost(req, d);
+    assert.equal(res.status, 202);
     assert.equal(starts(), 1);
   });
 
-  test("409 when a job is already running", async () => {
-    const { d } = deps({ start: () => ({ started: false, reason: "running" }) });
-    const res = handleLocalEmbeddingsPost(req, d);
-    assert.equal(res.status, 409);
-    assert.equal((await res.json()).reason, "running");
+  test("no second download while one runs, and nothing to do once ready", async () => {
+    for (const state of ["downloading", "ready"] as const) {
+      const { d, starts } = deps({ buildStatus: () => status({ state }) });
+      const res = handleSearchModelDownloadPost(req, d);
+      assert.equal(res.status, 200);
+      assert.equal(starts(), 0);
+    }
   });
 
-  test("embeddings configured in .env.local → nothing to do, nothing started", async () => {
-    const { d, starts } = deps({ buildStatus: () => status({ state: "not-applicable" }) });
-    const res = handleLocalEmbeddingsPost(req, d);
-    assert.equal(res.status, 200);
-    assert.equal((await res.json()).reason, "not-applicable");
-    assert.equal(starts(), 0);
-  });
-
-  test("500 with a message when the job can't be spawned", async () => {
+  test("a start that throws is a 500 with the reason", async () => {
     const { d } = deps({
-      start: () => {
-        throw new Error("EACCES");
+      startDownload: () => {
+        throw new Error("disk full");
       },
     });
-    const res = handleLocalEmbeddingsPost(req, d);
+    const res = handleSearchModelDownloadPost(req, d);
     assert.equal(res.status, 500);
-    assert.match((await res.json()).error, /Couldn't start local search setup: EACCES/);
+    assert.match((await res.json()).error, /disk full/);
   });
 });

@@ -2,86 +2,75 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { renderToStaticMarkup } from "react-dom/server";
 import React from "react";
-
 import LocalSearchStatus, { describeLocalSearchStatus } from "../LocalSearchStatus";
-import type { LocalEmbeddingsStatus } from "@/lib/embeddings/localEmbeddings";
+import type { SearchStatus } from "@/lib/embeddings/searchStatus";
+import type { BuiltinModelStatus } from "@/lib/embeddings/builtin";
 
-const s = (over: Partial<LocalEmbeddingsStatus>): LocalEmbeddingsStatus => ({ state: "needed", model: "nomic-embed-text", active: false, ...over });
-const render = (status: LocalEmbeddingsStatus | null) =>
-  renderToStaticMarkup(React.createElement(LocalSearchStatus, { initialStatus: status }));
+const status = (builtin: Partial<BuiltinModelStatus> = {}, over: Partial<SearchStatus> = {}): SearchStatus => ({
+  space: "builtin",
+  label: "Built-in, on this computer",
+  model: "nomic-embed-text-v1.5",
+  reason: "No OpenAI key",
+  setting: "auto",
+  builtin: { state: "ready", model: "nomic-embed-text-v1.5", totalBytes: 274574153, ...builtin },
+  ...over,
+});
 
-describe("describeLocalSearchStatus — what Settings → Local says", () => {
-  test("nothing to say when embeddings are set in .env.local, or before the status loads", () => {
-    assert.equal(describeLocalSearchStatus(s({ state: "not-applicable" })), null);
-    assert.equal(describeLocalSearchStatus(undefined), null);
+describe("describeLocalSearchStatus — the Search line", () => {
+  test("no status yet -> nothing", () => {
+    assert.equal(describeLocalSearchStatus(null), null);
   });
 
-  test("running: one plain line per stage, with a percentage", () => {
-    assert.match(describeLocalSearchStatus(s({ state: "running", progress: { stage: "checking" } }))!.title, /checking Ollama/);
-    const pulling = describeLocalSearchStatus(s({ state: "running", progress: { stage: "pulling", pct: 42 } }))!;
-    assert.equal(pulling.title, "Downloading the local search model (nomic-embed-text): 42%");
-    assert.equal(pulling.pct, 42);
-    const embedding = describeLocalSearchStatus(s({ state: "running", progress: { stage: "embedding", done: 1200, total: 4698, pct: 26 } }))!;
-    assert.equal(embedding.title, "Building the local search index: 1,200 of 4,698 grants (26%)");
-    assert.match(embedding.detail!, /in the background.*half an hour.*start working as soon as it finishes/);
-    assert.equal(embedding.action, undefined, "no button while it runs");
-    assert.match(describeLocalSearchStatus(s({ state: "running", progress: { stage: "saving" } }))!.title, /Saving/);
+  test("built-in and downloaded -> says search runs on this computer, offline, no key", () => {
+    const v = describeLocalSearchStatus(status())!;
+    assert.equal(v.tone, "ok");
+    assert.equal(v.title, "Search: Built-in, on this computer");
+    assert.match(v.detail!, /No key needed/);
+    assert.equal(v.action, undefined);
   });
 
-  test("an update over an active index says search keeps working meanwhile", () => {
-    const v = describeLocalSearchStatus(s({ state: "running", active: true, progress: { stage: "embedding" } }))!;
-    assert.match(v.detail!, /keeps using your current local index/);
+  test("built-in, downloading -> progress with a percentage", () => {
+    const v = describeLocalSearchStatus(status({ state: "downloading", pct: 42, doneBytes: 1 }))!;
+    assert.equal(v.tone, "progress");
+    assert.equal(v.pct, 42);
+    assert.match(v.title, /Downloading the search model: 42%/);
+    assert.match(v.detail!, /about 275 MB/);
   });
 
-  test("failed: the server's plain-language error plus Retry", () => {
-    const v = describeLocalSearchStatus(s({ state: "failed", error: "Couldn't reach Ollama at http://localhost:11434.", errorKind: "ollama-unreachable" }))!;
+  test("built-in, not downloaded -> offers Download now and says the first search fetches it", () => {
+    const v = describeLocalSearchStatus(status({ state: "missing" }))!;
+    assert.equal(v.action, "Download now");
+    assert.match(v.detail!, /first search/);
+  });
+
+  test("built-in, download failed -> the error and a Retry", () => {
+    const v = describeLocalSearchStatus(status({ state: "failed", error: "Couldn't download the search model: offline" }))!;
     assert.equal(v.tone, "error");
-    assert.equal(v.title, "Couldn't reach Ollama at http://localhost:11434.");
     assert.equal(v.action, "Retry");
+    assert.match(v.title, /offline/);
   });
 
-  test("needed: explains the one-time setup and offers to start it", () => {
-    const v = describeLocalSearchStatus(s({}))!;
-    assert.match(v.title, /one-time setup/);
-    assert.equal(v.action, "Set up local search");
+  test("OpenAI embeddings -> says so, with how to switch to built-in", () => {
+    const v = describeLocalSearchStatus(status({}, { space: "openai", label: "OpenAI embeddings", model: "text-embedding-3-small" }))!;
+    assert.equal(v.title, "Search: OpenAI embeddings");
+    assert.match(v.detail!, /SEARCH_EMBEDDINGS=builtin/);
   });
 
-  test("ready / outdated", () => {
-    const ready = describeLocalSearchStatus(s({ state: "ready", active: true, count: 4698 }))!;
-    assert.equal(ready.tone, "ok");
-    assert.equal(ready.title, "Search runs on this machine (nomic-embed-text, 4,698 grants indexed).");
-    assert.equal(ready.action, undefined);
-    const outdated = describeLocalSearchStatus(s({ state: "ready", active: true, outdated: true }))!;
-    assert.equal(outdated.action, "Update local search");
+  test("a custom embedder from .env.local -> names it", () => {
+    const v = describeLocalSearchStatus(status({}, { space: "custom", label: "x", model: "nomic-embed-text" }))!;
+    assert.match(v.title, /your embedding server \(nomic-embed-text\)/);
   });
 });
 
-describe("LocalSearchStatus — render", () => {
-  test("running renders an accessible progress bar and no button", () => {
-    const html = render(s({ state: "running", progress: { stage: "embedding", done: 10, total: 100, pct: 10 } }));
-    assert.match(html, /data-state="running"/);
+describe("LocalSearchStatus — renders", () => {
+  test("a progress bar while downloading", () => {
+    const html = renderToStaticMarkup(React.createElement(LocalSearchStatus, { initialStatus: status({ state: "downloading", pct: 10 }) }));
+    assert.match(html, /data-testid="search-status"/);
     assert.match(html, /role="progressbar"/);
     assert.match(html, /aria-valuenow="10"/);
-    assert.doesNotMatch(html, /<button/);
   });
 
-  test("failed renders the error and a Retry button", () => {
-    const html = render(s({ state: "failed", error: "Building the local search index failed: boom. Click Retry." }));
-    assert.match(html, /Building the local search index failed: boom/);
-    assert.match(html, /<button[^>]*>Retry<\/button>/);
-  });
-
-  test("renders nothing when not applicable", () => {
-    assert.equal(render(s({ state: "not-applicable" })), "");
-    assert.equal(render(null), "");
-  });
-});
-
-describe("describeLocalSearchStatus — non-Ollama server", () => {
-  test("manual: the how-to, no button", () => {
-    const v = describeLocalSearchStatus(s({ state: "manual", error: "Your local model server isn't Ollama, so ..." }))!;
-    assert.equal(v.tone, "info");
-    assert.match(v.title, /isn't Ollama/);
-    assert.equal(v.action, undefined);
+  test("nothing without a status", () => {
+    assert.equal(renderToStaticMarkup(React.createElement(LocalSearchStatus, {})), "");
   });
 });
