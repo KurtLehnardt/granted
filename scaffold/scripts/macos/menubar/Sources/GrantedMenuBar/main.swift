@@ -36,37 +36,184 @@
 //                             everything, report it (and choose that item,
 //                             the way a click does), then exit. The smoke
 //                             test; nothing stays in the menu bar.
+//   GRANTED_MENUBAR_RUN_TIMEOUT_TEST
+//                             "<seconds>:<bash script>" — run that script
+//                             through run() below and report what happened,
+//                             then exit. The timeout harness; never part of
+//                             normal running.
 //
 import AppKit
+import Darwin
 import Foundation
 
 // MARK: - Small helpers
 
-/// Runs a command, returning its stdout (trimmed) and exit status. Never throws.
+/// The result of one `run()`, filled in by that call's reader and waiter
+/// threads and read back by the caller — hence the lock.
+private final class RunOutcome {
+  private let lock = NSLock()
+  private var bytes = Data()
+  private var code: Int32 = -1
+
+  func append(_ chunk: Data) {
+    lock.lock()
+    bytes.append(chunk)
+    lock.unlock()
+  }
+
+  func finish(_ value: Int32) {
+    lock.lock()
+    code = value
+    lock.unlock()
+  }
+
+  var text: String {
+    lock.lock()
+    defer { lock.unlock() }
+    return String(decoding: bytes, as: UTF8.self)
+  }
+
+  var status: Int32 {
+    lock.lock()
+    defer { lock.unlock() }
+    return code
+  }
+}
+
+/// SIGTERM or SIGKILL for the whole process group the child was spawned into,
+/// so a wedged grandchild goes with the bash that started it. Every `run()`
+/// here is `/bin/bash granted-tray.sh …`, whose real work is grandchildren
+/// (launchctl, curl); signalling bash alone can leave one of those running and
+/// still holding the pipe open.
+///
+/// If, for any reason, the child did not end up in a process group of its own,
+/// this signals the child alone instead. That fallback is important: signalling
+/// our own process group would kill this menu-bar helper, and whatever started
+/// it, along with the child.
+private func signalProcessGroup(of child: pid_t, _ signalNumber: Int32) {
+  let group = getpgid(child)
+  if group > 0 && group != getpgrp() {
+    _ = killpg(group, signalNumber)
+  } else {
+    _ = kill(child, signalNumber)
+  }
+}
+
+/// Runs a command, returning its stdout (trimmed) and exit status. Never
+/// throws, and never blocks for longer than `timeout` plus a few seconds'
+/// grace for a child that has to be killed.
+///
+/// REGRESSION. This used to call `readDataToEndOfFile()` and only then compute
+/// the deadline and start checking it. That read blocks until the child's
+/// stdout closes, so the timeout below it bounded nothing at all: a `launchctl`
+/// or `curl` that wedged meant this function never returned, `serverState()`
+/// never completed, the polling loop's `polling` flag never cleared, and the
+/// menu-bar status label froze for good with no way back. (It survived Quit
+/// only because granted-tray.sh's `stop_helper` has its own SIGKILL backstop —
+/// an independent safety net, not this timeout working.)
+///
+/// Three things make the timeout real, and all three are load-bearing:
+///
+///   1. stdout is drained on its own thread as it arrives. That keeps the
+///      ORIGINAL bug fixed too — the reason the blocking read was placed
+///      before the wait in the first place. A child that fills the pipe buffer
+///      blocks in `write()` until someone reads, so "wait for the child, then
+///      read" deadlocks; here a reader is always running, and the wait is
+///      never what the child is waiting on.
+///   2. The wait is a deadline on a semaphore the reaping thread signals, not
+///      a poll of `isRunning` reached only after a blocking read.
+///   3. The child is spawned into its OWN process group
+///      (POSIX_SPAWN_SETPGROUP with a pgroup of 0, which makes the group id
+///      the child's own pid), so a timeout can kill the whole group.
+///
+/// POSIX_SPAWN_SETSIGDEF is required, not tidiness: `installSignalHandlers()`
+/// sets SIGTERM and SIGINT to SIG_IGN, and an ignored disposition is inherited
+/// across exec. Without resetting them in the child, the SIGTERM this function
+/// sends on a timeout would be ignored by the very process it is trying to
+/// stop.
 func run(_ launchPath: String, _ arguments: [String], timeout: TimeInterval = 60) -> (output: String, status: Int32) {
-  let process = Process()
-  process.executableURL = URL(fileURLWithPath: launchPath)
-  process.arguments = arguments
-  let pipe = Pipe()
-  process.standardOutput = pipe
-  process.standardError = FileHandle.nullDevice
-  do {
-    try process.run()
-  } catch {
+  var ends: [Int32] = [-1, -1]
+  guard pipe(&ends) == 0 else { return ("", -1) }
+  let readEnd = ends[0]
+  let writeEnd = ends[1]
+
+  var actions: posix_spawn_file_actions_t?
+  posix_spawn_file_actions_init(&actions)
+  posix_spawn_file_actions_adddup2(&actions, writeEnd, STDOUT_FILENO)
+  posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null", O_WRONLY, 0)
+  posix_spawn_file_actions_addclose(&actions, readEnd)
+  posix_spawn_file_actions_addclose(&actions, writeEnd)
+
+  var attributes: posix_spawnattr_t?
+  posix_spawnattr_init(&attributes)
+  posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK))
+  posix_spawnattr_setpgroup(&attributes, 0)
+  var defaulted = sigset_t()
+  sigfillset(&defaulted)
+  posix_spawnattr_setsigdefault(&attributes, &defaulted)
+  var unblocked = sigset_t()
+  sigemptyset(&unblocked)
+  posix_spawnattr_setsigmask(&attributes, &unblocked)
+
+  var argv: [UnsafeMutablePointer<CChar>?] = ([launchPath] + arguments).map { strdup($0) }
+  argv.append(nil)
+  var child: pid_t = 0
+  let spawned = posix_spawn(&child, launchPath, &actions, &attributes, argv, environ)
+  for argument in argv where argument != nil { free(argument) }
+  posix_spawn_file_actions_destroy(&actions)
+  posix_spawnattr_destroy(&attributes)
+  // The child holds the only writing end now, so the reader below sees EOF
+  // exactly when every process in its group has gone.
+  close(writeEnd)
+  guard spawned == 0 else {
+    close(readEnd)
     return ("", -1)
   }
-  // Read before waiting: a command that filled the pipe buffer would
-  // otherwise block forever with us waiting on it.
-  let data = pipe.fileHandleForReading.readDataToEndOfFile()
-  let deadline = Date().addingTimeInterval(timeout)
-  while process.isRunning && Date() < deadline {
-    usleep(50_000)
+
+  let outcome = RunOutcome()
+  let drained = DispatchSemaphore(value: 0)
+  let exited = DispatchSemaphore(value: 0)
+
+  DispatchQueue.global(qos: .utility).async {
+    var buffer = [UInt8](repeating: 0, count: 16 * 1024)
+    while true {
+      let count = buffer.withUnsafeMutableBytes { read(readEnd, $0.baseAddress, $0.count) }
+      if count > 0 {
+        outcome.append(Data(buffer[0..<count]))
+      } else if count == 0 {
+        break
+      } else if errno != EINTR {
+        break
+      }
+    }
+    close(readEnd)
+    drained.signal()
   }
-  if process.isRunning {
-    process.terminate()
-    return (String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines), -1)
+
+  DispatchQueue.global(qos: .utility).async {
+    var raw: Int32 = 0
+    while waitpid(child, &raw, 0) < 0 && errno == EINTR { continue }
+    // <sys/wait.h>'s WIFEXITED/WEXITSTATUS, which Swift does not import. A
+    // child that was signalled rather than exiting reports -1, as a failure to
+    // launch one always has.
+    outcome.finish((raw & 0x7f) == 0 ? (raw >> 8) & 0xff : -1)
+    exited.signal()
   }
-  return (String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines), process.terminationStatus)
+
+  var timedOut = false
+  if exited.wait(timeout: .now() + timeout) == .timedOut {
+    timedOut = true
+    signalProcessGroup(of: child, SIGTERM)
+    if exited.wait(timeout: .now() + 1) == .timedOut {
+      signalProcessGroup(of: child, SIGKILL)
+      _ = exited.wait(timeout: .now() + 2)
+    }
+  }
+  // Bounded, so this function returns even in the case nothing above can
+  // reach: a grandchild that left the group on its own and still holds the
+  // pipe open. Whatever arrived by then is what the caller gets.
+  _ = drained.wait(timeout: .now() + 2)
+  return (outcome.text.trimmingCharacters(in: .whitespacesAndNewlines), timedOut ? -1 : outcome.status)
 }
 
 func env(_ name: String) -> String? {
@@ -487,6 +634,33 @@ final class GrantedMenuBar: NSObject, NSApplicationDelegate {
 }
 
 // MARK: - Start
+
+// The timeout harness for run() above, never part of normal running:
+// GRANTED_MENUBAR_RUN_TIMEOUT_TEST="<seconds>:<bash script>" runs that script
+// through the very same run() the polling loop uses, reports how long it
+// actually took and what it returned, and exits. macTray.integration.test.ts
+// uses it to prove that a child which never exits is killed — along with its
+// own children — and that run() still returns promptly rather than hanging.
+//
+// Deliberately before NSApplication.shared: this needs no menu bar and no GUI
+// (Aqua) session, so the test covering it can run anywhere macOS and the Swift
+// toolchain are.
+if let specification = env("GRANTED_MENUBAR_RUN_TIMEOUT_TEST") {
+  let parts = specification.split(separator: ":", maxSplits: 1).map(String.init)
+  let timeout = Double(parts.first ?? "") ?? 5
+  let script = parts.count > 1 ? parts[1] : "/dev/null"
+  let startedAt = Date()
+  let result = run("/bin/bash", [script], timeout: timeout)
+  let elapsed = Int((Date().timeIntervalSince(startedAt) * 1000).rounded())
+  // `bytes` so a test can check a large output arrived whole without the whole
+  // of it having to travel back through the test runner; the output line
+  // itself is one line and capped.
+  let flattened = result.output.replacingOccurrences(of: "\n", with: "\\n")
+  let shown = flattened.count > 200 ? String(flattened.prefix(200)) : flattened
+  print("granted-menubar: run timeout test elapsed=\(elapsed)ms status=\(result.status) bytes=\(result.output.utf8.count)")
+  print("granted-menubar: run timeout test output=\(shown)")
+  exit(0)
+}
 
 let app = NSApplication.shared
 // .accessory: an icon in the menu bar, no Dock tile and no menu bar of its
