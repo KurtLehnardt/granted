@@ -11,38 +11,56 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { appVersion } from "../appUpdate/install";
-import { readLlmConfig } from "../llm/config";
+import { readLlmConfig, resolveCloudApiKey, resolveCloudConfig } from "../llm/config";
+import { expandHome } from "../llm/keySource";
 import { newErrorId, isErrorId } from "./errorId";
-import { sanitize, type SanitizeContext } from "./sanitize";
-import { appendErrorEntry, readErrorEntries, type ErrorLogEntry } from "./store";
+import { privateHosts, sanitize, SANITIZE_SETTINGS, type SanitizeContext } from "./sanitize";
+import { appendErrorEntry, errorLogDir, readErrorEntries, type ErrorLogEntry } from "./store";
 
 export const MAX_MESSAGE_CHARS = 2000;
 export const MAX_STACK_LINES = 8;
 export const MAX_STACK_CHARS = 1500;
 
-/**
- * Env names whose values are secrets whatever they look like: OPENAI_API_KEY,
- * GITHUB_TOKEN, CLIENT_SECRET, DB_PASSWORD… (anchored at the end, so Windows'
- * own SESSIONNAME=Console and the like don't get "Console" redacted everywhere).
- */
-const SECRET_NAME = /(^|_)(API_?KEY|KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?)$/i;
+/** Env names whose values are secrets whatever they look like (OPENAI_API_KEY, GITHUB_TOKEN…): sanitize-rules.json. */
+const SECRET_NAME = new RegExp(SANITIZE_SETTINGS.secretEnvName, "i");
+/** Env names holding ordinary settings (OLLAMA_BASE_URL, LOCAL_LLM_MODEL, SEARCH_*…): not redacted for looking like a token. */
+const SETTING_NAME = new RegExp(SANITIZE_SETTINGS.settingEnvName, "i");
 /** A value that looks like a token even under an innocent name (long, letters and digits, no spaces). */
-const TOKEN_LIKE = /^(?=.*[0-9])(?=.*[A-Za-z])[^\s]{16,}$/;
+const TOKEN_LIKE = new RegExp(SANITIZE_SETTINGS.tokenLikeValue);
+/** The fcc provider's default key file (lib/llm/providers.ts), redacted whether or not it's the configured source. */
+export const FCC_DEFAULT_KEY_FILE = "~/.fcc/proxy_auth_token";
 
-/** Values in a .env-style file worth redacting. */
-export function envFileSecrets(text: string): string[] {
-  const out: string[] = [];
+/** NAME=value pairs of a .env-style file (comments, blanks and quotes handled). */
+export function envFileEntries(text: string): Array<{ name: string; value: string }> {
+  const out: Array<{ name: string; value: string }> = [];
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.trim();
     if (!line || line.startsWith("#")) continue;
     const m = /^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(line);
     if (!m) continue;
     let value = m[2].trim();
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) value = value.slice(1, -1);
-    if (!value) continue;
-    if (SECRET_NAME.test(m[1]) || TOKEN_LIKE.test(value)) out.push(value);
+    if (value.length >= 2 && ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'")))) value = value.slice(1, -1);
+    if (value) out.push({ name: m[1], value });
   }
   return out;
+}
+
+/** Whether a NAME=value is worth redacting: a secret-named variable, or a token-looking value under a name that isn't an ordinary setting. */
+export function isSecretEnv(name: string, value: string): boolean {
+  if (SECRET_NAME.test(name)) return !/^(true|false|\d+)$/i.test(value);
+  return !SETTING_NAME.test(name) && TOKEN_LIKE.test(value);
+}
+
+/** Values in a .env-style file worth redacting. */
+export function envFileSecrets(text: string): string[] {
+  return envFileEntries(text)
+    .filter((e) => isSecretEnv(e.name, e.value))
+    .map((e) => e.value);
+}
+
+/** URL-ish values in a .env-style file / the environment (base URLs: their private hosts get redacted). */
+export function envUrls(entries: Array<{ name: string; value: string }>): string[] {
+  return entries.filter((e) => /_URL$/i.test(e.name) || /^https?:\/\//i.test(e.value)).map((e) => e.value);
 }
 
 function safe<T>(fn: () => T, fallback: T): T {
@@ -53,26 +71,53 @@ function safe<T>(fn: () => T, fallback: T): T {
   }
 }
 
+/** Every non-empty line of a small key file (a multi-line file's other lines may be keys too). */
+function keyFileLines(file: string): string[] {
+  return safe(() => {
+    const p = expandHome(file);
+    const stat = fs.statSync(p);
+    if (!stat.isFile() || stat.size > 8 * 1024) return [];
+    return fs.readFileSync(p, "utf8").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  }, []);
+}
+
 /**
  * What this computer's errors must be scrubbed of: the home folder, the user
- * name, the values in scaffold/.env.local, secret-named environment
- * variables, and a key saved in Settings.
+ * name, the secrets in scaffold/.env.local, secret-named environment
+ * variables, the cloud key in use WHATEVER its source (saved inline, any env
+ * var, a key file — and fcc's default key file), and the private hosts of
+ * configured base URLs.
  */
 export function serverSanitizeContext(cwd: string = process.cwd(), env: Record<string, string | undefined> = process.env): SanitizeContext {
   const secrets: string[] = [];
-  safe(() => secrets.push(...envFileSecrets(fs.readFileSync(path.join(cwd, ".env.local"), "utf8"))), undefined);
+  const urls: string[] = [];
+  const envLocal = safe(() => envFileEntries(fs.readFileSync(path.join(cwd, ".env.local"), "utf8")), []);
+  secrets.push(...envLocal.filter((e) => isSecretEnv(e.name, e.value)).map((e) => e.value));
+  urls.push(...envUrls(envLocal));
   for (const [name, value] of Object.entries(env)) {
-    if (value && SECRET_NAME.test(name) && !/^(true|false|\d+)$/i.test(value)) secrets.push(value);
+    if (!value) continue;
+    if (SECRET_NAME.test(name) && !/^(true|false|\d+)$/i.test(value)) secrets.push(value);
+    if (/_BASE_URL$/i.test(name)) urls.push(value);
   }
   safe(() => {
-    const cfg = readLlmConfig();
-    if (cfg.cloud?.keySource.type === "inline") secrets.push(cfg.cloud.keySource.key);
-    if (cfg.anthropicApiKey) secrets.push(cfg.anthropicApiKey);
+    const file = readLlmConfig();
+    const cfg = resolveCloudConfig(file);
+    if (cfg) {
+      const resolved = resolveCloudApiKey(cfg).key;
+      if (resolved) secrets.push(resolved);
+      if (cfg.keySource.type === "inline") secrets.push(cfg.keySource.key);
+      if (cfg.keySource.type === "env" && env[cfg.keySource.name]) secrets.push(env[cfg.keySource.name]!);
+      if (cfg.keySource.type === "file") secrets.push(...keyFileLines(cfg.keySource.path));
+      if (cfg.baseUrl) urls.push(cfg.baseUrl);
+    }
+    if (file.anthropicApiKey) secrets.push(file.anthropicApiKey);
   }, undefined);
+  secrets.push(...keyFileLines(FCC_DEFAULT_KEY_FILE));
   return {
     home: safe(() => os.homedir(), null),
     user: safe(() => os.userInfo().username, null) ?? env["USERNAME"] ?? env["USER"] ?? null,
     secrets,
+    hosts: privateHosts(urls),
   };
 }
 
@@ -129,16 +174,49 @@ export interface LogErrorOptions {
   secrets?: readonly string[];
 }
 
+/**
+ * `once` keys already logged (sanitized key -> id), kept in memory: read from
+ * the log the first time it's needed in this process, then just added to — so
+ * a page polling every few seconds doesn't re-read the whole log each time.
+ * (On globalThis, so every Next route bundle shares one.)
+ */
+const ONCE = Symbol.for("granted.errorLog.once");
+type OnceCache = { loadedFrom: string | null; keys: Map<string, string> };
+function onceCache(): OnceCache {
+  const g = globalThis as unknown as Record<symbol, OnceCache | undefined>;
+  g[ONCE] ??= { loadedFrom: null, keys: new Map() };
+  return g[ONCE]!;
+}
+
+/** Forget the remembered `once` keys (after the log is cleared, and in tests). */
+export function resetOnceCache(): void {
+  const c = onceCache();
+  c.loadedFrom = null;
+  c.keys.clear();
+}
+
+function onceKeys(): Map<string, string> {
+  const c = onceCache();
+  const dir = errorLogDir();
+  if (c.loadedFrom !== dir) {
+    c.keys.clear();
+    for (const e of readErrorEntries()) if (e.key) c.keys.set(e.key, e.id);
+    c.loadedFrom = dir;
+  }
+  return c.keys;
+}
+
 /** Writes `err` to the error log and returns its correlation id. Never throws. */
 export function logError(area: string, err: unknown, opts: LogErrorOptions = {}): string {
   const id = isErrorId(opts.id) ? opts.id : newErrorId();
   try {
-    if (opts.once) {
-      const existing = readErrorEntries().slice(-200).find((e) => e.key === opts.once);
-      if (existing) return existing.id;
-    }
     const base = serverSanitizeContext();
     const ctx: SanitizeContext = opts.secrets ? { ...base, secrets: [...(base.secrets ?? []), ...opts.secrets] } : base;
+    const key = opts.once ? sanitize(opts.once.slice(0, 200), ctx) : undefined;
+    if (key) {
+      const existing = onceKeys().get(key);
+      if (existing) return existing;
+    }
     const stack = shortStack(opts.stack === undefined ? stackOf(err) : opts.stack);
     const entry: ErrorLogEntry = {
       id,
@@ -151,9 +229,9 @@ export function logError(area: string, err: unknown, opts: LogErrorOptions = {})
       ...(stack ? { stack: sanitize(stack, ctx) } : {}),
       ...(typeof opts.status === "number" ? { status: opts.status } : {}),
       ...(opts.path ? { path: sanitize(opts.path.slice(0, 200), ctx) } : {}),
-      ...(opts.once ? { key: sanitize(opts.once.slice(0, 200), ctx) } : {}),
+      ...(key ? { key } : {}),
     };
-    appendErrorEntry(entry);
+    if (appendErrorEntry(entry) && key) onceKeys().set(key, id);
   } catch {
     /* logging must never become a second failure */
   }

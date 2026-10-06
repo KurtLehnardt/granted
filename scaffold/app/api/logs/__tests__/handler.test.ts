@@ -133,12 +133,25 @@ describe("GET (Settings → Problems & logs)", () => {
     const url = new URL(s.issueUrl);
     assert.equal(url.origin + url.pathname, "https://github.com/KurtLehnardt/granted/issues/new");
     assert.match(url.searchParams.get("title")!, /E-QWERTY/);
-    const body = url.searchParams.get("body")!;
-    assert.match(body, /Model provider: local \(Ollama\)/);
-    assert.match(body, /Search mode: builtin/);
+    assert.equal(url.searchParams.get("template"), "bug_report.yml");
+    assert.equal(s.issueFound, true);
+    const env = url.searchParams.get("environment")!;
+    assert.match(env, /Model provider: local \(Ollama\)/);
+    assert.match(env, /Search mode: builtin/);
+    const body = url.searchParams.get("recent-errors")!;
     assert.ok(body.indexOf("provider said no") < body.indexOf("failure 6"), "the asked-about error goes first");
     assert.doesNotMatch(body, /kurt@example\.com/);
     assert.ok(s.issueUrl.length <= 7000);
+  });
+
+  test("REGRESSION (review): an asked-about error that isn't in the log is reported as not found, and no other error is named", async () => {
+    logError("search", "some other failure");
+    const s = (await (await handleLogsGet(req("GET", "/api/logs?issue=E-NNNNNN"), deps())).json()) as LogsSummary;
+    assert.equal(s.issueFound, false);
+    assert.equal(new URL(s.issueUrl).searchParams.get("title"), "Problem report [E-NNNNNN]");
+    // and without ?issue=, nothing is claimed either way
+    const plain = (await (await handleLogsGet(req("GET", "/api/logs"), deps())).json()) as LogsSummary;
+    assert.equal(plain.issueFound, undefined);
   });
 
   test("old errors aren't counted as recent", async () => {

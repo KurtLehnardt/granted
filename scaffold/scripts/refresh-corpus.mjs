@@ -17,7 +17,6 @@ import { embedBatch, EMBEDDINGS_DIMENSIONS, EMBEDDINGS_MODEL } from "../lib/embe
 import { activeSearchSpace, getSpace } from "../lib/embeddings/spaces.ts";
 import { embedWithBuiltin, ensureBuiltinModel } from "../lib/embeddings/builtin.ts";
 import { logError } from "../lib/errorLog/server.ts";
-import { logError } from "../lib/errorLog/server.ts";
 import { buildSpaceVectors, compatibleVectorFile } from "./lib/spaceVectors.mjs";
 import { readVectorFile, writeVectorFile } from "./lib/vectorFile.mjs";
 import { BUILTIN_MODEL } from "./lib/builtinModel.mjs";

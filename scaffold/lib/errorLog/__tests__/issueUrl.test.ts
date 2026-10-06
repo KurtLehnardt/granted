@@ -2,13 +2,27 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { buildIssueUrl, ISSUE_NEW_URL, issueTitle, MAX_ISSUE_URL_LENGTH, type IssueError } from "../issueUrl";
+import { buildIssueUrl, ISSUE_FIELDS, ISSUE_NEW_URL, ISSUE_TEMPLATE, issueTitle, MAX_ISSUE_URL_LENGTH, type IssueError } from "../issueUrl";
 
 const context = { version: "0.2.3", os: "win32 10.0.26200 x64", provider: "cloud (anthropic)", searchMode: "builtin" };
 
+/** The link's parts; `body` is every filled form field, for "does it say X" checks. */
 function parse(url: string) {
   const u = new URL(url);
-  return { base: `${u.origin}${u.pathname}`, title: u.searchParams.get("title") ?? "", body: u.searchParams.get("body") ?? "", labels: u.searchParams.get("labels") };
+  const p = u.searchParams;
+  const fields = {
+    errorId: p.get(ISSUE_FIELDS.errorId) ?? "",
+    environment: p.get(ISSUE_FIELDS.environment) ?? "",
+    recentErrors: p.get(ISSUE_FIELDS.recentErrors) ?? "",
+  };
+  return {
+    base: `${u.origin}${u.pathname}`,
+    template: p.get("template"),
+    labels: p.get("labels"),
+    title: p.get("title") ?? "",
+    ...fields,
+    body: [fields.errorId, fields.environment, fields.recentErrors].join("\n"),
+  };
 }
 
 const err = (i: number, extra: Partial<IssueError> = {}): IssueError => ({
@@ -21,51 +35,65 @@ const err = (i: number, extra: Partial<IssueError> = {}): IssueError => ({
 });
 
 describe("the issue link", () => {
-  test("a GitHub new-issue link with a title, the bug label and the body", () => {
-    const { url } = buildIssueUrl({ context, errors: [err(1)], errorId: err(1).id });
+  test("opens the bug_report.yml form with its fields filled in (the form adds the bug label, not a labels= param)", () => {
+    const { url, found } = buildIssueUrl({ context, errors: [err(1)], errorId: err(1).id });
     const p = parse(url);
+    assert.equal(found, true);
     assert.equal(p.base, ISSUE_NEW_URL);
-    assert.equal(p.labels, "bug");
+    assert.equal(p.template, ISSUE_TEMPLATE);
+    assert.equal(p.labels, null, "labels= only works for people with triage rights");
     assert.match(p.title, /^Problem: The search didn't complete \(1\) \[E-BBBBBB\]$/);
-    for (const heading of ["### What happened", "### Error ID", "### Environment", "### Recent errors"]) assert.ok(p.body.includes(heading), heading);
-    assert.match(p.body, /Granted version: 0\.2\.3/);
-    assert.match(p.body, /Operating system: win32 10\.0\.26200 x64/);
-    assert.match(p.body, /Model provider: cloud \(anthropic\)/);
-    assert.match(p.body, /Search mode: builtin/);
-    assert.match(p.body, /E-BBBBBB/);
-    assert.match(p.body, /at match \(lib\/match\.ts:10:5\)/);
+    assert.equal(p.errorId, "E-BBBBBB");
+    assert.match(p.environment, /Granted version: 0\.2\.3/);
+    assert.match(p.environment, /Operating system: win32 10\.0\.26200 x64/);
+    assert.match(p.environment, /Model provider: cloud \(anthropic\)/);
+    assert.match(p.environment, /Search mode: builtin/);
+    assert.match(p.recentErrors, /E-BBBBBB/);
+    assert.match(p.recentErrors, /at match \(lib\/match\.ts:10:5\)/);
+    assert.match(p.recentErrors, /removed automatically/);
+    assert.equal(new URL(url).searchParams.get("what-happened"), null, "left for the user");
   });
 
   test("everything is percent-encoded: &, #, newlines, quotes and non-ASCII survive the round trip", () => {
     const message = `a & b # c ? d = e + f "q" 'r' % 100 — naïve\nsecond line`;
     const { url } = buildIssueUrl({ context, errors: [err(1, { message })] });
     assert.doesNotMatch(url.slice(ISSUE_NEW_URL.length), /[ \n#"]/);
-    assert.ok(parse(url).body.includes(message));
+    assert.ok(parse(url).recentErrors.includes(message));
   });
 
-  test("the headings match the repo's issue template", () => {
+  test("the field ids and the form's own label match the repo's issue template", () => {
     const template = readFileSync(join(process.cwd(), "..", ".github", "ISSUE_TEMPLATE", "bug_report.yml"), "utf8");
-    for (const label of ["What happened", "Error ID", "Environment", "Recent errors"]) assert.ok(template.includes(`label: ${label}`), label);
+    for (const id of Object.values(ISSUE_FIELDS)) assert.match(template, new RegExp(`\\n\\s+id: ${id}\\n`), id);
+    assert.match(template, /\n\s+id: what-happened\n/);
+    assert.match(template, /labels: \["bug"\]/);
   });
 
   test("the clicked error goes first, wherever it is in the log", () => {
     const errors = [err(1), err(2), err(3)];
     const { url } = buildIssueUrl({ context, errors, errorId: err(3).id });
-    const body = parse(url).body;
+    const body = parse(url).recentErrors;
     assert.ok(body.indexOf("(3)") < body.indexOf("(1)"));
+  });
+
+  test("REGRESSION (review): a clicked error that isn't in the log never gets another error's title", () => {
+    const link = buildIssueUrl({ context, errors: [err(1), err(2)], errorId: "E-ZZZZZZ" });
+    assert.equal(link.found, false);
+    const p = parse(link.url);
+    assert.equal(p.title, "Problem report [E-ZZZZZZ]");
+    assert.doesNotMatch(p.title, /complete/);
+    assert.equal(p.errorId, "E-ZZZZZZ");
   });
 
   test("no errors: still a usable link", () => {
     const { url, included } = buildIssueUrl({ context, errors: [] });
     assert.equal(included, 0);
     assert.equal(parse(url).title, "Problem report");
-    assert.match(parse(url).body, /No errors were recorded/);
+    assert.match(parse(url).recentErrors, /No errors were recorded/);
   });
 
-  test("a code fence in an error can't break out of the block", () => {
+  test("a code fence in an error can't break out of the text block", () => {
     const { url } = buildIssueUrl({ context, errors: [err(1, { message: "```\n# injected heading" })] });
-    const body = parse(url).body;
-    assert.equal(body.match(/```/g)?.length, 2);
+    assert.doesNotMatch(parse(url).recentErrors, /```/);
   });
 });
 
@@ -76,7 +104,7 @@ describe("length cap", () => {
     assert.ok(link.url.length <= MAX_ISSUE_URL_LENGTH, `${link.url.length}`);
     assert.ok(link.included >= 1 && link.included < 20);
     assert.equal(link.omitted, 40 - link.included);
-    const body = parse(link.url).body;
+    const body = parse(link.url).recentErrors;
     assert.match(body, /error 0 /);
     assert.doesNotMatch(body, /error 39 /);
     assert.match(body, new RegExp(`${link.omitted} more errors were left out`));
@@ -87,7 +115,7 @@ describe("length cap", () => {
     const link = buildIssueUrl({ context, errors: [err(1, { message: "huge ".repeat(5000), stack: "at x\n".repeat(500) })], errorId: err(1).id });
     assert.ok(link.url.length <= MAX_ISSUE_URL_LENGTH);
     assert.equal(link.included, 1);
-    assert.match(parse(link.url).body, /huge huge/);
+    assert.match(parse(link.url).recentErrors, /huge huge/);
   });
 
   test("any max length is respected", () => {
@@ -102,18 +130,24 @@ describe("no secrets leave in the link", () => {
   test("even if the log somehow held them (sanitized again here), with this computer's own context too", () => {
     const errors = [
       err(1, {
-        message: "401 from provider: sk-ant-api03-ZZZZZZZZZZZZZZZZZZZZ for kurt@example.com",
+        message: "401 from provider: sk-ant-api03-ZZZZZZZZZZZZZZZZZZZZ for kurt@example.com at https://llm.acme-corp.example/v1",
         stack: "at C:\\Users\\kurt\\granted\\scaffold\\lib\\llm\\client.ts:1:1",
       }),
       err(2, { message: "GET https://x.example/v1?key=AIzaSyA1234567890abcdefghijkl failed; my-own-secret-xyz" }),
     ];
-    const { url } = buildIssueUrl({ context, errors, errorId: errors[0].id, sanitize: { user: "kurt", secrets: ["my-own-secret-xyz"] } });
+    const { url } = buildIssueUrl({
+      context,
+      errors,
+      errorId: errors[0].id,
+      sanitize: { user: "kurt", secrets: ["my-own-secret-xyz"], hosts: ["llm.acme-corp.example"] },
+    });
     const decoded = decodeURIComponent(url);
-    for (const leak of ["sk-ant-api03", "ZZZZZZZZ", "kurt@example.com", "C:\\Users\\kurt", "AIzaSy", "my-own-secret-xyz"]) {
+    for (const leak of ["sk-ant-api03", "ZZZZZZZZ", "kurt@example.com", "C:\\Users\\kurt", "AIzaSy", "my-own-secret-xyz", "acme-corp"]) {
       assert.ok(!decoded.includes(leak), `leaked ${leak}`);
     }
     assert.ok(!/\bkurt\b/i.test(decoded), "user name leaked");
     assert.match(decoded, /\[redacted-key\]/);
+    assert.match(decoded, /https:\/\/\[private-host\]\/v1/);
     assert.match(parse(url).title, /\[redacted-key\]/);
   });
 

@@ -8,11 +8,18 @@
  * Pure and isomorphic. Everything that goes into the link is sanitized here
  * again, even though the log was sanitized when it was written.
  *
- * The body's headings match .github/ISSUE_TEMPLATE/bug_report.yml.
+ * The link opens the repo's issue FORM (.github/ISSUE_TEMPLATE/bug_report.yml,
+ * which applies the "bug" label itself: a `labels=` parameter only works for
+ * people with triage rights, so it would be dropped for everyone else) with
+ * its fields filled in by id: error-id, environment and recent-errors.
+ * "What happened" is left for the user.
  */
 import { sanitize, type SanitizeContext } from "./sanitize";
 
 export const ISSUE_NEW_URL = "https://github.com/KurtLehnardt/granted/issues/new";
+/** The issue form the link opens, and the ids of the fields it fills (they must match bug_report.yml). */
+export const ISSUE_TEMPLATE = "bug_report.yml";
+export const ISSUE_FIELDS = { errorId: "error-id", environment: "environment", recentErrors: "recent-errors" } as const;
 /** Browsers and GitHub cope with longer, but some proxies and GitHub's own redirect don't: stay well under 8 KB. */
 export const MAX_ISSUE_URL_LENGTH = 7000;
 /** At most this many errors are considered for one report (the full log is "Copy log"). */
@@ -49,6 +56,8 @@ export interface IssueInput {
 
 export interface IssueLink {
   url: string;
+  /** Whether the asked-about error (errorId) was among the errors given. */
+  found: boolean;
   /** How many errors made it into the link. */
   included: number;
   /** How many were left out to keep the link short. */
@@ -71,13 +80,15 @@ function firstLine(s: string): string {
 }
 
 export function issueTitle(input: Pick<IssueInput, "errorId" | "errors" | "source">, ctx?: SanitizeContext): string {
-  const primary = input.errorId ? input.errors.find((e) => e.id === input.errorId) ?? input.errors[0] : undefined;
+  // Only ever the asked-about error's own message: never another one's, if it isn't in the log.
+  const primary = input.errorId ? input.errors.find((e) => e.id === input.errorId) : undefined;
   const where = input.source && input.source !== "app" ? ` (${input.source})` : "";
+  const id = input.errorId ? ` [${sanitize(input.errorId, ctx)}]` : "";
   if (primary) {
     const what = cut(firstLine(sanitize(primary.message, ctx)), 80);
-    return `Problem${where}: ${what || "an error"}${input.errorId ? ` [${input.errorId}]` : ""}`;
+    return `Problem${where}: ${what || "an error"}${id}`;
   }
-  return `Problem report${where}`;
+  return `Problem report${where}${id}`;
 }
 
 function formatError(e: IssueError, ctx: SanitizeContext | undefined, limits: { message: number; stack: number }): string {
@@ -87,49 +98,47 @@ function formatError(e: IssueError, ctx: SanitizeContext | undefined, limits: { 
   return unfence(lines.filter(Boolean).join("\n"));
 }
 
-export function issueBody(
+export const PRIVACY_NOTE =
+  "(API keys, email addresses and your user folder were removed automatically. Please check nothing private is left before you submit.)";
+
+/** The form's field values (by field id). */
+export function issueFields(
   input: IssueInput,
   errors: IssueError[],
   omitted: number,
   limits: { message: number; stack: number } = { message: 1000, stack: 600 },
-): string {
+): Record<string, string> {
   const ctx = input.sanitize;
   const c = input.context;
   const s = (v: string | undefined): string => (v ? sanitize(v, ctx) : "unknown");
-  const parts = [
-    "### What happened",
-    "_Please describe what you were doing when this went wrong._",
-    "",
-    "### Error ID",
-    input.errorId ? sanitize(input.errorId, ctx) : "_none_",
-    "",
-    "### Environment",
+  const environment = [
     `- Granted version: ${s(c.version)}`,
     `- Operating system: ${s(c.os)}`,
     `- Model provider: ${s(c.provider)}`,
     `- Search mode: ${s(c.searchMode)}`,
     `- Reported from: ${s(input.source ?? "app")}`,
-    "",
-    "### Recent errors",
-  ];
-  if (errors.length === 0) parts.push("_No errors were recorded._");
-  else parts.push("```text", errors.map((e) => formatError(e, ctx, limits)).join("\n\n"), "```");
+  ].join("\n");
+  const recent = [PRIVACY_NOTE, ""];
+  if (errors.length === 0) recent.push("No errors were recorded.");
+  else recent.push(errors.map((e) => formatError(e, ctx, limits)).join("\n\n"));
   if (omitted > 0) {
-    parts.push(
+    recent.push(
       "",
-      `_${omitted} more error${omitted === 1 ? " was" : "s were"} left out to keep this link short. ` +
-        "Settings → Problems & logs → Copy log copies the whole log, if you'd like to paste it here._",
+      `${omitted} more error${omitted === 1 ? " was" : "s were"} left out to keep this link short. ` +
+        "Settings → Problems & logs → Copy log copies the whole log, if you'd like to paste it here.",
     );
   }
-  parts.push(
-    "",
-    "_API keys, email addresses and your user folder were removed automatically. Please check nothing private is left before you submit._",
-  );
-  return parts.join("\n");
+  return {
+    [ISSUE_FIELDS.errorId]: input.errorId ? sanitize(input.errorId, ctx) : "",
+    [ISSUE_FIELDS.environment]: environment,
+    [ISSUE_FIELDS.recentErrors]: recent.join("\n"),
+  };
 }
 
-function linkFor(title: string, body: string): string {
-  return `${ISSUE_NEW_URL}?title=${enc(title)}&labels=bug&body=${enc(body)}`;
+export function issueLink(title: string, fields: Record<string, string>): string {
+  const params = [`template=${enc(ISSUE_TEMPLATE)}`, `title=${enc(title)}`];
+  for (const [k, v] of Object.entries(fields)) if (v) params.push(`${k}=${enc(v)}`);
+  return `${ISSUE_NEW_URL}?${params.join("&")}`;
 }
 
 /** The errors to report: the clicked one first, then the rest newest first. */
@@ -137,12 +146,11 @@ function ordered(input: IssueInput): IssueError[] {
   const all = input.errors.slice(0, MAX_ISSUE_ERRORS);
   if (!input.errorId) return all;
   const i = all.findIndex((e) => e.id === input.errorId);
-  if (i <= 0) {
-    // Not in the most recent ones: look further back before giving up on it.
-    const older = i < 0 ? input.errors.find((e) => e.id === input.errorId) : undefined;
-    return older ? [older, ...all.slice(0, MAX_ISSUE_ERRORS - 1)] : all;
-  }
-  return [all[i], ...all.slice(0, i), ...all.slice(i + 1)];
+  if (i === 0) return all;
+  if (i > 0) return [all[i], ...all.slice(0, i), ...all.slice(i + 1)];
+  // Not in the most recent ones: look further back before giving up on it.
+  const older = input.errors.find((e) => e.id === input.errorId);
+  return older ? [older, ...all.slice(0, MAX_ISSUE_ERRORS - 1)] : all;
 }
 
 /**
@@ -155,10 +163,11 @@ export function buildIssueUrl(input: IssueInput): IssueLink {
   const title = issueTitle(input, input.sanitize);
   const errors = ordered(input);
   const total = Math.max(errors.length, input.errors.length);
+  const found = !!input.errorId && input.errors.some((e) => e.id === input.errorId);
 
   for (let n = errors.length; n >= 1; n--) {
-    const url = linkFor(title, issueBody(input, errors.slice(0, n), total - n));
-    if (url.length <= max) return { url, included: n, omitted: total - n };
+    const url = issueLink(title, issueFields(input, errors.slice(0, n), total - n));
+    if (url.length <= max) return { url, included: n, omitted: total - n, found };
   }
   if (errors.length > 0) {
     for (const limits of [
@@ -166,11 +175,11 @@ export function buildIssueUrl(input: IssueInput): IssueLink {
       { message: 400, stack: 0 },
       { message: 120, stack: 0 },
     ]) {
-      const url = linkFor(title, issueBody(input, errors.slice(0, 1), total - 1, limits));
-      if (url.length <= max) return { url, included: 1, omitted: total - 1 };
+      const url = issueLink(title, issueFields(input, errors.slice(0, 1), total - 1, limits));
+      if (url.length <= max) return { url, included: 1, omitted: total - 1, found };
     }
   }
-  const bare = linkFor(title, issueBody(input, [], total));
-  if (bare.length <= max) return { url: bare, included: 0, omitted: total };
-  return { url: linkFor(cut(title, 60), ""), included: 0, omitted: total };
+  const bare = issueLink(title, issueFields(input, [], total));
+  if (bare.length <= max) return { url: bare, included: 0, omitted: total, found };
+  return { url: issueLink(cut(title, 60), {}), included: 0, omitted: total, found };
 }

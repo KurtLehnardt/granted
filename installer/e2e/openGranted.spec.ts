@@ -128,9 +128,10 @@ test("a failed install offers Report this problem: a pre-filled GitHub issue, sa
   await expect.poll(() => openedUrls(a), { timeout: 10_000 }).toHaveLength(1);
   const url = new URL((await openedUrls(a))[0]);
   expect(`${url.origin}${url.pathname}`).toBe("https://github.com/KurtLehnardt/granted/issues/new");
-  expect(url.searchParams.get("labels")).toBe("bug");
+  expect(url.searchParams.get("template")).toBe("bug_report.yml");
+  expect(url.searchParams.get("labels")).toBeNull();
   expect(url.searchParams.get("title")).toMatch(/^Problem \(installer\): git clone failed/);
-  const body = url.searchParams.get("body") ?? "";
+  const body = [url.searchParams.get("recent-errors") ?? "", url.searchParams.get("environment") ?? ""].join("\n");
   expect(body).toContain("git clone failed in ~\\granted: auth [redacted-key] for [email]");
   expect(body).toMatch(/Granted installer version: \d+\.\d+\.\d+/);
   expect(body).toMatch(/Operating system: win32/);
@@ -392,8 +393,8 @@ test("a failed local setup shows the error with Try again, and doesn't start Gra
   await page.getByRole("button", { name: "Report this problem" }).click();
   await expect.poll(() => openedUrls(a), { timeout: 10_000 }).toHaveLength(1);
   const url = new URL((await openedUrls(a))[0]);
-  expect(url.searchParams.get("body")).toContain("The local setup didn't finish");
-  expect(url.searchParams.get("body")).toContain("Reported from: installer (open-granted)");
+  expect(url.searchParams.get("recent-errors")).toContain("The local setup didn't finish");
+  expect(url.searchParams.get("environment")).toContain("Reported from: installer (open-granted)");
 });
 
 test("Granted opens in its own window by default: the box is ticked, and Yes opens an app window, not a browser tab", async () => {

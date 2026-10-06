@@ -8,7 +8,7 @@
 import { readFileSync } from "node:fs";
 import { arch, homedir, release, userInfo } from "node:os";
 import { join } from "node:path";
-import { buildInstallerIssueUrl, envFileSecrets, type SanitizeContext } from "../shared/reportProblem";
+import { buildInstallerIssueUrl, envFileEntries, isSecretEnv, privateHosts, type SanitizeContext } from "../shared/reportProblem";
 
 export const MAX_REPORTED_MESSAGE = 4000;
 
@@ -31,10 +31,12 @@ function safe<T>(fn: () => T, fallback: T): T {
 
 export function installerSanitizeContext(d: ReportDeps): SanitizeContext {
   const read = d.readFile ?? ((p: string) => readFileSync(p, "utf8"));
+  const entries = safe(() => envFileEntries(read(join(d.scaffoldDir, ".env.local"))), []);
   return {
     home: d.home ?? safe(() => homedir(), null),
     user: d.user ?? safe(() => userInfo().username, null),
-    secrets: safe(() => envFileSecrets(read(join(d.scaffoldDir, ".env.local"))), []),
+    secrets: entries.filter((e) => isSecretEnv(e.name, e.value)).map((e) => e.value),
+    hosts: privateHosts(entries.filter((e) => /_URL$/i.test(e.name) || /^https?:\/\//i.test(e.value)).map((e) => e.value)),
   };
 }
 

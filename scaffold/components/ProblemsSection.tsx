@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import type { LogsSummary } from "@/app/api/logs/handler";
+import { ERROR_LOGGED_EVENT } from "@/lib/errorLog/client";
 
 /**
  * Settings → Problems & logs: how many errors Granted has hit lately, the last
@@ -35,6 +36,18 @@ export default function ProblemsSection({ initialSummary }: { initialSummary?: L
   }, []);
 
   useEffect(() => {
+    if (initialSummary) return;
+    void load();
+    // Errors that happen while Settings is open: the count, the list and the
+    // report link follow (the link must never be one built before they arrived).
+    const onLogged = () => void load();
+    window.addEventListener(ERROR_LOGGED_EVENT, onLogged);
+    return () => window.removeEventListener(ERROR_LOGGED_EVENT, onLogged);
+  }, [initialSummary, load]);
+
+  // Just before a click (pointer over it, or keyboard focus on it): the freshest link,
+  // including server-side errors logged since Settings opened.
+  const refreshSoon = useCallback(() => {
     if (!initialSummary) void load();
   }, [initialSummary, load]);
 
@@ -72,6 +85,7 @@ export default function ProblemsSection({ initialSummary }: { initialSummary?: L
   }
 
   async function handleClear() {
+    if (!confirmClear()) return;
     setBusy(true);
     try {
       const r = await post("clear");
@@ -116,6 +130,8 @@ export default function ProblemsSection({ initialSummary }: { initialSummary?: L
           rel="noopener noreferrer"
           className={btnClass}
           data-testid="report-problem"
+          onPointerEnter={refreshSoon}
+          onFocus={refreshSoon}
         >
           Report a problem
         </a>
@@ -142,6 +158,15 @@ export default function ProblemsSection({ initialSummary }: { initialSummary?: L
       )}
     </div>
   );
+}
+
+/** Clearing can't be undone: ask first. */
+export function confirmClear(ask: (message: string) => boolean = (m) => (typeof window === "undefined" ? false : window.confirm(m))): boolean {
+  try {
+    return ask("Clear Granted's error log? The errors in it can't be reported afterwards.");
+  } catch {
+    return false;
+  }
 }
 
 export function countText(summary: LogsSummary | null, loadFailed = false): string {

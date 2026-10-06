@@ -6,7 +6,7 @@ import { issueContext } from "@/lib/errorLog/context";
 import { isErrorId } from "@/lib/errorLog/errorId";
 import { buildIssueUrl, type IssueContext } from "@/lib/errorLog/issueUrl";
 import { sanitize, type SanitizeContext } from "@/lib/errorLog/sanitize";
-import { cleanArea, logError, serverSanitizeContext, type LogErrorOptions } from "@/lib/errorLog/server";
+import { cleanArea, logError, resetOnceCache, serverSanitizeContext, type LogErrorOptions } from "@/lib/errorLog/server";
 import { clearErrorLog, errorLogDir, readErrorEntries, type ErrorLogEntry } from "@/lib/errorLog/store";
 
 // GET  /api/logs                 the Problems & logs summary: counts, the last few errors, the report link
@@ -57,7 +57,11 @@ function openFolderInExplorer(dir: string): boolean {
 const REAL_DEPS: LogsDeps = {
   isLoopbackRequest,
   readEntries: () => readErrorEntries(),
-  clearLog: () => clearErrorLog(),
+  clearLog: () => {
+    const ok = clearErrorLog();
+    resetOnceCache();
+    return ok;
+  },
   logError,
   issueContext,
   sanitizeContext: () => serverSanitizeContext(),
@@ -99,6 +103,12 @@ export interface LogsSummary {
   issueUrl: string;
   /** How many errors made it into that link (the rest: Copy log). */
   issueIncluded: number;
+  /**
+   * With ?issue=<id>: whether that error is in the log. If it isn't (its
+   * report never arrived), the page keeps its own link for it rather than
+   * one about other errors.
+   */
+  issueFound?: boolean;
   logDir: string;
   /** Windows can open the folder; elsewhere the page shows logDir. */
   canOpenFolder: boolean;
@@ -151,6 +161,7 @@ export async function handleLogsGet(req: Req, deps: Partial<LogsDeps> = {}): Pro
     recent: entries.slice(0, RECENT_SHOWN),
     issueUrl: link.url,
     issueIncluded: link.included,
+    ...(errorId ? { issueFound: link.found } : {}),
     logDir: d.logDir(),
     canOpenFolder: d.platform === "win32",
   };

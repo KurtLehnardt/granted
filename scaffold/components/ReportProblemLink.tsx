@@ -16,6 +16,16 @@ import { browserIssueUrl } from "@/lib/errorLog/client";
 export const REPORT_LINK_CLASS =
   "font-mono text-[11px] uppercase tracking-eyebrow text-foreground underline decoration-dotted underline-offset-2 transition hover:text-structure-on-canvas focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2";
 
+/**
+ * The server's fuller link replaces the one built in the browser ONLY if the
+ * server found this error in the log. Otherwise (its report never arrived)
+ * the server's link would be about other errors, so the browser's stays.
+ */
+export function upgradedReportUrl(current: string, summary: unknown): string {
+  const s = summary as { issueUrl?: unknown; issueFound?: unknown } | null;
+  return s && s.issueFound === true && typeof s.issueUrl === "string" ? s.issueUrl : current;
+}
+
 export default function ReportProblemLink({
   errorId,
   area,
@@ -37,8 +47,8 @@ export default function ReportProblemLink({
     const timer = setTimeout(() => {
       fetch(`/api/logs?issue=${encodeURIComponent(errorId)}`)
         .then((r) => (r.ok ? r.json() : null))
-        .then((s: { issueUrl?: unknown; issueIncluded?: unknown } | null) => {
-          if (live && s && typeof s.issueUrl === "string" && typeof s.issueIncluded === "number" && s.issueIncluded > 0) setUrl(s.issueUrl);
+        .then((s: unknown) => {
+          if (live) setUrl((current) => upgradedReportUrl(current, s));
         })
         .catch(() => {});
     }, 600);

@@ -25,6 +25,19 @@ export interface SanitizeRule {
   replacement: string;
 }
 
+export interface SanitizeSettings {
+  /** Env var names whose values are secrets whatever they look like. */
+  secretEnvName: string;
+  /** Env var names that hold ordinary settings (URLs, model names…): never redacted for merely LOOKING like a token. */
+  settingEnvName: string;
+  /** A value that looks like a token (long, letters and digits, no spaces). */
+  tokenLikeValue: string;
+  /** Hosts that are never redacted from URLs (the public provider APIs, GitHub…), with their subdomains. */
+  publicHosts: string[];
+  rules: SanitizeRule[];
+}
+
+export const SANITIZE_SETTINGS: SanitizeSettings = RULES_FILE;
 export const SANITIZE_RULES: readonly SanitizeRule[] = RULES_FILE.rules;
 
 export interface SanitizeContext {
@@ -34,7 +47,11 @@ export interface SanitizeContext {
   user?: string | null;
   /** Literal secret values (from .env.local, a saved key, …); replaced with "[redacted]". */
   secrets?: readonly string[];
+  /** Private hostnames (a self-hosted provider's base URL…); replaced with "[private-host]". See privateHosts(). */
+  hosts?: readonly string[];
 }
+
+export const PRIVATE_HOST = "[private-host]";
 
 export const REDACTED = "[redacted]";
 export const USER_PLACEHOLDER = "[user]";
@@ -77,12 +94,52 @@ export function usableSecrets(secrets: readonly string[] | undefined): string[] 
   return Array.from(seen).sort((a, b) => b.length - a.length);
 }
 
+/** A hostname as a whole name: `$1` keeps the character before it; a longer name it is only part of doesn't match. */
+export function hostPattern(host: string): string {
+  return String.raw`(^|[^A-Za-z0-9.\-])` + escapeRegExp(host) + String.raw`(?![A-Za-z0-9\-]|\.[A-Za-z0-9])`;
+}
+
+function usableHosts(hosts: readonly string[] | undefined): string[] {
+  const out = (hosts ?? []).map((h) => (typeof h === "string" ? h.trim().toLowerCase() : "")).filter((h) => h.length >= 3);
+  return Array.from(new Set(out)).sort((a, b) => b.length - a.length);
+}
+
+/** Loopback hosts: never private information. */
+export function isLoopbackHost(host: string): boolean {
+  const h = host.toLowerCase().replace(/^\[|\]$/g, "");
+  return h === "localhost" || h === "::1" || h === "0.0.0.0" || /^127\.\d+\.\d+\.\d+$/.test(h);
+}
+
+/**
+ * The hosts in these URLs (base URLs from .env.local and Settings) that say
+ * something about the user's network: not loopback, and not a well-known
+ * public service (publicHosts, or a subdomain of one).
+ */
+export function privateHosts(urls: readonly unknown[], publicHosts: readonly string[] = SANITIZE_SETTINGS.publicHosts): string[] {
+  const out = new Set<string>();
+  for (const u of urls) {
+    if (typeof u !== "string" || !u.trim()) continue;
+    let host: string;
+    try {
+      host = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(u.trim()) ? u.trim() : `http://${u.trim()}`).hostname.toLowerCase();
+    } catch {
+      continue;
+    }
+    host = host.replace(/^\[|\]$/g, "");
+    if (!host || isLoopbackHost(host)) continue;
+    if (publicHosts.some((p) => host === p || host.endsWith(`.${p}`))) continue;
+    out.add(host);
+  }
+  return Array.from(out);
+}
+
 /** Sanitizes one piece of text. Never throws: if anything goes wrong, nothing of the input is returned. */
 export function sanitize(text: unknown, ctx: SanitizeContext = {}): string {
   try {
     let out = typeof text === "string" ? text : text == null ? "" : String(text);
     if (!out) return out;
     for (const secret of usableSecrets(ctx.secrets)) out = out.split(secret).join(REDACTED);
+    for (const host of usableHosts(ctx.hosts)) out = out.replace(new RegExp(hostPattern(host), "gi"), `$1${PRIVATE_HOST}`);
     const home = ctx.home ? homePattern(ctx.home) : null;
     if (home) out = out.replace(new RegExp(home, "gi"), "~");
     for (const { re, replacement } of COMPILED) out = out.replace(re, replacement);

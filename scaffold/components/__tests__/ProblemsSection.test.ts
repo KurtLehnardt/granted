@@ -2,8 +2,8 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { renderToStaticMarkup } from "react-dom/server";
 import React from "react";
-import ProblemsSection, { countText } from "../ProblemsSection";
-import ReportProblemLink from "../ReportProblemLink";
+import ProblemsSection, { confirmClear, countText } from "../ProblemsSection";
+import ReportProblemLink, { upgradedReportUrl } from "../ReportProblemLink";
 import CrashNotice from "../CrashNotice";
 import { isIgnorableError } from "../ErrorReporter";
 import type { LogsSummary } from "@/app/api/logs/handler";
@@ -66,6 +66,14 @@ describe("Settings → Problems & logs", () => {
     assert.equal(countText(summary({ count: 9, recentCount: 2 })), "2 errors in the last 7 days (9 in the log).");
   });
 
+  test("Clear log asks first, and does nothing unless confirmed", () => {
+    const asked: string[] = [];
+    assert.equal(confirmClear((m) => (asked.push(m), false)), false);
+    assert.equal(confirmClear(() => true), true);
+    assert.match(asked[0], /Clear Granted's error log\?/);
+    assert.equal(confirmClear(() => { throw new Error("no dialogs here"); }), false);
+  });
+
   test("before it loads", () => {
     assert.match(render(undefined), /Reading the error log…/);
   });
@@ -84,9 +92,22 @@ describe("Report this problem (under an error)", () => {
       React.createElement(ReportProblemLink, { errorId: "E-ABCDEF", area: "search", message: "bad sk-ant-AAAAAAAAAAAAAAAAAAAA" }),
     );
     const href = /href="([^"]+)"/.exec(html)![1].replace(/&amp;/g, "&");
-    const body = new URL(href).searchParams.get("body")!;
+    const u = new URL(href);
+    assert.equal(u.searchParams.get("template"), "bug_report.yml");
+    assert.equal(u.searchParams.get("error-id"), "E-ABCDEF");
+    const body = u.searchParams.get("recent-errors")!;
     assert.match(body, /E-ABCDEF/);
     assert.match(body, /bad \[redacted-key\]/);
+  });
+
+  test("REGRESSION (review): the server's link replaces the browser's only when the server found this error", () => {
+    const mine = "https://github.com/KurtLehnardt/granted/issues/new?template=bug_report.yml&title=mine";
+    const server = "https://github.com/KurtLehnardt/granted/issues/new?template=bug_report.yml&title=server";
+    assert.equal(upgradedReportUrl(mine, { issueUrl: server, issueFound: true }), server);
+    assert.equal(upgradedReportUrl(mine, { issueUrl: server, issueFound: false }), mine);
+    assert.equal(upgradedReportUrl(mine, { issueUrl: server }), mine);
+    assert.equal(upgradedReportUrl(mine, null), mine);
+    assert.equal(upgradedReportUrl(mine, { issueUrl: 42, issueFound: true }), mine);
   });
 
   test("a crash (error boundary) shows Try again and the report link", () => {

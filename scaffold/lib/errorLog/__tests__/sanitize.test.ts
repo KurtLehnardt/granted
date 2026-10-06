@@ -49,6 +49,68 @@ describe("sanitize: API keys and tokens", () => {
   });
 });
 
+describe("sanitize: token and secret fields, Authorization schemes (review of #286)", () => {
+  const cases: Array<[string, string, string]> = [
+    ["JSON token field", '{"token":"abc123def456","user":"x"}', '{"token":"[redacted]","user":"x"}'],
+    ["JSON secret field", '{"secret": "s3cr3t-value"}', '{"secret": "[redacted]"}'],
+    ["auth_token / id_token / api_secret fields", "auth_token=zzzz1111 id_token: yyyy2222 api_secret=xxxx3333", "auth_token=[redacted] id_token: [redacted] api_secret=[redacted]"],
+    ["token: in YAML-ish text", "token: opaque-proxy-token-99", "token: [redacted]"],
+    ["Authorization: Token …", "Authorization: Token abcdef0123456789", "Authorization: Token [redacted]"],
+    ["Authorization with a raw key", "authorization: plainkeyvalue123", "authorization: [redacted]"],
+    ["Proxy-Authorization", "Proxy-Authorization: Digest username=x", "Proxy-Authorization: Digest [redacted]"],
+    ["Authorization in a JSON header map", '{"Authorization":"ApiKey zzzzzz"}', '{"Authorization":"ApiKey [redacted]"}'],
+    ["secret= query param", "https://x.example/cb?secret=abcd&x=1", "https://x.example/cb?secret=[redacted]&x=1"],
+  ];
+  for (const [name, input, expected] of cases) test(name, () => assert.equal(s(input), expected));
+
+  test("token counts and similar words are not secrets", () => {
+    const text = "max_tokens: 4096; tokens: 500; tokenizer=fast; secrets are kept; the token expired";
+    assert.equal(s(text), text);
+  });
+});
+
+describe("sanitize: private hosts and folder names (review of #286)", () => {
+  test("configured private hosts (a self-hosted provider's base URL) are redacted, whole names only", () => {
+    const ctx = { hosts: ["llm.acme-corp.example", "gpu-box"] };
+    assert.equal(s("connect ECONNREFUSED https://llm.acme-corp.example:8443/v1/chat", ctx), "connect ECONNREFUSED https://[private-host]:8443/v1/chat");
+    assert.equal(s("fetch http://GPU-BOX:11434/api failed", ctx), "fetch http://[private-host]:11434/api failed");
+    assert.equal(s("gpu-boxes and my.gpu-box.example stay", ctx), "gpu-boxes and my.gpu-box.example stay");
+  });
+  test("private network addresses and .local/.internal hosts in URLs", () => {
+    assert.equal(s("http://192.168.1.20:11434 and 10.0.0.5 and 172.20.3.4"), "http://[private-host]:11434 and [private-host] and [private-host]");
+    assert.equal(s("https://ollama.lan/api and http://box.local:8080/x"), "https://[private-host]/api and http://[private-host]:8080/x");
+    assert.equal(s("https://models.corp/v1"), "https://[private-host]/v1");
+  });
+  test("loopback, public hosts and version numbers stay", () => {
+    const text = "http://127.0.0.1:11434 http://localhost:3000 https://api.openai.com/v1 172.15.0.1 win32 10.0.26200 x64 v10.1.2";
+    assert.equal(s(text), text);
+  });
+  test("a OneDrive folder named after an employer becomes just OneDrive", () => {
+    assert.equal(s("C:\\Users\\jane\\OneDrive - Contoso Ltd\\Documents\\granted"), "~\\OneDrive\\Documents\\granted");
+    assert.equal(s("~/OneDrive - Fabrikam, Inc./x"), "~/OneDrive/x");
+    assert.equal(s("saved to OneDrive - Contoso"), "saved to OneDrive");
+  });
+  test("privateHosts(): which configured hosts count as private", async () => {
+    const { privateHosts } = await import("../sanitize");
+    assert.deepEqual(
+      privateHosts([
+        "http://127.0.0.1:11434",
+        "http://localhost:8082",
+        "https://api.openai.com/v1",
+        "https://eu.api.openai.com/v1",
+        "https://generativelanguage.googleapis.com/v1beta/openai",
+        "https://llm.acme-corp.example/v1",
+        "gpu-box:11434",
+        "http://[::1]:1234",
+        "not a url at all %%",
+        "",
+        42,
+      ]),
+      ["llm.acme-corp.example", "gpu-box"],
+    );
+  });
+});
+
 describe("sanitize: email addresses", () => {
   test("plain, dotted, plus-addressed and subdomain addresses", () => {
     assert.equal(s("from jane.doe+granted@mail.example.co.uk to ops@example.com"), "from [email] to [email]");

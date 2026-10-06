@@ -1,8 +1,11 @@
 # The form behind "Report a problem". Granted's own reports (Settings ->
 # Problems & logs, "Report this problem" under an error, the tray menu and the
-# installer) open a pre-filled new issue whose body uses these same headings
-# (scaffold/lib/errorLog/issueUrl.ts, scaffold/scripts/windows/report-problem.ps1,
-# installer/src/shared/reportProblem.ts), so they read the same as one filed here.
+# installer) open THIS form (?template=bug_report.yml) with the fields below
+# filled in by their ids -- error-id, environment, recent-errors -- leaving
+# "What happened" to the user (scaffold/lib/errorLog/issueUrl.ts,
+# scaffold/scripts/windows/report-problem.ps1, installer/src/shared/reportProblem.ts).
+# Keep the ids in step with those files. The form applies the bug label itself:
+# a labels= link parameter only works for people with triage rights.
 name: Report a problem
 description: Something in Granted went wrong. API keys, email addresses and your user folder are removed from Granted's own reports; please check anything you paste here too.
 title: "Problem: "

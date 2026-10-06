@@ -53,6 +53,19 @@ describe("reportClientError", () => {
     assert.equal(errorIdOf(errorWithId("x", "garbage")), undefined);
   });
 
+  test("REGRESSION (review): the same Error object (window.onerror AND an error boundary) is logged once, with one id", () => {
+    const { sent, f } = fakeFetch();
+    const crash = new TypeError("Cannot read properties of undefined");
+    let now = 0;
+    const a = reportClientError("page", crash, { fetchImpl: f, now: () => now });
+    now += 60_000; // well past the duplicate window: the object itself is what's remembered
+    const b = reportClientError("react", crash, { fetchImpl: f, now: () => now });
+    assert.equal(a, b);
+    assert.equal(sent.length, 1);
+    // a different Error with the same text, later, is a new occurrence
+    assert.notEqual(reportClientError("page", new TypeError("Cannot read properties of undefined"), { fetchImpl: f, now: () => now }), a);
+  });
+
   test("the same error again within seconds reuses the first id", () => {
     const { sent, f } = fakeFetch();
     let now = 1000;
@@ -86,7 +99,10 @@ describe("reportClientError", () => {
 
 test("the browser's own report link carries this error, sanitized", () => {
   const url = browserIssueUrl({ errorId: "E-ABCDEF", area: "search", message: "bad key sk-ant-AAAAAAAAAAAAAAAAAAAA" });
-  const body = new URL(url).searchParams.get("body")!;
+  const u = new URL(url);
+  assert.equal(u.searchParams.get("error-id"), "E-ABCDEF");
+  assert.match(u.searchParams.get("title")!, /^Problem: bad key \[redacted-key\] \[E-ABCDEF\]$/);
+  const body = u.searchParams.get("recent-errors")!;
   assert.match(body, /E-ABCDEF/);
   assert.match(body, /bad key \[redacted-key\]/);
 });
