@@ -263,3 +263,9 @@ code.command {
   overflow-x: auto;
   white-space: pre;
 }
+
+/* "Report this problem" under an error. */
+.report-problem {
+  margin-top: 8px;
+  font-size: 13px;
+}

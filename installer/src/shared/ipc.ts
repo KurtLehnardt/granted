@@ -203,4 +203,10 @@ export interface GrantedInstallerApi {
   setOpenIn: (openIn: OpenIn) => Promise<ActionResult>;
   /** Closes the installer window. */
   quit: () => void;
+  /**
+   * Opens a pre-filled GitHub "new issue" page in the user's browser for an
+   * error the installer showed (sanitized: no keys, emails or user folder).
+   * The user reviews and submits it with their own account.
+   */
+  reportProblem: (message: string, where: string) => Promise<ActionResult>;
 }

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { GrantedSetupState, OpenIn, ShortcutChoice, TaskStatusEvent } from "../../../shared/ipc";
+import ReportProblem from "../ReportProblem";
 
 /**
  * Shown once the install finishes. Offers to do the README's "Next steps"
@@ -304,6 +305,7 @@ npm run dev                    # then open http://localhost:3000`}</code>
       {step.id === "error" && (
         <>
           <div className="status-note error">{step.message}</div>
+          <ReportProblem message={step.message} where="open-granted" />
           <div className="actions spaced">
             <button type="button" className="primary" onClick={step.retry}>
               Try again

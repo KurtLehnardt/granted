@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { isLoopbackRequest } from "@/lib/corpus/loopback";
+import { logError } from "@/lib/errorLog/server";
 import {
   appVersion,
   installInfo,
@@ -114,10 +115,26 @@ export function autoCheckDue(opts: { autoUpdate: boolean; canUpdate: boolean; la
   return opts.lastAutoCheck === null || opts.now - opts.lastAutoCheck >= AUTO_CHECK_INTERVAL_MS;
 }
 
+/**
+ * An update that failed (update.ps1 wrote "error") goes to the error log —
+ * once per failure, however often the page asks.
+ */
+function logUpdateFailure(status: UpdateStatus | null): void {
+  if (status?.state !== "error") return;
+  logError("app-update", status.message ?? `The update to ${status.to ?? "a new version"} didn't finish.`, {
+    once: `update-status:${status.to ?? ""}:${status.at ?? ""}`,
+    stack: null,
+  });
+}
+
 async function info(d: UpdateDeps, check: boolean, force: boolean): Promise<AppUpdateInfo> {
   const version = d.appVersion();
   const install = d.installInfo();
   const latest = check ? await latestRelease(d, force) : { tag: null, failed: false };
+  // Only a check the user asked for: automatic ones fail quietly whenever the computer is offline.
+  if (latest.failed && force) logError("app-update", "Couldn't reach GitHub to check for updates.", { stack: null });
+  const status = d.readUpdateStatus();
+  logUpdateFailure(status);
   return {
     version,
     latest: latest.tag,
@@ -126,7 +143,7 @@ async function info(d: UpdateDeps, check: boolean, force: boolean): Promise<AppU
     canUpdate: install.canUpdate,
     reason: install.reason,
     autoUpdate: install.canUpdate && d.readUpdateSettings().autoUpdate,
-    status: d.readUpdateStatus(),
+    status,
     releasesPage: RELEASES_PAGE,
   };
 }
@@ -199,7 +216,10 @@ export async function handleUpdatePost(req: Req & { json?: () => Promise<unknown
     if (latest.failed) {
       return auto
         ? NextResponse.json({ started: false })
-        : NextResponse.json({ error: "Couldn't check for updates — try again later", started: false }, { status: 502 });
+        : NextResponse.json(
+            { error: "Couldn't check for updates — try again later", started: false, errorId: logError("app-update", "Couldn't reach GitHub to check for updates.", { stack: null }) },
+            { status: 502 },
+          );
     }
     if (!latest.tag || !isNewerRelease(latest.tag, versionToTag(version))) {
       return NextResponse.json({ started: false, upToDate: true, version });
@@ -220,7 +240,8 @@ export async function handleUpdatePost(req: Req & { json?: () => Promise<unknown
     } catch (err) {
       const message = `Couldn't start the update: ${err instanceof Error ? err.message : String(err)}`;
       d.writeUpdateStatus({ state: "error", from: version, to: latest.tag, message, at: new Date(d.now()).toISOString() });
-      return NextResponse.json({ error: message, started: false }, { status: 500 });
+      const errorId = logError("app-update", err, { path: "/api/app/update" });
+      return NextResponse.json({ error: message, started: false, errorId }, { status: 500 });
     }
     return NextResponse.json({ started: true, from: version, to: latest.tag, startedAt }, { status: 202 });
   } finally {

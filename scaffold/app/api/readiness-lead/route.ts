@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { rateLimit, clientKey } from "@/lib/security/rateLimit";
+import { withErrorLogging } from "@/lib/errorLog/withErrorLogging";
 
 /**
  * GTM free tool — "Grant Readiness Score" email capture (STUBBED backend).
@@ -31,7 +32,7 @@ function badRequest(error: string) {
   return NextResponse.json({ error }, { status: 400 });
 }
 
-export async function POST(req: NextRequest) {
+async function postReadinessLead(req: NextRequest) {
   const limit = rateLimit(clientKey(req), { limit: LEAD_RATE_LIMIT, windowMs: LEAD_RATE_WINDOW_MS });
   if (!limit.ok) {
     return NextResponse.json(
@@ -73,3 +74,5 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ ok: true });
 }
+
+export const POST = withErrorLogging("readiness-lead", postReadinessLead);

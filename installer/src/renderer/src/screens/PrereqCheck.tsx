@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { InstallStatusEvent, InstallVersionPlan, OpenInstallTerminalResult, PrereqReport } from "../../../shared/ipc";
+import ReportProblem from "../ReportProblem";
 
 type LoadState =
   | { status: "loading" }
@@ -83,9 +84,9 @@ export default function PrereqCheck({ onInstallComplete }: PrereqCheckProps): Re
       if (status.state === "done") {
         onInstallComplete();
       } else if (status.state === "error") {
-        setTerminalResult((prev) =>
-          prev ? { ...prev, ok: false, message: status.message ?? "The install didn't finish successfully." } : prev,
-        );
+        // Shown even if this screen didn't start the install (a reattached one), so it can be reported.
+        const message = status.message ?? "The install didn't finish successfully.";
+        setTerminalResult((prev) => (prev ? { ...prev, ok: false, message } : { ok: false, message, command: "", pollingStarted: false }));
       }
     });
   }, [onInstallComplete]);
@@ -128,7 +129,10 @@ export default function PrereqCheck({ onInstallComplete }: PrereqCheckProps): Re
       {state.status === "loading" && <p>Checking git and Node.js…</p>}
 
       {state.status === "error" && (
-        <p className="status-note">Couldn't run the check: {state.message}</p>
+        <>
+          <p className="status-note">Couldn't run the check: {state.message}</p>
+          <ReportProblem message={`Couldn't run the check: ${state.message}`} where="prereq-check" />
+        </>
       )}
 
       {state.status === "loaded" && (
@@ -188,6 +192,7 @@ export default function PrereqCheck({ onInstallComplete }: PrereqCheckProps): Re
           {terminalResult.command && <code className="command">{terminalResult.command}</code>}
         </div>
       )}
+      {terminalResult && !terminalResult.ok && <ReportProblem message={terminalResult.message} where="install" />}
     </main>
   );
 }

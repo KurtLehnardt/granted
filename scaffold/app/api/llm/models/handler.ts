@@ -4,6 +4,7 @@ import { isCloudProviderId, getCloudProvider } from "@/lib/llm/providers";
 import { resolveDraftBaseUrl, resolveDraftKey, savedKeySourceFor } from "@/lib/llm/validateCloudConfig";
 import { listCloudModels } from "@/lib/llm/cloudModels";
 import { resolveCloudConfig } from "@/lib/llm/config";
+import { logError } from "@/lib/errorLog/server";
 
 // POST /api/llm/models — populates the Settings model picker for a cloud
 // provider once a key resolves. Loopback-only; never echoes the key.
@@ -47,6 +48,13 @@ export async function handleModelsPost(
   if (draft.error) return NextResponse.json({ error: draft.error }, { status: 400 });
 
   const result = await d.listCloudModels({ providerId, baseUrl, key: draft.key! });
-  if (result.error) return NextResponse.json({ error: result.error }, { status: 200 });
+  if (result.error) {
+    const errorId = logError("llm-provider", `Listing ${String(providerId)} models failed: ${result.error}`, {
+      stack: null,
+      path: "/api/llm/models",
+      secrets: draft.key ? [draft.key] : [],
+    });
+    return NextResponse.json({ error: result.error, errorId }, { status: 200 });
+  }
   return NextResponse.json({ models: result.models ?? [] });
 }

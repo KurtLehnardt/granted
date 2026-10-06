@@ -6,6 +6,8 @@ import { useDialogA11y } from "@/components/useDialogA11y";
 import { isFlagEnabled } from "@/lib/flags";
 import CompetitorResults from "@/components/CompetitorResults";
 import { drainNdjson } from "@/lib/competitors/ndjson";
+import ReportProblemLink from "@/components/ReportProblemLink";
+import { reportClientError } from "@/lib/errorLog/client";
 import type {
   CompetitorStreamEvent,
   GroundedAwardRecord,
@@ -66,13 +68,16 @@ export default function CompetitorAnalysisModal({ onClose, profile, opportunity 
   const [view, setView] = useState<View>("intro");
   const [resultRaw, setResultRaw] = useState<unknown>(null);
   const [unavailableReason, setUnavailableReason] = useState<string>(UNAVAILABLE_MESSAGE);
+  // The failure's correlation id, for "Report this problem" (none for "not enough public data").
+  const [unavailableErrorId, setUnavailableErrorId] = useState<string | null>(null);
   // Live streaming state (progressive loading view): the current stage + the
   // grounded evidence (real awards / stats / web competitors) as it's found.
   const [progress, setProgress] = useState<{ label: string; pct: number } | null>(null);
   const [evidence, setEvidence] = useState<LiveEvidence | null>(null);
 
-  const showUnavailable = (message: string) => {
+  const showUnavailable = (message: string, errorId: string | null = null) => {
     setUnavailableReason(message);
+    setUnavailableErrorId(errorId);
     setView("unavailable");
   };
 
@@ -94,7 +99,7 @@ export default function CompetitorAnalysisModal({ onClose, profile, opportunity 
       });
       // Validation errors return plain JSON (never a stream) — check res.ok first.
       if (!res.ok || !res.body) {
-        showUnavailable(UNAVAILABLE_MESSAGE);
+        showUnavailable(UNAVAILABLE_MESSAGE, res.status >= 500 ? reportClientError("competitors", `HTTP ${res.status}`) : null);
         return;
       }
 
@@ -122,7 +127,10 @@ export default function CompetitorAnalysisModal({ onClose, profile, opportunity 
             setView("results");
           } else if (evt.type === "error") {
             settled = true;
-            showUnavailable(evt.reason === "insufficient_evidence" ? INSUFFICIENT_EVIDENCE_MESSAGE : UNAVAILABLE_MESSAGE);
+            showUnavailable(
+              evt.reason === "insufficient_evidence" ? INSUFFICIENT_EVIDENCE_MESSAGE : UNAVAILABLE_MESSAGE,
+              evt.errorId ?? null,
+            );
           }
         }
         if (settled) return;
@@ -130,10 +138,10 @@ export default function CompetitorAnalysisModal({ onClose, profile, opportunity 
       }
       // Stream ended without a terminal event — degrade honestly.
       if (!settled) {
-        showUnavailable(UNAVAILABLE_MESSAGE);
+        showUnavailable(UNAVAILABLE_MESSAGE, reportClientError("competitors", "The analysis stream ended without a result."));
       }
-    } catch {
-      showUnavailable(UNAVAILABLE_MESSAGE);
+    } catch (err) {
+      showUnavailable(UNAVAILABLE_MESSAGE, reportClientError("competitors", err));
     }
   };
 
@@ -262,6 +270,11 @@ export default function CompetitorAnalysisModal({ onClose, profile, opportunity 
             <p id="competitor-analysis-modal-desc" className={bodyClass}>
               {unavailableReason}
             </p>
+            {unavailableErrorId && (
+              <p className="mt-3">
+                <ReportProblemLink errorId={unavailableErrorId} area="competitors" message={unavailableReason} />
+              </p>
+            )}
             <div className="mt-6 flex flex-wrap items-center gap-3">
               {liveAvailable && (
                 <button type="button" onClick={runLive} className={primaryBtnClass}>

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateQuestions, type InterviewQuestion } from "@/lib/interview/generateQuestions";
 import { rateLimit, clientKey } from "@/lib/security/rateLimit";
+import { withErrorLogging } from "@/lib/errorLog/withErrorLogging";
+import { logError } from "@/lib/errorLog/server";
 
 /**
  * Input bounds for the unauthenticated interview endpoint (security review
@@ -31,7 +33,7 @@ function badRequest(error: string) {
   return NextResponse.json({ error }, { status: 400 });
 }
 
-export async function POST(req: NextRequest) {
+async function postInterview(req: NextRequest) {
   const limit = rateLimit(clientKey(req), { limit: INTERVIEW_RATE_LIMIT, windowMs: INTERVIEW_RATE_WINDOW_MS });
   if (!limit.ok) {
     // Still a 200-shaped contract for the client's happy path would be wrong
@@ -68,8 +70,11 @@ export async function POST(req: NextRequest) {
     // output) degrades to an empty interview rather than a 5xx — the client
     // falls back to searching directly. Log server-side for visibility.
     console.error("interview generation failed:", err);
+    logError("interview", err);
     questions = [];
   }
 
   return NextResponse.json({ questions });
 }
+
+export const POST = withErrorLogging("interview", postInterview);

@@ -11,6 +11,7 @@ import type { LlmInfo } from "@/lib/llm/types";
 import { dropExpiredMatches } from "@/lib/corpus/expiry";
 import { dropPastAwardMatches } from "@/lib/corpus/pastAwards";
 import { sanitizedProviderErrorFor4xx } from "@/lib/llm/errors";
+import { logError } from "@/lib/errorLog/server";
 
 /**
  * Boundary validation is OBSERVABILITY ONLY (arch review MEDIUM — the payload
@@ -204,7 +205,9 @@ export async function handleMatchRequest(
         // text, since raw internals shouldn't reach the client.
         console.error("match failed:", err);
         const providerMessage = sanitizedProviderErrorFor4xx(err);
-        send({ type: "error", error: providerMessage ?? "The search didn't complete. Please try again." });
+        // To the error log (sanitized), and its id to the page for "Report this problem".
+        const errorId = logError(providerMessage ? "llm-provider" : "search", err, { path: "/api/match" });
+        send({ type: "error", error: providerMessage ?? "The search didn't complete. Please try again.", errorId });
         controller.close();
       }
     },

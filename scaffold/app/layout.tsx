@@ -7,6 +7,7 @@ import { SearchDraftProvider } from "@/components/SearchDraftProvider";
 import { AnalyticsProvider } from "@/components/AnalyticsProvider";
 import CorpusAutoUpdate from "@/components/CorpusAutoUpdate";
 import AppAutoUpdate from "@/components/AppAutoUpdate";
+import ErrorReporter from "@/components/ErrorReporter";
 import { BRAND } from "@/lib/brand";
 import "./globals.css";
 
@@ -59,6 +60,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 <AnalyticsProvider>
                   <CorpusAutoUpdate />
                   <AppAutoUpdate />
+                  <ErrorReporter />
                   {children}
                 </AnalyticsProvider>
               </SettingsPanelProvider>
