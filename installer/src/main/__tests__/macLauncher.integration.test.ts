@@ -56,6 +56,16 @@ async function until<T>(fn: () => Promise<T>, ok: (v: T) => boolean, timeoutMs =
   return last;
 }
 
+/** A run that must fail, and the exit code and message it failed with. */
+async function fails(run: () => Promise<unknown>): Promise<{ code: unknown; message: string }> {
+  try {
+    await run();
+  } catch (err) {
+    return { code: (err as { code?: unknown }).code, message: (err as Error).message };
+  }
+  return assert.fail("expected a non-zero exit");
+}
+
 interface FakeInstall {
   root: string;
   scaffold: string;
@@ -205,6 +215,21 @@ test(
     assert.match(code, /pgrep -x Dock/, "reload_dock waits for the restarted Dock");
     assert.match(code, /dock_settles_to yes/, "an addition is confirmed by reading it back");
     assert.match(code, /dock_settles_to no/, "and so is a removal");
+    // REGRESSION (real hardware), the same finding the darwin-only install
+    // test below asserts by reading the built bundle's plist with PlistBuddy.
+    // It is repeated here as a plain string check because this file's CI has
+    // no macOS runner: without LSUIElement, launchd tears the launcher's whole
+    // job down a second or two after the script exits and kills the
+    // granted-tray.sh it just started, so a real double-click never opens
+    // Granted. Deleting the key from the template has to fail somewhere that
+    // actually runs.
+    assert.ok(code.includes("<key>LSUIElement</key>"), "the generated Info.plist declares LSUIElement");
+    // REGRESSION: normalize_dock_path must decide whether to percent-decode
+    // from the file:// prefix, never from a bare "%" — a real POSIX path is
+    // never percent-encoded, and decoding it corrupts any literal %XX in a
+    // folder name (see the function's own comment, and the "a launcher whose
+    // own path holds a literal %XX" test below).
+    assert.match(code, /was_url=1/, "normalize_dock_path decodes only what arrived as a file:// URL");
   },
 );
 
@@ -380,6 +405,50 @@ describe(
       assert.ok(!after.includes(asUrl));
     });
 
+    test("a launcher whose own path holds a literal %XX is still recognized, added once and really removed", async () => {
+      // REGRESSION: normalize_dock_path used to percent-decode whichever side
+      // of the comparison happened to contain a "%", the raw POSIX path
+      // included — and that path was never percent-encoded. "%ad" is a valid
+      // hex pair, so this folder's real name decoded to something else than
+      // the Dock's own "%25" spelling of the same bundle: in-dock called a
+      // tile that was plainly there absent, add-to-dock then wrote a SECOND
+      // tile, and remove-from-dock answered "absent" and left the real one
+      // sitting in the Dock.
+      const weird = join(fake.root, "100%added");
+      const env = { ...process.env, ...fake.env, GRANTED_APPLICATIONS_DIR: weird };
+      const app = join(weird, "Granted.app");
+      const run = (...args: string[]): Promise<{ stdout: string; stderr: string }> =>
+        execFileAsync("/bin/bash", [fake.launcherScript, ...args], { env, timeout: 120_000 });
+
+      const { stdout: installed } = await run("install", "--port", String(PORT));
+      assert.deepEqual(parseLauncherOutput(installed), { launcher: app, icon: true, dock: "skipped" });
+
+      // The tile the Dock itself writes back for this bundle: a file:// URL in
+      // which the folder's literal "%" is spelled "%25".
+      const asUrl = `file://${app.replace(/%/g, "%25").replace(/ /g, "%20")}/`;
+      execFileSync("defaults", [
+        "write",
+        fake.dockDomain,
+        "persistent-apps",
+        "-array-add",
+        `<dict><key>tile-data</key><dict><key>file-data</key><dict><key>_CFURLString</key><string>${asUrl}</string><key>_CFURLStringType</key><integer>15</integer></dict></dict><key>tile-type</key><string>file-tile</string></dict>`,
+      ]);
+      const { stdout: inDock } = await run("in-dock");
+      assert.deepEqual(JSON.parse(inDock.trim()), { inDock: true }, "the tile that is plainly there is found");
+      // So no second tile is written…
+      const { stdout: add } = await run("add-to-dock");
+      assert.deepEqual(JSON.parse(add.trim()), { dock: "already" });
+      assert.equal(dockPlist().split(asUrl).length - 1, 1, "still exactly one tile");
+      // …and the removal really removes it, in both spellings.
+      const { stdout: removed } = await run("remove-from-dock");
+      assert.deepEqual(JSON.parse(removed.trim()), { dock: "removed" });
+      const after = dockPlist();
+      assert.ok(!after.includes(asUrl), "the file:// tile is gone");
+      assert.ok(!after.includes(app), "and so is any plain-path tile for it");
+      const { stdout: gone } = await run("in-dock");
+      assert.deepEqual(JSON.parse(gone.trim()), { inDock: false });
+    });
+
     test("add-to-dock and remove-from-dock on their own, and removing what isn't there", async () => {
       const { stdout: add } = await launcher("add-to-dock");
       assert.deepEqual(JSON.parse(add.trim()), { dock: "added" });
@@ -387,6 +456,32 @@ describe(
       assert.deepEqual(JSON.parse(remove.trim()), { dock: "removed" });
       const { stdout: absent } = await launcher("remove-from-dock");
       assert.deepEqual(JSON.parse(absent.trim()), { dock: "absent" });
+    });
+
+    test("a --port value that isn't a number is refused, and an explicitly empty one is not silently defaulted", async () => {
+      // Its own folder, so "nothing was created" means something: the tests
+      // above have already installed into fake.applicationsDir.
+      const unused = join(fake.root, "NeverInstalled");
+      const run = (...args: string[]): Promise<unknown> =>
+        execFileAsync("/bin/bash", [fake.launcherScript, ...args], {
+          env: { ...process.env, ...fake.env, GRANTED_APPLICATIONS_DIR: unused },
+        });
+      const refused = async (args: string[], what: string): Promise<void> => {
+        const failed = await fails(() => run(...args));
+        assert.equal(failed.code, 64, `${what} is a usage error`);
+        assert.match(failed.message, /--port must be a number/);
+      };
+      await refused(["install", "--port", "abc"], "a non-numeric --port");
+      await refused(["install", "--port", "-1"], "a negative --port");
+      // REGRESSION: the emptiness check used to stand in for "--port was not
+      // given at all", so `--port ''` fell through to the default port instead
+      // of being rejected the way every other bad value is.
+      await refused(["install", "--port", ""], "an explicitly empty --port");
+      // A bare --port at the end of the line still gets its own message.
+      const bare = await fails(() => run("install", "--port"));
+      assert.equal(bare.code, 64);
+      assert.match(bare.message, /--port needs a value/);
+      assert.ok(!existsSync(join(unused, "Granted.app")), "and none of that created a launcher");
     });
 
     test("something else already at ~/Applications/Granted.app is refused, not overwritten or deleted", async () => {

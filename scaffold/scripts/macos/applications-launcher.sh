@@ -29,14 +29,21 @@
 #   applications-launcher.sh in-dock          one JSON line: {"inDock":true|false}
 #   applications-launcher.sh icns --out FILE  convert the repo's .ico to an .icns
 #
-# Each command prints exactly one JSON line, read by the installer
-# (installer/src/main/ipcPure.ts's parseLauncherOutput):
+# Each command prints exactly one JSON line:
 #
 #   install           {"launcher":"<path>","icon":true|false,
 #                      "dock":"added"|"already"|"skipped"|"failed"}
 #   add-to-dock       {"dock":"added"|"already"|"failed"}
 #   remove-from-dock  {"dock":"removed"|"absent"|"failed"}
 #   remove            {"removed":true|false}
+#
+# Of those, only `install` is read by the installer, by
+# installer/src/main/ipcPure.ts's parseLauncherOutput -- the one command
+# installer/src/main/ipc.ts's createLauncher runs. parseLauncherOutput returns
+# null for the other three shapes (it requires both a `launcher` and an
+# install-style `dock` value), so they are for a person at a terminal and for
+# the uninstall path, not for the installer. Anything that wires one of them
+# up has to teach parseLauncherOutput its shape first.
 #
 # Exit codes: 0 on success, 1 when the launcher itself could not be created
 # (or a standalone Dock command failed), 64 for bad input. `install` exits 0
@@ -93,6 +100,10 @@ BUNDLE_ID="io.github.kurtlehnardt.granted.launcher"
 
 ADD_TO_DOCK=0
 PORT=""
+# Whether --port was given at all, kept separately from its value so that an
+# explicitly empty one (`--port ''`) is rejected like any other bad value
+# instead of being indistinguishable from "not given" and silently defaulted.
+PORT_GIVEN=0
 OUT=""
 
 # An option that takes a value must actually have been given one, and must say
@@ -111,16 +122,17 @@ COMMAND="${1:-}"
 if [ $# -gt 0 ]; then shift; fi
 while [ $# -gt 0 ]; do
   case "$1" in
-    --port) need_value "$#" --port; PORT="$2"; shift 2 ;;
+    --port) need_value "$#" --port; PORT="$2"; PORT_GIVEN=1; shift 2 ;;
     --out) need_value "$#" --out; OUT="$2"; shift 2 ;;
     --add-to-dock) ADD_TO_DOCK=1; shift ;;
     *) printf 'applications-launcher.sh: unknown option %s\n' "$1" >&2; exit 64 ;;
   esac
 done
 
-if [ -z "$PORT" ]; then PORT="${GRANTED_PORT:-3000}"; fi
+if [ "$PORT_GIVEN" = "0" ]; then PORT="${GRANTED_PORT:-3000}"; fi
 case "$PORT" in
-  ''|*[!0-9]*) printf 'applications-launcher.sh: --port must be a number (got %s)\n' "$PORT" >&2; exit 64 ;;
+  '') printf 'applications-launcher.sh: --port must be a number (got an empty value)\n' >&2; exit 64 ;;
+  *[!0-9]*) printf 'applications-launcher.sh: --port must be a number (got %s)\n' "$PORT" >&2; exit 64 ;;
 esac
 
 LOG_DIR="${GRANTED_LOG_DIR:-$HOME/Library/Logs/Granted}"
@@ -398,17 +410,31 @@ dock_tile() {
 # POSIX path (what this script writes), or a percent-encoded file:// URL (what
 # the Dock writes back). Trailing slash removed, so the two forms of the same
 # bundle compare equal.
+#
+# Only the file:// form is percent-decoded, and the file:// prefix -- not the
+# presence of a "%" character -- is what decides that. The distinction is
+# load-bearing, because the two sides of every comparison below go through
+# this function and only one of them is ever a URL: $APP_PATH is a plain POSIX
+# path that was never encoded, so decoding it would corrupt any literal %XX in
+# a real folder name. A user whose home holds ".../100%added/Granted.app" hit
+# exactly that: "%ad" is a valid hex pair, so the raw path decoded to a
+# different string than the Dock's own "%25" spelling of it, and in-dock
+# reported a tile that was plainly there as absent -- which then let
+# add-to-dock write a second tile and left remove-from-dock reporting "absent"
+# with the real tile still in the Dock.
 normalize_dock_path() {
-  local s="$1"
-  case "$s" in file://*) s="${s#file://}" ;; esac
-  case "$s" in
-    *%*)
-      # Backslashes first, so printf '%b' can't reinterpret one that was
-      # already in the path, then every %XX into the escape %b understands.
-      s="$(printf '%s' "$s" | sed 's/\\/\\\\/g; s/%\([0-9A-Fa-f][0-9A-Fa-f]\)/\\x\1/g')"
-      s="$(printf '%b' "$s")"
-      ;;
-  esac
+  local s="$1" was_url=0
+  case "$s" in file://*) s="${s#file://}"; was_url=1 ;; esac
+  if [ "$was_url" = "1" ]; then
+    case "$s" in
+      *%*)
+        # Backslashes first, so printf '%b' can't reinterpret one that was
+        # already in the path, then every %XX into the escape %b understands.
+        s="$(printf '%s' "$s" | sed 's/\\/\\\\/g; s/%\([0-9A-Fa-f][0-9A-Fa-f]\)/\\x\1/g')"
+        s="$(printf '%b' "$s")"
+        ;;
+    esac
+  fi
   while [ "${s%/}" != "$s" ]; do s="${s%/}"; done
   printf '%s' "$s"
 }
