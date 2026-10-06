@@ -18,6 +18,11 @@ describe("looksLikeKeyOrAuthError — error-banner Settings-link gating", () => 
     assert.equal(looksLikeKeyOrAuthError("401 Unauthorized"), true);
   });
 
+  test("matches every search error that names Settings → Model as the fix (Ollama down, local model missing)", () => {
+    assert.equal(looksLikeKeyOrAuthError("Granted couldn't reach Ollama, which runs your Local model — start it in Settings → Model (or switch to Cloud there)."), true);
+    assert.equal(looksLikeKeyOrAuthError(`The local model "gemma4:latest" isn't installed in Ollama — pick an installed model or download it in Settings → Model.`), true);
+  });
+
   test("is case-insensitive and matches an api-key phrasing with a hyphen or space", () => {
     assert.equal(looksLikeKeyOrAuthError("your API-KEY is missing"), true);
     assert.equal(looksLikeKeyOrAuthError("your api key is missing"), true);

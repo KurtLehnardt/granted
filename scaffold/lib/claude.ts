@@ -577,7 +577,8 @@ export async function explainMatches(
     .map((s) => s.value);
   if (ok.length === 0) {
     const firstErr = settled.find((s) => s.status === "rejected") as PromiseRejectedResult | undefined;
-    throw new Error(`All scoring batches failed: ${firstErr?.reason?.message ?? "unknown error"}`);
+    // `cause` keeps the provider error, so the search can say what went wrong (lib/llm/searchErrors.ts).
+    throw new Error(`All scoring batches failed: ${firstErr?.reason?.message ?? "unknown error"}`, { cause: firstErr?.reason });
   }
   // §5.5 — clamp the model-returned score to its valid 0-100 range server-side
   // (a crafted description could otherwise push an out-of-range score into the
@@ -815,7 +816,7 @@ async function scorePassA(
     .map((s) => s.value);
   if (ok.length === 0) {
     const firstErr = settled.find((s) => s.status === "rejected") as PromiseRejectedResult | undefined;
-    throw new Error(`All Pass-A scoring batches failed: ${firstErr?.reason?.message ?? "unknown error"}`);
+    throw new Error(`All Pass-A scoring batches failed: ${firstErr?.reason?.message ?? "unknown error"}`, { cause: firstErr?.reason });
   }
   return ok.flat().map((s) => ({ id: s.id, score: clampScore(s.score) }));
 }

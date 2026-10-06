@@ -2,6 +2,7 @@ import { test, describe, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { makeLlmClient, isLocalLlm, defaultLocalModel } from "../client";
 import { withLocalModel } from "../modelContext";
+import { resetLocalDefaultCache } from "../localDefault";
 import { unwrapArrayEnvelope, coerceProfileStrings, coerceEmployees, coerceCriteria } from "../../claude";
 
 /**
@@ -22,6 +23,7 @@ afterEach(() => {
   if (savedModel === undefined) delete process.env.LOCAL_LLM_MODEL;
   else process.env.LOCAL_LLM_MODEL = savedModel;
   globalThis.fetch = realFetch;
+  resetLocalDefaultCache();
 });
 
 describe("isLocalLlm — provider detection", () => {
@@ -111,6 +113,23 @@ describe("openAI-compatible shim — request + response translation", () => {
     sentBody = null;
     await client.messages.create({ model: "ignored", max_tokens: 10, messages: [{ role: "user", content: "hi" }] });
     assert.equal(sentBody.model, "gemma4:latest");
+  });
+
+  test("no model picked and LOCAL_LLM_MODEL not installed -> calls run on the best installed chat model, never an embedding model", async () => {
+    process.env.LLM_PROVIDER = "ollama";
+    delete process.env.LOCAL_LLM_MODEL; // the gemma4:latest fallback, not installed
+    const sent: string[] = [];
+    globalThis.fetch = (async (url: string, init: any) => {
+      if (String(url).endsWith("/api/tags")) {
+        return { ok: true, json: async () => ({ models: [{ name: "nomic-embed-text:latest" }, { name: "llama3.2:1b" }, { name: "qwen2.5:7b" }] }) };
+      }
+      sent.push(JSON.parse(init.body).model);
+      return { ok: true, json: async () => ({ choices: [{ message: { content: "{}" } }], usage: {} }) };
+    }) as unknown as typeof fetch;
+
+    const client = makeLlmClient({ timeout: 5000 });
+    await client.messages.create({ model: "ignored", max_tokens: 10, messages: [{ role: "user", content: "hi" }] });
+    assert.deepEqual(sent, ["qwen2.5:7b"]);
   });
 });
 

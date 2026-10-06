@@ -1,10 +1,12 @@
 import { normalizeOpenAiBaseUrl } from "./baseUrl";
+import { isEmbeddingModel, type OllamaModel } from "./ollamaModels";
 
-export type OllamaModel = { name: string; paramsB?: number };
+export type { OllamaModel };
 
 const TAGS_TIMEOUT_MS = 1_500;
 
-function ollamaHost(): string {
+/** Ollama's native API root (LLM_BASE_URL minus its OpenAI-compatible /v1). */
+export function ollamaHost(): string {
   return normalizeOpenAiBaseUrl(process.env.LLM_BASE_URL || "http://localhost:11434/v1").replace(/\/v1$/, "");
 }
 
@@ -28,7 +30,7 @@ export async function listOllamaChatModels(): Promise<OllamaModel[]> {
     const json: any = await res.json();
     const models: any[] = Array.isArray(json?.models) ? json.models : [];
     return models
-      .filter((m) => typeof m?.name === "string" && m.name.length > 0 && !/embed/i.test(m.name))
+      .filter((m) => typeof m?.name === "string" && m.name.length > 0 && !isEmbeddingModel(m))
       .map((m) => ({ name: m.name, paramsB: parseParamsB(m.details?.parameter_size) }));
   } catch {
     return [];
