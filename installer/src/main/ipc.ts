@@ -2,17 +2,19 @@ import { BrowserWindow, clipboard, ipcMain, shell } from "electron";
 import type { WebContents } from "electron";
 import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, openSync, rmdirSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import {
+  buildMacInstallScript,
   buildTaskScript,
   decideStatusPoll,
   escapeForAppleScript,
   grantedPort,
   grantedSettingsPath,
+  macStatusLockPath,
   mergeRegistryPath,
   newInstallStatusPath,
   newTaskStatusPath,
@@ -21,6 +23,7 @@ import {
   parseVersionFromOutput,
   buildWindowsInstallScript,
   psSingleQuoted,
+  shSingleQuoted,
   windowsInstallCommand,
   shouldReattach,
   startProcessCommand,
@@ -409,18 +412,56 @@ async function openInstallTerminal(sender: WebContents, checkForUpdates: boolean
 
   try {
     if (platform === "darwin") {
-      const script = escapeForAppleScript(command);
+      installInFlight = true;
+
+      // Mirrors the win32 branch just below: an earlier attempt the poll
+      // gave up on, whose Terminal window is in fact still running (or
+      // still starting, or has since finished), is watched again rather
+      // than launching a second install.
+      const previous = await reattachablePath("install", true);
+      if (previous) {
+        pollInstallStatus(sender, previous);
+        return {
+          ok: true,
+          message:
+            "The installer from before is still running in its Terminal window — this screen will update on its own once it finishes.",
+          command,
+          pollingStarted: true,
+        };
+      }
+
+      const statusPath = newInstallStatusPath();
+      // Written to a temp file and run from there, never put directly on
+      // osascript's command line — same reasoning as Windows's temp .ps1
+      // (see the win32 branch below): a multi-line script embedded in an
+      // AppleScript string literal is exactly the kind of thing that's
+      // fragile to get right character-for-character, every time, versus
+      // writing it once to disk and asking Terminal to run that file.
+      const scriptPath = join(tmpdir(), `granted-install-${randomUUID()}.sh`);
+      await writeFile(scriptPath, buildMacInstallScript(statusPath, plan?.ref ?? null), "utf8");
+      rememberLaunch("install", statusPath);
+      // Only the short "run this file" command needs AppleScript's own
+      // string-literal escaping (`\`/`"`) — the actual install logic lives
+      // in the file, untouched by it. `cd` first: install-macos.sh clones
+      // into ./granted relative to its working directory, and a `do
+      // script` window's default directory isn't guaranteed to be the
+      // user's home folder (it follows Terminal's own "new windows open
+      // with" preference) — explicit, same reason win32's launchConsoleWindow
+      // is given homedir() rather than inheriting whatever this app's own
+      // cwd happens to be.
+      const doScript = escapeForAppleScript(`cd ${shSingleQuoted(homedir())} && bash ${shSingleQuoted(scriptPath)}`);
       await execFileAsync("osascript", [
         "-e",
         'tell application "Terminal" to activate',
         "-e",
-        `tell application "Terminal" to do script "${script}"`,
+        `tell application "Terminal" to do script "${doScript}"`,
       ]);
+      pollInstallStatus(sender, statusPath);
       return {
         ok: true,
-        message: "Opened Terminal and started the installer. The command is also on your clipboard.",
+        message: `Opened Terminal and started the installer — Granted${plan?.ref ? ` ${plan.ref}` : ""} will be installed to ${installDir()}. Watch that window; this screen will update on its own once it finishes. If it closes before then, paste the command from your clipboard into Terminal.`,
         command,
-        pollingStarted: false,
+        pollingStarted: true,
       };
     }
 
@@ -500,7 +541,7 @@ async function openInstallTerminal(sender: WebContents, checkForUpdates: boolean
       pollingStarted: false,
     };
   } catch (err) {
-    if (platform === "win32") installInFlight = false;
+    if (platform === "win32" || platform === "darwin") installInFlight = false;
     // Logged for diagnostics, never shown to the user: raw Node/Windows
     // error text (e.g. "EBUSY: resource busy or locked, open '...'") means
     // nothing to Granted's non-technical audience — the actionable half
@@ -536,9 +577,12 @@ const PROBE_TIMEOUT_MS = 60_000;
 // Long enough that a Granted busy compiling its first request reads as
 // "busy" rather than "down" — "down" starts a second server.
 const ALREADY_RUNNING_PROBE_TIMEOUT_MS = 10_000;
+// Named for what it originally gated (Windows-only); now also allows
+// darwin, so this fires only for linux (createShortcuts below stays
+// win32-only — a later, separate piece of work, not touched by this).
 const NOT_WINDOWS: ActionResult = {
   ok: false,
-  message: "Opening Granted from the installer is only available on Windows so far.",
+  message: "Opening Granted from the installer is only available on Windows and macOS so far.",
 };
 
 type GrantedTask = Exclude<WindowTask, "install">;
@@ -581,6 +625,87 @@ async function launchScaffoldTask(opts: {
   );
   rememberLaunch(opts.task, statusPath);
   await launchConsoleWindow(scriptPath, scaffoldDir());
+  return statusPath;
+}
+
+/**
+ * macOS, for now: a minimal, first-cut path, deliberately smaller than
+ * Windows's — no visible console window (there's nothing here yet that
+ * needs one kept open the way launchScaffoldTask's does), no tray, no own
+ * app window (those are separate, later work; getSetupState's
+ * trayAvailable/shortcutsAvailable/appWindowAvailable correctly stay false
+ * on darwin, since this install has none of scripts/windows). `command`
+ * is spawned directly, detached so it outlives the installer the same way
+ * Windows's console window does, writing the exact same {state,message,pid}
+ * status-file shape buildTaskScript's PowerShell writes — so it's read back
+ * by the SAME readTaskStatus/pollStatusFile/decideStatusPoll Windows uses,
+ * completely unchanged. There's no window to show output in, so stdout/
+ * stderr go to a log file instead, named only in a failure's message.
+ *
+ * Also takes the same `<status>.lock.d` directory lock install-macos.sh
+ * does (see macStatusLockPath and openGranted.ts's isStatusWindowAlive):
+ * without it, "is this still running" would have nothing to go on besides a
+ * bare pid, which isStatusWindowAlive's non-win32 branch deliberately
+ * doesn't lean on alone (a pid can be reused by an unrelated process).
+ */
+async function launchMacScaffoldTask(opts: {
+  task: GrantedTask;
+  command: string;
+  args: string[];
+  failureMessage: string;
+  env?: Record<string, string>;
+}): Promise<string> {
+  const statusPath = newTaskStatusPath(opts.task);
+  const lockDir = macStatusLockPath(statusPath);
+  const logPath = join(tmpdir(), `granted-${opts.task}-${randomUUID()}.log`);
+  const writeStatus = (status: StatusFile): Promise<void> =>
+    writeFile(statusPath, JSON.stringify(status), "utf8").catch((err) => console.error("writeStatus failed:", err));
+  const removeLock = (): void => {
+    try {
+      rmdirSync(lockDir);
+    } catch {
+      // Already gone, or never created — best effort either way.
+    }
+  };
+  try {
+    mkdirSync(lockDir);
+  } catch {
+    // Best effort, same as install-macos.sh's own `mkdir ... || true`.
+  }
+  let child: ReturnType<typeof spawn>;
+  try {
+    const log = openSync(logPath, "a");
+    child = spawn(opts.command, opts.args, {
+      cwd: scaffoldDir(),
+      detached: true,
+      stdio: ["ignore", log, log],
+      env: { ...process.env, ...opts.env },
+    });
+  } catch (err) {
+    // A synchronous spawn failure (rare — spawn() normally reports even
+    // ENOENT asynchronously via 'error' below): nothing is running, so the
+    // lock must not outlive it either.
+    removeLock();
+    throw err;
+  }
+  child.unref();
+  rememberLaunch(opts.task, statusPath);
+  const withPid = (status: Omit<StatusFile, "pid">): StatusFile => (child.pid !== undefined ? { ...status, pid: child.pid } : status);
+  await writeStatus(withPid({ state: "running", message: null }));
+  child.once("exit", (code) => {
+    removeLock();
+    void writeStatus(
+      withPid(
+        code === 0
+          ? { state: "done", message: null }
+          : { state: "error", message: `${opts.failureMessage} See ${logPath} for details.` },
+      ),
+    );
+  });
+  child.once("error", (err) => {
+    removeLock();
+    void writeStatus(withPid({ state: "error", message: `${opts.failureMessage} (${err.message})` }));
+  });
   return statusPath;
 }
 
@@ -632,7 +757,7 @@ async function openGrantedPage(url: string): Promise<OpenIn | null> {
 }
 
 async function runLocalSetup(sender: WebContents): Promise<ActionResult> {
-  if (process.platform !== "win32") return NOT_WINDOWS;
+  if (process.platform !== "win32" && process.platform !== "darwin") return NOT_WINDOWS;
   if (grantedTaskInFlight) return { ok: false, message: "Granted's setup is already running in another window." };
   grantedTaskInFlight = true;
   try {
@@ -644,23 +769,38 @@ async function runLocalSetup(sender: WebContents): Promise<ActionResult> {
       // reports it at once and Granted starts, instead of redoing a
       // half-hour model pull and re-embed.
       (await reattachablePath("local-setup", true)) ??
-      (await launchScaffoldTask({
-        task: "local-setup",
-        title: "Granted - local setup (Ollama)",
-        command: "npm.cmd run setup:local -- --yes",
-        failureMessage: "The local setup didn't finish. The error is shown above in this window.",
-      }));
+      (process.platform === "win32"
+        ? await launchScaffoldTask({
+            task: "local-setup",
+            title: "Granted - local setup (Ollama)",
+            command: "npm.cmd run setup:local -- --yes",
+            failureMessage: "The local setup didn't finish. The error is shown above in this window.",
+          })
+        : await launchMacScaffoldTask({
+            task: "local-setup",
+            command: "npm",
+            args: ["run", "setup:local", "--", "--yes"],
+            failureMessage: "The local setup didn't finish.",
+          }));
     pollStatusFile(
       statusPath,
-      {
-        startedTimeoutMs: STATUS_STARTED_TIMEOUT_MS,
-        overallTimeoutMs: LOCAL_SETUP_TIMEOUT_MS,
-        notStartedMessage: "Couldn't confirm the local setup started — check whether a PowerShell window opened.",
-        timedOutMessage: "The local setup is taking much longer than expected — check its PowerShell window.",
-        closedMessage: "The local setup window was closed before it finished.",
-        // No waitWhileAlive: LOCAL_SETUP_TIMEOUT_MS stays a hard limit (the
-        // window itself says what it's doing; a retry re-attaches to it).
-      },
+      process.platform === "win32"
+        ? {
+            startedTimeoutMs: STATUS_STARTED_TIMEOUT_MS,
+            overallTimeoutMs: LOCAL_SETUP_TIMEOUT_MS,
+            notStartedMessage: "Couldn't confirm the local setup started — check whether a PowerShell window opened.",
+            timedOutMessage: "The local setup is taking much longer than expected — check its PowerShell window.",
+            closedMessage: "The local setup window was closed before it finished.",
+            // No waitWhileAlive: LOCAL_SETUP_TIMEOUT_MS stays a hard limit (the
+            // window itself says what it's doing; a retry re-attaches to it).
+          }
+        : {
+            startedTimeoutMs: STATUS_STARTED_TIMEOUT_MS,
+            overallTimeoutMs: LOCAL_SETUP_TIMEOUT_MS,
+            notStartedMessage: "Couldn't confirm the local setup started.",
+            timedOutMessage: "The local setup is taking much longer than expected.",
+            closedMessage: "The local setup ended unexpectedly before it finished.",
+          },
       (status) => {
         grantedTaskInFlight = false;
         sendTaskStatus(sender, {
@@ -670,25 +810,33 @@ async function runLocalSetup(sender: WebContents): Promise<ActionResult> {
         });
       },
     );
-    return { ok: true, message: "Started the local setup in a PowerShell window." };
+    return {
+      ok: true,
+      message: process.platform === "win32" ? "Started the local setup in a PowerShell window." : "Started the local setup in the background.",
+    };
   } catch (err) {
     grantedTaskInFlight = false;
     console.error("runLocalSetup failed:", err);
-    return { ok: false, message: "Couldn't open a PowerShell window for the local setup." };
+    return { ok: false, message: "Couldn't start the local setup." };
   }
 }
 
 async function startGranted(sender: WebContents): Promise<StartResult> {
-  if (process.platform !== "win32") return NOT_WINDOWS;
+  if (process.platform !== "win32" && process.platform !== "darwin") return NOT_WINDOWS;
   if (grantedTaskInFlight) return { ok: false, message: "Granted is already being set up or started." };
   grantedTaskInFlight = true;
 
   // Background (tray icon) when this install has the tray script; an older
   // install without it falls back to the console window it always used.
+  // On darwin there's no tray yet (a later, separate piece of work) and no
+  // scripts/windows at all, so this is always false there — the same
+  // fallback path win32 takes for an install that predates the tray.
   const background = existsSync(trayScriptPath());
   const whereErrorsAre = background
     ? "right-click the Granted icon by the clock and choose Show log"
-    : "check its PowerShell window";
+    : process.platform === "win32"
+      ? "check its PowerShell window"
+      : "check its log file";
 
   const finish = (state: "done" | "error", message: string | null, openedIn?: OpenIn): void => {
     grantedTaskInFlight = false;
@@ -723,7 +871,9 @@ async function startGranted(sender: WebContents): Promise<StartResult> {
             specific ??
               (background
                 ? "Granted stopped before it finished starting (its tray icon was closed)."
-                : "Granted stopped before it finished starting — the error is in its PowerShell window (if it's still open)."),
+                : process.platform === "win32"
+                  ? "Granted stopped before it finished starting — the error is in its PowerShell window (if it's still open)."
+                  : "Granted stopped before it finished starting."),
           );
         } else if (outcome.lastProbe === "other") {
           finish(
@@ -772,15 +922,23 @@ async function startGranted(sender: WebContents): Promise<StartResult> {
 
     const statusPath = background
       ? await launchTray()
-      : await launchScaffoldTask({
-          task: "start-app",
-          title: "Granted - keep this window open while you use Granted",
-          command: "npm.cmd run dev",
-          failureMessage: "Granted stopped. The error is shown above in this window.",
-          // Next.js reads PORT; set it explicitly so the server is always where
-          // the probe looks, whatever PORT the user's environment has.
-          env: { PORT: String(GRANTED_PORT) },
-        });
+      : process.platform === "win32"
+        ? await launchScaffoldTask({
+            task: "start-app",
+            title: "Granted - keep this window open while you use Granted",
+            command: "npm.cmd run dev",
+            failureMessage: "Granted stopped. The error is shown above in this window.",
+            // Next.js reads PORT; set it explicitly so the server is always where
+            // the probe looks, whatever PORT the user's environment has.
+            env: { PORT: String(GRANTED_PORT) },
+          })
+        : await launchMacScaffoldTask({
+            task: "start-app",
+            command: "npm",
+            args: ["run", "dev"],
+            failureMessage: "Granted stopped.",
+            env: { PORT: String(GRANTED_PORT) },
+          });
     waitThenOpen(() => readTaskStatus(statusPath));
     return { ok: true, message: "Starting Granted…", background };
   } catch (err) {
@@ -824,9 +982,20 @@ async function launchTray(): Promise<string> {
   return statusPath;
 }
 
-/** Creates the "Granted" shortcut(s) via scripts/windows/shortcuts.ps1. */
+/**
+ * Creates the "Granted" shortcut(s) via scripts/windows/shortcuts.ps1 —
+ * win32 only, unlike NOT_WINDOWS's other two call sites above: shortcuts
+ * (and the tray, and Granted's own app window) stay Windows-only for now,
+ * separate work from this task's status-reporting parity. Not reusing
+ * NOT_WINDOWS's text here: that now says macOS is supported too, which
+ * would be wrong for this specific feature. In practice this path is dead
+ * on darwin anyway — getSetupState's shortcutsAvailable is false there (no
+ * scripts/windows), so the UI never shows the checkboxes that would call this.
+ */
 async function createShortcuts(choice: ShortcutChoice): Promise<ShortcutsResult> {
-  if (process.platform !== "win32") return { ...NOT_WINDOWS, created: [] };
+  if (process.platform !== "win32") {
+    return { ok: false, message: "Shortcuts are only available on Windows so far.", created: [] };
+  }
   if (!choice.desktop && !choice.startMenu) return { ok: true, message: "No shortcuts requested.", created: [] };
   const script = windowsScriptPath(scaffoldDir(), "shortcuts.ps1");
   if (!existsSync(script)) {
