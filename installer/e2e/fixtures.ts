@@ -61,6 +61,14 @@ export interface FakeInstall {
   /** Where the installer is told to put the Desktop / Start menu shortcuts (never the real ones). */
   desktopDir: string;
   startMenuDir: string;
+  /** macOS: where the ~/Applications launcher is created (never the real ~/Applications). */
+  applicationsDir: string;
+  /**
+   * macOS: the `defaults` domain the Dock entry is written to — a throwaway
+   * plist file of its own, never com.apple.dock. Nothing in these tests may
+   * change (or restart) the real Dock.
+   */
+  dockDomain: string;
   /** The settings file (open in a window / a browser tab) the installer and scripts are pointed at. */
   settingsPath: string;
   /**
@@ -96,7 +104,9 @@ export function makeFakeInstall(opts: { withWindowsScripts?: boolean; withMacScr
   if (opts.withMacScripts) {
     const dest = join(scaffoldDir, "scripts", "macos");
     mkdirSync(dest, { recursive: true });
-    for (const f of ["granted-tray.sh", "open-granted.sh"]) copyFileSync(join(MACOS_SCRIPTS, f), join(dest, f));
+    for (const f of ["granted-tray.sh", "open-granted.sh", "applications-launcher.sh"]) {
+      copyFileSync(join(MACOS_SCRIPTS, f), join(dest, f));
+    }
   }
   writeFileSync(
     join(scaffoldDir, "package.json"),
@@ -127,6 +137,11 @@ export function makeFakeInstall(opts: { withWindowsScripts?: boolean; withMacScr
     logDir: join(root, "logs"),
     desktopDir: join(root, "Desktop"),
     startMenuDir: join(root, "Programs"),
+    applicationsDir: join(root, "Applications"),
+    // No .plist extension: `defaults` treats a path as a domain of its own,
+    // which is how a test can add and remove "a Dock" entry without going
+    // anywhere near com.apple.dock.
+    dockDomain: join(root, "testdock"),
     settingsPath: join(root, "LocalAppData", "Granted", "settings.json"),
     fakeBrowser,
     browserLog,
@@ -156,6 +171,13 @@ export async function launchInstaller(
         GRANTED_LAUNCH_AGENTS_DIR: fake.launchAgentsDir,
         GRANTED_LOG_DIR: fake.logDir,
         GRANTED_MENUBAR_HELPER: "none",
+        // The ~/Applications launcher and its Dock entry: a throwaway folder,
+        // a throwaway `defaults` domain, and no Dock restart. A test must
+        // never create a real launcher, change the real Dock or restart it.
+        GRANTED_APPLICATIONS_DIR: fake.applicationsDir,
+        GRANTED_DOCK_DOMAIN: fake.dockDomain,
+        GRANTED_DOCK_RELOAD_CMD: "none",
+        GRANTED_LAUNCHER_ALERT: "none",
       }),
       // Never a real Edge window, and never the real settings file.
       GRANTED_APP_BROWSER: fake ? fake.fakeBrowser : "none",

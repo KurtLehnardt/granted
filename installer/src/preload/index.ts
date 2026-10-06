@@ -7,6 +7,8 @@ import type {
   GrantedSetupState,
   InstallStatusEvent,
   InstallVersionPlan,
+  LauncherChoice,
+  LauncherResult,
   OpenIn,
   OpenInstallTerminalResult,
   PrereqReport,
@@ -43,6 +45,7 @@ const api: GrantedInstallerApi = {
     return () => ipcRenderer.removeListener("granted:task-status", handler);
   },
   createShortcuts: (choice: ShortcutChoice): Promise<ShortcutsResult> => ipcRenderer.invoke("granted:create-shortcuts", choice),
+  createLauncher: (choice: LauncherChoice): Promise<LauncherResult> => ipcRenderer.invoke("granted:create-launcher", choice),
   setOpenIn: (openIn: OpenIn): Promise<ActionResult> => ipcRenderer.invoke("granted:set-open-in", openIn),
   quit: (): void => ipcRenderer.send("app:quit"),
   reportProblem: (message: string, where: string): Promise<ActionResult> => ipcRenderer.invoke("app:report-problem", message, where),

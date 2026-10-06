@@ -1,4 +1,7 @@
-import { useState } from "react";
+// Explicit React import, for the reason InstallComplete.tsx's own comment
+// gives: that screen's component test renders this component too, through the
+// plain `tsx` runner, which transpiles JSX with the classic runtime.
+import React, { useState } from "react";
 
 /**
  * "Report this problem", under an error the installer shows: opens a

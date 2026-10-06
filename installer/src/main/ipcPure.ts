@@ -554,6 +554,68 @@ export function startProcessCommand(file: string, args: string[]): string {
   return `Start-Process -FilePath ${psSingleQuoted(file)} -ArgumentList ${psSingleQuoted(windowsArgLine(args))}`;
 }
 
+/**
+ * macOS's equivalent of the Windows shortcuts: how to run
+ * scaffold/scripts/macos/applications-launcher.sh, which creates the per-user
+ * ~/Applications/Granted.app and (only if asked) adds it to the Dock.
+ *
+ * Through `/bin/bash <script>` rather than the script's own shebang, for the
+ * same reason macTrayLaunchCommand is: a file fetched or copied without its
+ * executable bit still runs.
+ *
+ * The port is always passed, never left to the script's own default, because
+ * the launcher bakes it into the bundle: an app started from Finder or the
+ * Dock inherits none of the user's shell environment, so `GRANTED_PORT` would
+ * not reach it at click time and the port it opens has to be decided here,
+ * once, by whoever creates it.
+ */
+export function macLauncherCommand(opts: {
+  launcherScript: string;
+  port: number;
+  addToDock: boolean;
+}): { file: string; args: string[] } {
+  const args = [opts.launcherScript, "install", "--port", String(opts.port)];
+  if (opts.addToDock) args.push("--add-to-dock");
+  return { file: "/bin/bash", args };
+}
+
+/**
+ * What happened to the Dock entry: this run added it, it was already there,
+ * the user didn't ask for one, or it couldn't be added (see
+ * applications-launcher.sh's add_to_dock, which confirms the change by reading
+ * the Dock's preferences back rather than trusting `defaults write`'s exit
+ * code).
+ */
+export type DockState = "added" | "already" | "skipped" | "failed";
+
+export interface LauncherOutput {
+  /** The ~/Applications/Granted.app that was created, or null if it wasn't. */
+  launcher: string | null;
+  /** Whether the bundle got the converted .icns, or is showing the generic app icon. */
+  icon: boolean;
+  dock: DockState;
+}
+
+/**
+ * applications-launcher.sh's JSON output → what it created (null if the output
+ * isn't that shape at all). The counterpart of parseShortcutsOutput, and read
+ * the same way: the LAST non-empty line, so anything a shell printed ahead of
+ * it is ignored.
+ */
+export function parseLauncherOutput(stdout: string): LauncherOutput | null {
+  try {
+    const line = stdout.trim().split(/\r?\n/).filter(Boolean).pop() ?? "";
+    const parsed = JSON.parse(line) as { launcher?: unknown; icon?: unknown; dock?: unknown };
+    const launcher = parsed.launcher;
+    if (launcher !== null && typeof launcher !== "string") return null;
+    const dock = parsed.dock;
+    if (dock !== "added" && dock !== "already" && dock !== "skipped" && dock !== "failed") return null;
+    return { launcher: launcher ?? null, icon: parsed.icon === true, dock };
+  } catch {
+    return null;
+  }
+}
+
 /** shortcuts.ps1's JSON output → the shortcut paths it created (null if it isn't that shape). */
 export function parseShortcutsOutput(stdout: string): string[] | null {
   try {

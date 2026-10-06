@@ -14,11 +14,13 @@ import {
   escapeForAppleScript,
   grantedPort,
   grantedSettingsPath,
+  macLauncherCommand,
   macStatusLockPath,
   macTrayLaunchCommand,
   mergeRegistryPath,
   newInstallStatusPath,
   newTaskStatusPath,
+  parseLauncherOutput,
   parseOpenGrantedOutput,
   parseShortcutsOutput,
   parseVersionFromOutput,
@@ -49,6 +51,8 @@ import {
   type ActionResult,
   type ApiKeysInput,
   type InstallStatusEvent,
+  type LauncherChoice,
+  type LauncherResult,
   type OpenIn,
   type OpenInstallTerminalResult,
   type PrereqReport,
@@ -1162,6 +1166,64 @@ async function createShortcuts(choice: ShortcutChoice): Promise<ShortcutsResult>
   }
 }
 
+/**
+ * macOS's counterpart of createShortcuts: scripts/macos/applications-launcher.sh
+ * creates the per-user ~/Applications/Granted.app — a small bundle whose
+ * executable runs `granted-tray.sh start --open-browser`, so one click starts
+ * the background server, puts the menu-bar icon up and opens Granted — and,
+ * only if the user left the box ticked, adds it to the Dock.
+ *
+ * The two halves are not equally important, and the work order is explicit
+ * about which is which: "add a small `Granted.app` launcher in `~/Applications`
+ * … Offer 'Add to Dock' as an option". So the launcher is created whatever the
+ * checkbox says, and only the Dock entry follows it. A Dock failure therefore
+ * still returns ok: the launcher — the part that was promised — is there, and
+ * the message says the rest.
+ */
+async function createLauncher(choice: LauncherChoice): Promise<LauncherResult> {
+  if (process.platform !== "darwin") {
+    return { ok: false, message: "The Applications launcher is only available on macOS.", launcherPath: null, inDock: false };
+  }
+  const script = macScriptPath(scaffoldDir(), "applications-launcher.sh");
+  if (!existsSync(script)) {
+    return {
+      ok: false,
+      message: "This copy of Granted is too old to add a launcher to your Applications folder — update it and try again.",
+      launcherPath: null,
+      inDock: false,
+    };
+  }
+  const { file, args } = macLauncherCommand({ launcherScript: script, port: GRANTED_PORT, addToDock: choice.addToDock });
+  try {
+    // Generous: creating the bundle and converting the icon take well under a
+    // second, but adding the Dock entry restarts the Dock and then waits for
+    // it to come back and settle before reading the change back (see
+    // applications-launcher.sh's reload_dock), which is seconds, and is
+    // allowed to be slow on a loaded machine rather than be cut off halfway.
+    const { stdout } = await execFileAsync(file, args, { timeout: 120_000 });
+    const result = parseLauncherOutput(stdout);
+    if (!result?.launcher) throw new Error(`unexpected output: ${stdout}`);
+    const inDock = result.dock === "added" || result.dock === "already";
+    const message =
+      result.dock === "added"
+        ? "Added Granted to your Applications folder and to the Dock."
+        : result.dock === "already"
+          ? "Granted is in your Applications folder, and already in the Dock."
+          : result.dock === "failed"
+            ? "Added Granted to your Applications folder, but couldn't add it to the Dock — you can drag it there from Applications."
+            : "Added Granted to your Applications folder.";
+    return { ok: true, message, launcherPath: result.launcher, inDock };
+  } catch (err) {
+    console.error("createLauncher failed:", err);
+    return {
+      ok: false,
+      message: "Couldn't add Granted to your Applications folder. You can still open Granted from here.",
+      launcherPath: null,
+      inDock: false,
+    };
+  }
+}
+
 export function registerIpcHandlers(): void {
   ipcMain.handle("prereqs:check", () => checkPrereqs());
   ipcMain.handle("install:plan-version", (_event, checkForUpdates: unknown) => versionPlanner.plan(checkForUpdates === true));
@@ -1176,6 +1238,9 @@ export function registerIpcHandlers(): void {
   ipcMain.handle("granted:run-local-setup", (event) => runLocalSetup(event.sender));
   ipcMain.handle("granted:start", (event) => startGranted(event.sender));
   ipcMain.handle("granted:create-shortcuts", (_event, choice: ShortcutChoice) => createShortcuts(choice));
+  ipcMain.handle("granted:create-launcher", (_event, choice: LauncherChoice) =>
+    createLauncher({ addToDock: choice?.addToDock === true }),
+  );
   ipcMain.on("app:quit", (event) => BrowserWindow.fromWebContents(event.sender)?.close());
   // "Report this problem" under an error: a pre-filled, sanitized GitHub issue in the user's browser.
   ipcMain.handle("app:report-problem", async (_event, message: unknown, where: unknown) => {
