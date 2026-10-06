@@ -652,12 +652,15 @@ async function launchScaffoldTask(opts: {
  * launchScaffoldTask's does, and as the fallback for starting the server on an
  * install too old to have scripts/macos/granted-tray.sh — the LaunchAgent and
  * menu-bar icon that launchMacTray uses instead (the counterpart of Windows's
- * launchTray). getSetupState's shortcutsAvailable/appWindowAvailable stay
- * false on darwin because they're explicitly gated on process.platform ===
- * "win32" — NOT because this install lacks scripts/windows: those .ps1 files
- * are ordinary files tracked in the repo, so a real `git clone` on macOS has
- * them too, the same as on Windows. Detached so it outlives the installer the same way
- * Windows's console window does, writing the exact same {state,message,pid}
+ * launchTray). Of getSetupState's capability flags, shortcutsAvailable is the
+ * only one that stays false on darwin — it's explicitly gated on
+ * process.platform === "win32", NOT because this install lacks
+ * scripts/windows: shortcuts.ps1 is an ordinary file tracked in the repo, so a
+ * real `git clone` on macOS has it too, the same as on Windows. trayAvailable
+ * and appWindowAvailable are true on darwin as well, via
+ * scripts/macos/granted-tray.sh and scripts/macos/open-granted.sh (also
+ * tracked, so also on every clone). Detached so it outlives the installer the
+ * same way Windows's console window does, writing the exact same {state,message,pid}
  * status-file shape buildTaskScript's PowerShell writes — so it's read back
  * by the SAME readTaskStatus/pollStatusFile/decideStatusPoll Windows uses,
  * completely unchanged. There's no window to show output in, so stdout/
@@ -1119,16 +1122,17 @@ async function launchTray(): Promise<string> {
 
 /**
  * Creates the "Granted" shortcut(s) via scripts/windows/shortcuts.ps1 —
- * win32 only, unlike NOT_WINDOWS's other two call sites above: shortcuts
- * (and the tray, and Granted's own app window) stay Windows-only for now,
- * separate work from this task's status-reporting parity. Not reusing
- * NOT_WINDOWS's text here: that now says macOS is supported too, which
- * would be wrong for this specific feature. In practice this path is dead
- * on darwin anyway — getSetupState's shortcutsAvailable is explicitly
- * gated on process.platform === "win32" there (NOT because the install
- * lacks scripts/windows — shortcuts.ps1 is an ordinary file tracked in the
- * repo and present on a real clone on every platform), so the UI never
- * shows the checkboxes that would call this.
+ * win32 only, unlike NOT_WINDOWS's other two call sites above: shortcuts are
+ * what's still Windows-only, separate work from the macOS parity done so far
+ * (the tray and Granted's own app window both have macOS counterparts now —
+ * granted-tray.sh and open-granted.sh). Not reusing NOT_WINDOWS's text here:
+ * that now says macOS is supported too, which would be wrong for this
+ * specific feature. In practice this path is dead on darwin anyway —
+ * getSetupState's shortcutsAvailable is explicitly gated on
+ * process.platform === "win32" there (NOT because the install lacks
+ * scripts/windows — shortcuts.ps1 is an ordinary file tracked in the repo
+ * and present on a real clone on every platform), so the UI never shows the
+ * checkboxes that would call this.
  */
 async function createShortcuts(choice: ShortcutChoice): Promise<ShortcutsResult> {
   if (process.platform !== "win32") {

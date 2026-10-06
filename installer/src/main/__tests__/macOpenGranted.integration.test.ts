@@ -61,6 +61,12 @@ interface Sandbox {
   run: (args: string[], extra?: Record<string, string>) => Promise<string>;
   /** Run granted-tray.sh (which is what the menu-bar helper calls) and return its stdout. */
   tray: (args: string[], extra?: Record<string, string>) => Promise<string>;
+  /**
+   * granted-tray.sh with exactly these arguments and nothing appended — for
+   * the argument-parsing tests, where `tray`'s own trailing `--port 3979`
+   * would supply the very value the test is checking is missing.
+   */
+  trayRaw: (args: string[], extra?: Record<string, string>) => Promise<string>;
   /** What the stand-in app-mode browser was started with, one line per launch. */
   launched: () => string[];
   /** What the stand-in `open` was asked to open. */
@@ -126,6 +132,8 @@ async function sandbox(options: { browsers?: Array<"chrome" | "edge"> } = {}): P
     run: async (args, extra = {}) => (await execFileAsync("/bin/bash", [OPEN_SCRIPT, ...args], { env: env(extra) })).stdout,
     tray: async (args, extra = {}) =>
       (await execFileAsync("/bin/bash", [TRAY_SCRIPT, ...args, "--port", "3979"], { env: env({ GRANTED_LOG_DIR: join(root, "logs"), ...extra }) })).stdout,
+    trayRaw: async (args, extra = {}) =>
+      (await execFileAsync("/bin/bash", [TRAY_SCRIPT, ...args], { env: env({ GRANTED_LOG_DIR: join(root, "logs"), ...extra }) })).stdout,
     launched: () => lines(launchLog),
     opened: () => lines(openLog),
     removeBrowser: async (which) => rm(bundles[which], { recursive: true, force: true }),
@@ -138,15 +146,36 @@ async function notLaunched(s: Sandbox): Promise<void> {
   assert.deepEqual(s.launched(), []);
 }
 
+/**
+ * Runs something that must fail, and hands back the exit code and the message
+ * execFile builds from the script's stderr — because for a bad option BOTH
+ * halves matter: what the user is told, and which exit code the caller sees.
+ */
+async function fails(run: () => Promise<string>): Promise<{ code: unknown; message: string }> {
+  try {
+    await run();
+  } catch (err) {
+    return { code: (err as { code?: unknown }).code, message: (err as Error).message };
+  }
+  return assert.fail("expected a non-zero exit");
+}
+
 describe(
   "open-granted.sh: Granted in its own window (Chrome/Edge app mode) or a browser tab",
   { skip: (process.platform === "win32" || !existsSync(OPEN_SCRIPT)) && "needs a POSIX bash, run from installer/" },
   () => {
-    test("the installer looks for the script exactly where the repo keeps it", () => {
-      // A literal, not join()-derived: re-deriving the expectation with the
-      // same join that built it cannot catch the path being wrong (the same
-      // mistake appUpdate/install.ts's settingsPath comment records).
-      assert.equal(macScriptPath("/granted/scaffold", "open-granted.sh"), "/granted/scaffold/scripts/macos/open-granted.sh");
+    test("the real repo keeps both scripts exactly where the installer looks for them", () => {
+      // That the path macScriptPath BUILDS is spelled right is pinned by a
+      // literal, separator-explicit assertion in
+      // openGranted.integration.test.ts instead — in a describe that does NOT
+      // skip win32, because windows-latest is the only runner where a macOS
+      // path joined with the ambient separator comes out wrong, and this whole
+      // describe is skipped there. What's checked here is the other half, which
+      // does need the real clone: those two files really are at that path.
+      const scaffoldRoot = resolve(MACOS_SCRIPTS, "..", "..");
+      assert.equal(macScriptPath(scaffoldRoot, "open-granted.sh"), OPEN_SCRIPT);
+      assert.equal(macScriptPath(scaffoldRoot, "granted-tray.sh"), TRAY_SCRIPT);
+      assert.ok(existsSync(OPEN_SCRIPT), "open-granted.sh is there");
       assert.ok(existsSync(TRAY_SCRIPT), "and the tray script that calls it is there too");
     });
 
@@ -319,6 +348,26 @@ describe(
       assert.equal(existsSync("/tmp/granted-open-granted-test-pwned"), false, "nothing was ever handed to a shell");
     });
 
+    test("an option whose value was left off says which one, and exits 64 like every other bad input — never the exit 1 that means 'opened nothing, fall back'", async () => {
+      // REGRESSION (review): these two cases used to reach `shift 2` with
+      // nothing left to shift. That fails, and under `set -e` it ended the
+      // script with exit 1 and no output at all -- which is precisely the code
+      // this script's contract reserves for "I opened nothing" (see the header
+      // comment, granted-tray.sh's open_granted and ipc.ts's
+      // runOpenGrantedScript). So `--url` with the URL left off was answered
+      // with a silent browser-tab fallback instead of the usage error it is.
+      const s = await sandbox();
+      for (const option of ["--url", "--set-open-in"]) {
+        const failed = await fails(() => s.run([option]));
+        assert.equal(failed.code, 64, `${option} with no value is a usage error, not a failed open`);
+        assert.match(failed.message, new RegExp(`open-granted\\.sh: ${option} needs a value`));
+        assert.match(failed.message, /usage: open-granted\.sh/, "and says how to call it");
+      }
+      assert.equal(existsSync(s.settings), false, "and saved nothing");
+      await notLaunched(s);
+      assert.deepEqual(s.opened(), []);
+    });
+
     test("an https URL, and a URL whose query a shell would have mangled, both open as one argument", async () => {
       const s = await sandbox();
       const tricky = "https://localhost:3979/?q=a&b=%20c;d|e";
@@ -355,6 +404,31 @@ describe(
         await assert.rejects(() => s.tray(["set-open-in", "--mode", "sideways"]), /--mode window or --mode browser/);
         await assert.rejects(() => s.tray(["set-open-in"]), /--mode window or --mode browser/);
         assert.equal(existsSync(s.settings), false);
+      });
+
+      test("an option whose value was left off says which one and exits 64, rather than dying on `set -u`", async () => {
+        // REGRESSION (review): `--mode` with nothing after it read `$2`
+        // directly, so `set -u` ended the script on "$2: unbound variable" --
+        // exit 1, with the shell's diagnostic instead of this script's own
+        // message, and 1 is what a genuinely failed `stop` or `set-open-in`
+        // reports. trayRaw, not tray: tray appends `--port 3979`, which would
+        // hand `--mode` the very value this is checking is absent.
+        const s = await sandbox();
+        // `log-path` for the other two on purpose: the guard runs while the
+        // arguments are being parsed, before any subcommand, so the subcommand
+        // only has to be one that could not touch this machine if the guard
+        // ever regressed again (never `start`, which bootstraps a LaunchAgent).
+        for (const [args, option] of [
+          [["set-open-in", "--mode"], "--mode"],
+          [["log-path", "--port"], "--port"],
+          [["log-path", "--status-path"], "--status-path"],
+        ] as Array<[string[], string]>) {
+          const failed = await fails(() => s.trayRaw(args));
+          assert.equal(failed.code, 64, `${option} with no value is a usage error`);
+          assert.match(failed.message, new RegExp(`granted-tray\\.sh: ${option} needs a value`));
+          assert.doesNotMatch(failed.message, /unbound variable/, "its own message, not the shell's");
+        }
+        assert.equal(existsSync(s.settings), false, "and saved nothing");
       });
 
       test("an install too old to have open-granted.sh still opens Granted — in a tab — and says saving failed", async () => {

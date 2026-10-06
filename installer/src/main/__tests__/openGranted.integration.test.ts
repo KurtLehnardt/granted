@@ -19,12 +19,14 @@ import {
   getSetupState,
   isProcessAlive,
   isStatusWindowAlive,
+  macScriptPath,
   probeGranted,
   readStatusFile,
   readTaskStatus,
   saveApiKeys,
   saveOpenIn,
   waitForGrantedToStart,
+  windowsScriptPath,
 } from "../openGranted";
 
 const execFileAsync = promisify(execFile);
@@ -103,6 +105,33 @@ describe("getSetupState / saveApiKeys against a real install folder", () => {
       appWindowAvailable: false,
       openIn: "window",
     });
+  });
+
+  // Deliberately in THIS describe, which runs on every platform, rather than
+  // beside the rest of the open-granted.sh tests in
+  // macOpenGranted.integration.test.ts: that whole describe is skipped on
+  // win32 (it needs a POSIX bash), and windows-latest is the one runner where
+  // a macOS path built with the ambient `join` comes out with backslashes —
+  // so an assertion living there could never run where it matters. The same
+  // CI failure grantedSettingsPath's comment records.
+  test("each platform's script path is spelled with that platform's separators, on whatever runner this is", () => {
+    // Literal expectations, never re-derived with the join that built them:
+    // re-deriving a path with the same call cannot catch the path being wrong.
+    assert.equal(macScriptPath("/granted/scaffold", "open-granted.sh"), "/granted/scaffold/scripts/macos/open-granted.sh");
+    assert.equal(macScriptPath("/granted/scaffold", "granted-tray.sh"), "/granted/scaffold/scripts/macos/granted-tray.sh");
+    assert.equal(
+      windowsScriptPath("C:\\granted\\scaffold", "open-granted.ps1"),
+      "C:\\granted\\scaffold\\scripts\\windows\\open-granted.ps1",
+    );
+    assert.equal(
+      windowsScriptPath("C:\\granted\\scaffold", "granted-tray.ps1"),
+      "C:\\granted\\scaffold\\scripts\\windows\\granted-tray.ps1",
+    );
+    assert.ok(!macScriptPath("/granted/scaffold", "granted-tray.sh").includes("\\"), "the macOS path is POSIX on every runner");
+    assert.ok(
+      !windowsScriptPath("C:\\granted\\scaffold", "granted-tray.ps1").includes("/"),
+      "the Windows path is win32 on every runner",
+    );
   });
 
   test("an install that has the Windows tray, shortcut and open-in-a-window scripts says so on win32 only — these files are tracked in the repo and present on every platform's clone, but the capability stays Windows-only regardless", async () => {
