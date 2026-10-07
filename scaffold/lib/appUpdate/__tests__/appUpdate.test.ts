@@ -8,7 +8,9 @@ import {
   appVersion,
   installInfo,
   parseUninstallCheck,
+  parseUninstallOutcome,
   readUninstallCheck,
+  readUninstallOutcome,
   readUpdateSettings,
   readUpdateStatus,
   settingsPath,
@@ -285,5 +287,36 @@ describe("starting the uninstaller (macOS)", () => {
 
   test("the log goes in the temporary folder, never one the uninstall deletes", () => {
     assert.equal(uninstallLogPath(new Date("2026-10-06T12:34:56.000Z"), "/tmp"), "/tmp/granted-uninstall-2026-10-06T12-34-56-000Z.log");
+  });
+
+  // That log is the only way the server can learn what a started uninstaller
+  // decided: it is answered "started" when the script has merely been spawned,
+  // and the script can still refuse afterwards with everything left in place.
+  test("parseUninstallOutcome reads the uninstaller's own result line, refusals included", () => {
+    assert.deepEqual(
+      parseUninstallOutcome(
+        'fake dev server noise\n{"removed":false,"reason":"access-denied","detail":"mv: rename /g: Permission denied","installDir":"/g","keptKeys":"/b"}\n',
+      ),
+      { removed: false, reason: "access-denied", detail: "mv: rename /g: Permission denied", keptKeys: "/b", leftover: null },
+    );
+    assert.deepEqual(parseUninstallOutcome('{"removed":true,"installDir":"/g","keptKeys":null,"leftover":null}'), {
+      removed: true,
+      reason: null,
+      detail: null,
+      keptKeys: null,
+      leftover: null,
+    });
+    // Nothing readable is "it hasn't said yet", never a guess either way.
+    assert.equal(parseUninstallOutcome(""), null);
+    assert.equal(parseUninstallOutcome("mv: rename: Permission denied\n"), null);
+    // A --check line is not an outcome, and must never be read as one.
+    assert.equal(parseUninstallOutcome('{"check":true,"installDir":"/g"}'), null);
+  });
+
+  test("readUninstallOutcome reads that log from disk, and a log that isn't there yet is nothing", () => {
+    const log = join(dir, "uninstall-outcome.log");
+    assert.equal(readUninstallOutcome(log), null, "no log yet");
+    writeFileSync(log, '{"removed":false,"reason":"files-in-use","detail":"busy","installDir":"/g"}\n', "utf8");
+    assert.equal(readUninstallOutcome(log)?.reason, "files-in-use");
   });
 });

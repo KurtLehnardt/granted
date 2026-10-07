@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import type { AppUninstallInfo } from "@/app/api/app/uninstall/handler";
+import type { UninstallOutcome } from "@/lib/appUpdate/install";
 import ReportProblemLink from "@/components/ReportProblemLink";
 import { reportClientError } from "@/lib/errorLog/client";
 import { isErrorId } from "@/lib/errorLog/errorId";
@@ -22,6 +23,15 @@ import { isErrorId } from "@/lib/errorLog/errorId";
  * on GitHub, that was shown and acknowledged on its own. The server checks both
  * again before it starts anything.
  *
+ * Nor is a started uninstall reported as a finished one. The server answers as
+ * soon as the script is running, and the script can still refuse after that —
+ * it stops before deleting anything when the folder's parent can't be written
+ * to, or when the copy of the API keys couldn't be made — leaving Granted
+ * installed and running. So "started" is what this says, and it then polls
+ * (?check=0) for what the uninstaller actually did, the way AppUpdateSection
+ * polls for the restart after an update. The usual outcome is no answer at all:
+ * the uninstall stops this server, so the page stops working. That is success.
+ *
  * `initialInfo` and `initialStage` are the hermetic test seams (no network, and
  * a stage renderable without a click), as in AppUpdateSection and ModelSection.
  */
@@ -29,12 +39,39 @@ export type UninstallStage =
   | { id: "idle" }
   | { id: "confirm" }
   | { id: "starting" }
-  | { id: "done"; keptKeys: string | null }
+  | { id: "started"; backupDir: string | null }
+  | { id: "refused"; outcome: UninstallOutcome }
   | { id: "error"; message: string; errorId?: string };
+
+/** How often the page asks what the uninstaller it started has decided. */
+const POLL_MS = 2000;
 
 /** Whether the uninstall may be started: unsaved work has to be acknowledged separately. */
 export function uninstallAllowed(opts: { unsaved: string[]; acknowledged: boolean }): boolean {
   return opts.unsaved.length === 0 || opts.acknowledged;
+}
+
+/**
+ * An uninstall that stopped without removing Granted, in words — from the
+ * script's own reason, which is the only thing that knows what happened.
+ *
+ * The two move failures are stated as "nothing was deleted" because the script
+ * guarantees exactly that: it moves the folder aside before it deletes
+ * anything, so a move that failed has changed nothing and can be retried.
+ */
+export function uninstallRefusalMessage(outcome: UninstallOutcome): string {
+  switch (outcome.reason) {
+    case "access-denied":
+      return "macOS wouldn't let this account move or delete Granted's folder, so nothing was deleted. Granted is still installed.";
+    case "files-in-use":
+      return "Granted's folder couldn't be moved, so nothing was deleted. Close anything using it — a terminal open in there, say — and try again.";
+    case "unsaved-work":
+      return "Granted's folder has work that isn't saved to GitHub, so nothing was deleted.";
+    case "cancelled":
+      return "The uninstall was cancelled, so nothing was deleted.";
+    default:
+      return "The uninstall stopped before it finished, so Granted may still be installed.";
+  }
 }
 
 /**
@@ -70,6 +107,29 @@ export default function UninstallSection({
       .catch(() => {});
   }, [initialInfo]);
 
+  // What the uninstaller decided after it was started. A fetch that fails is
+  // the expected end of this: the uninstall stopped the server. Only an
+  // uninstaller that says it removed nothing changes what is on screen — there
+  // is something to tell the user then, and something to do about it.
+  useEffect(() => {
+    if (stage.id !== "started") return;
+    let stopped = false;
+    const timer = setInterval(() => {
+      void fetch("/api/app/uninstall?check=0")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((body: AppUninstallInfo | null) => {
+          const outcome = body?.outcome;
+          if (stopped || !outcome || outcome.removed) return;
+          setStage({ id: "refused", outcome });
+        })
+        .catch(() => {});
+    }, POLL_MS);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, [stage.id]);
+
   async function handleUninstall(): Promise<void> {
     if (!info) return;
     setStage({ id: "starting" });
@@ -88,7 +148,7 @@ export default function UninstallSection({
         });
         return;
       }
-      setStage({ id: "done", keptKeys: body.keptKeys ?? null });
+      setStage({ id: "started", backupDir: body.keptKeys ?? null });
     } catch (err) {
       setStage({ id: "error", message: "Couldn't start the uninstall.", errorId: reportClientError("app-uninstall", err) });
     }
@@ -187,12 +247,27 @@ export default function UninstallSection({
         </p>
       )}
 
-      {stage.id === "done" && (
-        <p className={textClass} aria-live="polite" data-testid="app-uninstall-done">
-          Granted is being uninstalled. It closes while that happens, so this page stops working in a moment — you can
-          close the window.
-          {stage.keptKeys ? ` A copy of your API keys and settings is in ${stage.keptKeys}.` : ""}
+      {stage.id === "started" && (
+        <p className={textClass} aria-live="polite" data-testid="app-uninstall-started">
+          An uninstall was started. Granted closes while it runs, so this page stops working in a moment — you can close
+          the window. If the uninstaller stops without removing anything, it says so here.
+          {stage.backupDir ? ` A copy of your API keys and settings is going to ${stage.backupDir}.` : ""}
         </p>
+      )}
+
+      {stage.id === "refused" && (
+        <div className="mt-2" aria-live="polite" data-testid="app-uninstall-refused">
+          <p className="font-body text-[13px] text-foreground">{uninstallRefusalMessage(stage.outcome)}</p>
+          {stage.outcome.detail && <p className={textClass}>{stage.outcome.detail}</p>}
+          {stage.outcome.keptKeys && (
+            <p className={textClass}>A copy of your API keys and settings is in {stage.outcome.keptKeys}.</p>
+          )}
+          <div className="mt-2">
+            <button type="button" onClick={() => setStage({ id: "idle" })} className={plainBtnClass}>
+              Back
+            </button>
+          </div>
+        </div>
       )}
 
       {stage.id === "error" && (

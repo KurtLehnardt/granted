@@ -335,6 +335,58 @@ export function uninstallLogPath(now: Date = new Date(), dir: string = tmpdir())
 }
 
 /**
+ * What a started uninstaller actually did, read back from the log it writes.
+ *
+ * This is the only way the server can ever learn the answer. startUninstaller
+ * resolves when the script has been SPAWNED, which is the honest contract (the
+ * script outlives this server by design — it stops it), but it means "started"
+ * is all the POST can report. The script can still refuse afterwards: exit 3
+ * when the install's parent folder can't be written to, or exit 1 when the copy
+ * of the API keys couldn't be made — and both of those leave Granted running,
+ * whole and uninstallable again. Its one JSON line in the log is what says so.
+ */
+export interface UninstallOutcome {
+  removed: boolean;
+  /** The script's own reason when it refused ("access-denied", "files-in-use", "error"…). */
+  reason: string | null;
+  /** What it said about that reason, where it said anything. */
+  detail: string | null;
+  /** Where the copy of the API keys really went, if one was kept. */
+  keptKeys: string | null;
+  /** A moved-aside folder it couldn't finish deleting. */
+  leftover: string | null;
+}
+
+/** The uninstaller's last JSON line → what it did (null while it hasn't printed one). */
+export function parseUninstallOutcome(log: string): UninstallOutcome | null {
+  const line = log.trim().split(/\r?\n/).filter(Boolean).pop() ?? "";
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(line) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+  if (typeof parsed["removed"] !== "boolean") return null;
+  const str = (value: unknown): string | null => (typeof value === "string" && value !== "" ? value : null);
+  return {
+    removed: parsed["removed"],
+    reason: str(parsed["reason"]),
+    detail: str(parsed["detail"]),
+    keptKeys: str(parsed["keptKeys"]),
+    leftover: str(parsed["leftover"]),
+  };
+}
+
+/** The same, from the log file itself (null when there is no readable answer in it yet). */
+export function readUninstallOutcome(path: string, read: (p: string) => string = (p) => readFileSync(p, "utf8")): UninstallOutcome | null {
+  try {
+    return parseUninstallOutcome(read(path));
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Starts scripts/macos/uninstall.sh for this install and resolves as soon as it
  * is running, with the path of the log it is writing to.
  *

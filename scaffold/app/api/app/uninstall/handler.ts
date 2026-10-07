@@ -20,12 +20,32 @@ import { isLoopbackRequest } from "@/lib/corpus/loopback";
 import { logError } from "@/lib/errorLog/server";
 import {
   readUninstallCheck,
+  readUninstallOutcome,
   startUninstaller,
   uninstallInfo,
   type CannotUninstallReason,
   type UninstallCheck,
   type UninstallChoice,
+  type UninstallOutcome,
 } from "@/lib/appUpdate/install";
+
+/**
+ * How long an uninstall this server started is still believed to be running.
+ *
+ * The same self-clearing latch the sibling update route keeps (see its
+ * RUNNING_STALE_MS), and for the same reason: without it, a "running" flag that
+ * nothing ever clears locks the feature out until the whole server is
+ * restarted — and an uninstall that REFUSED (exit 3, exit 1) leaves the server
+ * running, so that lockout would be permanent and the user could never retry.
+ *
+ * Shorter than the update's twenty minutes because the work is shorter: an
+ * update re-clones a repository and runs `npm ci`, while an uninstall stops the
+ * server (15s at worst), waits for node to go (15s at worst) and deletes a
+ * folder. Five minutes is far longer than that can plausibly take and short
+ * enough to be out of the way. A refusal usually clears the latch sooner than
+ * this anyway — the uninstaller says so in its log, and that is read back below.
+ */
+const RUNNING_STALE_MS = 5 * 60 * 1000;
 
 export interface AppUninstallInfo {
   canUninstall: boolean;
@@ -37,15 +57,21 @@ export interface AppUninstallInfo {
   keyFiles: string[];
   /** Where that copy goes. */
   backupDir: string;
+  /** An uninstall this server started that hasn't reported an outcome yet. */
+  running: boolean;
+  /** What the uninstaller this server started actually did, once it has said (null until then). */
+  outcome: UninstallOutcome | null;
 }
 
-type Req = { headers: { get(name: string): string | null } };
+type Req = { headers: { get(name: string): string | null }; url?: string };
 
 export type UninstallDeps = {
   isLoopbackRequest: typeof isLoopbackRequest;
   uninstallInfo: () => ReturnType<typeof uninstallInfo>;
   readUninstallCheck: (script: string) => Promise<UninstallCheck | null>;
   startUninstaller: (script: string, choice: UninstallChoice) => Promise<string>;
+  readUninstallOutcome: (log: string) => UninstallOutcome | null;
+  now: () => number;
 };
 
 const REAL_DEPS: UninstallDeps = {
@@ -53,57 +79,114 @@ const REAL_DEPS: UninstallDeps = {
   uninstallInfo: () => uninstallInfo(),
   readUninstallCheck: (script) => readUninstallCheck(script),
   startUninstaller: (script, choice) => startUninstaller(script, choice),
+  readUninstallOutcome: (log) => readUninstallOutcome(log),
+  now: () => Date.now(),
 };
 
-/** One uninstall at a time within this server (it only has to last until the server stops). */
-let starting = false;
+/**
+ * The uninstall this server started: when, and the log it is writing to. One at
+ * a time, and never a latch that outlives what it describes (see
+ * RUNNING_STALE_MS and uninstallState below).
+ */
+let run: { startedAt: number; log: string } | null = null;
+/** The last outcome read out of that log, kept after the latch is cleared so the page can still show it. */
+let lastOutcome: UninstallOutcome | null = null;
 export function resetUninstallStateForTests(): void {
-  starting = false;
+  run = null;
+  lastOutcome = null;
 }
 
-const NOTHING_FOUND: Omit<AppUninstallInfo, "canUninstall" | "reason" | "installDir"> = {
+/**
+ * Whether an uninstall is still running, and what the last one said.
+ *
+ * Three ways a latch is let go, in this order: the uninstaller reported that it
+ * did NOT remove anything (Granted is still here and can be asked again — the
+ * case the whole log-reading is for), the uninstaller reported that it DID
+ * (nothing more is coming; the server is about to stop), or nothing was
+ * reported at all for longer than an uninstall can take.
+ */
+function uninstallState(d: UninstallDeps): { running: boolean; outcome: UninstallOutcome | null } {
+  if (!run) return { running: false, outcome: lastOutcome };
+  const outcome = run.log ? d.readUninstallOutcome(run.log) : null;
+  if (outcome) {
+    lastOutcome = outcome;
+    run = null;
+    return { running: false, outcome };
+  }
+  if (d.now() - run.startedAt >= RUNNING_STALE_MS) {
+    run = null;
+    return { running: false, outcome: lastOutcome };
+  }
+  return { running: true, outcome: lastOutcome };
+}
+
+const NOTHING_FOUND: Omit<AppUninstallInfo, "canUninstall" | "reason" | "installDir" | "running" | "outcome"> = {
   unsaved: [],
   keyFiles: [],
   backupDir: "",
 };
 
-async function info(d: UninstallDeps): Promise<AppUninstallInfo> {
+async function info(d: UninstallDeps, check: boolean): Promise<AppUninstallInfo> {
+  const state = uninstallState(d);
   const install = d.uninstallInfo();
   if (!install.canUninstall || !install.script) {
-    return { canUninstall: false, reason: install.reason, installDir: install.installDir, ...NOTHING_FOUND };
+    return { canUninstall: false, reason: install.reason, installDir: install.installDir, ...NOTHING_FOUND, ...state };
   }
-  const check = await d.readUninstallCheck(install.script);
+  // ?check=0: the page polling for the outcome of an uninstall it started, which
+  // needs no second opinion about what would be deleted (and must not run the
+  // script every couple of seconds to get one).
   if (!check) {
+    return { canUninstall: true, reason: null, installDir: install.installDir, ...NOTHING_FOUND, ...state };
+  }
+  const found = await d.readUninstallCheck(install.script);
+  if (!found) {
     // The script is there but said nothing readable. Report it as unavailable
     // rather than offering a button whose outcome nobody can predict.
-    return { canUninstall: false, reason: "no-uninstaller", installDir: install.installDir, ...NOTHING_FOUND };
+    return { canUninstall: false, reason: "no-uninstaller", installDir: install.installDir, ...NOTHING_FOUND, ...state };
   }
   return {
-    canUninstall: check.grantedInstall && check.installerMade,
-    reason: check.grantedInstall && check.installerMade ? null : "not-installer-made",
-    installDir: check.installDir || install.installDir,
-    unsaved: check.unsaved,
-    keyFiles: check.keyFiles,
-    backupDir: check.backupDir,
+    canUninstall: found.grantedInstall && found.installerMade,
+    reason: found.grantedInstall && found.installerMade ? null : "not-installer-made",
+    installDir: found.installDir || install.installDir,
+    unsaved: found.unsaved,
+    keyFiles: found.keyFiles,
+    backupDir: found.backupDir,
+    ...state,
   };
 }
 
 /**
  * GET /api/app/uninstall — whether this install can uninstall itself, what
  * would be deleted, and what the page has to warn about first. Changes nothing.
+ *
+ * ?check=0 skips asking the script and answers from this server alone: it is
+ * what the page polls after starting an uninstall, to find out whether the
+ * uninstaller refused (the same shape as the update route's ?check=0).
  */
 export async function handleUninstallGet(req: Req, deps: Partial<UninstallDeps> = {}) {
   const d = { ...REAL_DEPS, ...deps };
   if (!d.isLoopbackRequest(req)) return NextResponse.json({ error: "Only available from this computer" }, { status: 403 });
-  return NextResponse.json(await info(d));
+  let check = true;
+  try {
+    if (req.url) check = new URL(req.url).searchParams.get("check") !== "0";
+  } catch {
+    /* not a URL this can read a query out of: ask the script, as always */
+  }
+  return NextResponse.json(await info(d, check));
 }
 
 /**
  * POST /api/app/uninstall — { action: "uninstall", keepKeys, force }.
  *
- * Answers 202 { started: true } and then stops answering anything: the
- * uninstaller it started quits this very server. The page says so rather than
- * waiting for a reply that cannot come.
+ * Answers 202 { started: true, log } once the uninstaller has been STARTED,
+ * which is all that can be promised: it quits this very server, so there is no
+ * later reply to wait for. What it is not is a promise that Granted has gone —
+ * the script makes its own decisions afterwards and can still refuse (exit 3, a
+ * parent folder it can't write to; exit 1, a copy of the keys it couldn't
+ * make), leaving Granted running. Both of those print a line to `log`, which
+ * GET ?check=0 reads back, and the page polls it rather than announcing
+ * success. `keptKeys` here is likewise where the copy is MEANT to go; the
+ * outcome in that log is what says where it went.
  *
  * `force` is refused unless it is needed, and needed unless it is given: the
  * unsaved work is read again here, from the script, after the page was shown
@@ -120,7 +203,7 @@ export async function handleUninstallPost(req: Req & { json?: () => Promise<unkn
   if (!install.canUninstall || !install.script) {
     return NextResponse.json({ error: "This copy of Granted can't uninstall itself", started: false, reason: install.reason }, { status: 409 });
   }
-  if (starting) return NextResponse.json({ error: "An uninstall is already running", started: false }, { status: 409 });
+  if (uninstallState(d).running) return NextResponse.json({ error: "An uninstall is already running", started: false }, { status: 409 });
 
   const check = await d.readUninstallCheck(install.script);
   if (!check || !check.grantedInstall || !check.installerMade) {
@@ -135,12 +218,18 @@ export async function handleUninstallPost(req: Req & { json?: () => Promise<unkn
   }
 
   const choice: UninstallChoice = { keepKeys: body.keepKeys !== false, force };
-  starting = true;
+  // Latched BEFORE the script is launched, so a second click can't start a
+  // second uninstall in the seconds before bash is up; the log it will report
+  // to is filled in as soon as that is known, and a launch that failed clears
+  // the latch again.
+  run = { startedAt: d.now(), log: "" };
+  lastOutcome = null;
   try {
     const log = await d.startUninstaller(install.script, choice);
+    run = { startedAt: d.now(), log };
     return NextResponse.json({ started: true, installDir: check.installDir, keptKeys: choice.keepKeys ? check.backupDir : null, log }, { status: 202 });
   } catch (err) {
-    starting = false;
+    run = null;
     const message = `Couldn't start the uninstaller: ${err instanceof Error ? err.message : String(err)}`;
     return NextResponse.json({ error: message, started: false, errorId: logError("app-uninstall", err, { path: "/api/app/uninstall" }) }, { status: 500 });
   }

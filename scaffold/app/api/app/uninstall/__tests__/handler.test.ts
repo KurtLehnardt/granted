@@ -1,7 +1,7 @@
 import { test, describe, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { handleUninstallGet, handleUninstallPost, resetUninstallStateForTests, type UninstallDeps } from "../handler";
-import type { UninstallCheck, UninstallChoice } from "@/lib/appUpdate/install";
+import type { UninstallCheck, UninstallChoice, UninstallOutcome } from "@/lib/appUpdate/install";
 
 const SCRIPT = "/Users/a/granted/scaffold/scripts/macos/uninstall.sh";
 
@@ -13,11 +13,16 @@ function world(
     check?: UninstallCheck | null;
     loopback?: boolean;
     startFails?: boolean;
+    /** What the started uninstaller has written to its log so far. */
+    outcome?: UninstallOutcome | null;
+    /** The clock, so a latch left behind by a refused uninstall can be aged. */
+    clock?: { now: number };
     deps?: Partial<UninstallDeps>;
   } = {},
 ) {
-  const calls = { checks: 0, started: [] as Array<[string, UninstallChoice]> };
+  const calls = { checks: 0, outcomes: 0, started: [] as Array<[string, UninstallChoice]> };
   const can = over.canUninstall !== false;
+  const clock = over.clock ?? { now: 1_760_000_000_000 };
   const deps: Partial<UninstallDeps> = {
     isLoopbackRequest: () => over.loopback ?? true,
     uninstallInfo: () => ({
@@ -44,12 +49,25 @@ function world(
       if (over.startFails) throw new Error("no bash");
       return "/tmp/granted-uninstall.log";
     },
+    readUninstallOutcome: () => {
+      calls.outcomes++;
+      return over.outcome ?? null;
+    },
+    now: () => clock.now,
     ...over.deps,
   };
-  return { deps, calls };
+  return { deps, calls, clock };
 }
 
-const getReq = () => ({ headers: { get: () => null }, url: "http://127.0.0.1:3000/api/app/uninstall" });
+const refusal = (reason: string): UninstallOutcome => ({
+  removed: false,
+  reason,
+  detail: "mv: rename /Users/a/granted: Permission denied",
+  keptKeys: null,
+  leftover: null,
+});
+
+const getReq = (query = "") => ({ headers: { get: () => null }, url: `http://127.0.0.1:3000/api/app/uninstall${query}` });
 const postReq = (body: unknown) => ({ headers: { get: () => null }, json: async () => body });
 
 beforeEach(() => resetUninstallStateForTests());
@@ -204,6 +222,60 @@ describe("POST /api/app/uninstall", () => {
     assert.equal(again.status, 409);
     assert.match((await again.json()).error, /already running/);
     assert.equal(w.calls.started.length, 1);
+  });
+
+  // REGRESSION (review): the script is only SPAWNED when this answers 202, and
+  // it can still refuse afterwards — exit 3 for a parent folder it can't write
+  // to leaves the install whole and Granted running. The latch used to be
+  // cleared only by an immediate spawn error, so every later attempt got
+  // "already running" until the whole server was restarted: no way to retry.
+  test("an uninstaller that refused can be retried at once: its log says so, and the latch goes", async () => {
+    const started = world();
+    assert.equal((await handleUninstallPost(postReq({ action: "uninstall" }), started.deps)).status, 202);
+
+    // The script has now written its refusal (exit 3) to the log.
+    const refused = world({ outcome: refusal("access-denied") });
+    const info = await (await handleUninstallGet(getReq("?check=0"), refused.deps)).json();
+    assert.equal(info.running, false, "not running any more");
+    assert.equal(info.outcome.removed, false);
+    assert.equal(info.outcome.reason, "access-denied");
+    assert.equal(refused.calls.checks, 0, "?check=0 doesn't run the script to answer this");
+
+    // And a second attempt goes ahead, in the same server.
+    const retry = await handleUninstallPost(postReq({ action: "uninstall" }), world().deps);
+    assert.equal(retry.status, 202);
+    assert.equal((await retry.json()).started, true);
+  });
+
+  // The other half: a script that reports nothing at all (its log was never
+  // written, the Mac went to sleep…). A latch nothing clears is a lockout, so
+  // it ages out.
+  test("a latch nothing ever reported on goes stale, and a later attempt is allowed", async () => {
+    const clock = { now: 1_760_000_000_000 };
+    const w = world({ clock });
+    assert.equal((await handleUninstallPost(postReq({ action: "uninstall" }), w.deps)).status, 202);
+
+    clock.now += 4 * 60 * 1000;
+    const tooSoon = await handleUninstallPost(postReq({ action: "uninstall" }), world({ clock }).deps);
+    assert.equal(tooSoon.status, 409, "four minutes in, it really might still be running");
+    assert.equal((await (await handleUninstallGet(getReq("?check=0"), world({ clock }).deps)).json()).running, true);
+
+    clock.now += 2 * 60 * 1000;
+    const after = await handleUninstallPost(postReq({ action: "uninstall" }), world({ clock }).deps);
+    assert.equal(after.status, 202, "past the staleness window it is not believed any more");
+    assert.equal((await after.json()).started, true);
+  });
+
+  test("nothing started: GET reports no uninstall running and no outcome, and ?check=0 asks the script nothing", async () => {
+    const w = world();
+    const info = await (await handleUninstallGet(getReq("?check=0"), w.deps)).json();
+    assert.equal(info.running, false);
+    assert.equal(info.outcome, null);
+    assert.equal(w.calls.checks, 0);
+    // The full GET still does ask it.
+    const full = world();
+    assert.equal((await (await handleUninstallGet(getReq(), full.deps)).json()).canUninstall, true);
+    assert.equal(full.calls.checks, 1);
   });
 
   test("an uninstaller that couldn't be started is reported, and another attempt is allowed", async () => {
