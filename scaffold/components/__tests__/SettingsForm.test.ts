@@ -31,4 +31,11 @@ describe("SettingsForm", () => {
     assert.match(html, /Search depth/);
     assert.match(html, /Replay welcome guide/);
   });
+
+  test("the new state-sources control is mounted in the cached-grant-data section", () => {
+    const html = render();
+    assert.match(html, /State grant sources/);
+    assert.match(html, /data-testid="state-sources-section"/);
+    assert.match(html, /data-testid="state-source-ut-grants"/);
+  });
 });

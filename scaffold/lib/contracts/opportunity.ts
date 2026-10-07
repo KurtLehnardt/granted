@@ -35,6 +35,7 @@ export const OpportunitySourceSchema = z.enum([
   "ca-grants",
   "il-grants",
   "nc-grants",
+  "ut-grants",
   // §4.2 Canon sources (forward-compatible):
   "sam.gov",
   "sbir.gov",

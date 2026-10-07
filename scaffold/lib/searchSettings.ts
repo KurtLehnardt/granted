@@ -103,3 +103,32 @@ export function setMaxCorpusSize(value: number): void {
     /* localStorage unavailable — nothing to persist */
   }
 }
+
+/** Per-source "which states should we fetch" selection (Settings' new state-sources
+ *  control). Default/fallback — both when nothing is stored yet AND when localStorage
+ *  is unavailable — is today's actual unconditional behavior for the three established
+ *  sources: California, Illinois, North Carolina on. Utah is meaningfully weaker data
+ *  (no deadline/eligibility, no stable id, occasional federal overlap — see
+ *  scripts/1-fetch-ut-grants.mjs) and a headless-browser-only source, so it ships
+ *  opt-in: off unless the user explicitly turns it on here. */
+const STATE_SOURCES_KEY = "granted:selectedStateSources";
+export const DEFAULT_STATE_SOURCES = ["ca-grants", "il-grants", "nc-grants"];
+
+export function getSelectedStateSources(): string[] {
+  try {
+    const raw = window.localStorage.getItem(STATE_SOURCES_KEY);
+    if (raw == null) return [...DEFAULT_STATE_SOURCES];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.every((s) => typeof s === "string") ? parsed : [...DEFAULT_STATE_SOURCES];
+  } catch {
+    return [...DEFAULT_STATE_SOURCES];
+  }
+}
+
+export function setSelectedStateSources(sources: string[]): void {
+  try {
+    window.localStorage.setItem(STATE_SOURCES_KEY, JSON.stringify(sources));
+  } catch {
+    /* localStorage unavailable — nothing to persist */
+  }
+}

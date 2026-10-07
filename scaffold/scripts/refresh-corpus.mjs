@@ -29,6 +29,7 @@ import {
   countBySource,
   countRemoved,
   dedupeById,
+  excludeDeselectedSources,
   findUnhealthySources,
   opportunityEmbedText,
   planEmbedding,
@@ -44,7 +45,13 @@ import {
 } from "../lib/corpus/refreshStatus.ts";
 import { overallPct } from "../lib/corpus/refreshProgress.ts";
 import { normalizeGrantsRecord, normalizeSbirSolicitation } from "./lib/normalizeGrants.mjs";
-import { normalizeSamRow, normalizeCaRow, normalizeIlRow, normalizeNcRow } from "./lib/normalizeNewSources.mjs";
+import {
+  normalizeSamRow,
+  normalizeCaRow,
+  normalizeIlRow,
+  normalizeNcRow,
+  normalizeUtRow,
+} from "./lib/normalizeNewSources.mjs";
 
 const LOCAL_DIR = "data/local";
 const RAW_DIR = join(LOCAL_DIR, "raw");
@@ -78,6 +85,18 @@ function reportProgress(stage, { done, total, foundCount, keptCount } = {}) {
 const maxFlag = process.argv.indexOf("--max");
 const requestedMax = Number(maxFlag !== -1 ? process.argv[maxFlag + 1] : process.env.CORPUS_MAX);
 const MAX_CORPUS_SIZE = Number.isFinite(requestedMax) ? clampCorpusSize(requestedMax) : DEFAULT_CORPUS_SIZE;
+
+// Per-source "which states should we fetch" selection (Settings' new state-sources
+// control — see lib/searchSettings.ts's getSelectedStateSources). Default, when the
+// flag is absent entirely, is today's actual unconditional behavior: CA/IL/NC on,
+// Utah opt-in — so a bare `npm run data:refresh` run directly from a terminal,
+// bypassing the UI entirely, behaves exactly as it does today, unchanged.
+const stateSourcesFlag = process.argv.find((a) => a.startsWith("--state-sources="));
+const SELECTED_STATE_SOURCES = stateSourcesFlag
+  ? stateSourcesFlag.slice("--state-sources=".length).split(",").filter(Boolean)
+  : ["ca-grants", "il-grants", "nc-grants"];
+const wantsSource = (id) => SELECTED_STATE_SOURCES.includes(id);
+const TOGGLEABLE_STATE_SOURCES = ["ca-grants", "il-grants", "nc-grants", "ut-grants"];
 
 /** `{ escalate: true }` when the first batch's real dims differ from priorDims (EMBEDDINGS_DIMENSIONS is unset off OpenAI). */
 async function embedAll(toEmbedList, { foundCount, keptCount, allowReembedEscalation, priorDims }) {
@@ -207,19 +226,27 @@ async function main() {
     run("SAM.gov assistance (everything open)", "scripts/1-fetch-sam-assistance.mjs", { ...rawEnv, SAM_FETCH_MODE: "all" });
 
     if (isStopRequested()) return await applyStop({});
-    run("California Grants Portal", "scripts/1-fetch-ca-grants.mjs", rawEnv);
-    run("Illinois CSFA", "scripts/1-fetch-il-grants.mjs", rawEnv);
-    run("North Carolina grant directory", "scripts/1-fetch-nc-grants.mjs", rawEnv);
+    if (wantsSource("ca-grants")) run("California Grants Portal", "scripts/1-fetch-ca-grants.mjs", rawEnv);
+    if (wantsSource("il-grants")) run("Illinois CSFA", "scripts/1-fetch-il-grants.mjs", rawEnv);
+    if (wantsSource("nc-grants")) run("North Carolina grant directory", "scripts/1-fetch-nc-grants.mjs", rawEnv);
+    if (wantsSource("ut-grants")) run("Utah funding opportunities", "scripts/1-fetch-ut-grants.mjs", rawEnv);
 
     if (isStopRequested()) return await applyStop({});
 
-    const [grants, sbirSolicitations, samAssistance, caGrants, ilGrants, ncGrants] = await Promise.all([
+    // A deselected source reads as [] here, NOT its (possibly stale,
+    // leftover-from-a-previous-run) raw JSON file -- this is what makes
+    // deselecting a source actually remove its records from the corpus on
+    // the next refresh, rather than merely stopping future re-fetching while
+    // old rows linger forever (the final corpus is built from this run's
+    // freshly-assembled `fresh` set, not merged with the full previous one).
+    const [grants, sbirSolicitations, samAssistance, caGrants, ilGrants, ncGrants, utGrants] = await Promise.all([
       readJson(join(RAW_DIR, "grants.json"), []),
       readJson(join(RAW_DIR, "sbir-solicitations.json"), []),
       readJson(join(RAW_DIR, "sam-assistance.json"), []),
-      readJson(join(RAW_DIR, "ca-grants.json"), []),
-      readJson(join(RAW_DIR, "il-grants.json"), []),
-      readJson(join(RAW_DIR, "nc-grants.json"), []),
+      wantsSource("ca-grants") ? readJson(join(RAW_DIR, "ca-grants.json"), []) : [],
+      wantsSource("il-grants") ? readJson(join(RAW_DIR, "il-grants.json"), []) : [],
+      wantsSource("nc-grants") ? readJson(join(RAW_DIR, "nc-grants.json"), []) : [],
+      wantsSource("ut-grants") ? readJson(join(RAW_DIR, "ut-grants.json"), []) : [],
     ]);
 
     const existing = await readJson(LOCAL_OPPS, await readJson("data/opportunities.json", []));
@@ -240,6 +267,7 @@ async function main() {
       ...caGrants.map(normalizeCaRow),
       ...ilGrants.map(normalizeIlRow),
       ...ncGrants.map(normalizeNcRow),
+      ...utGrants.map(normalizeUtRow),
     ].filter((o) => o && o.description && o.description.length >= 60);
     fresh = dedupeById(fresh);
     // Carry a record's first-ever retrieval timestamp forward across refreshes
@@ -253,8 +281,18 @@ async function main() {
     console.log(`\nAssembled ${foundCount} open records (expired deadlines dropped).`);
     reportProgress("selecting", { foundCount });
 
-    // Legacy past awards in `existing` aren't a source outage.
-    const unhealthy = findUnhealthySources(countBySource(dropPastAwards(existing)), countBySource(fresh));
+    // Legacy past awards in `existing` aren't a source outage. Neither is a state
+    // source the user deliberately deselected this run (Settings' state-sources
+    // toggle) -- excludeDeselectedSources drops it from the prior-count baseline so
+    // its intentional 0 isn't read as the kind of unexplained drop this guard exists
+    // to catch. Every source that IS selected (or isn't toggleable at all, e.g.
+    // grants.gov/SBIR/SAM) stays fully covered, unchanged.
+    const priorCounts = excludeDeselectedSources(
+      countBySource(dropPastAwards(existing)),
+      TOGGLEABLE_STATE_SOURCES,
+      SELECTED_STATE_SOURCES,
+    );
+    const unhealthy = findUnhealthySources(priorCounts, countBySource(fresh));
     if (unhealthy.length) {
       throw new Error(`refresh aborted — source count dropped sharply: ${unhealthy.join("; ")}`);
     }

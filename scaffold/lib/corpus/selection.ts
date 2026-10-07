@@ -9,6 +9,7 @@ export const DEFAULT_SOURCE_WEIGHTS: Record<string, number> = {
   "ca-grants": 1,
   "il-grants": 1,
   "nc-grants": 1,
+  "ut-grants": 1,
 };
 
 /** Splits `cap` by weight × availability, redistributing unused share; every non-empty source gets a slot first. */
@@ -108,7 +109,7 @@ export function sortWithinSource(source: string, records: Opportunity[]): Opport
       return (Number.isNaN(da) ? Infinity : da) - (Number.isNaN(db) ? Infinity : db);
     });
   }
-  // nc-grants: no date signal at all (confirmed) -- falls through to raw order.
+  // nc-grants / ut-grants: no date signal at all (confirmed) -- fall through to raw order.
   return sorted;
 }
 

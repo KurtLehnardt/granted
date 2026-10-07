@@ -77,6 +77,25 @@ test("new sources are present under the A0 source vocabulary", () => {
   }
 });
 
+test("ut-grants is a recognized source (opt-in, off by default -- not required to be present in the committed corpus)", () => {
+  // Utah ships opt-in and off by default (see lib/searchSettings.ts's
+  // DEFAULT_STATE_SOURCES), so unlike CA/IL/NC above, there's no floor-count
+  // assertion requiring ut-grants records to actually exist here -- whether
+  // to commit real fetched Utah data is a separate, later decision. This
+  // only guards that the source id itself is in the recognized vocabulary
+  // and, if present, validates like every other record (see the
+  // OpportunitySchema test below, which already covers every record).
+  const r = OpportunitySchema.safeParse({
+    id: "ut-test",
+    source: "ut-grants",
+    kind: "grant",
+    program: "Test Program",
+    agency: "Utah state agency",
+    description: "A placeholder description long enough to clear the schema's own length-free validation easily.",
+  });
+  assert.ok(r.success, "ut-grants must be a valid OpportunitySource");
+});
+
 test("each state-grant source has a healthy count (floor, not exact match -- see the grants.gov test above for why)", () => {
   // Live counts at the time this was written: ca-grants 169, il-grants 113,
   // nc-grants 74 (confirmed against the real refresh this committed). Floors

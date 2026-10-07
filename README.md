@@ -14,60 +14,11 @@ Run it with your own API keys or a fully local model — see **Run it yourself**
 
 Every OS below ends up running the exact same `npm` commands — the setup scripts detect your platform automatically. Only the prerequisite installs (Node, git, Ollama) differ, so pick yours:
 
-## Install on macOS
+## Quick links
 
-**Easiest: download the installer.** Get **Granted-Setup-x.y.z-arm64.dmg** from the [latest release](https://github.com/KurtLehnardt/granted/releases/latest), open it, and drag **Granted Setup** to your **Applications** folder. **Apple Silicon only** (M1 and later) — there's no Intel build.
-
-- **Gatekeeper, the first time.** The installer isn't signed by an Apple Developer account, so macOS blocks its first launch. Recent macOS versions removed the old right-click → **Open** shortcut, so this is the way through:
-  1. Open **Granted Setup** from Applications. Nothing opens — macOS says it blocked the app.
-  2. Open **System Settings → Privacy & Security** and scroll down to the **Security** section. It names Granted Setup as having been blocked, with an **Open Anyway** button.
-  3. Click **Open Anyway** and confirm with Touch ID or your password. The app opens, and opens normally from then on.
-
-  Advanced fallback, if you'd rather not go through System Settings: `xattr -dr com.apple.quarantine "/Applications/Granted Setup.app"` clears the download flag, after which it opens directly. Only do that for a file you downloaded yourself and trust.
-- **What it does:** it walks you through everything. It checks for git and Node.js and installs them if they're missing (Homebrew where you have it, otherwise the Xcode Command Line Tools for git and the official nodejs.org package for Node), then clones and installs Granted into `~/granted`, downloads the built-in search model, and can open Granted for you. The install itself runs in a Terminal window the wizard opens and watches; the window closes itself when it's done, and stays open if something failed.
-- **Which version:** each installer installs its own release. Running a newer installer over an existing install updates it, and never moves it backwards. It will not touch a Granted folder you cloned yourself — only one its own installer made.
-- **After it's installed:** a **Granted** launcher in `~/Applications` (no admin needed), optionally added to your Dock from the last screen of the wizard. Everything below under **Run it in the background** applies.
-
-*Verified on real hardware: the `.dmg` is built and Gatekeeper-tested on an M1 MacBook running macOS 27.0.1 (arm64). The app bundle is native arm64 with no Rosetta prompt. The Gatekeeper behaviour above is what macOS actually did with a freshly quarantined copy of that build — blocked, terminated, and recorded for the **Open Anyway** button; the `xattr` fallback was confirmed to let it launch. The **Open Anyway** click itself was not exercised (it needs an administrator confirmation), and no release carrying a `.dmg` has been published yet: the asset appears from the first release tagged after this landed. The app's local-model flow is verified end to end on a 32GB Mac: auto-picked `qwen2.5:14b` and completed a full novel-company search (18 candidates, fully local, zero API calls) in **3 minutes 43 seconds**. `install-macos.sh` is separately verified on a 2015 MacBook Pro (Intel i7-4770HQ, 16GB, macOS 12.7.6) — the oldest realistic case, which forces the Ollama CLI-tarball path described below — and on a clean macOS 15 (Sequoia) VM with nothing pre-installed, both with Homebrew already present and with no Homebrew and no terminal to prompt through (the one-liner bootstraps Homebrew itself in that case): `llama3.2:3b` on 4 vCPU/8GB completed a full novel-company search in 13m36s, fully local, zero API calls.*
-
-Prefer the command line? The steps below do the same thing, from `main`.
-
-**1. Install prerequisites + clone (one command)**
-```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/KurtLehnardt/granted/main/install-macos.sh)"
-```
-Installs Node 22+ and git if missing — via Homebrew where available, otherwise the Xcode Command Line Tools for git and the official nodejs.org `.pkg` for Node — clones the repo into `./granted`, runs `npm ci`, and installs Ollama with the method your macOS version actually supports (see the note below). Safe to re-run.
-
-Prefer to do it by hand?
-```bash
-brew install node git             # Node 22+; or from https://nodejs.org, git via xcode-select --install
-git clone https://github.com/KurtLehnardt/granted.git
-cd granted/scaffold
-npm install
-```
-
-**2. cloud models (one key for scoring: Claude or OpenAI)**
-```bash
-npm run setup      # interactive: writes .env.local, collects your keys
-npm run dev
-```
-Or by hand: `cp .env.example .env.local`, then edit `scaffold/.env.local` and set `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` for the scoring. Search itself needs no key — see **What you need** below.
-
-**3. Fully local (Ollama, no API keys)**
-```bash
-brew install ollama                 # already done if install-macos.sh found Homebrew; or https://ollama.com/download
-npm run setup:local -- --yes        # picks a model sized for your RAM and pulls it
-npm run dev
-```
-
-> **On macOS 13 or older?** Ollama's `.app`/`.dmg` and its Homebrew formula are built for **macOS 14+**. On an older Mac the download page hands you an app that won't launch, and Homebrew has dropped those releases (no bottles), so `brew install ollama` fails too. The release's **CLI tarball is a universal binary that does run there** — `install-macos.sh` picks it automatically, or install it by hand:
-> ```bash
-> curl -fsSL -o ollama-darwin.tgz \
->   https://github.com/ollama/ollama/releases/latest/download/ollama-darwin.tgz
-> mkdir -p ~/.local/ollama && tar xzf ollama-darwin.tgz -C ~/.local/ollama
-> ln -sf ~/.local/ollama/ollama /usr/local/bin/ollama
-> ```
-> There's no `.app` wrapper on this path, so start the daemon yourself with `ollama serve` — and again after each reboot, since nothing auto-starts it.
+- **[Windows](#install-on-windows)** — most users start here: [GUI installer](#windows-gui-installer) · [command line](#windows-command-line) · [cloud models](#windows-cloud-models) · [fully local](#windows-fully-local) · [run in the background](#windows-run-in-the-background)
+- **[macOS](#install-on-macos)** — [GUI installer](#macos-gui-installer) · [command line](#macos-command-line) · [cloud models](#macos-cloud-models) · [fully local](#macos-fully-local)
+- **[Linux](#install-on-linux)** — [command line](#linux-command-line) · [cloud models](#linux-cloud-models) · [fully local](#linux-fully-local)
 
 **4. Run it in the background, from a launcher (optional)**
 
@@ -89,10 +40,14 @@ bash scripts/macos/applications-launcher.sh install --add-to-dock
 
 ## Install on Windows
 
+#### Windows GUI installer
+
 **Easiest: download the installer.** Get **Granted-Setup-x.y.z.exe** from the [latest release](https://github.com/KurtLehnardt/granted/releases/latest) and double-click it.
 - **SmartScreen warning:** the installer isn't code-signed yet, so Windows may say "Windows protected your PC". Click **More info**, then **Run anyway**.
 - **What it does:** it walks you through everything. It installs Git and Node.js if they're missing, then installs Granted, offers Desktop and Start menu shortcuts, and can open Granted for you. Uninstall it from **Settings → Apps → Installed apps**.
 - **Which version:** each installer installs its own release. With **"Check for and install the latest version of Granted"** ticked (the default), it installs a newer release instead, if there is one. Run a newer installer over an existing install to update it.
+
+#### Windows command line
 
 Prefer the command line? The steps below do the same thing, from `main`.
 
@@ -118,6 +73,8 @@ cd granted/scaffold
 ```
 No `winget`? Grab [Node 22+](https://nodejs.org) and [git](https://git-scm.com/download/win) directly instead. PowerShell (default on Windows 10/11) or Git Bash both work with everything below.
 
+#### Windows cloud models
+
 **2. Search your own company — hosted (one key for scoring: Claude or OpenAI)**
 ```powershell
 npm run setup      # interactive: writes .env.local, collects your keys
@@ -125,12 +82,16 @@ npm run dev
 ```
 Or by hand: `Copy-Item .env.example .env.local` (PowerShell) or `cp .env.example .env.local` (Git Bash), then edit `scaffold/.env.local` and set `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` for the scoring. Search itself needs no key — see **What you need** below.
 
+#### Windows fully local
+
 **3. Fully local (Ollama, no API keys)**
 ```powershell
 # No Ollama yet? setup:local installs it via winget (or get it at https://ollama.com/download).
 npm run setup:local -- --yes        # picks a model sized for your RAM/VRAM and pulls it
 npm run dev
 ```
+
+#### Windows run in the background
 
 **4. Run it in the background, from a shortcut (optional)**
 
@@ -150,7 +111,70 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\shortcuts.ps
   Git and Node stay installed. If a program is still using the folder, nothing is deleted and it says so. From PowerShell: `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\uninstall.ps1` (add `-Quiet` to skip the questions). An install made before this existed shows up after re-running the installer, or: `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\uninstall.ps1 -Register`.
 - **No window, even on Windows 11:** the shortcut runs `scripts\windows\granted-tray.ps1` through `conhost.exe --headless`. A plain `powershell -WindowStyle Hidden` still opens a visible Windows Terminal window when Windows Terminal is the default console host, as it is by default on Windows 11.
 
+## Install on macOS
+
+#### macOS GUI installer
+
+**Easiest: download the installer.** Get **Granted-Setup-x.y.z-arm64.dmg** from the [latest release](https://github.com/KurtLehnardt/granted/releases/latest), open it, and drag **Granted Setup** to your **Applications** folder. **Apple Silicon only** (M1 and later) — there's no Intel build.
+
+- **Gatekeeper, the first time.** The installer isn't signed by an Apple Developer account, so macOS blocks its first launch. Recent macOS versions removed the old right-click → **Open** shortcut, so this is the way through:
+  1. Open **Granted Setup** from Applications. Nothing opens — macOS says it blocked the app.
+  2. Open **System Settings → Privacy & Security** and scroll down to the **Security** section. It names Granted Setup as having been blocked, with an **Open Anyway** button.
+  3. Click **Open Anyway** and confirm with Touch ID or your password. The app opens, and opens normally from then on.
+
+  Advanced fallback, if you'd rather not go through System Settings: `xattr -dr com.apple.quarantine "/Applications/Granted Setup.app"` clears the download flag, after which it opens directly. Only do that for a file you downloaded yourself and trust.
+- **What it does:** it walks you through everything. It checks for git and Node.js and installs them if they're missing (Homebrew where you have it, otherwise the Xcode Command Line Tools for git and the official nodejs.org package for Node), then clones and installs Granted into `~/granted`, downloads the built-in search model, and can open Granted for you. The install itself runs in a Terminal window the wizard opens and watches; the window closes itself when it's done, and stays open if something failed.
+- **Which version:** each installer installs its own release. Running a newer installer over an existing install updates it, and never moves it backwards. It will not touch a Granted folder you cloned yourself — only one its own installer made.
+- **After it's installed:** a **Granted** launcher in `~/Applications` (no admin needed), optionally added to your Dock from the last screen of the wizard. Everything below under **Run it in the background** applies.
+
+#### macOS command line
+
+*The app's local-model flow is verified end to end on a 32GB Mac: auto-picked `qwen2.5:14b` and completed a full novel-company search (18 candidates, fully local, zero API calls) in **3 minutes 43 seconds**. `install-macos.sh` is separately verified on a 2015 MacBook Pro (Intel i7-4770HQ, 16GB, macOS 12.7.6) — the oldest realistic case, which forces the Ollama CLI-tarball path described below — and on a clean macOS 15 (Sequoia) VM with nothing pre-installed, both with Homebrew already present and with no Homebrew and no terminal to prompt through (the one-liner bootstraps Homebrew itself in that case): `llama3.2:3b` on 4 vCPU/8GB completed a full novel-company search in 13m36s, fully local, zero API calls. The `.dmg` itself is built and Gatekeeper-tested on an M1 MacBook running macOS 27.0.1 (arm64) — the app bundle is native arm64 with no Rosetta prompt. The Gatekeeper behaviour above is what macOS actually did with a freshly quarantined copy of that build — blocked, terminated, and recorded for the **Open Anyway** button; the `xattr` fallback was confirmed to let it launch. The **Open Anyway** click itself was not exercised (it needs an administrator confirmation), and no release carrying a `.dmg` has been published yet: the asset appears from the first release tagged after this landed.*
+
+**1. Install prerequisites + clone (one command)**
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/KurtLehnardt/granted/main/install-macos.sh)"
+```
+Installs Node 22+ and git if missing — via Homebrew where available, otherwise the Xcode Command Line Tools for git and the official nodejs.org `.pkg` for Node — clones the repo into `./granted`, runs `npm ci`, and installs Ollama with the method your macOS version actually supports (see the note below). Safe to re-run.
+
+Prefer to do it by hand?
+```bash
+brew install node git             # Node 22+; or from https://nodejs.org, git via xcode-select --install
+git clone https://github.com/KurtLehnardt/granted.git
+cd granted/scaffold
+npm install
+```
+
+#### macOS cloud models
+
+**2. cloud models (one key for scoring: Claude or OpenAI)**
+```bash
+npm run setup      # interactive: writes .env.local, collects your keys
+npm run dev
+```
+Or by hand: `cp .env.example .env.local`, then edit `scaffold/.env.local` and set `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` for the scoring. Search itself needs no key — see **What you need** below.
+
+#### macOS fully local
+
+**3. Fully local (Ollama, no API keys)**
+```bash
+brew install ollama                 # already done if install-macos.sh found Homebrew; or https://ollama.com/download
+npm run setup:local -- --yes        # picks a model sized for your RAM and pulls it
+npm run dev
+```
+
+> **On macOS 13 or older?** Ollama's `.app`/`.dmg` and its Homebrew formula are built for **macOS 14+**. On an older Mac the download page hands you an app that won't launch, and Homebrew has dropped those releases (no bottles), so `brew install ollama` fails too. The release's **CLI tarball is a universal binary that does run there** — `install-macos.sh` picks it automatically, or install it by hand:
+> ```bash
+> curl -fsSL -o ollama-darwin.tgz \
+>   https://github.com/ollama/ollama/releases/latest/download/ollama-darwin.tgz
+> mkdir -p ~/.local/ollama && tar xzf ollama-darwin.tgz -C ~/.local/ollama
+> ln -sf ~/.local/ollama/ollama /usr/local/bin/ollama
+> ```
+> There's no `.app` wrapper on this path, so start the daemon yourself with `ollama serve` — and again after each reboot, since nothing auto-starts it.
+
 ## Install on Linux
+
+#### Linux command line
 
 **1. Install prerequisites + clone (one command)**
 ```bash
@@ -172,12 +196,16 @@ cd granted/scaffold
 ```
 Both install Node 22, which is also what the one-shot script installs — see **Which Node version** below for why 22 and not 20.
 
-**3. Search your own company — hosted (one key for scoring: Claude or OpenAI)**
+#### Linux cloud models
+
+**2. Search your own company — hosted (one key for scoring: Claude or OpenAI)**
 ```bash
 npm run setup      # interactive: writes .env.local, collects your keys
 npm run dev
 ```
 Or by hand: `cp .env.example .env.local`, then edit `scaffold/.env.local` and set `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` for the scoring. Search itself needs no key — see **What you need** below.
+
+#### Linux fully local
 
 **3. Fully local (Ollama, no API keys)**
 ```bash

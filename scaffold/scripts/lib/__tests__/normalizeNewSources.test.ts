@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { normalizeSamRow, normalizeCaRow, normalizeIlRow, normalizeNcRow } from "../normalizeNewSources.mjs";
+import { normalizeSamRow, normalizeCaRow, normalizeIlRow, normalizeNcRow, normalizeUtRow } from "../normalizeNewSources.mjs";
 import { normalizeStateName } from "../../../lib/location";
 
 test("normalizeSamRow — blank title returns null", () => {
@@ -254,4 +254,137 @@ test("normalizeNcRow — HTML entities in real scraped text are decoded (&amp; -
   const o = normalizeNcRow(row);
   assert.ok(o);
   assert.deepEqual(o!.industryTags, ["Art & Culture"]);
+});
+
+test("normalizeUtRow — blank title returns null", () => {
+  assert.equal(normalizeUtRow({ title: "   " }), null);
+});
+
+test("normalizeUtRow — real fixture maps correctly; no deadline/eligibility (honest data ceiling)", () => {
+  const row = {
+    title: "Agricultural Voluntary Incentives Program (AgVIP)",
+    category: "Water, Environment, Agriculture",
+    agency: "Utah Department of Agriculture and Food",
+    amount: "Varies",
+    grantMatch: "None",
+    loanInterest: "N/A",
+    description:
+      "Offers grants to implement practices that can increase crop yields, improve soil health, and add value to operations, while improving water quality.",
+    url: "https://ag.utah.gov/farmers/conservation-division/agricultural-voluntary-incentive-program/",
+  };
+  const o = normalizeUtRow(row);
+  assert.ok(o);
+  assert.equal(o!.source, "ut-grants");
+  assert.equal(o!.geography, "Utah");
+  assert.equal(o!.kind, "grant");
+  assert.equal(o!.deadline, undefined, "Utah's dashboard has no deadline field at all -- must never be fabricated");
+  assert.equal(o!.eligibility, undefined, "Utah's dashboard has no eligibility field at all -- must never be fabricated");
+  assert.ok(o!.description.length >= 60);
+});
+
+test("normalizeUtRow — a short card description gets padded to clear the 60-char corpus floor", () => {
+  const row = {
+    title: "Small Grant",
+    agency: "",
+    amount: "Varies",
+    loanInterest: "N/A",
+    description: "",
+    url: "https://example.utah.gov/program",
+  };
+  const o = normalizeUtRow(row);
+  assert.ok(o);
+  assert.ok(o!.description.length >= 60, `expected padded description >= 60 chars, got ${o!.description.length}`);
+  assert.match(o!.description, /official Utah funding opportunities listing/);
+});
+
+test("normalizeUtRow — funding: two dollar figures use min/max", () => {
+  const o = normalizeUtRow({
+    title: "Water Infrastructure Finance and Innovation Credit Assistance and Loans",
+    agency: "Environmental Protection Agency",
+    amount: "$5,000,000 - $50,000,000",
+    loanInterest: "N/A",
+    description: "Provides low-interest loan funding to water and wastewater infrastructure projects statewide.",
+  });
+  assert.ok(o);
+  assert.equal(o!.fundingLow, 5_000_000);
+  assert.equal(o!.fundingHigh, 50_000_000);
+});
+
+test("normalizeUtRow — funding: exactly one dollar figure collapses to fundingHigh only ('up to $X'), matching CA/IL", () => {
+  // REGRESSION (found in review): fundingLow===fundingHigh used to render as a
+  // redundant "$25K-$25K" via buildFundingRange instead of "up to $25K" -- CA's and
+  // IL's own normalizers already collapse a single figure to fundingHigh-only.
+  const o = normalizeUtRow({
+    title: "Industrial Assistance Account",
+    agency: "Governor's Office of Economic Opportunity",
+    amount: "$25,000",
+    loanInterest: "N/A",
+    description: "Provides post-performance grants for the creation of high-paying Utah jobs statewide.",
+  });
+  assert.ok(o);
+  assert.equal(o!.fundingLow, undefined);
+  assert.equal(o!.fundingHigh, 25_000);
+});
+
+test("normalizeUtRow — funding: 'Varies' (no dollar figure) never fabricates a value", () => {
+  const o = normalizeUtRow({
+    title: "Agriculture Resource and Development Loan Program",
+    agency: "Utah Department of Agriculture and Food",
+    amount: "Varies",
+    loanInterest: "Low-interest rates",
+    description: "Provides low-interest rate loans to agricultural producers and water conservancy districts.",
+  });
+  assert.ok(o);
+  assert.equal(o!.fundingLow, undefined);
+  assert.equal(o!.fundingHigh, undefined);
+});
+
+test("normalizeUtRow — kind: a populated Loan Interest field means kind:loan", () => {
+  const o = normalizeUtRow({
+    title: "Agriculture Resource and Development Loan Program",
+    agency: "Utah Department of Agriculture and Food",
+    amount: "Varies",
+    loanInterest: "Low-interest rates",
+    description: "Provides low-interest rate loans to agricultural producers and water conservancy districts.",
+  });
+  assert.ok(o);
+  assert.equal(o!.kind, "loan");
+});
+
+test("normalizeUtRow — kind: a 'tax credit' title with no loan interest means kind:assistance", () => {
+  const o = normalizeUtRow({
+    title: "Alternative Fuel Heavy-Duty Vehicle Tax Credit",
+    category: "Environment, Transportation",
+    agency: "Utah Department of Environmental Quality",
+    amount: "Varies",
+    loanInterest: "N/A",
+    description: "Qualified taxpayers may claim a non-refundable tax credit for purchase of an eligible vehicle.",
+  });
+  assert.ok(o);
+  assert.equal(o!.kind, "assistance");
+});
+
+test("normalizeUtRow — kind: neither a loan nor a tax credit defaults to kind:grant", () => {
+  const o = normalizeUtRow({
+    title: "Boating Access Grant",
+    agency: "Utah Division of Outdoor Recreation",
+    amount: "$0 - $300,000",
+    loanInterest: "N/A",
+    description: "Grants to develop and improve public boating access facilities throughout the state of Utah.",
+  });
+  assert.ok(o);
+  assert.equal(o!.kind, "grant");
+});
+
+test("normalizeUtRow — a placeholder (non-URL) Learn More link never fabricates a url", () => {
+  const o = normalizeUtRow({
+    title: "A Program Still In Development",
+    agency: "Utah state agency",
+    amount: "Varies",
+    loanInterest: "N/A",
+    description: "A program whose details and application link have not been finalized yet by the state.",
+    url: "TBD",
+  });
+  assert.ok(o);
+  assert.equal(o!.url, undefined);
 });

@@ -7,6 +7,7 @@ import {
   planEmbedding,
   countRemoved,
   countBySource,
+  excludeDeselectedSources,
   findUnhealthySources,
   dedupeById,
   mergePartialSave,
@@ -157,6 +158,42 @@ describe("findUnhealthySources", () => {
   });
   test("a brand-new source with no prior count is never flagged", () => {
     assert.deepEqual(findUnhealthySources({}, { sbir: 130 }), []);
+  });
+});
+
+describe("excludeDeselectedSources", () => {
+  const TOGGLEABLE = ["ca-grants", "il-grants", "nc-grants", "ut-grants"];
+
+  test("drops a toggleable source's prior count when it's not in the selected set", () => {
+    const filtered = excludeDeselectedSources({ "ca-grants": 27, "ut-grants": 32 }, TOGGLEABLE, ["ca-grants"]);
+    assert.deepEqual(filtered, { "ca-grants": 27 });
+  });
+
+  test("leaves non-toggleable sources (grants.gov, sbir, ...) untouched regardless of selection", () => {
+    const filtered = excludeDeselectedSources({ "grants.gov": 461, "ut-grants": 32 }, TOGGLEABLE, []);
+    assert.deepEqual(filtered, { "grants.gov": 461 });
+  });
+
+  test("leaves a selected toggleable source's count untouched", () => {
+    const filtered = excludeDeselectedSources({ "ca-grants": 27, "il-grants": 18 }, TOGGLEABLE, ["ca-grants", "il-grants"]);
+    assert.deepEqual(filtered, { "ca-grants": 27, "il-grants": 18 });
+  });
+
+  test("REGRESSION (real bug, caught before merge): deselecting Utah must not trip findUnhealthySources " +
+    "and abort the whole refresh, even though its fresh count drops to 0", () => {
+    const priorCounts = { "grants.gov": 461, "ca-grants": 27, "ut-grants": 32 };
+    const freshCounts = { "grants.gov": 465, "ca-grants": 27 }; // ut-grants not fetched this run at all
+    const filtered = excludeDeselectedSources(priorCounts, TOGGLEABLE, ["ca-grants"]); // Utah deselected
+    assert.deepEqual(findUnhealthySources(filtered, freshCounts), []);
+  });
+
+  test("a genuine scrape break in a SELECTED source is still caught, not masked by this exclusion", () => {
+    const priorCounts = { "ca-grants": 27, "ut-grants": 32 };
+    const freshCounts = { "ca-grants": 2 }; // ca-grants itself broke, not deselected
+    const filtered = excludeDeselectedSources(priorCounts, TOGGLEABLE, ["ca-grants"]);
+    const issues = findUnhealthySources(filtered, freshCounts);
+    assert.equal(issues.length, 1);
+    assert.match(issues[0], /ca-grants/);
   });
 });
 
