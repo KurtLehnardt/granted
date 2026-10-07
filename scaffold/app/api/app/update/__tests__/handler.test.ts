@@ -24,7 +24,13 @@ function world(over: {
   launchFails?: boolean;
   deps?: Partial<UpdateDeps>;
 } = {}) {
-  const calls = { fetches: 0, started: [] as Array<[string, number]>, writes: [] as Array<Partial<UpdateSettings>>, statuses: [] as UpdateStatus[] };
+  const calls = {
+    fetches: 0,
+    /** Every started update: the release, the port, and the updater it was started from. */
+    started: [] as Array<[string, number, string]>,
+    writes: [] as Array<Partial<UpdateSettings>>,
+    statuses: [] as UpdateStatus[],
+  };
   let status: UpdateStatus | null = over.status ?? null;
   let settings: UpdateSettings = over.settings ?? { autoUpdate: false, lastAutoCheck: null };
   const deps: Partial<UpdateDeps> = {
@@ -48,8 +54,8 @@ function world(over: {
       calls.fetches++;
       return { tag: over.latest === undefined ? "v0.2.0" : over.latest, failed: over.failed ?? false };
     },
-    startUpdater: async (ref, port) => {
-      calls.started.push([ref, port]);
+    startUpdater: async (ref, port, script) => {
+      calls.started.push([ref, port, script]);
       if (over.launchFails) throw new Error("no PowerShell");
     },
     now: () => over.now ?? 1_000_000_000_000,
@@ -114,7 +120,22 @@ describe("POST /api/app/update", () => {
     assert.equal(body.started, true);
     assert.equal(body.to, "v0.2.0");
     assert.equal(body.startedAt, new Date(1_000_000_000_000).toISOString());
-    assert.deepEqual(w.calls.started, [["v0.2.0", 3000]]);
+    // The updater it is started from is installInfo()'s own `script`, handed
+    // over — never left for startUpdater to work out a second time.
+    assert.deepEqual(w.calls.started, [["v0.2.0", 3000, "C:\\g\\scaffold\\scripts\\windows\\update.ps1"]]);
+  });
+
+  // REGRESSION (review): `script` is what the updater is started from, so a
+  // copy that has no script to run can't start one — the same guard the
+  // uninstall handler makes on uninstallInfo().script.
+  test("install: canUpdate but no updater to run -> refused, nothing started", async () => {
+    const w = world({
+      deps: { installInfo: () => ({ installDir: "C:\\g", canUpdate: true, reason: null, script: null }) },
+    });
+    const res = await handleUpdatePost(postReq({ action: "install" }), w.deps);
+    assert.equal(res.status, 409);
+    assert.equal((await res.json()).started, false);
+    assert.equal(w.calls.started.length, 0);
   });
 
   test("install: nothing newer -> nothing started; never a downgrade", async () => {
@@ -163,7 +184,7 @@ describe("POST /api/app/update", () => {
     const w = world({ settings: { autoUpdate: true, lastAutoCheck: null } });
     const body = await (await handleUpdatePost(postReq({ action: "auto" }), w.deps)).json();
     assert.equal(body.started, true);
-    assert.deepEqual(w.calls.started, [["v0.2.0", 3000]]);
+    assert.deepEqual(w.calls.started, [["v0.2.0", 3000, "C:\\g\\scaffold\\scripts\\windows\\update.ps1"]]);
     assert.equal(w.settings().lastAutoCheck, 1_000_000_000_000);
   });
 

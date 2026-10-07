@@ -42,18 +42,39 @@ export interface InstallInfo {
   canUpdate: boolean;
   /** Why it can't update itself (null when it can). */
   reason: CannotUpdateReason | null;
-  /** The updater this install would run (null when it has none it may run). */
+  /**
+   * The updater this install would run, and the one startUpdater() is given to
+   * run (null when it has none it may run) — as uninstallInfo().script is what
+   * startUninstaller() is given. Neither path is worked out twice.
+   */
   script: string | null;
 }
 
+/** How one platform's updater is started (see startUpdater below). */
+type StartUpdater = (ref: string, port: number, script: string, deps: StartUpdaterDeps) => Promise<void>;
+
+interface Updater {
+  /** Where the updater lives, relative to scaffold/. */
+  readonly script: readonly string[];
+  /** How it has to be started so that it outlives the server it stops. */
+  readonly start: StartUpdater;
+}
+
 /**
- * The updater each platform has, relative to scaffold/. A platform that isn't
- * in here has no in-app update at all: that is what "unsupported-platform"
- * means, and adding one is adding a line here plus the script itself.
+ * The updater each platform has. A platform that isn't in here has no in-app
+ * update at all: that is what "unsupported-platform" means, and adding one is
+ * adding a line here — the script's place and how to start it — plus the
+ * script itself.
+ *
+ * This table is the only place either of those two answers lives: installInfo()
+ * below reports the script from it, and startUpdater() dispatches on it. So an
+ * install can never be offered an update for a platform with no updater, nor
+ * handed a DIFFERENT platform's: a platform that isn't in this table is refused
+ * by startUpdater() rather than falling back to one that is.
  */
-const UPDATERS: Partial<Record<NodeJS.Platform, readonly string[]>> = {
-  win32: ["scripts", "windows", "update.ps1"],
-  darwin: ["scripts", "macos", "update.sh"],
+const UPDATERS: Partial<Record<NodeJS.Platform, Updater>> = {
+  win32: { script: ["scripts", "windows", "update.ps1"], start: startWindowsUpdater },
+  darwin: { script: ["scripts", "macos", "update.sh"], start: startMacUpdater },
 };
 
 /**
@@ -76,7 +97,7 @@ export function installInfo(
   // the convention settingsPath() below records in full.
   const p = platform === "win32" ? path.win32 : platform === "darwin" ? path.posix : path;
   const installDir = p.resolve(dir, "..");
-  const relative = UPDATERS[platform];
+  const relative = UPDATERS[platform]?.script;
   const script = relative ? p.join(dir, ...relative) : null;
   let reason: CannotUpdateReason | null = null;
   if (!script) reason = "unsupported-platform";
@@ -250,6 +271,7 @@ export function updateLogPath(now: Date = new Date(), dir: string = tmpdir()): s
 }
 
 export type StartUpdaterDeps = {
+  /** The scaffold folder the Windows launcher runs in (the updater's own path is passed in). */
   dir?: string;
   platform?: NodeJS.Platform;
   systemRoot?: string;
@@ -260,52 +282,66 @@ export type StartUpdaterDeps = {
 };
 
 /**
- * Starts this platform's updater for `ref`, out of this server's process tree —
- * the update stops this very server — and resolves once it is running (or
- * rejects if it couldn't be started, so the caller can report a launch failure
- * instead of "started").
+ * Starts this platform's updater — `script`, which is installInfo().script, the
+ * same path that said this install can update itself at all — for `ref`, out of
+ * this server's process tree (the update stops this very server), and resolves
+ * once it is running (or rejects if it couldn't be started, so the caller can
+ * report a launch failure instead of "started").
  *
- * The two platforms need different mechanisms for the same requirement, which
- * is why this is a branch rather than one call: see each half below.
+ * The script is passed in rather than worked out again here, exactly as
+ * startUninstaller() takes uninstallInfo().script: one path, decided in one
+ * place, so what the Settings page was told can update itself is the very thing
+ * that gets run.
+ *
+ * Which platform's launcher runs comes from the UPDATERS table above and from
+ * nothing else. A platform that isn't in it is refused here, loudly: it used to
+ * be `platform === "darwin" ? mac : windows`, which made Windows the implicit
+ * answer for every other platform — so a platform added to UPDATERS exactly as
+ * that table says would have been told it could update itself (installInfo())
+ * and then handed the Windows PowerShell updater to run against it.
+ *
+ * The platforms need different mechanisms for the same requirement — the
+ * updater has to outlive the server that started it — which is why each has its
+ * own launcher below rather than one call for both.
  */
-export function startUpdater(ref: string, port: number, deps: StartUpdaterDeps = {}): Promise<void> {
+export function startUpdater(ref: string, port: number, script: string, deps: StartUpdaterDeps = {}): Promise<void> {
   const platform = deps.platform ?? process.platform;
-  return platform === "darwin" ? startMacUpdater(ref, port, deps) : startWindowsUpdater(ref, port, deps);
+  const updater = UPDATERS[platform];
+  if (!updater) return Promise.reject(new Error(`Granted can't update itself on ${platform}.`));
+  return updater.start(ref, port, script, deps);
 }
 
 /**
- * macOS: scripts/macos/update.sh, started the way startUninstaller starts the
- * uninstaller — its own session, a working directory outside the install, and
- * its output in a file (startDetached above says why each of those matters).
- * This is what the work order means by starting it detached: the script itself
- * does not daemonize, exactly as update.ps1 does not.
+ * macOS: the install's own scripts/macos/update.sh, started the way
+ * startUninstaller starts the uninstaller — its own session, a working
+ * directory outside the install, and its output in a file (startDetached above
+ * says why each of those matters). This is what the work order means by
+ * starting it detached: the script itself does not daemonize, exactly as
+ * update.ps1 does not.
  */
-function startMacUpdater(ref: string, port: number, deps: StartUpdaterDeps): Promise<void> {
-  const dir = deps.dir ?? scaffoldDir();
-  const updater = path.posix.join(dir, "scripts", "macos", "update.sh");
-  return startDetached("/bin/bash", [updater, "--ref", ref, "--port", String(port)], deps.logPath ?? updateLogPath(), deps).then(
+function startMacUpdater(ref: string, port: number, script: string, deps: StartUpdaterDeps): Promise<void> {
+  return startDetached("/bin/bash", [script, "--ref", ref, "--port", String(port)], deps.logPath ?? updateLogPath(), deps).then(
     () => undefined,
   );
 }
 
 /**
- * Windows: scripts/windows/update.ps1. A short-lived PowerShell starts
- * conhost --headless (no console window, even where Windows Terminal is the
- * default) with Start-Process (ShellExecute: nothing inherited) and exits;
- * from then on nothing links the updater to the server, so stopping the
- * server's tree doesn't reach it.
+ * Windows: the install's own scripts/windows/update.ps1. A short-lived
+ * PowerShell starts conhost --headless (no console window, even where Windows
+ * Terminal is the default) with Start-Process (ShellExecute: nothing
+ * inherited) and exits; from then on nothing links the updater to the server,
+ * so stopping the server's tree doesn't reach it.
  *
  * NOT `detached: true`: that gives the PowerShell no console at all, and it
  * then exits without running its -Command (seen on Windows 11) — the update
  * would never start.
  */
-function startWindowsUpdater(ref: string, port: number, deps: StartUpdaterDeps): Promise<void> {
+function startWindowsUpdater(ref: string, port: number, script: string, deps: StartUpdaterDeps): Promise<void> {
   const dir = deps.dir ?? scaffoldDir();
   const systemRoot = deps.systemRoot ?? process.env["SystemRoot"] ?? "C:\\Windows";
   // Windows-only: Windows paths whatever the test OS.
   const conhost = path.win32.join(systemRoot, "System32", "conhost.exe");
   const powershell = path.win32.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
-  const updater = path.win32.join(dir, "scripts", "windows", "update.ps1");
   const command = startProcessCommand(conhost, [
     "--headless",
     powershell,
@@ -313,7 +349,7 @@ function startWindowsUpdater(ref: string, port: number, deps: StartUpdaterDeps):
     "-ExecutionPolicy",
     "Bypass",
     "-File",
-    updater,
+    script,
     "-Ref",
     ref,
     "-Port",

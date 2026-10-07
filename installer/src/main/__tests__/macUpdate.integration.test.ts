@@ -6,9 +6,12 @@
  * counterpart of the update.ps1 half of installRef.integration.test.ts, and it
  * covers the same four things that file does: a successful update that stops
  * the running Granted and starts it again on the same port, an update that
- * fails half-way and puts the previous version back, a declined update that
- * never stops anything, and an updater that outlives the server which started
- * it (the app's real startUpdater, with its parent killed).
+ * fails half-way and puts the previous version back (and starts the version it
+ * put back), a declined update that never stops anything, and an updater that
+ * outlives the server which started it (the app's real startUpdater, with its
+ * parent killed). It also covers the one hazard macOS has and Windows does
+ * not: update.sh being rewritten in place while it runs, which is what it
+ * hands over to a copy of itself to survive.
  *
  * Nothing here touches anything real, by the same means every other macOS
  * integration test in this family uses: a throwaway LaunchAgent label
@@ -23,7 +26,7 @@
 import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { execFile, execFileSync, spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
@@ -150,14 +153,25 @@ test(
   { skip: !existsSync(APP_INSTALL_TS) && "run from installer/" },
   () => {
     const source = readFileSync(APP_INSTALL_TS, "utf8");
-    assert.match(source, /path\.posix\.join\(dir, "scripts", "macos", "update\.sh"\)/);
-    assert.match(source, /startDetached\("\/bin\/bash", \[updater, "--ref", ref, "--port", String\(port\)\]/);
+    // The script it runs is the one installInfo() reported, passed in — not a
+    // path rebuilt here (REGRESSION (review): startMacUpdater used to rebuild
+    // it with its own path.posix.join and leave installInfo().script unused, so
+    // the two could drift apart silently).
+    assert.match(source, /startDetached\("\/bin\/bash", \[script, "--ref", ref, "--port", String\(port\)\]/);
+    assert.ok(!/path\.posix\.join\(dir, "scripts", "macos", "update\.sh"\)/.test(source), "the updater's path is not worked out twice");
     // Both of the things an install does to itself go through the one helper,
-    // so neither can drift away from the other.
+    // so neither can drift away from the other, and both are given the script
+    // their own *Info() reported.
     assert.match(source, /startDetached\("\/bin\/bash", uninstallArgs\(script, choice\)/);
     assert.match(source, /cwd: "\/",\r?\n\s*detached: true,/);
-    // darwin is a first-class answer from installInfo now, not "not Windows".
-    assert.match(source, /darwin: \["scripts", "macos", "update\.sh"\]/);
+    // darwin is a first-class answer from installInfo now, not "not Windows",
+    // and one table says both where each platform's updater is and how it is
+    // started — so nothing can be offered an update and then handed another
+    // platform's updater (REGRESSION (review): `platform === "darwin" ? mac :
+    // windows` made Windows the implicit answer for every other platform).
+    assert.match(source, /darwin: \{ script: \["scripts", "macos", "update\.sh"\], start: startMacUpdater \}/);
+    assert.match(source, /if \(!updater\) return Promise\.reject\(/);
+    assert.ok(!/platform === "darwin" \? start/.test(source), "no ternary that defaults every other platform to Windows");
     assert.ok(!source.includes('"not-windows"'), "the reason is about having an updater, not about Windows");
   },
 );
@@ -319,12 +333,17 @@ describe(
      * it at this repo's install-macos.sh instead of downloading the release's,
      * which is the same override update.ps1's tests use.
      */
-    async function update(box: Box, ref: string, args: string[] = []): Promise<{ status: Record<string, unknown>; output: string }> {
+    async function update(
+      box: Box,
+      ref: string,
+      args: string[] = [],
+      extraEnv: Record<string, string> = {},
+    ): Promise<{ status: Record<string, unknown>; output: string }> {
       let output = "";
       try {
         const r = await execFileAsync("/bin/bash", [box.updateScript, "--ref", ref, "--port", String(PORT), ...args], {
           cwd: box.home,
-          env: { ...process.env, ...box.env, GRANTED_INSTALL_SCRIPT: INSTALL_SCRIPT },
+          env: { ...process.env, ...box.env, GRANTED_INSTALL_SCRIPT: INSTALL_SCRIPT, ...extraEnv },
           timeout: 300_000,
         });
         output = r.stdout + r.stderr;
@@ -439,6 +458,82 @@ describe(
       assert.match(readFileSync(box.updateScript, "utf8"), /a completely different updater/, "the new release's script is what is installed now");
     });
 
+    test("REGRESSION: update.sh is REWRITTEN IN PLACE while it runs — the copy it handed over to finishes the update anyway", async () => {
+      // The hazard the self-copy exists for (see update.sh's header), and the
+      // only test that actually exercises it. The "ships a different update.sh"
+      // test above does NOT: `git checkout` unlinks the old file and creates a
+      // new one, so a running bash goes on reading the old inode and passes
+      // with or without the self-copy. A rewrite IN PLACE keeps the inode, and
+      // that really does break a running bash — measured again on the machine
+      // this was written on: the shell reads the NEW bytes at its OLD offset,
+      // having already run half the script, and then runs whatever it finds
+      // there (exit 127, mid-line, in that measurement).
+      //
+      // So: hold the install step open at a known moment, rewrite the installed
+      // update.sh in place while the update is in flight (same inode,
+      // asserted), then let it finish and require the update to have completed
+      // correctly. A stand-in install script rather than the real
+      // install-macos.sh because that handshake is the whole point — the
+      // rewrite has to land mid-run, and the real script reaches no moment a
+      // test can wait on.
+      const box = await makeBox();
+      const ready = join(box.root, "install-started");
+      const go = join(box.root, "install-may-finish");
+      const standIn = join(box.root, "slow-install.sh");
+      await writeFile(
+        standIn,
+        [
+          "#!/bin/bash",
+          "set -euo pipefail",
+          `printf 'started\\n' > ${JSON.stringify(ready)}`,
+          `while [ ! -f ${JSON.stringify(go)} ]; do sleep 0.1; done`,
+          // What install-macos.sh's update path does, reduced to the one step
+          // this test is about: move the install to the release it was asked
+          // for, and report "done" in its own status file.
+          `git -C ${JSON.stringify(box.installDir)} -c advice.detachedHead=false checkout --quiet "refs/tags/$GRANTED_REF"`,
+          `printf 'now at %s\\n' "$GRANTED_REF"`,
+          `printf '{"state":"done","message":""}' > "$GRANTED_STATUS_FILE"`,
+          "",
+        ].join("\n"),
+        { mode: 0o755 },
+      );
+      // Longer than update.sh itself (~21KB), so a bash that resumed reading at
+      // its old offset lands inside this rather than at EOF, and junk from the
+      // first line on, so wherever it landed it would run something that is not
+      // the updater (and, with `set -e`, stop there).
+      const rewritten =
+        [
+          "#!/bin/bash",
+          "echo 'a completely different updater'",
+          ...Array.from({ length: 1200 }, (_, i) => `a completely different updater, line ${i} "`),
+        ].join("\n") + "\n";
+
+      const running = update(box, "v0.2.0", ["--no-restart"], { GRANTED_INSTALL_SCRIPT: standIn });
+      await until(async () => existsSync(ready), (there) => there, 120_000);
+      assert.ok(existsSync(ready), "the install step is running");
+      // It really is running from a copy of itself outside the install: that
+      // copy is in the temporary folder at this very moment.
+      const copies = readdirSync(box.tmp).filter((f) => f.startsWith("granted-update."));
+      assert.equal(copies.length, 1, `the copy it handed over to: ${readdirSync(box.tmp).join(", ") || "(nothing in TMPDIR)"}`);
+      // Truncate and rewrite, which keeps the inode — `cat newcontent >
+      // update.sh`, not git's unlink-and-recreate.
+      const inode = statSync(box.updateScript).ino;
+      writeFileSync(box.updateScript, rewritten);
+      assert.equal(statSync(box.updateScript).ino, inode, "rewritten in place: the same file, different bytes");
+      await writeFile(go, "");
+
+      const { status, output } = await running;
+      assert.equal(status["state"], "done", `${JSON.stringify(status)}\n${output}`);
+      assert.equal(status["to"], "v0.2.0");
+      assert.equal(versionIn(box), "0.2.0");
+      // Nothing of the rewritten file ran, and bash never tripped over it.
+      assert.doesNotMatch(output, /a completely different updater|unexpected EOF|syntax error|command not found/);
+      // It really was the installed script that was rewritten under it.
+      assert.match(readFileSync(box.updateScript, "utf8"), /a completely different updater/);
+      // And the copy it ran from removed itself afterwards, as every other run does.
+      assert.deepEqual(readdirSync(box.tmp).filter((f) => f.startsWith("granted-update")), []);
+    });
+
     test("REGRESSION: a failed update puts the previous version back, and says so", async () => {
       const source = makeSource();
       // v0.2.1: a release whose npm ci fails (lockfile out of sync with
@@ -454,17 +549,30 @@ describe(
       git(source, "checkout", "-q", "main");
 
       const box = await makeBox({ source });
-      const { status, output } = await update(box, "v0.2.1", ["--no-restart"]);
-      assert.equal(status["state"], "error", `${JSON.stringify(status)}\n${output}`);
-      assert.match(String(status["message"]), /The update to v0\.2\.1 didn't finish: .*Granted v0\.1\.0 was put back\. Details are in /);
-      // The install is the previous release again, whole: the tag it was on,
-      // its version, and a working tree with nothing left over.
-      assert.equal(versionIn(box), "0.1.0");
-      assert.equal(git(box.installDir, "describe", "--tags", "--exact-match"), "v0.1.0");
-      assert.equal(git(box.installDir, "status", "--porcelain"), "", "nothing left modified");
-      // And it really still runs.
-      await startGranted(box);
-      await stopGranted(box);
+      // NOT --no-restart: the whole point of the rollback is that Granted comes
+      // back up by itself, so it can say what happened. Nothing in this test
+      // starts it — only the updater does.
+      const { status, output } = await update(box, "v0.2.1");
+      try {
+        assert.equal(status["state"], "error", `${JSON.stringify(status)}\n${output}`);
+        assert.match(String(status["message"]), /The update to v0\.2\.1 didn't finish: .*Granted v0\.1\.0 was put back\. Details are in /);
+        // The install is the previous release again, whole: the tag it was on,
+        // its version, and a working tree with nothing left over.
+        assert.equal(versionIn(box), "0.1.0");
+        assert.equal(git(box.installDir, "describe", "--tags", "--exact-match"), "v0.1.0");
+        assert.equal(git(box.installDir, "status", "--porcelain"), "", "nothing left modified");
+        // And the version that was put back really is running again, on the
+        // same port and under its own LaunchAgent — which is the only way the
+        // page can be told any of the above.
+        assert.equal(
+          await until(() => probeGranted(`http://127.0.0.1:${PORT}/`, 3000), (p) => p === "granted"),
+          "granted",
+          "the updater started the restored Granted again by itself",
+        );
+        assert.ok(box.agentLoaded(), "and under its LaunchAgent");
+      } finally {
+        await stopGranted(box);
+      }
     });
 
     test("REGRESSION: a declined update stops nothing — a running Granted keeps running", async () => {
@@ -567,7 +675,7 @@ describe(
         serverScript,
         [
           `import { startUpdater } from ${JSON.stringify(pathToFileURL(APP_INSTALL_TS).href)};`,
-          `await startUpdater("v9.9.9", 3456, { dir: ${JSON.stringify(dir)}, platform: "darwin", logPath: ${JSON.stringify(join(dir, "start.log"))} });`,
+          `await startUpdater("v9.9.9", 3456, ${JSON.stringify(join(dir, "scripts", "macos", "update.sh"))}, { platform: "darwin", logPath: ${JSON.stringify(join(dir, "start.log"))} });`,
           'console.log("launched");',
           "setInterval(() => {}, 1000);",
           "",

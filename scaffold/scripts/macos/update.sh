@@ -385,19 +385,28 @@ status_field() {
 # stripped here: this string is shown in a browser page, which would render
 # them as mojibake rather than as colour.
 #
-# Its decline always says "Not changing <dir> to <ref> -- ...", and that is what
-# is looked for FIRST rather than simply the last warning in the log. The
-# install script carries on past a decline -- npm ci, the built-in model, the
-# Ollama check -- and those later steps warn too (no Homebrew, no Ollama), so on
-# a machine missing either of those the last warning in the file is about Ollama
-# and has nothing to do with why the update didn't happen. update.ps1 takes the
-# last one, and would be wrong the same way.
+# Its decline always says "Not changing <dir> to <ref> -- ...", and that line,
+# and ONLY that line, is what is looked for -- never simply the last warning in
+# the log. The install script carries on past a decline -- npm ci, the built-in
+# model, the Ollama check -- and those later steps warn too (no Homebrew, no
+# Ollama), so on a machine missing either of those the last warning in the file
+# is about Ollama and has nothing to do with why the update didn't happen.
+# update.ps1 takes the last one, and is wrong the same way.
+#
+# There is deliberately NO fallback to the last warning when there is no "Not
+# changing" line, because that is a reachable state rather than a theoretical
+# one: install-macos.sh also leaves the folder alone with an ok() -- "already
+# includes Granted <ref> -- nothing to update", when the installed HEAD already
+# contains the tag -- and the installed version can still differ from the ref
+# then. A fallback would quote the Ollama warning as the reason Granted wasn't
+# updated, which is not a reason at all. The caller says "Granted wasn't updated
+# to <ref>." with no reason when this comes back empty, and no stated reason is
+# strictly better than a wrong one.
 last_warning() {
   local plain warning
   [ -f "$LOG_FILE" ] || return 0
   plain="$(sed "s/$(printf '\033')\[[0-9;]*m//g" "$LOG_FILE" 2>/dev/null || true)"
   warning="$(printf '%s\n' "$plain" | grep -E '^  ! Not changing ' | tail -1 || true)"
-  [ -n "$warning" ] || warning="$(printf '%s\n' "$plain" | grep -E '^  ! ' | tail -1 || true)"
   printf '%s' "${warning#  ! }"
 }
 

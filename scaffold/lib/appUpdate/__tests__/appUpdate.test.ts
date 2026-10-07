@@ -234,7 +234,11 @@ describe("starting the updater", () => {
       calls.push({ file, args, options });
       return { once(event: string, cb: (code: number) => void) { if (event === "exit") setTimeout(() => cb(0), 0); } };
     }) as unknown as typeof import("node:child_process").spawn;
-    await startUpdater("v0.2.0", 3123, { dir: "C:\\g\\scaffold", platform: "win32", systemRoot: "C:\\Windows", spawnImpl });
+    // The updater it runs is the one installInfo() reported, handed over as an
+    // argument — never a path rebuilt here.
+    const script = installInfo("C:\\g\\scaffold", "win32", () => true).script as string;
+    assert.equal(script, "C:\\g\\scaffold\\scripts\\windows\\update.ps1");
+    await startUpdater("v0.2.0", 3123, script, { dir: "C:\\g\\scaffold", platform: "win32", systemRoot: "C:\\Windows", spawnImpl });
     assert.equal(calls.length, 1);
     const { file, args, options } = calls[0];
     assert.match(file, /powershell\.exe$/i);
@@ -261,8 +265,11 @@ describe("starting the updater", () => {
         },
       };
     }) as unknown as typeof import("node:child_process").spawn;
-    await startUpdater("v0.2.0", 3123, {
-      dir: "/Users/a/granted/scaffold",
+    // The updater it runs is the one installInfo() reported, handed over as an
+    // argument — never a path rebuilt here.
+    const script = installInfo("/Users/a/granted/scaffold", "darwin", () => true).script as string;
+    assert.equal(script, "/Users/a/granted/scaffold/scripts/macos/update.sh");
+    await startUpdater("v0.2.0", 3123, script, {
       platform: "darwin",
       spawnImpl,
       logPath: "/tmp/up.log",
@@ -284,6 +291,63 @@ describe("starting the updater", () => {
     assert.ok(!args[0].includes("\\"));
   });
 
+  // REGRESSION (review): the updater's path is installInfo().script, passed in
+  // — startMacUpdater used to rebuild it from `dir` with its own
+  // path.posix.join and ignore the field installInfo() had already worked out,
+  // so the two could drift apart without anything noticing. A path neither
+  // launcher could have derived from `dir` is the only way to tell the
+  // difference.
+  test("the script it runs is the one it was given, on either platform, never one it worked out itself", async () => {
+    const spawned: string[][] = [];
+    const spawnImpl = ((_file: string, args: string[]) => {
+      spawned.push(args);
+      return {
+        unref() {},
+        once(event: string, cb: (code?: number) => void) {
+          if (event === "spawn") setTimeout(cb, 0);
+          if (event === "exit") setTimeout(() => cb(0), 0);
+        },
+      };
+    }) as unknown as typeof import("node:child_process").spawn;
+
+    await startUpdater("v0.2.0", 3123, "/somewhere/else/my-update.sh", {
+      dir: "/Users/a/granted/scaffold",
+      platform: "darwin",
+      spawnImpl,
+      logPath: join(dir, "up.log"),
+      openImpl: (() => 9) as unknown as typeof import("node:fs").openSync,
+      closeImpl: () => {},
+    });
+    assert.equal(spawned[0][0], "/somewhere/else/my-update.sh");
+
+    await startUpdater("v0.2.0", 3123, "D:\\elsewhere\\my-update.ps1", {
+      dir: "C:\\g\\scaffold",
+      platform: "win32",
+      systemRoot: "C:\\Windows",
+      spawnImpl,
+    });
+    const command = spawned[1][spawned[1].indexOf("-Command") + 1];
+    assert.match(command, /-File D:\\elsewhere\\my-update\.ps1 -Ref v0\.2\.0 -Port 3123'$/);
+  });
+
+  // REGRESSION (review): this used to be `platform === "darwin" ? mac :
+  // windows`, which made Windows the implicit answer for every platform that
+  // isn't macOS. A platform added to the UPDATERS table exactly as that table
+  // says to add one would then have been told it can update itself and handed
+  // the Windows PowerShell updater to run — silently. It has to fail instead.
+  test("a platform with no updater of its own is refused, never sent to the Windows one", async () => {
+    const spawnImpl = (() => {
+      throw new Error("nothing may be started for a platform with no updater");
+    }) as unknown as typeof import("node:child_process").spawn;
+    for (const platform of ["linux", "freebsd", "aix"] as const) {
+      await assert.rejects(
+        () => startUpdater("v0.2.0", 3000, "/g/scaffold/scripts/linux/update.sh", { dir: "/g/scaffold", platform, spawnImpl }),
+        new RegExp(`can't update itself on ${platform}`),
+        platform,
+      );
+    }
+  });
+
   test("macOS: an updater that can't be started is reported, not swallowed", async () => {
     const spawnImpl = (() => ({
       unref() {},
@@ -292,7 +356,7 @@ describe("starting the updater", () => {
       },
     })) as unknown as typeof import("node:child_process").spawn;
     await assert.rejects(
-      () => startUpdater("v0.2.0", 3000, { dir: "/nope/scaffold", platform: "darwin", spawnImpl, logPath: join(dir, "up.log") }),
+      () => startUpdater("v0.2.0", 3000, "/nope/scaffold/scripts/macos/update.sh", { platform: "darwin", spawnImpl, logPath: join(dir, "up.log") }),
       /ENOENT/,
     );
   });
