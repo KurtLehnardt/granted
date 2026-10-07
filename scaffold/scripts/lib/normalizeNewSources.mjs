@@ -166,3 +166,78 @@ export function normalizeNcRow(p) {
   };
 }
 
+/** Utah's "Learn More" link is sometimes already absolute, sometimes a
+ *  protocol-relative "//host/path" (confirmed live), and sometimes plain
+ *  placeholder text ("TBD", "Coming Soon") that is NOT a URL at all --
+ *  resolving that against any base would fabricate a link, so it becomes
+ *  undefined instead. */
+function resolveUtUrl(raw) {
+  const t = clean(raw);
+  if (!t) return undefined;
+  if (/^https?:\/\//i.test(t)) return t;
+  if (/^\/\//.test(t)) return `https:${t}`;
+  return undefined;
+}
+
+/** Utah's "Loan Interest" card field is "N/A" (or blank/"-"/"None") on the
+ *  large majority of cards (confirmed live: 174/200) -- those are not loan
+ *  programs. Anything else (a rate, "Varies", "Low-interest rates",
+ *  "Treasury Rate") means a real, populated loan-interest term. */
+function hasRealLoanInterest(raw) {
+  const t = clean(raw);
+  return t.length > 0 && !/^(n\/a|none|-)$/i.test(t);
+}
+
+/** One raw data/raw/ut-grants.json row (the Utah funding-opportunities
+ *  Looker Studio dashboard -- see 1-fetch-ut-grants.mjs's header for why this
+ *  needs a browser, not a plain fetch) -> Opportunity.
+ *
+ *  Honest data-coverage ceiling (same idea as NC's own comment above):
+ *  confirmed live, the dashboard's cards carry no deadline and no
+ *  eligibility field at all -- both are always undefined here, never
+ *  guessed. This is also WHY Utah ships opt-in and off by default (see
+ *  lib/searchSettings.ts) -- its data is real but meaningfully shallower
+ *  than CA/IL/NC's. */
+export function normalizeUtRow(p) {
+  const title = clean(p.title);
+  if (!title) return null;
+  const agency = clean(p.agency) || "Utah state agency";
+  const category = clean(p.category);
+
+  // No native unique key exists in the source data (no id, no stable
+  // program number) -- same situation as IL's own normalizer, which
+  // documents the same caveat for the same reason. This is a DERIVED key
+  // (content hash of title+agency), not a native one.
+  const id = `ut-${shortId(`${title}${agency}`)}`;
+
+  const base = [title, agency, clean(p.description)].filter(Boolean).join(". ");
+  const description =
+    base.length >= 60 ? base.slice(0, 4000) : `${base} See the official Utah funding opportunities listing for full details.`.slice(0, 4000);
+
+  const { low, high } = parseDollarAmounts(p.amount);
+
+  const kind = hasRealLoanInterest(p.loanInterest)
+    ? "loan"
+    : /tax credit/i.test(`${title} ${category}`)
+      ? "assistance"
+      : "grant";
+
+  return {
+    id,
+    source: "ut-grants",
+    kind,
+    program: title,
+    agency,
+    description,
+    eligibility: undefined,
+    deadline: undefined,
+    // A single parsed figure collapses to fundingHigh-only ("up to $X"), matching
+    // normalizeCaRow/normalizeIlRow's own convention -- otherwise buildFundingRange
+    // renders a redundant "$X-$X" instead of "up to $X".
+    fundingLow: low !== high ? low : undefined,
+    fundingHigh: high,
+    url: resolveUtUrl(p.url),
+    geography: "Utah",
+  };
+}
+

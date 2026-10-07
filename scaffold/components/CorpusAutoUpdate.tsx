@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { getAutoUpdateCorpus, getMaxCorpusSize } from "@/lib/searchSettings";
+import { getAutoUpdateCorpus, getMaxCorpusSize, getSelectedStateSources } from "@/lib/searchSettings";
 import { shouldAutoRefresh } from "@/lib/corpus/autoUpdate";
 
 export default function CorpusAutoUpdate() {
@@ -18,7 +18,7 @@ export default function CorpusAutoUpdate() {
         await fetch("/api/corpus/refresh", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ max: getMaxCorpusSize() }),
+          body: JSON.stringify({ max: getMaxCorpusSize(), stateSources: getSelectedStateSources() }),
         });
       } catch {
         /* best-effort */
