@@ -1,27 +1,32 @@
 name: release
 
-# Publishes a GitHub Release with the downloadable Windows installer,
-# Granted-Setup-<version>.exe, whenever a version tag is pushed. To release:
+# Publishes a GitHub Release with the downloadable installers --
+# Granted-Setup-<version>.exe for Windows and
+# Granted-Setup-<version>-arm64.dmg for Apple Silicon macOS -- whenever a
+# version tag is pushed. To release:
 #   1. Set "version" to the new version (e.g. 0.2.0) in BOTH
 #      installer/package.json and scaffold/package.json, and merge that.
 #   2. Tag main and push the tag:
 #        git tag v0.2.0 && git push origin v0.2.0
-# The build job checks the tag is on main and matches both versions, runs
-# the installer's tests, builds the .exe with the tag baked in (so it
+# Each build job checks the tag is on main and matches both versions, runs
+# the installer's tests, builds its installer with the tag baked in (so it
 # installs exactly that release, or a newer one if the user leaves "check
 # for updates" ticked -- see installer/src/main/release.ts) and
 # smoke-tests the packaged app. Only then does the publish job create the
-# release, with the .exe and its SHA-256 checksum attached.
+# release, with both installers and their SHA-256 checksums attached.
 #
-# Two jobs on purpose: the build runs npm install scripts, the test suite
-# and electron-builder, so it gets a READ-ONLY token (and checkout doesn't
-# leave even that in .git/config); only the small publish job, which runs
-# nothing but `gh release create`, can write to the repo.
+# Separate build and publish jobs on purpose: the builds run npm install
+# scripts, the test suite and electron-builder, so they get a READ-ONLY
+# token (and checkout doesn't leave even that in .git/config); only the
+# small publish job, which runs nothing but `gh release create`, can write
+# to the repo.
 #
-# The .exe is not code-signed yet, so Windows SmartScreen shows "Windows
-# protected your PC" until it is; the release notes tell users what to click.
-# Signing slots in as a build step between "Build" and "Smoke-test" once a
-# certificate (or SignPath, free for open source) is set up.
+# Neither installer is code-signed yet, so Windows SmartScreen shows
+# "Windows protected your PC" and macOS blocks the first launch until they
+# are; the release notes tell users what to click. Windows signing slots in
+# as a build step between "Build" and "Smoke-test" once a certificate (or
+# SignPath, free for open source) is set up; the macOS equivalent has its
+# own marked slot in the build-macos job below.
 
 on:
   push:
@@ -98,28 +103,152 @@ jobs:
           $exe = Get-Item "dist/Granted-Setup-$($env:TAG.TrimStart('v')).exe"
           Copy-Item $exe.FullName release/
           $hash = (Get-FileHash $exe.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$hash  $($exe.Name)" | Set-Content -Encoding ascii release/SHA256SUMS.txt
-          Get-Content release/SHA256SUMS.txt
+          "$hash  $($exe.Name)" | Set-Content -Encoding ascii release/SHA256SUMS-windows.txt
+          Get-Content release/SHA256SUMS-windows.txt
 
       - name: Keep the files for the publish job
         uses: actions/upload-artifact@v7
         with:
-          name: release-files
+          name: release-files-windows
+          path: installer/release/
+          if-no-files-found: error
+
+  # The macOS half: Granted-Setup-<version>-arm64.dmg, built, smoke-tested
+  # and uploaded next to the .exe. Same structure as the Windows build job,
+  # with the same read-only token.
+  #
+  # arm64 only, deliberately. This is an Apple Silicon installer: an x64 or
+  # universal build would double the download for machines Granted's own
+  # built-in search model is not tuned for, and no Intel Mac has been part of
+  # this work. Adding `"x64"` (or `"universal"`) to the `mac.target[].arch`
+  # list in installer/package.json is all it would take later.
+  #
+  # Unsigned and NOT notarized: there's no paid Apple Developer account. The
+  # .app is given a valid ad-hoc signature by installer/scripts/mac-adhoc-sign.cjs
+  # (an electron-builder afterPack hook) so macOS treats a first launch as the
+  # ordinary "unidentified developer" block, which the user can get past from
+  # System Settings, rather than as a damaged bundle, which they cannot. The
+  # README documents those steps.
+  build-macos:
+    runs-on: macos-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: installer
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # to check the tag is on main
+          persist-credentials: false
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: installer/package-lock.json
+
+      # The same three checks as the Windows job, in bash. After setup-node,
+      # not before it, so the version comparison runs on this job's own Node
+      # rather than on whatever the runner image happens to ship.
+      - name: Check the tag is on main and matches the versions
+        run: |
+          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Tag $TAG isn't vMAJOR.MINOR.PATCH"
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::Tag $TAG isn't on main. Release only what's been merged."
+            exit 1
+          fi
+          version="${TAG#v}"
+          installer=$(node -p "require('./package.json').version")
+          scaffold=$(node -p "require('../scaffold/package.json').version")
+          if [ "$installer" != "$version" ] || [ "$scaffold" != "$version" ]; then
+            echo "::error::Tag $TAG doesn't match installer/package.json ($installer) and scaffold/package.json ($scaffold). Bump both, merge, then tag."
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit + integration tests
+        run: npm test
+
+      - name: Build Granted-Setup-x.y.z-arm64.dmg
+        env:
+          GRANTED_RELEASE_TAG: ${{ github.ref_name }}
+        run: npm run dist:mac
+
+      # ---------------------------------------------------------------------
+      # SIGNING AND NOTARIZATION SLOT (not wired up yet — nothing below runs)
+      #
+      # Needs a paid Apple Developer account, which this project does not
+      # have. When there is one, this is where it goes, between the build and
+      # the smoke test, mirroring where Windows code signing slots in:
+      #
+      #   1. Repository secrets: APPLE_CERTIFICATE_P12 (base64 of a
+      #      Developer ID Application .p12), APPLE_CERTIFICATE_PASSWORD,
+      #      APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID.
+      #   2. Import the certificate into a temporary keychain created and
+      #      deleted in this job (never the runner's login keychain).
+      #   3. In installer/package.json, drop `"identity": null`, set
+      #      `"hardenedRuntime": true` and `"notarize": true`, and delete the
+      #      `"afterPack"` ad-hoc-signing hook along with
+      #      installer/scripts/mac-adhoc-sign.cjs — electron-builder signs and
+      #      notarizes the .dmg itself once it can find an identity. Remove
+      #      `"gatekeeperAssess": false` so it verifies the result.
+      #   4. Then `spctl -a -t open --context context:primary-signature` on
+      #      the .dmg must say "accepted", and the README's Gatekeeper
+      #      section can be cut down to "double-click it".
+      #
+      # Until then the .dmg really is unsigned, and saying so plainly in the
+      # release notes is the honest option.
+      # ---------------------------------------------------------------------
+
+      - name: Smoke-test the packaged installer
+        env:
+          GRANTED_PACKAGED_EXE: ${{ github.workspace }}/installer/dist/mac-arm64/Granted Setup.app
+          GRANTED_EXPECT_TAG: ${{ github.ref_name }}
+        run: npx playwright test e2e/packaged.spec.ts
+
+      - name: Checksum
+        run: |
+          mkdir -p release
+          dmg="Granted-Setup-${TAG#v}-arm64.dmg"
+          cp "dist/$dmg" release/
+          shasum -a 256 "dist/$dmg" | awk -v n="$dmg" '{print $1 "  " n}' > "release/SHA256SUMS-macos.txt"
+          cat release/SHA256SUMS-macos.txt
+
+      - name: Keep the files for the publish job
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-files-macos
           path: installer/release/
           if-no-files-found: error
 
   publish:
-    needs: build
+    needs: [build, build-macos]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     env:
       TAG: ${{ github.ref_name }}
     steps:
+      # Both build jobs upload into their own artifact; merge-multiple drops
+      # them into one folder, which works because the only name they share
+      # is the per-platform checksum file, and those are named apart.
       - name: Get the built files
         uses: actions/download-artifact@v8
         with:
-          name: release-files
+          pattern: release-files-*
+          merge-multiple: true
           path: release
 
       - name: Publish the release
@@ -128,6 +257,9 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           exe="Granted-Setup-${TAG#v}.exe"
+          dmg="Granted-Setup-${TAG#v}-arm64.dmg"
+          cat release/SHA256SUMS-windows.txt release/SHA256SUMS-macos.txt > release/SHA256SUMS.txt
+          cat release/SHA256SUMS.txt
           cat > release-notes.md <<EOF
           ## Install on Windows
 
@@ -135,9 +267,20 @@ jobs:
           2. Windows may say **"Windows protected your PC"**: the installer isn't code-signed yet. Click **More info**, then **Run anyway**.
           3. Follow the steps. It installs Git and Node.js if they're missing, then Granted, and can open it for you.
 
-          This installer installs Granted ${TAG}. Leave **"Check for and install the latest version of Granted"** ticked (the default) to get a newer release instead, if there is one. Running it over an existing install updates it (never to an older version). Uninstall Granted from **Settings -> Apps -> Installed apps**.
+          ## Install on macOS (Apple Silicon)
 
-          Checksum (SHA-256): see SHA256SUMS.txt.
+          1. Download **${dmg}** below, open it, and drag **Granted Setup** to your **Applications** folder.
+          2. Open it from Applications. macOS blocks it the first time -- the app isn't signed by an Apple Developer account, so nothing appears but a warning that it was blocked. This is expected.
+          3. Open **System Settings -> Privacy & Security**, scroll to the **Security** section, and next to "Granted Setup was blocked" click **Open Anyway**, then confirm with Touch ID or your password. The app opens, and opens normally from then on.
+          4. Follow the steps. It installs Homebrew, git and Node.js if they're missing, then Granted, and can open it for you.
+
+          Apple Silicon only (arm64). There is no Intel build.
+
+          ## Which version
+
+          These installers install Granted ${TAG}. On Windows, leave **"Check for and install the latest version of Granted"** ticked (the default) to get a newer release instead, if there is one. Running the installer over an existing install updates it (never to an older version). Uninstall from **Settings -> Apps -> Installed apps** on Windows, or from the Granted menu-bar icon (or **Settings -> About Granted**) on macOS.
+
+          Checksums (SHA-256): see SHA256SUMS.txt.
           EOF
           sed -i 's/^          //' release-notes.md
-          gh release create "$TAG" "release/${exe}" release/SHA256SUMS.txt --title "Granted ${TAG}" --notes-file release-notes.md --generate-notes --verify-tag
+          gh release create "$TAG" "release/${exe}" "release/${dmg}" release/SHA256SUMS.txt --title "Granted ${TAG}" --notes-file release-notes.md --generate-notes --verify-tag

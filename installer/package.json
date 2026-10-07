@@ -1,6 +1,6 @@
 {
   "name": "granted-installer",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "private": true,
   "description": "Granted installer",
   "author": "Kurt Lehnardt",
@@ -11,6 +11,8 @@
     "build": "electron-vite build",
     "preview": "node scripts/run-electron-vite.mjs preview",
     "dist": "npm run build && electron-builder --win portable --x64 --publish never",
+    "icon:mac": "mkdir -p build && bash ../scaffold/scripts/macos/applications-launcher.sh icns --out build/icon.icns",
+    "dist:mac": "npm run build && npm run icon:mac && electron-builder --mac dmg --arm64 --publish never",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "tsx --test \"src/**/__tests__/**/*.test.ts\"",
     "test:integration": "tsx --test \"src/**/__tests__/**/*.integration.test.ts\"",
@@ -43,6 +45,26 @@
     },
     "portable": {
       "artifactName": "Granted-Setup-${version}.exe"
+    },
+    "afterPack": "./scripts/mac-adhoc-sign.cjs",
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "build/icon.icns",
+      "category": "public.app-category.developer-tools",
+      "identity": null,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "notarize": false
+    },
+    "dmg": {
+      "artifactName": "Granted-Setup-${version}-${arch}.dmg"
     }
   },
   "devDependencies": {

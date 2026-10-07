@@ -107,8 +107,10 @@ jobs:
 
   # ...and Windows runs the Windows-only half: the PowerShell integration
   # tests and the Playwright end-to-end tests, which drive the built
-  # Electron app and the real console windows it opens. Windows is the only
-  # platform with the "Installation complete" screen they cover.
+  # Electron app and the real console windows it opens, through to the
+  # "Installation complete" screen. (macOS reaches that screen too now —
+  # see the installer-macos job below — but through its own scripts, so each
+  # platform's half needs its own runner.)
   installer-windows:
     runs-on: windows-latest
     timeout-minutes: 20
@@ -145,6 +147,72 @@ jobs:
       - name: Smoke-test the packaged installer
         env:
           GRANTED_PACKAGED_EXE: ${{ github.workspace }}\installer\dist\win-unpacked\Granted Setup.exe
+          GRANTED_EXPECT_TAG: v0.0.0
+        run: npx playwright test e2e/packaged.spec.ts
+
+  # ...and macOS runs the macOS-only half, the same shape as the Windows job
+  # above: the integration tests that drive the real scaffold/scripts/macos/
+  # shell scripts and the Swift menu-bar helper, the Playwright end-to-end
+  # tests, and the .dmg a release ships.
+  #
+  # macos-latest is Apple Silicon, which is the only architecture the .dmg
+  # targets, so what CI packages here is exactly what a release publishes.
+  # The Xcode Command Line Tools (and so `swift`) are already on the runner
+  # image; nothing extra is installed.
+  #
+  # The GUI-session tests inside macTray.integration.test.ts skip themselves
+  # where NSStatusBar has no Aqua session to attach to (its `inAquaSession`
+  # check), so this job stays correct whether or not the runner gives it one.
+  # The end-to-end tests do assume a per-user launchd domain (`gui/<uid>`,
+  # which granted-tray.sh bootstraps its throwaway test LaunchAgent into) —
+  # true of the GitHub macOS images, which auto-log a user in, but this is
+  # the first macOS run of this suite in real CI, so that is the thing to
+  # look at first if the "End-to-end tests" step is the one that goes red.
+  installer-macos:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: installer
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: installer/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # Separate from the tests so a Swift compile error says so, instead of
+      # surfacing as a timed-out `before` hook: macTray.integration.test.ts
+      # builds the helper itself, exactly like this, and reuses this build.
+      - name: Build the Swift menu-bar helper
+        run: swift build -c release --package-path ../scaffold/scripts/macos/menubar
+
+      - name: Unit + integration tests
+        run: npm test
+
+      - name: End-to-end tests
+        run: npm run e2e
+
+      # The .dmg a release ships (release.yml builds it the same way), so a
+      # change that breaks packaging fails here, not at release time.
+      - name: Package the installer
+        env:
+          GRANTED_RELEASE_TAG: v0.0.0
+        run: npm run dist:mac
+
+      - name: Smoke-test the packaged installer
+        env:
+          GRANTED_PACKAGED_EXE: ${{ github.workspace }}/installer/dist/mac-arm64/Granted Setup.app
           GRANTED_EXPECT_TAG: v0.0.0
         run: npx playwright test e2e/packaged.spec.ts
 
