@@ -144,6 +144,14 @@ describe("GET (Settings → Problems & logs)", () => {
     assert.ok(s.issueUrl.length <= 7000);
   });
 
+  test("canOpenFolder: true on Windows and macOS, false on Linux (no guaranteed file-manager launcher there)", async () => {
+    const summaryFor = async (p: NodeJS.Platform) =>
+      (await handleLogsGet(req("GET", "/api/logs"), deps({ platform: p }))).json() as Promise<LogsSummary>;
+    assert.equal((await summaryFor("win32")).canOpenFolder, true);
+    assert.equal((await summaryFor("darwin")).canOpenFolder, true);
+    assert.equal((await summaryFor("linux")).canOpenFolder, false);
+  });
+
   test("REGRESSION (review): an asked-about error that isn't in the log is reported as not found, and no other error is named", async () => {
     logError("search", "some other failure");
     const s = (await (await handleLogsGet(req("GET", "/api/logs?issue=E-NNNNNN"), deps())).json()) as LogsSummary;
@@ -200,11 +208,13 @@ describe("POST clear / open-folder", () => {
     assert.equal(readErrorEntries().length, 0);
   });
 
-  test("open-folder: Explorer on Windows; elsewhere just the path", async () => {
+  test("open-folder: Explorer on Windows, Finder on macOS; Linux just gets the path", async () => {
     opened.length = 0;
     assert.deepEqual(await (await post({ action: "open-folder" })).json(), { opened: true, path: dir });
     assert.deepEqual(opened, [dir]);
-    assert.deepEqual(await (await post({ action: "open-folder" }, { platform: "darwin" })).json(), { opened: false, path: dir });
-    assert.equal(opened.length, 1);
+    assert.deepEqual(await (await post({ action: "open-folder" }, { platform: "darwin" })).json(), { opened: true, path: dir });
+    assert.deepEqual(opened, [dir, dir]);
+    assert.deepEqual(await (await post({ action: "open-folder" }, { platform: "linux" })).json(), { opened: false, path: dir });
+    assert.equal(opened.length, 2);
   });
 });

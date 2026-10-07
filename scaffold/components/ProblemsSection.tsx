@@ -11,7 +11,8 @@ import { ERROR_LOGGED_EVENT } from "@/lib/errorLog/client";
  *     which they review and submit with their own account (nothing is sent
  *     until they do; Granted holds no GitHub token);
  *   - Copy log: the whole sanitized log, for pasting into that issue;
- *   - Open log folder: Explorer on Windows, the folder's path elsewhere;
+ *   - Open log folder: Explorer on Windows, Finder on macOS, the folder's
+ *     path on Linux (no file manager launcher is guaranteed there);
  *   - Clear log.
  *
  * `initialSummary` is the hermetic test seam (no network), as in AppUpdateSection.
