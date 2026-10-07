@@ -5,6 +5,7 @@ import type { AppUpdateInfo } from "@/app/api/app/update/handler";
 import { waitForUpdate } from "@/components/useAppUpdate";
 import { isNewerRelease } from "@/lib/appUpdate/releases";
 import ReportProblemLink from "@/components/ReportProblemLink";
+import UninstallSection from "@/components/UninstallSection";
 import { reportClientError } from "@/lib/errorLog/client";
 import { isErrorId } from "@/lib/errorLog/errorId";
 
@@ -14,6 +15,10 @@ import { isErrorId } from "@/lib/errorLog/errorId";
  * updates itself (scripts/windows/update.ps1 — Granted restarts, and this
  * page reloads on the new version); anything else is told what's available
  * and where to get it.
+ *
+ * Uninstalling lives at the end of this same About Granted section, in
+ * UninstallSection, and shows nothing at all except on a macOS install the
+ * installer made: Windows has Windows' own "Installed apps" list for that.
  *
  * `initialInfo` is the hermetic test seam (no network), as in ModelSection.
  */
@@ -133,6 +138,8 @@ export default function AppUpdateSection({ initialInfo }: { initialInfo?: AppUpd
           Install updates automatically
         </label>
       )}
+
+      <UninstallSection />
     </div>
   );
 }

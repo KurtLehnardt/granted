@@ -326,8 +326,9 @@ test(
     assert.ok(!source.includes('"--app='), "the helper must not build an app-mode command line of its own");
     assert.match(source, /\(parsed\["openIn"\] as\? String\) != "browser"/, "the tick is the shared openIn setting, read by the one rule");
     assert.match(source, /func describe\([\s\S]*?setAccessibilityLabel[\s\S]*?setAccessibilityHelp/, "a real VoiceOver label and help");
-    // Six describe()d items: the five above plus the status line.
-    assert.ok((source.match(/^\s*describe\(/gm) ?? []).length >= 6, "every menu item is described, not just some");
+    // Seven describe()d items: the five above, the status line, and Uninstall
+    // (which macUninstall.integration.test.ts covers in full).
+    assert.ok((source.match(/^\s*describe\(/gm) ?? []).length >= 7, "every menu item is described, not just some");
   },
 );
 
@@ -509,8 +510,8 @@ describe(
         }));
         assert.deepEqual(
           items.map((i) => i.title),
-          ["Open Granted", "Starting…", "Open in its own window", "Show log", "Restart", "Quit Granted"],
-          "the Windows tray's menu, item for item",
+          ["Open Granted", "Starting…", "Open in its own window", "Show log", "Restart", "Uninstall Granted…", "Quit Granted"],
+          "the Windows tray's menu, item for item, plus the Uninstall item macOS needs (Windows has Installed apps)",
         );
         for (const item of items) assert.ok(item.a11y.length > 0, `"${item.title}" must have a VoiceOver label`);
         // The status line is a label, not a command. Everything else is
@@ -576,8 +577,8 @@ describe(
           timeout: 60_000,
         });
         // Open Granted, status, Open in its own window, separator, Show log,
-        // Restart, separator, Quit Granted.
-        assert.match(stdout, /self test ok \(port 3977, items: 8\)/);
+        // Restart, separator, Uninstall Granted…, separator, Quit Granted.
+        assert.match(stdout, /self test ok \(port 3977, items: 10\)/);
         // It reported through the installer's own mechanism: the same
         // {state,message,pid} shape, read back by the app's own reader.
         const status = await readStatusFile(statusPath);

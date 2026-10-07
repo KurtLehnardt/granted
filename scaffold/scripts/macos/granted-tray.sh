@@ -33,6 +33,9 @@
 #   granted-tray.sh set-open-in --mode window|browser
 #                                          save where Granted opens
 #   granted-tray.sh show-log               open the server log
+#   granted-tray.sh uninstall              start scripts/macos/uninstall.sh,
+#                                          detached (the menu's "Uninstall
+#                                          Granted...")
 #   granted-tray.sh log-path               the server log for this port
 #   granted-tray.sh plist                  print the LaunchAgent plist
 #   granted-tray.sh build-helper           build the menu-bar helper, print its path
@@ -57,12 +60,14 @@
 #   GRANTED_NPM                the npm binary to run the server with
 #   GRANTED_OPEN_CMD           what opens Granted and the log (instead of `open`)
 #   GRANTED_APP_BROWSER        the app-mode browser ("none" = pretend there isn't one)
+#   GRANTED_UNINSTALL_LOG      where `uninstall` writes the uninstaller's output
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 SCAFFOLD_DIR="$(cd -- "$SCRIPT_DIR/../.." && pwd -P)"
 MENUBAR_PKG="$SCRIPT_DIR/menubar"
 OPEN_SCRIPT="$SCRIPT_DIR/open-granted.sh"
+UNINSTALL_SCRIPT="$SCRIPT_DIR/uninstall.sh"
 
 LABEL="${GRANTED_LAUNCH_LABEL:-com.granted.server}"
 LAUNCH_AGENTS_DIR="${GRANTED_LAUNCH_AGENTS_DIR:-$HOME/Library/LaunchAgents}"
@@ -513,6 +518,38 @@ show_log() {
   fi
 }
 
+# --- uninstalling ----------------------------------------------------------
+# Starts scripts/macos/uninstall.sh for this install and returns at once. This
+# is what the menu-bar helper's "Uninstall Granted..." item runs, and it is
+# routed through this script for the same reason every other menu action is:
+# the helper is given only GRANTED_TRAY_SCRIPT, and the paths of this install's
+# own scripts are known in exactly one place.
+#
+# Detached, and with its output in a file rather than on this script's stdout,
+# because of what the uninstaller does to whoever asked for it. It stops
+# Granted by calling this very script's `stop`, which SIGTERMs the menu-bar
+# helper and waits for it to finish shutting down. A child of the helper would
+# therefore be killed (or have its stdout pipe closed under it) partway through
+# the uninstall it was asked to perform. `nohup`, no inherited stdin, and the
+# log in the temporary folder -- never in GRANTED_LOG_DIR, which the uninstall
+# itself deletes.
+#
+# The uninstaller is given --confirmed: the menu item has already asked, with
+# an alert of its own, so the only question left for the uninstaller to ask is
+# the one about work that isn't on GitHub.
+cmd_uninstall() {
+  local log
+  if [ ! -f "$UNINSTALL_SCRIPT" ]; then
+    printf '{"started":false,"reason":"no-uninstaller"}\n'
+    return 1
+  fi
+  log="${GRANTED_UNINSTALL_LOG:-${TMPDIR:-/tmp}/granted-uninstall-$(date '+%Y%m%d-%H%M%S').log}"
+  nohup /bin/bash "$UNINSTALL_SCRIPT" --confirmed --port "$PORT" >> "$log" 2>&1 </dev/null &
+  note "started the uninstaller (pid $!, log: $log)"
+  printf '{"started":true,"pid":%s,"log":"%s"}\n' "$!" "$(printf '%s' "$log" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  return 0
+}
+
 # --- subcommands -----------------------------------------------------------
 cmd_start() {
   local before state
@@ -600,13 +637,14 @@ case "$COMMAND" in
   open-in) open_in_pref ;;
   set-open-in) set_open_in "$MODE" ;;
   show-log) show_log ;;
+  uninstall) cmd_uninstall ;;
   log-path) printf '%s\n' "$LOG_FILE" ;;
   plist) emit_plist ;;
   plist-path) printf '%s\n' "$PLIST_PATH" ;;
   build-helper) build_helper && printf '\n' ;;
   helper-path) helper_path && printf '\n' ;;
   *)
-    printf 'usage: granted-tray.sh {start|stop|restart|status|open|open-in|set-open-in|show-log|log-path|plist|plist-path|build-helper|helper-path} [--port N]\n' >&2
+    printf 'usage: granted-tray.sh {start|stop|restart|status|open|open-in|set-open-in|show-log|uninstall|log-path|plist|plist-path|build-helper|helper-path} [--port N]\n' >&2
     exit 64
     ;;
 esac

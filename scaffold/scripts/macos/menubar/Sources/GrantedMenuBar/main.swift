@@ -10,7 +10,13 @@
 //   Show log
 //   Restart
 //   ---
+//   Uninstall Granted…            (asks first, in an alert of its own)
+//   ---
 //   Quit Granted
+//
+// Uninstall is the one item the Windows tray has no counterpart for: there,
+// uninstalling is done from Windows' "Installed apps" list. macOS has no such
+// list, so the work order puts it here and in Settings → About Granted.
 //
 // Every action shells back into scripts/macos/granted-tray.sh, so the launchd,
 // status-file and open-in-a-window logic lives in one place and is tested
@@ -34,6 +40,9 @@
 //   GRANTED_SETTINGS_PATH     the shared settings file, read for the "its own
 //                             window" tick (optional; defaults to the real one)
 //   GRANTED_MENUBAR_ICON      the icon file to use (optional)
+//   GRANTED_MENUBAR_CONFIRM   "yes" or "no" — answer the Uninstall alert
+//                             without showing it. Test-only: a modal alert
+//                             would wait for a click that never comes.
 //   GRANTED_MENUBAR_SELF_TEST "1", or "click:<menu item title>" — build
 //                             everything, report it (and choose that item,
 //                             the way a click does), then exit. The smoke
@@ -244,6 +253,9 @@ final class GrantedMenuBar: NSObject, NSApplicationDelegate, NSMenuDelegate {
   private var openWhenReady = false
   private var lastState = ""
   private var quitting = false
+  /// An uninstall this menu started: polling is over, and the server going
+  /// away is expected rather than a crash (see uninstallGranted).
+  private var uninstalling = false
   private var polling = false
   /// Background actions in flight (only ever touched on the main queue).
   private var pending = 0
@@ -427,6 +439,20 @@ final class GrantedMenuBar: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     menu.addItem(NSMenuItem.separator())
 
+    // Its own section, between two separators: this is the one item in the
+    // menu that deletes anything, and it must not sit shoulder to shoulder
+    // with an item someone reaches for every day.
+    let uninstall = NSMenuItem(title: "Uninstall Granted…", action: #selector(uninstallGranted), keyEquivalent: "")
+    uninstall.target = self
+    describe(
+      uninstall,
+      label: "Uninstall Granted",
+      help: "Removes Granted from this Mac: its folder, this icon, the Applications launcher and its settings. Asks first."
+    )
+    menu.addItem(uninstall)
+
+    menu.addItem(NSMenuItem.separator())
+
     let quit = NSMenuItem(title: "Quit Granted", action: #selector(quit), keyEquivalent: "")
     quit.target = self
     describe(quit, label: "Quit Granted", help: "Stops Granted and removes this icon.")
@@ -479,7 +505,7 @@ final class GrantedMenuBar: NSObject, NSApplicationDelegate, NSMenuDelegate {
   /// can take a moment) with the UI updated back on it. Overlapping ticks are
   /// skipped, so a slow check can never queue up behind itself.
   private func poll() {
-    guard !quitting, !polling else { return }
+    guard !quitting, !uninstalling, !polling else { return }
     // Once Granted has answered, stop asking so often: nothing needs a probe
     // every two seconds all day (the Windows tray stops probing entirely at
     // this point and just watches the process).
@@ -501,7 +527,7 @@ final class GrantedMenuBar: NSObject, NSApplicationDelegate, NSMenuDelegate {
   private var pollTick = 0
 
   private func apply(state: String) {
-    guard !quitting else { return }
+    guard !quitting, !uninstalling else { return }
     let previous = lastState
     lastState = state
     if state == "running" { everReady = true }
@@ -621,6 +647,60 @@ final class GrantedMenuBar: NSObject, NSApplicationDelegate, NSMenuDelegate {
     everReady = false
     reportedFailure = false
     inBackground({ _ = self.tray(["restart"], timeout: 180) }, then: { self.poll() })
+  }
+
+  /// "Uninstall Granted…": asks in a real alert, and only then starts
+  /// scripts/macos/uninstall.sh (through `granted-tray.sh uninstall`, which
+  /// starts it detached — see that subcommand's own note on why it must be).
+  ///
+  /// A menu item that deleted an install on one click would be indefensible,
+  /// so the alert is the first of the uninstaller's two questions; the
+  /// uninstaller asks the second one itself, about work in the folder that
+  /// isn't saved to GitHub, which is why it is run with --confirmed rather
+  /// than --quiet.
+  ///
+  /// Polling stops here. From this point the server is being stopped on
+  /// purpose, and a poll that saw it go would report a crash — the installer
+  /// would be told Granted died while starting, over an uninstall the user
+  /// asked for. This process does not quit itself either: the uninstaller
+  /// stops it, through the one path that owns stopping (granted-tray.sh's
+  /// `stop`), and SIGTERM then reaches `quit()` below.
+  @objc private func uninstallGranted() {
+    guard !quitting, !uninstalling, confirmUninstall() else { return }
+    uninstalling = true
+    timer?.invalidate()
+    if let statusLabel {
+      statusLabel.title = "Uninstalling…"
+      describe(statusLabel, label: "Granted is being uninstalled", help: "Granted is being removed from this Mac.")
+    }
+    statusItem?.button?.toolTip = "Granted — uninstalling…"
+    inBackground { _ = self.tray(["uninstall"], timeout: 60) }
+  }
+
+  /// Whether the user confirmed the uninstall. GRANTED_MENUBAR_CONFIRM answers
+  /// without showing anything, for the tests: a modal alert would wait for a
+  /// click that never comes.
+  private func confirmUninstall() -> Bool {
+    if let answer = env("GRANTED_MENUBAR_CONFIRM") { return answer == "yes" }
+    // A menu bar extra is an accessory app, so it is not the active
+    // application when its menu is used; without this the alert can open
+    // behind whatever is in front.
+    NSApp.activate(ignoringOtherApps: true)
+    let alert = NSAlert()
+    alert.alertStyle = .critical
+    alert.messageText = "Uninstall Granted?"
+    alert.informativeText = """
+      This deletes Granted's folder, this menu-bar icon, the Granted launcher in your Applications folder and \
+      Granted's settings. Git and Node stay installed, and Granted offers to keep a copy of your API keys.
+
+      If the folder holds work that isn't saved to GitHub, you'll be asked again before anything is deleted.
+      """
+    // Cancel is added first on purpose: the first button is the default one,
+    // which both Return and Escape choose, so the safe answer is the one a
+    // stray keystroke gives.
+    alert.addButton(withTitle: "Cancel")
+    alert.addButton(withTitle: "Uninstall").hasDestructiveAction = true
+    return alert.runModal() == .alertSecondButtonReturn
   }
 
   @objc private func quit() {
