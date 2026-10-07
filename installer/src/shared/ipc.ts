@@ -129,6 +129,14 @@ export interface GrantedSetupState {
   trayAvailable: boolean;
   /** This install has scripts/windows/shortcuts.ps1, so Desktop/Start menu shortcuts can be offered. */
   shortcutsAvailable: boolean;
+  /**
+   * macOS's counterpart of shortcutsAvailable: this install has
+   * scripts/macos/applications-launcher.sh, so a ~/Applications/Granted.app
+   * launcher can be created and offered a place in the Dock. The launcher
+   * itself is not optional (the work order makes only the Dock placement a
+   * choice), so this flag gates both the creation and the checkbox.
+   */
+  launcherAvailable: boolean;
   /** This install has scripts/windows/open-granted.ps1, so Granted can open in its own window (Edge/Chrome app mode). */
   appWindowAvailable: boolean;
   /** The saved preference: open Granted in its own window, or in a browser tab. */
@@ -197,6 +205,23 @@ export interface ShortcutsResult extends ActionResult {
   created: string[];
 }
 
+/**
+ * macOS: what to do about the Dock when the ~/Applications launcher is
+ * created (the installer's "Add Granted to the Dock" checkbox, ticked by
+ * default). The launcher is created either way — only its place in the Dock
+ * is a choice.
+ */
+export interface LauncherChoice {
+  addToDock: boolean;
+}
+
+export interface LauncherResult extends ActionResult {
+  /** The ~/Applications/Granted.app that was created, or null if it wasn't. */
+  launcherPath: string | null;
+  /** Whether it ended up in the Dock (false when the user didn't ask, or it couldn't be added). */
+  inDock: boolean;
+}
+
 /** contextBridge surface exposed to the renderer as `window.api`. */
 export interface GrantedInstallerApi {
   checkPrereqs: () => Promise<PrereqReport>;
@@ -215,6 +240,8 @@ export interface GrantedInstallerApi {
   onTaskStatus: (listener: (status: TaskStatusEvent) => void) => () => void;
   /** Creates the "Granted" Desktop and/or Start menu shortcut. */
   createShortcuts: (choice: ShortcutChoice) => Promise<ShortcutsResult>;
+  /** macOS: creates the ~/Applications/Granted.app launcher, and adds it to the Dock if asked. */
+  createLauncher: (choice: LauncherChoice) => Promise<LauncherResult>;
   /** Saves where Granted opens from now on (the installer, the tray and the shortcuts all follow it). */
   setOpenIn: (openIn: OpenIn) => Promise<ActionResult>;
   /** Closes the installer window. */

@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
+// Explicit React import: this file's JSX must transpile correctly both under
+// electron-vite's build (automatic JSX runtime, per tsconfig.web.json's
+// "jsx": "react-jsx", which doesn't need this) AND under the plain `tsx`-run
+// node:test runner this screen's component test uses, which resolves
+// installer/tsconfig.json — a references-only file with no jsx setting — and
+// so falls back to the classic runtime, needing `React` in scope to call
+// React.createElement. The same convention, for the same reason, as the app's
+// own components (see scaffold/components/ApplicationChecklist.tsx).
+import React, { useCallback, useEffect, useState } from "react";
 import type { GrantedSetupState, OpenIn, ShortcutChoice, TaskStatusEvent } from "../../../shared/ipc";
 import ReportProblem from "../ReportProblem";
 
@@ -31,6 +39,13 @@ export default function InstallComplete(): React.JSX.Element {
   // Ticked = open Granted in its own window (Edge/Chrome app mode), not a browser tab.
   const [ownWindow, setOwnWindow] = useState(true);
   const [openInNote, setOpenInNote] = useState<string | null>(null);
+  // macOS: ticked = also put the ~/Applications launcher in the Dock. Ticked
+  // by default, matching Windows, where the Desktop and Start-menu shortcuts
+  // are offered ticked rather than opt-in.
+  const [addToDock, setAddToDock] = useState(true);
+  const [launcherNote, setLauncherNote] = useState<{ ok: boolean; message: string } | null>(null);
+  const [launcherMade, setLauncherMade] = useState(false);
+  const [launcherInDock, setLauncherInDock] = useState(false);
 
   useEffect(() => {
     window.api
@@ -87,6 +102,27 @@ export default function InstallComplete(): React.JSX.Element {
     if (result.ok) setShortcutsMade(true);
   };
 
+  // macOS: creates ~/Applications/Granted.app (once — it's the same bundle if
+  // the user goes Back and continues again), and adds it to the Dock if the
+  // box is ticked. The launcher itself is NOT optional: the work order makes
+  // only the Dock placement a choice, so this runs with the box unticked too
+  // and just leaves the Dock alone. Never blocks continuing, like shortcuts:
+  // a failure is only noted.
+  const applyLauncher = async (): Promise<void> => {
+    if (!setup?.launcherAvailable || launcherMade) return;
+    const result = await window.api.createLauncher({ addToDock }).catch(() => ({
+      ok: false,
+      message: "Couldn't add Granted to your Applications folder. You can still open Granted from here.",
+      launcherPath: null,
+      inDock: false,
+    }));
+    setLauncherNote({ ok: result.ok, message: result.message });
+    if (result.ok) {
+      setLauncherMade(true);
+      setLauncherInDock(result.inDock);
+    }
+  };
+
   // Saved for the tray and shortcuts too, so it applies every time Granted
   // opens. Best effort: if it can't be saved, Granted opens the way it would have.
   const applyOpenIn = async (): Promise<void> => {
@@ -101,6 +137,7 @@ export default function InstallComplete(): React.JSX.Element {
     setApplying(true);
     void applyOpenIn()
       .then(applyShortcuts)
+      .then(applyLauncher)
       .catch(() => setShortcutsNote({ ok: false, message: "Couldn't add the Granted shortcut(s)." }))
       .finally(() => {
         setApplying(false);
@@ -169,6 +206,7 @@ export default function InstallComplete(): React.JSX.Element {
               </label>
             </fieldset>
           )}
+          {setup?.launcherAvailable && !launcherMade && <AddToDockOption addToDock={addToDock} onChange={setAddToDock} />}
           {setup?.appWindowAvailable && (
             <label className="open-in-option" title="In its own window, like an app. Untick to open it in a browser tab instead.">
               <input
@@ -199,6 +237,9 @@ export default function InstallComplete(): React.JSX.Element {
 
       {shortcutsNote && step.id !== "ask" && (
         <div className={`status-note${shortcutsNote.ok ? "" : " error"}`}>{shortcutsNote.message}</div>
+      )}
+      {launcherNote && step.id !== "ask" && (
+        <div className={`status-note${launcherNote.ok ? "" : " error"}`}>{launcherNote.message}</div>
       )}
       {openInNote && step.id !== "ask" && <div className="status-note error">{openInNote}</div>}
 
@@ -271,6 +312,13 @@ export default function InstallComplete(): React.JSX.Element {
               {step.message ?? openedText(step.openedIn)} It's at <code>{step.url}</code> and keeps running in
               the background — look for the <strong>Granted icon</strong> in the menu bar at the top of your screen.
               Click it to open Granted again, to see its log, or to quit it.
+              {launcherMade && (
+                <>
+                  {" "}
+                  Next time, open it from <strong>Granted</strong> in your Applications folder
+                  {launcherInDock && <> or from the Dock</>}.
+                </>
+              )}
             </div>
           ) : step.background ? (
             <div className="status-note">
@@ -307,8 +355,19 @@ export default function InstallComplete(): React.JSX.Element {
               first (your API keys, or fully local) with:
             </p>
           )}
-          {shortcutPlaces.length === 0 && <p>To open Granted later, run these in PowerShell:</p>}
-          <code className="command">{`cd "${installDir}\\scaffold"
+          {/* macOS's equivalent of the shortcut line: the ~/Applications
+              launcher, and the Dock if the box was left ticked. */}
+          {launcherMade && (
+            <p>
+              Open Granted any time from <strong>Granted</strong> in your Applications folder
+              {launcherInDock && <> or from the Granted icon in the Dock</>}. The first time, set it up first (your API
+              keys, or fully local) with:
+            </p>
+          )}
+          {shortcutPlaces.length === 0 && !launcherMade && (
+            <p>To open Granted later, run these in {isMac ? "Terminal" : "PowerShell"}:</p>
+          )}
+          <code className="command">{`cd ${isMac ? `"${installDir}/scaffold"` : `"${installDir}\\scaffold"`}
 npm run setup                  # an OpenAI or Claude key for scoring (each optional), or
 npm run setup:local -- --yes   # fully local via Ollama, no API keys
 npm run dev                    # then open http://localhost:3000`}</code>
@@ -338,6 +397,43 @@ npm run dev                    # then open http://localhost:3000`}</code>
         </>
       )}
     </main>
+  );
+}
+
+/**
+ * macOS's counterpart of the Windows shortcut checkboxes: "Add Granted to the
+ * Dock", ticked by default (Windows offers its Desktop and Start-menu
+ * shortcuts the same way, rather than opt-in).
+ *
+ * Only the Dock placement is a choice. The ~/Applications/Granted.app
+ * launcher is created either way — which is what the label and its
+ * description say, so an unticked box can't be read as "don't add Granted
+ * anywhere". A `.app` bundle and a Dock tile are both labelled by macOS
+ * itself, so neither needs an accessibility label of its own; this checkbox
+ * does, hence the aria-description, the same as the own-window box above it.
+ *
+ * Exported so it can be rendered on its own in a test (the screen's own state
+ * only arrives through an effect, which renderToStaticMarkup never runs).
+ */
+export function AddToDockOption({
+  addToDock,
+  onChange,
+}: {
+  addToDock: boolean;
+  onChange: (value: boolean) => void;
+}): React.JSX.Element {
+  const description =
+    "Granted is added to your Applications folder either way. Untick to leave your Dock as it is.";
+  return (
+    <label className="open-in-option" title={description}>
+      <input
+        type="checkbox"
+        checked={addToDock}
+        onChange={(e) => onChange(e.target.checked)}
+        aria-description={description}
+      />
+      Add Granted to the Dock
+    </label>
   );
 }
 

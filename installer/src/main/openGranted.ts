@@ -71,6 +71,11 @@ export async function getSetupState(installDir: string, settingsPath: string): P
       (process.platform === "win32" && existsSync(windowsScriptPath(scaffoldDir, "granted-tray.ps1"))) ||
       (process.platform === "darwin" && existsSync(macScriptPath(scaffoldDir, "granted-tray.sh"))),
     shortcutsAvailable: process.platform === "win32" && existsSync(windowsScriptPath(scaffoldDir, "shortcuts.ps1")),
+    // macOS's counterpart of shortcutsAvailable, gated on the platform for
+    // the same reason: scripts/macos/applications-launcher.sh is an ordinary
+    // tracked file, so it is on a Windows clone too, where ~/Applications and
+    // the Dock mean nothing.
+    launcherAvailable: process.platform === "darwin" && existsSync(macScriptPath(scaffoldDir, "applications-launcher.sh")),
     appWindowAvailable:
       (process.platform === "win32" && existsSync(windowsScriptPath(scaffoldDir, "open-granted.ps1"))) ||
       (process.platform === "darwin" && existsSync(macScriptPath(scaffoldDir, "open-granted.sh"))),
@@ -113,7 +118,10 @@ export function windowsScriptPath(scaffoldDir: string, name: "granted-tray.ps1" 
  * menu-bar helper) and its own-window opener. `posix.join` for the same reason
  * windowsScriptPath above uses `win32.join`.
  */
-export function macScriptPath(scaffoldDir: string, name: "granted-tray.sh" | "open-granted.sh"): string {
+export function macScriptPath(
+  scaffoldDir: string,
+  name: "granted-tray.sh" | "open-granted.sh" | "applications-launcher.sh",
+): string {
   return posix.join(scaffoldDir, "scripts", "macos", name);
 }
 

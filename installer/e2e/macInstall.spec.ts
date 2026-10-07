@@ -17,7 +17,7 @@
  */
 import { test, expect, type ElectronApplication, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
   GRANTED_HTML,
@@ -251,6 +251,65 @@ test("with no Chrome or Edge on the Mac, Granted still opens, in a browser tab, 
   await expect(page.getByText(/Granted is open in your browser/)).toBeVisible({ timeout: 60_000 });
   expect(await openedUrls(a)).toEqual([TEST_URL]);
   expect(appWindowUrls(install)).toEqual([]);
+});
+
+/** The Dock tiles in this fake install's throwaway `defaults` domain (never com.apple.dock). */
+function dockEntries(): string {
+  try {
+    return execFileSync("defaults", ["export", install.dockDomain, "-"], { encoding: "utf8" });
+  } catch {
+    return ""; // nothing has ever been written to this domain
+  }
+}
+
+test("an install with scripts/macos offers 'Add Granted to the Dock', ticked, and creates both the ~/Applications launcher and the Dock entry", async () => {
+  install.cleanup();
+  install = makeFakeInstall({ withMacScripts: true });
+  await start();
+  await expect(page.getByLabel("Add Granted to the Dock")).toBeChecked();
+  // "Not now": this test is about the launcher and the Dock, so there is no
+  // need to start a server and wait for it — the launcher actually starting
+  // Granted is macLauncher.integration.test.ts's job.
+  await page.getByRole("button", { name: "Not now" }).click();
+  await expect(page.getByText("Added Granted to your Applications folder and to the Dock.")).toBeVisible();
+  const appPath = join(install.applicationsDir, "Granted.app");
+  expect(existsSync(join(appPath, "Contents", "Info.plist"))).toBe(true);
+  expect(existsSync(join(appPath, "Contents", "MacOS", "Granted"))).toBe(true);
+  expect(existsSync(join(appPath, "Contents", "Resources", "granted.icns"))).toBe(true);
+  // The launcher runs this install's own tray script, with the test port.
+  const launcher = readFileSync(join(appPath, "Contents", "MacOS", "Granted"), "utf8");
+  // realpathSync: the script resolves its own folder with `pwd -P`, so the
+  // path it bakes in is /private/var/folders/… where mkdtemp handed back
+  // /var/folders/… (the same symlink the macTray integration test resolves).
+  expect(launcher).toContain(join(realpathSync(install.scaffoldDir), "scripts", "macos", "granted-tray.sh"));
+  expect(launcher).toContain(`--port ${TEST_PORT}`);
+  expect(dockEntries()).toContain(appPath);
+  // And the screen then tells the user where to open Granted from.
+  await expect(page.getByText(/Open Granted any time from/)).toBeVisible();
+  await expect(page.getByText(/from the Granted icon in the Dock/)).toBeVisible();
+});
+
+test("unticking 'Add Granted to the Dock' still creates the launcher, and leaves the Dock alone", async () => {
+  install.cleanup();
+  install = makeFakeInstall({ withMacScripts: true });
+  await start();
+  await page.getByLabel("Add Granted to the Dock").uncheck();
+  await page.getByRole("button", { name: "Not now" }).click();
+  // The launcher is not optional — only its place in the Dock is.
+  await expect(page.getByText("Added Granted to your Applications folder.")).toBeVisible();
+  expect(existsSync(join(install.applicationsDir, "Granted.app", "Contents", "MacOS", "Granted"))).toBe(true);
+  expect(dockEntries()).not.toContain(join(install.applicationsDir, "Granted.app"));
+  await expect(page.getByText(/from the Granted icon in the Dock/)).toHaveCount(0);
+});
+
+test("an install without scripts/macos offers no Dock box and creates no launcher", async () => {
+  await start();
+  await expect(page.getByLabel("Add Granted to the Dock")).toHaveCount(0);
+  await page.getByRole("button", { name: "Not now" }).click();
+  await expect(page.getByText(/Applications folder/)).toHaveCount(0);
+  expect(existsSync(install.applicationsDir)).toBe(false);
+  // The fallback text is Terminal's, not PowerShell's, on a Mac.
+  await expect(page.getByText("To open Granted later, run these in Terminal:")).toBeVisible();
 });
 
 test("already running: Yes just opens the browser, without starting a second server", async () => {

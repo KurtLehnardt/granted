@@ -9,7 +9,11 @@
     "strict": true,
     "jsx": "react-jsx",
     "useDefineForClassFields": true,
-    "types": ["vite/client"]
+    // "node" alongside vite's own types because this project also holds the
+    // renderer's component tests (src/renderer/src/**/__tests__), which are
+    // node:test files run by `tsx` — exactly as the main process's tests are.
+    // Without it they fail to typecheck on "node:test" itself.
+    "types": ["vite/client", "node"]
   },
   "include": [
     "src/renderer/src/**/*.ts",

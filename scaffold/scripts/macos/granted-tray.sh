@@ -20,8 +20,9 @@
 #     built, Granted still runs under launchd -- there is just no menu-bar
 #     icon, and this script says so in the log.
 #
-# This script is what the GUI installer, the menu-bar helper and (later) the
-# ~/Applications launcher all call:
+# This script is what the GUI installer, the menu-bar helper and the
+# ~/Applications launcher (scripts/macos/applications-launcher.sh, whose
+# Granted.app runs `start --open-browser` on a click) all call:
 #
 #   granted-tray.sh start [--open-browser] [--status-path FILE] [--no-helper]
 #   granted-tray.sh stop [--server-only]   quit Granted (and the menu-bar icon)

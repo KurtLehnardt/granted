@@ -102,6 +102,7 @@ describe("getSetupState / saveApiKeys against a real install folder", () => {
       settingsProviderSet: false,
       trayAvailable: false,
       shortcutsAvailable: false,
+      launcherAvailable: false,
       appWindowAvailable: false,
       openIn: "window",
     });
@@ -119,6 +120,10 @@ describe("getSetupState / saveApiKeys against a real install folder", () => {
     // re-deriving a path with the same call cannot catch the path being wrong.
     assert.equal(macScriptPath("/granted/scaffold", "open-granted.sh"), "/granted/scaffold/scripts/macos/open-granted.sh");
     assert.equal(macScriptPath("/granted/scaffold", "granted-tray.sh"), "/granted/scaffold/scripts/macos/granted-tray.sh");
+    assert.equal(
+      macScriptPath("/granted/scaffold", "applications-launcher.sh"),
+      "/granted/scaffold/scripts/macos/applications-launcher.sh",
+    );
     assert.equal(
       windowsScriptPath("C:\\granted\\scaffold", "open-granted.ps1"),
       "C:\\granted\\scaffold\\scripts\\windows\\open-granted.ps1",
@@ -147,12 +152,15 @@ describe("getSetupState / saveApiKeys against a real install folder", () => {
     assert.equal(state.trayAvailable, expected);
     assert.equal(state.shortcutsAvailable, expected);
     assert.equal(state.appWindowAvailable, expected);
+    // The ~/Applications launcher is macOS's own; no Windows script makes it available.
+    assert.equal(state.launcherAvailable, false);
   });
 
-  test("an install that has scripts/macos/granted-tray.sh and open-granted.sh can run in the background and in its own window on darwin only (same rule, each platform its own scripts)", async () => {
+  test("an install that has scripts/macos/granted-tray.sh, open-granted.sh and applications-launcher.sh can run in the background, in its own window and from ~/Applications on darwin only (same rule, each platform its own scripts)", async () => {
     await mkdir(join(install.scaffoldDir, "scripts", "macos"), { recursive: true });
     await writeFile(join(install.scaffoldDir, "scripts", "macos", "granted-tray.sh"), "");
     await writeFile(join(install.scaffoldDir, "scripts", "macos", "open-granted.sh"), "");
+    await writeFile(join(install.scaffoldDir, "scripts", "macos", "applications-launcher.sh"), "");
     const state = await setupState(install.installDir);
     // On Windows the .ps1 files written by the test above are still there, so
     // both stay true there; what this pins down is that the .sh files alone
@@ -161,8 +169,12 @@ describe("getSetupState / saveApiKeys against a real install folder", () => {
     const eitherPlatform = process.platform === "win32" || process.platform === "darwin";
     assert.equal(state.trayAvailable, eitherPlatform);
     assert.equal(state.appWindowAvailable, eitherPlatform);
-    // Shortcuts remain Windows-only: scripts/macos has no counterpart yet.
+    // The two platforms' shortcut equivalents, each gated on its own OS: the
+    // Desktop/Start-menu .lnk files on Windows, the ~/Applications launcher
+    // (and its Dock entry) on macOS. Neither counts on the other platform,
+    // however many of the other's files are sitting in the clone.
     assert.equal(state.shortcutsAvailable, process.platform === "win32");
+    assert.equal(state.launcherAvailable, process.platform === "darwin");
   });
 
   test("on macOS, its own window needs open-granted.sh specifically — the tray script alone isn't it", async () => {

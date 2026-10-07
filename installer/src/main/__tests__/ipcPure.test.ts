@@ -29,9 +29,11 @@ import {
   parseOpenInSetting,
   withOpenInSetting,
   looksLikeGranted,
+  macLauncherCommand,
   mergeRegistryPath,
   newInstallStatusPath,
   parseInstallStatusJson,
+  parseLauncherOutput,
   parseShortcutsOutput,
   parseStatusFile,
   parseVersionFromOutput,
@@ -639,6 +641,67 @@ describe("parseShortcutsOutput", () => {
   test("anything else is null (treated as a failure)", () => {
     assert.equal(parseShortcutsOutput("Exception: boom"), null);
     assert.equal(parseShortcutsOutput('{"created":[1]}'), null);
+  });
+});
+
+describe("parseLauncherOutput", () => {
+  test("reads applications-launcher.sh's JSON line", () => {
+    assert.deepEqual(parseLauncherOutput('{"launcher":"/Users/me/Applications/Granted.app","icon":true,"dock":"added"}\n'), {
+      launcher: "/Users/me/Applications/Granted.app",
+      icon: true,
+      dock: "added",
+    });
+  });
+
+  test("each Dock outcome, and a launcher built without its icon", () => {
+    for (const dock of ["added", "already", "skipped", "failed"] as const) {
+      assert.deepEqual(parseLauncherOutput(`{"launcher":"/a/Granted.app","icon":false,"dock":"${dock}"}`), {
+        launcher: "/a/Granted.app",
+        icon: false,
+        dock,
+      });
+    }
+  });
+
+  test("the last line is the JSON one, so anything printed ahead of it is ignored", () => {
+    assert.deepEqual(parseLauncherOutput('warning: something\n{"launcher":"/a/Granted.app","icon":true,"dock":"skipped"}\n'), {
+      launcher: "/a/Granted.app",
+      icon: true,
+      dock: "skipped",
+    });
+  });
+
+  test("a failed install reports no launcher (the caller treats that as a failure)", () => {
+    assert.deepEqual(parseLauncherOutput('{"launcher":null,"icon":false,"dock":"failed"}'), {
+      launcher: null,
+      icon: false,
+      dock: "failed",
+    });
+  });
+
+  test("anything else is null", () => {
+    assert.equal(parseLauncherOutput("bash: command not found"), null);
+    assert.equal(parseLauncherOutput(""), null);
+    // An unknown dock state is not quietly treated as success.
+    assert.equal(parseLauncherOutput('{"launcher":"/a/Granted.app","icon":true,"dock":"maybe"}'), null);
+    assert.equal(parseLauncherOutput('{"launcher":"/a/Granted.app","icon":true}'), null);
+    assert.equal(parseLauncherOutput('{"launcher":3,"icon":true,"dock":"added"}'), null);
+  });
+});
+
+describe("macLauncherCommand", () => {
+  test("the port is always passed (the launcher bakes it in: a Dock click carries no environment)", () => {
+    assert.deepEqual(macLauncherCommand({ launcherScript: "/i/scripts/macos/applications-launcher.sh", port: 3000, addToDock: false }), {
+      file: "/bin/bash",
+      args: ["/i/scripts/macos/applications-launcher.sh", "install", "--port", "3000"],
+    });
+  });
+
+  test("--add-to-dock only when asked", () => {
+    assert.deepEqual(
+      macLauncherCommand({ launcherScript: "/i/applications-launcher.sh", port: 3987, addToDock: true }).args,
+      ["/i/applications-launcher.sh", "install", "--port", "3987", "--add-to-dock"],
+    );
   });
 });
 
