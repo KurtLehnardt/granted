@@ -1,8 +1,9 @@
 /**
- * Waiting through an update: update.ps1 stops this server, installs the new
- * release and starts Granted again, so for a minute or two every request
- * fails. Polls the (GitHub-free) version endpoint until the server answers
- * with the new version — or update.ps1 reports an error.
+ * Waiting through an update: the updater (update.ps1 on Windows, update.sh on
+ * macOS) stops this server, installs the new release and starts Granted again,
+ * so for a minute or two every request fails. Polls the (GitHub-free) version
+ * endpoint until the server answers with the new version — or the updater
+ * reports an error.
  */
 import type { AppUpdateInfo } from "@/app/api/app/update/handler";
 
@@ -20,7 +21,7 @@ export async function waitForUpdate(
   const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const now = opts.now ?? Date.now;
   const deadline = now() + timeoutMs;
-  // Give update.ps1 a moment to write "running" and stop the server.
+  // Give the updater a moment to write "running" and stop the server.
   await sleep(intervalMs);
   while (now() < deadline) {
     try {

@@ -36,7 +36,7 @@ export interface AppUpdateInfo {
   canUpdate: boolean;
   reason: CannotUpdateReason | null;
   autoUpdate: boolean;
-  /** The last update's outcome (update.ps1), if any. */
+  /** The last update's outcome (the updater), if any. */
   status: UpdateStatus | null;
   releasesPage: string;
 }
@@ -52,7 +52,8 @@ export type UpdateDeps = {
   readUpdateStatus: () => UpdateStatus | null;
   writeUpdateStatus: (status: UpdateStatus) => void;
   fetchLatest: () => Promise<LatestRelease>;
-  startUpdater: (ref: string, port: number) => Promise<void>;
+  /** `script` is installInfo().script — the updater this install may run. */
+  startUpdater: (ref: string, port: number, script: string) => Promise<void>;
   now: () => number;
   /** The port Granted is serving on — where the updater starts it again. */
   port: (req: Req) => number;
@@ -79,7 +80,7 @@ const REAL_DEPS: UpdateDeps = {
   readUpdateStatus: () => readUpdateStatus(),
   writeUpdateStatus: (status) => writeUpdateStatus(status),
   fetchLatest: () => fetchLatestRelease(process.env["GRANTED_RELEASES_API"] || LATEST_RELEASE_API),
-  startUpdater: (ref, port) => startUpdater(ref, port),
+  startUpdater: (ref, port, script) => startUpdater(ref, port, script),
   now: () => Date.now(),
   port: (req) => requestPort(req),
 };
@@ -116,7 +117,7 @@ export function autoCheckDue(opts: { autoUpdate: boolean; canUpdate: boolean; la
 }
 
 /**
- * An update that failed (update.ps1 wrote "error") goes to the error log —
+ * An update that failed (the updater wrote "error") goes to the error log —
  * once per failure, however often the page asks.
  */
 function logUpdateFailure(status: UpdateStatus | null): void {
@@ -190,7 +191,9 @@ export async function handleUpdatePost(req: Req & { json?: () => Promise<unknown
   const auto = body.action === "auto";
   // Sent on every page load: quietly nothing, rather than an error, for a
   // copy that can't update itself (a developer checkout, another platform).
-  if (!install.canUpdate) {
+  // `script` is what the updater is started from below, so it is required
+  // here — the same guard, for the same reason, as the uninstall handler's.
+  if (!install.canUpdate || !install.script) {
     return auto
       ? NextResponse.json({ started: false })
       : NextResponse.json({ error: "This copy of Granted can't update itself", started: false }, { status: 409 });
@@ -231,12 +234,12 @@ export async function handleUpdatePost(req: Req & { json?: () => Promise<unknown
     if (auto && last?.state === "error" && last.to === latest.tag) {
       return NextResponse.json({ started: false, lastFailed: latest.tag });
     }
-    // "running" BEFORE launching: update.ps1 takes seconds to start and write
+    // "running" BEFORE launching: the updater takes seconds to start and write
     // it, and a second click (or the automatic check) must not start another.
     const startedAt = new Date(d.now()).toISOString();
     d.writeUpdateStatus({ state: "running", from: version, to: latest.tag, message: null, at: startedAt });
     try {
-      await d.startUpdater(latest.tag, d.port(req));
+      await d.startUpdater(latest.tag, d.port(req), install.script);
     } catch (err) {
       const message = `Couldn't start the update: ${err instanceof Error ? err.message : String(err)}`;
       d.writeUpdateStatus({ state: "error", from: version, to: latest.tag, message, at: new Date(d.now()).toISOString() });

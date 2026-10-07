@@ -21,6 +21,7 @@ import {
   uninstallCheckArgs,
   uninstallInfo,
   uninstallLogPath,
+  updateLogPath,
   updateStatusPath,
   writeUpdateSettings,
 } from "../install";
@@ -78,11 +79,62 @@ describe("this install", () => {
     const has = (...paths: string[]) => (p: string) => paths.some((q) => p.toLowerCase().endsWith(q));
     const marker = "\\.git\\granted-installer";
     const updater = "\\scripts\\windows\\update.ps1";
-    assert.deepEqual(installInfo(scaffold, "win32", has(marker, updater)).reason, null);
-    assert.equal(installInfo(scaffold, "win32", has(marker, updater)).canUpdate, true);
-    assert.equal(installInfo(scaffold, "darwin", has(marker, updater)).reason, "not-windows");
+    assert.deepEqual(installInfo(scaffold, "win32", has(marker, updater)), {
+      installDir: "C:\\x\\granted",
+      canUpdate: true,
+      reason: null,
+      script: "C:\\x\\granted\\scaffold\\scripts\\windows\\update.ps1",
+    });
     assert.equal(installInfo(scaffold, "win32", has(updater)).reason, "not-installer-made", "a developer's own checkout");
     assert.equal(installInfo(scaffold, "win32", has(marker)).reason, "no-updater");
+    // Nothing a copy that can't update itself could be run with.
+    assert.equal(installInfo(scaffold, "win32", has(marker)).script, null);
+    // The Windows path is win32 on every runner (see the note below).
+    assert.ok(!installInfo(scaffold, "win32", has(marker, updater)).script?.includes("/"));
+  });
+
+  // The same question on macOS, which has its own updater since the installer
+  // came to it: scripts/macos/update.sh, gated on the very same marker.
+  test("an installer-made macOS install with scripts/macos/update.sh can update itself too", () => {
+    const scaffold = "/Users/a/granted/scaffold";
+    const has = (...paths: string[]) => (p: string) => paths.some((q) => p.endsWith(q));
+    const marker = "/.git/granted-installer";
+    const updater = "/scripts/macos/update.sh";
+    assert.deepEqual(installInfo(scaffold, "darwin", has(marker, updater)), {
+      installDir: "/Users/a/granted",
+      canUpdate: true,
+      reason: null,
+      script: "/Users/a/granted/scaffold/scripts/macos/update.sh",
+    });
+    // BOTH halves are required, each with its own reason.
+    assert.equal(installInfo(scaffold, "darwin", has(updater)).reason, "not-installer-made", "a developer's own checkout");
+    assert.equal(installInfo(scaffold, "darwin", has(marker)).reason, "no-updater", "an install made before update.sh existed");
+    assert.equal(installInfo(scaffold, "darwin", () => false).reason, "not-installer-made");
+    for (const missing of [has(updater), has(marker), () => false] as Array<(p: string) => boolean>) {
+      assert.equal(installInfo(scaffold, "darwin", missing).script, null);
+      assert.equal(installInfo(scaffold, "darwin", missing).canUpdate, false);
+    }
+    // A platform with no updater of its own is refused before either is asked
+    // about — the marker and the script are both there in this call.
+    assert.equal(installInfo(scaffold, "linux", has(marker, updater)).reason, "unsupported-platform");
+    assert.equal(installInfo(scaffold, "linux", has(marker, updater)).script, null);
+    // The macOS path is POSIX on every runner (see the note below).
+    assert.ok(!installInfo(scaffold, "darwin", has(marker, updater)).script?.includes("\\"));
+  });
+
+  // The macOS updater looks at the SAME marker the macOS uninstaller does, and
+  // each gates on its own script: an install with one but not the other can do
+  // exactly the one it has.
+  test("the marker is shared; each script gates only its own feature", () => {
+    const scaffold = "/Users/a/granted/scaffold";
+    const has = (...paths: string[]) => (p: string) => paths.some((q) => p.endsWith(q));
+    const marker = "/.git/granted-installer";
+    const onlyUpdate = has(marker, "/scripts/macos/update.sh");
+    const onlyUninstall = has(marker, "/scripts/macos/uninstall.sh");
+    assert.equal(installInfo(scaffold, "darwin", onlyUpdate).canUpdate, true);
+    assert.equal(uninstallInfo(scaffold, "darwin", onlyUpdate).reason, "no-uninstaller");
+    assert.equal(uninstallInfo(scaffold, "darwin", onlyUninstall).canUninstall, true);
+    assert.equal(installInfo(scaffold, "darwin", onlyUninstall).reason, "no-updater");
   });
 
   // The uninstall half of the same question, and macOS-only on purpose: a
@@ -176,13 +228,17 @@ describe("starting the updater", () => {
     );
   });
 
-  test("runs update.ps1 for the release and port, hidden (conhost --headless), out of this server's tree", async () => {
+  test("Windows: runs update.ps1 for the release and port, hidden (conhost --headless), out of this server's tree", async () => {
     const calls: Array<{ file: string; args: string[]; options: Record<string, unknown> }> = [];
     const spawnImpl = ((file: string, args: string[], options: Record<string, unknown>) => {
       calls.push({ file, args, options });
       return { once(event: string, cb: (code: number) => void) { if (event === "exit") setTimeout(() => cb(0), 0); } };
     }) as unknown as typeof import("node:child_process").spawn;
-    await startUpdater("v0.2.0", 3123, { dir: "C:\\g\\scaffold", systemRoot: "C:\\Windows", spawnImpl });
+    // The updater it runs is the one installInfo() reported, handed over as an
+    // argument — never a path rebuilt here.
+    const script = installInfo("C:\\g\\scaffold", "win32", () => true).script as string;
+    assert.equal(script, "C:\\g\\scaffold\\scripts\\windows\\update.ps1");
+    await startUpdater("v0.2.0", 3123, script, { dir: "C:\\g\\scaffold", platform: "win32", systemRoot: "C:\\Windows", spawnImpl });
     assert.equal(calls.length, 1);
     const { file, args, options } = calls[0];
     assert.match(file, /powershell\.exe$/i);
@@ -192,6 +248,121 @@ describe("starting the updater", () => {
     assert.equal(options["detached"], undefined, "REGRESSION (review): detached gives PowerShell no console, and it never runs the update");
     assert.equal(options["stdio"], "ignore");
     assert.equal(options["windowsHide"], true);
+  });
+
+  // macOS has no Start-Process: the updater is started exactly the way the
+  // uninstaller is, because it has exactly the same problem — it stops this
+  // very server partway through.
+  test("macOS: runs update.sh detached, out of the install folder, with its output in a file", async () => {
+    const calls: Array<{ file: string; args: string[]; options: Record<string, unknown> }> = [];
+    const closed: number[] = [];
+    const spawnImpl = ((file: string, args: string[], options: Record<string, unknown>) => {
+      calls.push({ file, args, options });
+      return {
+        unref() {},
+        once(event: string, cb: () => void) {
+          if (event === "spawn") setTimeout(cb, 0);
+        },
+      };
+    }) as unknown as typeof import("node:child_process").spawn;
+    // The updater it runs is the one installInfo() reported, handed over as an
+    // argument — never a path rebuilt here.
+    const script = installInfo("/Users/a/granted/scaffold", "darwin", () => true).script as string;
+    assert.equal(script, "/Users/a/granted/scaffold/scripts/macos/update.sh");
+    await startUpdater("v0.2.0", 3123, script, {
+      platform: "darwin",
+      spawnImpl,
+      logPath: "/tmp/up.log",
+      openImpl: (() => 9) as unknown as typeof import("node:fs").openSync,
+      closeImpl: (fd: number) => closed.push(fd),
+    });
+    assert.equal(calls.length, 1);
+    const { file, args, options } = calls[0];
+    assert.equal(file, "/bin/bash");
+    assert.deepEqual(args, ["/Users/a/granted/scaffold/scripts/macos/update.sh", "--ref", "v0.2.0", "--port", "3123"]);
+    // The three things that keep the updater alive while it stops the very
+    // server that started it: its own session, a working directory outside the
+    // install being replaced, and no pipe back to this process.
+    assert.equal(options["detached"], true);
+    assert.equal(options["cwd"], "/");
+    assert.deepEqual(options["stdio"], ["ignore", 9, 9]);
+    assert.deepEqual(closed, [9], "this process doesn't keep the log's descriptor");
+    // The macOS path is POSIX on every runner, Windows CI included.
+    assert.ok(!args[0].includes("\\"));
+  });
+
+  // REGRESSION (review): the updater's path is installInfo().script, passed in
+  // — startMacUpdater used to rebuild it from `dir` with its own
+  // path.posix.join and ignore the field installInfo() had already worked out,
+  // so the two could drift apart without anything noticing. A path neither
+  // launcher could have derived from `dir` is the only way to tell the
+  // difference.
+  test("the script it runs is the one it was given, on either platform, never one it worked out itself", async () => {
+    const spawned: string[][] = [];
+    const spawnImpl = ((_file: string, args: string[]) => {
+      spawned.push(args);
+      return {
+        unref() {},
+        once(event: string, cb: (code?: number) => void) {
+          if (event === "spawn") setTimeout(cb, 0);
+          if (event === "exit") setTimeout(() => cb(0), 0);
+        },
+      };
+    }) as unknown as typeof import("node:child_process").spawn;
+
+    await startUpdater("v0.2.0", 3123, "/somewhere/else/my-update.sh", {
+      dir: "/Users/a/granted/scaffold",
+      platform: "darwin",
+      spawnImpl,
+      logPath: join(dir, "up.log"),
+      openImpl: (() => 9) as unknown as typeof import("node:fs").openSync,
+      closeImpl: () => {},
+    });
+    assert.equal(spawned[0][0], "/somewhere/else/my-update.sh");
+
+    await startUpdater("v0.2.0", 3123, "D:\\elsewhere\\my-update.ps1", {
+      dir: "C:\\g\\scaffold",
+      platform: "win32",
+      systemRoot: "C:\\Windows",
+      spawnImpl,
+    });
+    const command = spawned[1][spawned[1].indexOf("-Command") + 1];
+    assert.match(command, /-File D:\\elsewhere\\my-update\.ps1 -Ref v0\.2\.0 -Port 3123'$/);
+  });
+
+  // REGRESSION (review): this used to be `platform === "darwin" ? mac :
+  // windows`, which made Windows the implicit answer for every platform that
+  // isn't macOS. A platform added to the UPDATERS table exactly as that table
+  // says to add one would then have been told it can update itself and handed
+  // the Windows PowerShell updater to run — silently. It has to fail instead.
+  test("a platform with no updater of its own is refused, never sent to the Windows one", async () => {
+    const spawnImpl = (() => {
+      throw new Error("nothing may be started for a platform with no updater");
+    }) as unknown as typeof import("node:child_process").spawn;
+    for (const platform of ["linux", "freebsd", "aix"] as const) {
+      await assert.rejects(
+        () => startUpdater("v0.2.0", 3000, "/g/scaffold/scripts/linux/update.sh", { dir: "/g/scaffold", platform, spawnImpl }),
+        new RegExp(`can't update itself on ${platform}`),
+        platform,
+      );
+    }
+  });
+
+  test("macOS: an updater that can't be started is reported, not swallowed", async () => {
+    const spawnImpl = (() => ({
+      unref() {},
+      once(event: string, cb: (err?: Error) => void) {
+        if (event === "error") setTimeout(() => cb(new Error("ENOENT")), 0);
+      },
+    })) as unknown as typeof import("node:child_process").spawn;
+    await assert.rejects(
+      () => startUpdater("v0.2.0", 3000, "/nope/scaffold/scripts/macos/update.sh", { platform: "darwin", spawnImpl, logPath: join(dir, "up.log") }),
+      /ENOENT/,
+    );
+  });
+
+  test("the updater's own log goes in the temporary folder, next to the uninstaller's", () => {
+    assert.equal(updateLogPath(new Date("2026-10-06T12:34:56.000Z"), "/tmp"), "/tmp/granted-update-2026-10-06T12-34-56-000Z.log");
   });
 });
 

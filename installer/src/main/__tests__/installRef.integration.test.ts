@@ -365,7 +365,7 @@ describe("install-windows.ps1 with GRANTED_REF (a pinned release)", { skip: (pro
     const serverScript = join(dir, "server.mts");
     writeFileSync(
       serverScript,
-      `import { startUpdater } from "file:///${installTs}";\nawait startUpdater("v9.9.9", 3456, { dir: ${JSON.stringify(dir)} });\nconsole.log("launched");\nsetInterval(() => {}, 1000);\n`,
+      `import { startUpdater } from "file:///${installTs}";\nawait startUpdater("v9.9.9", 3456, ${JSON.stringify(join(dir, "scripts", "windows", "update.ps1"))}, { dir: ${JSON.stringify(dir)} });\nconsole.log("launched");\nsetInterval(() => {}, 1000);\n`,
     );
     const server = spawn(process.execPath, ["--import", "tsx", serverScript], { cwd: process.cwd(), windowsHide: true, stdio: ["ignore", "pipe", "inherit"] });
     started.push(server);

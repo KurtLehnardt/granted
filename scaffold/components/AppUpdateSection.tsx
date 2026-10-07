@@ -11,10 +11,10 @@ import { isErrorId } from "@/lib/errorLog/errorId";
 
 /**
  * The bottom of Settings: this install's version, "Check for updates", and
- * "Install updates automatically". An install made by the Windows installer
- * updates itself (scripts/windows/update.ps1 — Granted restarts, and this
- * page reloads on the new version); anything else is told what's available
- * and where to get it.
+ * "Install updates automatically". An install either installer made updates
+ * itself (scripts/windows/update.ps1 on Windows, scripts/macos/update.sh on
+ * macOS — Granted restarts, and this page reloads on the new version);
+ * anything else is told what's available and where to get it.
  *
  * Uninstalling lives at the end of this same About Granted section, in
  * UninstallSection, and shows nothing at all except on a macOS install the
