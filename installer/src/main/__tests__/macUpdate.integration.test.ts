@@ -689,9 +689,12 @@ describe(
       started.push(server);
       let out = "";
       server.stdout?.on("data", (b: Buffer) => (out += b.toString()));
-      await until(async () => existsSync(startedFile), (there) => there, 60_000);
-      assert.ok(existsSync(startedFile), "update.sh was actually started");
-      assert.match(readFileSync(startedFile, "utf8"), /--ref v9\.9\.9 --port 3456/);
+      const startedWith = await until(
+        async () => (existsSync(startedFile) ? readFileSync(startedFile, "utf8") : ""),
+        (text) => text.endsWith("\n"),
+        60_000,
+      );
+      assert.match(startedWith, /--ref v9\.9\.9 --port 3456/, "update.sh was actually started");
       // The update stops the server — on macOS that is launchd killing its
       // whole job, so the whole process group goes. The updater must survive it.
       process.kill(-(server.pid as number), "SIGKILL");
