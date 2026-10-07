@@ -301,7 +301,7 @@ test(
     assert.match(code, /existing_ancestor/);
     // And the check that needs no prediction at all: whatever got past the
     // above, keptKeys only ever names a folder that is really there.
-    assert.match(code, /kept_keys_json\(\) \{\n\s*if \[ -n "\$KEPT_KEYS" \] && \[ -d "\$KEPT_KEYS" \]/);
+    assert.match(code, /kept_keys_json\(\) \{\r?\n\s*if \[ -n "\$KEPT_KEYS" \] && \[ -d "\$KEPT_KEYS" \]/);
     assert.ok(
       !/"\$\(\[ -n "\$KEPT_KEYS" \] && json_string/.test(code),
       "no report site names the backup folder without checking it is there",
@@ -324,7 +324,7 @@ test(
     assert.match(code, /basename -- "\$SUPPORT_DIR"\)" = "Granted"/);
     assert.match(code, /basename -- "\$LOG_DIR"\)" = "Granted"/);
     // --quiet refuses unsaved work on its own; only --force goes ahead.
-    assert.match(code, /if \[ "\$QUIET" = "1" \]; then\n\s*if \[ "\$FORCE" != "1" \]; then/);
+    assert.match(code, /if \[ "\$QUIET" = "1" \]; then\r?\n\s*if \[ "\$FORCE" != "1" \]; then/);
     // And the asking is overridable, so no test can ever be left waiting on a
     // dialog.
     assert.match(code, /GRANTED_UNINSTALL_ASK_CMD/);
