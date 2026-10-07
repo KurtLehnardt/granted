@@ -592,7 +592,7 @@ const GRANTED_URL = `http://localhost:${GRANTED_PORT}`;
 // `npm run dev` binds 127.0.0.1 specifically (`next dev -H 127.0.0.1`), so
 // probe that rather than "localhost", which can resolve to ::1 first.
 const GRANTED_PROBE_URL = `http://127.0.0.1:${GRANTED_PORT}/`;
-const LOCAL_SETUP_TIMEOUT_MS = 2 * 60 * 60_000; // model pull + corpus re-embed: "a few minutes to a half hour", more on slow links
+const LOCAL_SETUP_TIMEOUT_MS = 2 * 60 * 60_000; // model pull: "a few minutes to a half hour", more on slow links
 const APP_START_TIMEOUT_MS = 5 * 60_000; // first `next dev` compile of the home page
 const PROBE_TIMEOUT_MS = 60_000;
 // Long enough that a Granted busy compiling its first request reads as
@@ -844,12 +844,11 @@ async function runLocalSetup(sender: WebContents): Promise<ActionResult> {
   grantedTaskInFlight = true;
   try {
     // --yes: unattended defaults (recommended model for this machine's
-    // memory, plus the corpus re-embed) — the wizard has already asked the
-    // one question that matters.
+    // memory) — the wizard has already asked the one question that matters.
     const statusPath =
       // A finished ("done") earlier attempt counts too: the poll below then
       // reports it at once and Granted starts, instead of redoing a
-      // half-hour model pull and re-embed.
+      // half-hour model pull.
       (await reattachablePath("local-setup", true)) ??
       (process.platform === "win32"
         ? await launchScaffoldTask({
