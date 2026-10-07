@@ -42,10 +42,15 @@ export type LogsDeps = {
   now: () => number;
 };
 
-/** Windows: an Explorer window on the folder. Elsewhere the page shows the path instead. */
-function openFolderInExplorer(dir: string): boolean {
+/** Windows: an Explorer window on the folder, via explorer.exe. macOS: a Finder
+ *  window, via `open` -- present on every real macOS install, unlike Linux,
+ *  which has no single file-manager launcher guaranteed across distros
+ *  (including headless boxes), so it still falls back to the page showing
+ *  the path instead. */
+function openFolderInFileManager(dir: string): boolean {
+  const [cmd, args]: [string, string[]] = process.platform === "win32" ? ["explorer.exe", [dir]] : ["open", [dir]];
   try {
-    const child = spawn("explorer.exe", [dir], { detached: true, stdio: "ignore", windowsHide: false });
+    const child = spawn(cmd, args, { detached: true, stdio: "ignore", windowsHide: false });
     child.on("error", () => {});
     child.unref();
     return true;
@@ -66,7 +71,7 @@ const REAL_DEPS: LogsDeps = {
   issueContext,
   sanitizeContext: () => serverSanitizeContext(),
   logDir: () => errorLogDir(),
-  openFolder: openFolderInExplorer,
+  openFolder: openFolderInFileManager,
   platform: process.platform,
   allowClientLog: () => rateLimit("api-logs-client", CLIENT_LOG_LIMIT).ok,
   now: () => Date.now(),
@@ -163,7 +168,7 @@ export async function handleLogsGet(req: Req, deps: Partial<LogsDeps> = {}): Pro
     issueIncluded: link.included,
     ...(errorId ? { issueFound: link.found } : {}),
     logDir: d.logDir(),
-    canOpenFolder: d.platform === "win32",
+    canOpenFolder: d.platform === "win32" || d.platform === "darwin",
   };
   return NextResponse.json(summary, { headers: { "Cache-Control": "no-store" } });
 }
@@ -198,7 +203,7 @@ export async function handleLogsPost(req: Req & { text?: () => Promise<string> }
   }
   if (body.action === "open-folder") {
     const dir = d.logDir();
-    const opened = d.platform === "win32" ? d.openFolder(dir) : false;
+    const opened = d.platform === "win32" || d.platform === "darwin" ? d.openFolder(dir) : false;
     return NextResponse.json({ opened, path: dir });
   }
   if (body.action !== "log") return NextResponse.json({ error: "Unknown action" }, { status: 400 });
