@@ -34,6 +34,7 @@
 import { writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium } from "@playwright/test";
+import { MANUAL_ADDITIONS } from "./lib/utManualAdditions.mjs";
 
 const RAW_DIR = process.env.RAW_DIR || "data/raw";
 const rawPath = (name) => join(RAW_DIR, name);
@@ -128,8 +129,10 @@ async function main() {
     console.warn(`UT grants  WARNING: only extracted ${out.length} cards -- expected ~200. The dashboard markup may have changed.`);
   }
 
+  out = out.concat(MANUAL_ADDITIONS);
+
   await writeFile(rawPath("ut-grants.json"), JSON.stringify(out, null, 2));
-  console.log(`UT grants  kept ${out.length} opportunities`);
+  console.log(`UT grants  kept ${out.length} opportunities (${MANUAL_ADDITIONS.length} hand-added, not on the dashboard)`);
   console.log(`→ ${rawPath("ut-grants.json")}\n`);
 }
 
