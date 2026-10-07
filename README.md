@@ -16,7 +16,21 @@ Every OS below ends up running the exact same `npm` commands — the setup scrip
 
 ## Install on macOS
 
-*The app's local-model flow is verified end to end on a 32GB Mac: auto-picked `qwen2.5:14b` and completed a full novel-company search (18 candidates, fully local, zero API calls) in **3 minutes 43 seconds**. `install-macos.sh` is separately verified on a 2015 MacBook Pro (Intel i7-4770HQ, 16GB, macOS 12.7.6) — the oldest realistic case, which forces the Ollama CLI-tarball path described below — and on a clean macOS 15 (Sequoia) VM with nothing pre-installed, both with Homebrew already present and with no Homebrew and no terminal to prompt through (the one-liner bootstraps Homebrew itself in that case): `llama3.2:3b` on 4 vCPU/8GB completed a full novel-company search in 13m36s, fully local, zero API calls.*
+**Easiest: download the installer.** Get **Granted-Setup-x.y.z-arm64.dmg** from the [latest release](https://github.com/KurtLehnardt/granted/releases/latest), open it, and drag **Granted Setup** to your **Applications** folder. **Apple Silicon only** (M1 and later) — there's no Intel build.
+
+- **Gatekeeper, the first time.** The installer isn't signed by an Apple Developer account, so macOS blocks its first launch. Recent macOS versions removed the old right-click → **Open** shortcut, so this is the way through:
+  1. Open **Granted Setup** from Applications. Nothing opens — macOS says it blocked the app.
+  2. Open **System Settings → Privacy & Security** and scroll down to the **Security** section. It names Granted Setup as having been blocked, with an **Open Anyway** button.
+  3. Click **Open Anyway** and confirm with Touch ID or your password. The app opens, and opens normally from then on.
+
+  Advanced fallback, if you'd rather not go through System Settings: `xattr -dr com.apple.quarantine "/Applications/Granted Setup.app"` clears the download flag, after which it opens directly. Only do that for a file you downloaded yourself and trust.
+- **What it does:** it walks you through everything. It checks for git and Node.js and installs them if they're missing (Homebrew where you have it, otherwise the Xcode Command Line Tools for git and the official nodejs.org package for Node), then clones and installs Granted into `~/granted`, downloads the built-in search model, and can open Granted for you. The install itself runs in a Terminal window the wizard opens and watches; the window closes itself when it's done, and stays open if something failed.
+- **Which version:** each installer installs its own release. Running a newer installer over an existing install updates it, and never moves it backwards. It will not touch a Granted folder you cloned yourself — only one its own installer made.
+- **After it's installed:** a **Granted** launcher in `~/Applications` (no admin needed), optionally added to your Dock from the last screen of the wizard. Everything below under **Run it in the background** applies.
+
+*Verified on real hardware: the `.dmg` is built and Gatekeeper-tested on an M1 MacBook running macOS 27.0.1 (arm64). The app bundle is native arm64 with no Rosetta prompt. The Gatekeeper behaviour above is what macOS actually did with a freshly quarantined copy of that build — blocked, terminated, and recorded for the **Open Anyway** button; the `xattr` fallback was confirmed to let it launch. The **Open Anyway** click itself was not exercised (it needs an administrator confirmation), and no release carrying a `.dmg` has been published yet: the asset appears from the first release tagged after this landed. The app's local-model flow is verified end to end on a 32GB Mac: auto-picked `qwen2.5:14b` and completed a full novel-company search (18 candidates, fully local, zero API calls) in **3 minutes 43 seconds**. `install-macos.sh` is separately verified on a 2015 MacBook Pro (Intel i7-4770HQ, 16GB, macOS 12.7.6) — the oldest realistic case, which forces the Ollama CLI-tarball path described below — and on a clean macOS 15 (Sequoia) VM with nothing pre-installed, both with Homebrew already present and with no Homebrew and no terminal to prompt through (the one-liner bootstraps Homebrew itself in that case): `llama3.2:3b` on 4 vCPU/8GB completed a full novel-company search in 13m36s, fully local, zero API calls.*
+
+Prefer the command line? The steps below do the same thing, from `main`.
 
 **1. Install prerequisites + clone (one command)**
 ```bash
@@ -54,6 +68,24 @@ npm run dev
 > ln -sf ~/.local/ollama/ollama /usr/local/bin/ollama
 > ```
 > There's no `.app` wrapper on this path, so start the daemon yourself with `ollama serve` — and again after each reboot, since nothing auto-starts it.
+
+**4. Run it in the background, from a launcher (optional)**
+
+Instead of keeping a Terminal open for `npm run dev`, Granted can run hidden in the background with an icon in the menu bar. The GUI installer offers this: its "Installation complete" screen has an **Add to Dock** box, and "Open Granted" starts it this way. To add the launcher by hand:
+```bash
+bash scripts/macos/applications-launcher.sh install --add-to-dock
+```
+- **The Granted launcher** (`~/Applications/Granted.app`, per-user, no admin needed) starts Granted if it isn't already running, then opens it. **Nothing starts at login:** the server runs under a per-user LaunchAgent (`com.granted.server`) written with `RunAtLoad` off and no `KeepAlive`, so it is started when you open Granted and stopped when you quit it — the same as on Windows.
+- **Its own window:** Granted opens like an app, in a Chrome (or Edge) window with no tabs or address bar and its own Dock entry (app mode, `--app=…`). With neither browser installed it opens in your default browser, which on a stock Mac is Safari. To use a normal browser tab instead, untick **Open in its own window** in the menu-bar menu or on the installer's last screen. The choice is saved in `~/Library/Application Support/Granted/settings.json` — the same `openIn` key Windows uses in its own settings file.
+- **The Granted icon in the menu bar** has a menu: **Open Granted**, its status, **Open in its own window**, **Show log** (the server output, in `~/Library/Logs/Granted/`), **Restart**, **Uninstall Granted…** and **Quit Granted**. Quitting stops the server. Every item carries a VoiceOver label.
+- **Updates:** **Settings → About Granted** shows the version, with **Check for updates**. On an install made by the installer, **Update to vX.Y.Z** updates in place: it runs `scripts/macos/update.sh` detached (so it survives Granted being stopped), quits Granted, installs the release, rolls back if that fails, and restarts Granted on the same port; the page reloads on the new version. **Install updates automatically** does the same when Granted is opened, at most every 6 hours. A developer checkout is told to `git pull` instead, and is never changed.
+- **Uninstalling:** macOS has no "Installed apps" list, so uninstall is offered in two places: **Uninstall Granted…** in the menu-bar menu, and **Settings → About Granted** in the app. Either one:
+  - quits Granted and removes its LaunchAgent, menu-bar helper, `~/Applications` launcher and Dock entry;
+  - removes its folder, settings and logs;
+  - first offers to save a copy of your API keys and local-model settings to your Documents folder (on by default).
+
+  Homebrew, git and Node stay installed. It refuses to delete a Granted folder that its own installer didn't create (no `.git/granted-installer` marker), and asks again if the folder holds work that isn't on GitHub. From the command line: `bash scripts/macos/uninstall.sh` (add `--quiet` to skip the questions, `--check` to see what it would do and change nothing).
+- **No menu-bar icon?** The icon is a small native Swift helper, built on first start, which needs the Xcode Command Line Tools: `xcode-select --install`. Without them Granted still runs in the background under launchd — there's just no icon, and `~/Library/Logs/Granted/tray.log` says so.
 
 ## Install on Windows
 
@@ -269,6 +301,9 @@ Results **stream**. Progress and grounded evidence appear in seconds rather than
 ## Troubleshooting
 
 - **The installer says "Couldn't download the Granted installer from GitHub (The remote name could not be resolved: 'raw.githubusercontent.com')"** → the PC couldn't reach GitHub. It retries for about 40 seconds first. A VPN that's still connecting (or a DNS hiccup) is the usual cause: wait until you're online, then click **Try again**.
+- **macOS says Granted Setup "was blocked" and nothing opens** → expected: the installer isn't signed by an Apple Developer account. Go to **System Settings → Privacy & Security → Open Anyway** (full steps under **Install on macOS**). If macOS instead calls the app **damaged**, the download didn't finish — check it against `SHA256SUMS.txt` on the release and download it again.
+- **The installer's Terminal window closed before the install finished (macOS)** → the wizard notices straight away and says so. Click the button again; re-running the install is safe, and it picks up where a half-finished one left off.
+- **No Granted icon in the menu bar (macOS)** → the icon needs the Xcode Command Line Tools to build its helper: `xcode-select --install`. Granted still runs in the background without it; see **Install on macOS** above.
 - **`No cloud provider is configured`** → scoring needs one provider: add `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` to `scaffold/.env.local` (then restart `npm run dev`), pick one in Settings → Model, or switch to Local.
 - **"Search is running in keyword-only mode: couldn't download the search model (…)"** → run `npm run model:fetch` in `scaffold/` to see the full error. Behind a proxy or firewall, set `GRANTED_MODEL_URL` to a mirror (Node's `fetch` ignores `HTTPS_PROXY`).
 - **"Search is running in keyword-only mode: the search model couldn't start because the Microsoft Visual C++ runtime is missing on this computer"** → install it from https://aka.ms/vs/17/release/vc_redist.x64.exe (or run the Granted installer again), then restart Granted.
@@ -287,15 +322,18 @@ Results **stream**. Progress and grounded evidence appear in seconds rather than
 
 ## Releasing (maintainers)
 
-Releases publish the Windows installer, `Granted-Setup-x.y.z.exe`, through `.github/workflows/release.yml`.
+Releases publish both installers — `Granted-Setup-x.y.z.exe` for Windows and `Granted-Setup-x.y.z-arm64.dmg` for Apple Silicon macOS — through `.github/workflows/release.yml`.
 1. Set `"version"` to the new version in **both** `installer/package.json` and `scaffold/package.json`, and merge that.
 2. Tag `main` and push the tag: `git tag v0.2.0 && git push origin v0.2.0`.
 
-The workflow:
-- checks that the tag matches both versions;
+The workflow runs one build job per platform (`windows-latest` and `macos-latest`), each of which:
+- checks that the tag is on `main` and matches both versions;
 - runs the installer's tests;
-- builds the `.exe` with the tag baked in, so it installs exactly that release (or a newer one, when asked);
-- smoke-tests the packaged app;
-- publishes the release with the `.exe` and a SHA-256 checksum.
+- builds its installer with the tag baked in, so it installs exactly that release (or a newer one, when asked);
+- smoke-tests the packaged app.
 
-To build it locally: `cd installer; $env:GRANTED_RELEASE_TAG='v0.2.0'; npm run dist`, which writes `installer\dist\Granted-Setup-<version>.exe`.
+A separate publish job then creates the release with both installers and their SHA-256 checksums. Neither is code-signed: Windows shows SmartScreen's "Windows protected your PC", and macOS blocks the first launch (see **Install on macOS** above for the steps through it). The macOS `.app` is given a valid *ad-hoc* signature during packaging — not a real identity, but enough that macOS treats the block as the ordinary unsigned-app one rather than as a damaged bundle. `release.yml` has a clearly marked slot in its `build-macos` job for real signing and notarization once there's a paid Apple Developer account.
+
+To build them locally:
+- Windows: `cd installer; $env:GRANTED_RELEASE_TAG='v0.2.0'; npm run dist`, which writes `installer\dist\Granted-Setup-<version>.exe`.
+- macOS: `cd installer && GRANTED_RELEASE_TAG=v0.2.0 npm run dist:mac`, which writes `installer/dist/Granted-Setup-<version>-arm64.dmg`. Needs a Mac — it converts the icon with `iconutil` and signs with `codesign`.
