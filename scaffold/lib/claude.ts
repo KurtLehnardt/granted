@@ -9,6 +9,7 @@ import { loadPrompt } from "./prompts";
 import { isFlagEnabled } from "./flags";
 import type { CostMeter } from "./metering/meter";
 import { describeErrorForLog, ProviderHttpError } from "./llm/errors";
+import { truncateDescriptionForPrompt } from "./opportunities/truncateForPrompt";
 import {
   type Assessment as TwoPassAssessment,
   type PassAScore,
@@ -500,7 +501,7 @@ export async function explainMatches(
               JSON.stringify(
                 group.map((c) => ({
                   id: c.id, program: c.program, agency: c.agency, kind: c.kind,
-                  description: c.description.slice(0, 1200), eligibility: c.eligibility,
+                  description: truncateDescriptionForPrompt(c.description, 1200), eligibility: c.eligibility,
                   fundingLow: c.fundingLow, fundingHigh: c.fundingHigh, deadline: c.deadline,
                 })),
               ),
@@ -776,7 +777,7 @@ async function scorePassA(
                   JSON.stringify(
                     group.map((c) => ({
                       id: c.id, program: c.program, agency: c.agency, kind: c.kind,
-                      description: c.description.slice(0, 1200), eligibility: c.eligibility,
+                      description: truncateDescriptionForPrompt(c.description, 1200), eligibility: c.eligibility,
                       fundingLow: c.fundingLow, fundingHigh: c.fundingHigh, deadline: c.deadline,
                     })),
                   ),
@@ -858,7 +859,7 @@ async function narratePassB(
                   JSON.stringify(
                     group.map((c) => ({
                       id: c.id, program: c.program, agency: c.agency, kind: c.kind,
-                      description: c.description.slice(0, 1200), eligibility: c.eligibility,
+                      description: truncateDescriptionForPrompt(c.description, 1200), eligibility: c.eligibility,
                       fundingLow: c.fundingLow, fundingHigh: c.fundingHigh, deadline: c.deadline,
                     })),
                   ),

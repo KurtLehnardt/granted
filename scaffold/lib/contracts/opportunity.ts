@@ -45,6 +45,36 @@ export const OpportunitySourceSchema = z.enum([
 export type OpportunitySource = z.infer<typeof OpportunitySourceSchema>;
 
 /**
+ * Sources whose opportunities are FEDERAL financial assistance/procurement —
+ * governed by federal regulations (2 CFR SAM.gov registration, the FAR, SBA
+ * loan rules, etc.). State-grant sources (`ca-grants`/`il-grants`/`nc-grants`)
+ * are explicitly NOT federal and must never be shown federal-only
+ * requirements (SAM.gov/UEI registration, SBA "organized for profit," etc.).
+ *
+ * Single source of truth for this distinction — both
+ * `components/ApplicationChecklist.tsx` (the document checklist / next-steps
+ * copy) and `lib/eligibility/universalRules.ts` (the ELG-01 eligibility
+ * screening engine's federal regulatory overlay) import this rather than
+ * keeping their own copies. They drifted apart once already: #260 added the
+ * `ApplicationChecklist.tsx` gate when state sources shipped, but
+ * `universalRules.ts`'s sibling engine wasn't updated at the same time, so it
+ * kept showing a SAM.gov/UEI "authority" requirement on every state grant —
+ * a real, reported bug. `agency-feed` is deliberately left out: its
+ * federal-ness is unconfirmed (§4.2, forward-compatible placeholder), and
+ * the safe failure direction here is to under-apply a federal rule, never
+ * to over-apply one to a non-federal program.
+ */
+export const FEDERAL_SOURCES: ReadonlySet<OpportunitySource> = new Set<OpportunitySource>([
+  "grants.gov",
+  "sbir",
+  "sbir.gov",
+  "assistance-listings",
+  "sam.gov",
+  "sam-contracts",
+  "usaspending",
+]);
+
+/**
  * The *instrument* an opportunity offers, independent of its `source`. Broad on
  * purpose so the corpus can carry the full spread of federal/adjacent programs:
  *   grant       — non-repayable award (Grants.gov, assistance listings)
