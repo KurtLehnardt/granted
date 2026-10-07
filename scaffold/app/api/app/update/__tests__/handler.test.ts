@@ -32,8 +32,8 @@ function world(over: {
     appVersion: () => over.version ?? "0.1.1",
     installInfo: () =>
       over.canUpdate === false
-        ? { installDir: "C:\\g", canUpdate: false, reason: "not-installer-made" }
-        : { installDir: "C:\\g", canUpdate: true, reason: null },
+        ? { installDir: "C:\\g", canUpdate: false, reason: "not-installer-made", script: null }
+        : { installDir: "C:\\g", canUpdate: true, reason: null, script: "C:\\g\\scaffold\\scripts\\windows\\update.ps1" },
     readUpdateSettings: () => settings,
     writeUpdateSettings: (c) => {
       calls.writes.push(c);

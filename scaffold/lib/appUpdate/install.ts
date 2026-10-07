@@ -2,10 +2,11 @@
  * Granted updating itself: what this install is, whether it can update
  * itself, the per-user settings (auto-update), and starting the updater.
  *
- * Only an install made by the Windows installer can update itself: it has
- * scripts/windows/update.ps1 and the installer's marker (.git\granted-
- * installer). A developer's own checkout is never touched — it's told what's
- * available and to `git pull` — and so is any other platform for now.
+ * Only an install one of the installers made can update itself: it has the
+ * installer's marker (.git/granted-installer) and the updater for its platform
+ * — scripts/windows/update.ps1 or scripts/macos/update.sh. A developer's own
+ * checkout is never touched (it's told what's available and to `git pull`), and
+ * neither is a platform with no installer of its own.
  *
  * This file also owns the other thing an install can do to itself:
  * uninstalling (uninstallInfo/startUninstaller, below). That is macOS-only and
@@ -34,28 +35,54 @@ export function appVersion(dir = scaffoldDir()): string {
   }
 }
 
-export type CannotUpdateReason = "not-windows" | "not-installer-made" | "no-updater";
+export type CannotUpdateReason = "unsupported-platform" | "not-installer-made" | "no-updater";
 
 export interface InstallInfo {
   installDir: string;
   canUpdate: boolean;
   /** Why it can't update itself (null when it can). */
   reason: CannotUpdateReason | null;
+  /** The updater this install would run (null when it has none it may run). */
+  script: string | null;
 }
 
+/**
+ * The updater each platform has, relative to scaffold/. A platform that isn't
+ * in here has no in-app update at all: that is what "unsupported-platform"
+ * means, and adding one is adding a line here plus the script itself.
+ */
+const UPDATERS: Partial<Record<NodeJS.Platform, readonly string[]>> = {
+  win32: ["scripts", "windows", "update.ps1"],
+  darwin: ["scripts", "macos", "update.sh"],
+};
+
+/**
+ * Whether this install can update itself from Settings → About Granted, and
+ * with what.
+ *
+ * The same three-part test uninstallInfo() makes below, for the same reasons:
+ * the platform has an updater at all, the installer's `.git/granted-installer`
+ * marker is there (so a developer's own checkout is never switched to another
+ * release under them), and the script itself is present (an install made before
+ * that platform had one).
+ */
 export function installInfo(
   dir = scaffoldDir(),
   platform: NodeJS.Platform = process.platform,
   exists: (p: string) => boolean = existsSync,
 ): InstallInfo {
-  // Windows paths on Windows (and in tests of it on any OS).
-  const p = platform === "win32" ? path.win32 : path;
+  // Windows paths for the Windows answer and POSIX ones for the macOS answer,
+  // whatever platform is asking (a test of either runs on both CI runners) —
+  // the convention settingsPath() below records in full.
+  const p = platform === "win32" ? path.win32 : platform === "darwin" ? path.posix : path;
   const installDir = p.resolve(dir, "..");
+  const relative = UPDATERS[platform];
+  const script = relative ? p.join(dir, ...relative) : null;
   let reason: CannotUpdateReason | null = null;
-  if (platform !== "win32") reason = "not-windows";
+  if (!script) reason = "unsupported-platform";
   else if (!exists(p.join(installDir, ".git", "granted-installer"))) reason = "not-installer-made";
-  else if (!exists(p.join(dir, "scripts", "windows", "update.ps1"))) reason = "no-updater";
-  return { installDir, canUpdate: reason === null, reason };
+  else if (!exists(script)) reason = "no-updater";
+  return { installDir, canUpdate: reason === null, reason, script: reason === null ? script : null };
 }
 
 /**
@@ -125,7 +152,7 @@ export function writeUpdateSettings(changes: Partial<UpdateSettings>, path = set
   writeFileSync(path, JSON.stringify(next), "utf8");
 }
 
-/** Where update.ps1 reports progress: next to the settings file. */
+/** Where the updater reports progress: next to the settings file. */
 export function updateStatusPath(env: Record<string, string | undefined> = process.env): string {
   return join(dirname(settingsPath(env)), "update-status.json");
 }
@@ -138,7 +165,7 @@ export interface UpdateStatus {
   at?: string;
 }
 
-/** Writes the update status (the server marks "running" itself before starting update.ps1). */
+/** Writes the update status (the server marks "running" itself before starting the updater). */
 export function writeUpdateStatus(status: UpdateStatus, file = updateStatusPath()): void {
   mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, JSON.stringify(status), "utf8");
@@ -153,6 +180,63 @@ export function readUpdateStatus(path = updateStatusPath()): UpdateStatus | null
   }
 }
 
+/**
+ * Starts `file args\u2026` in its own session, with its output in a file and nothing
+ * linking it back to this process, and resolves with that file's path as soon as
+ * it is running.
+ *
+ * This is how both of the things an install does to ITSELF are started on
+ * macOS \u2014 the updater and the uninstaller \u2014 because both of them stop this very
+ * server partway through. A child of this process would be killed with it
+ * (Windows solves the same problem by going through Start-Process; see
+ * startUpdater below). `detached` is what matters, not `nohup`: a new session
+ * has no controlling terminal to be hung up on, and launchd's teardown of this
+ * server's job does not reach it. Its output goes to a file, so nothing is
+ * written to a pipe whose other end is about to be gone, and the working
+ * directory is "/" so it never holds a folder the script is about to replace or
+ * delete. Resolving on "spawn" rather than "exit" is the honest contract: this
+ * never exits before the server it is stopping.
+ */
+function startDetached(
+  file: string,
+  args: string[],
+  logPath: string,
+  deps: { spawnImpl?: typeof spawn; openImpl?: typeof openSync; closeImpl?: typeof closeSync } = {},
+): Promise<string> {
+  let out: number | "ignore" = "ignore";
+  try {
+    out = (deps.openImpl ?? openSync)(logPath, "a");
+  } catch {
+    out = "ignore";
+  }
+  const child = (deps.spawnImpl ?? spawn)(file, args, {
+    cwd: "/",
+    detached: true,
+    stdio: ["ignore", out, out],
+  });
+  child.unref?.();
+  return new Promise((resolveStart, rejectStart) => {
+    const release = (): void => {
+      // The child has its own copy of the descriptor from here on.
+      if (typeof out === "number") {
+        try {
+          (deps.closeImpl ?? closeSync)(out);
+        } catch {
+          /* already closed */
+        }
+      }
+    };
+    child.once?.("error", (err: Error) => {
+      release();
+      rejectStart(err);
+    });
+    child.once?.("spawn", () => {
+      release();
+      resolveStart(logPath);
+    });
+  });
+}
+
 /** The PowerShell -Command that starts `file args…` via Start-Process, everything a single-quoted literal. */
 export function startProcessCommand(file: string, args: string[]): string {
   const q = (s: string): string => `'${s.replace(/'/g, "''")}'`;
@@ -160,9 +244,52 @@ export function startProcessCommand(file: string, args: string[]): string {
   return `Start-Process -FilePath ${q(file)} -ArgumentList ${q(argLine)}`;
 }
 
+/** Where a started updater's own output goes: the temporary folder, as the uninstaller's does. */
+export function updateLogPath(now: Date = new Date(), dir: string = tmpdir()): string {
+  return join(dir, `granted-update-${now.toISOString().replace(/[:.]/g, "-")}.log`);
+}
+
+export type StartUpdaterDeps = {
+  dir?: string;
+  platform?: NodeJS.Platform;
+  systemRoot?: string;
+  spawnImpl?: typeof spawn;
+  openImpl?: typeof openSync;
+  closeImpl?: typeof closeSync;
+  logPath?: string;
+};
+
 /**
- * Starts scripts/windows/update.ps1 for `ref`, out of this server's process
- * tree — the update stops this very server. A short-lived PowerShell starts
+ * Starts this platform's updater for `ref`, out of this server's process tree —
+ * the update stops this very server — and resolves once it is running (or
+ * rejects if it couldn't be started, so the caller can report a launch failure
+ * instead of "started").
+ *
+ * The two platforms need different mechanisms for the same requirement, which
+ * is why this is a branch rather than one call: see each half below.
+ */
+export function startUpdater(ref: string, port: number, deps: StartUpdaterDeps = {}): Promise<void> {
+  const platform = deps.platform ?? process.platform;
+  return platform === "darwin" ? startMacUpdater(ref, port, deps) : startWindowsUpdater(ref, port, deps);
+}
+
+/**
+ * macOS: scripts/macos/update.sh, started the way startUninstaller starts the
+ * uninstaller — its own session, a working directory outside the install, and
+ * its output in a file (startDetached above says why each of those matters).
+ * This is what the work order means by starting it detached: the script itself
+ * does not daemonize, exactly as update.ps1 does not.
+ */
+function startMacUpdater(ref: string, port: number, deps: StartUpdaterDeps): Promise<void> {
+  const dir = deps.dir ?? scaffoldDir();
+  const updater = path.posix.join(dir, "scripts", "macos", "update.sh");
+  return startDetached("/bin/bash", [updater, "--ref", ref, "--port", String(port)], deps.logPath ?? updateLogPath(), deps).then(
+    () => undefined,
+  );
+}
+
+/**
+ * Windows: scripts/windows/update.ps1. A short-lived PowerShell starts
  * conhost --headless (no console window, even where Windows Terminal is the
  * default) with Start-Process (ShellExecute: nothing inherited) and exits;
  * from then on nothing links the updater to the server, so stopping the
@@ -172,11 +299,7 @@ export function startProcessCommand(file: string, args: string[]): string {
  * then exits without running its -Command (seen on Windows 11) — the update
  * would never start.
  */
-export function startUpdater(
-  ref: string,
-  port: number,
-  deps: { dir?: string; systemRoot?: string; spawnImpl?: typeof spawn } = {},
-): Promise<void> {
+function startWindowsUpdater(ref: string, port: number, deps: StartUpdaterDeps): Promise<void> {
   const dir = deps.dir ?? scaffoldDir();
   const systemRoot = deps.systemRoot ?? process.env["SystemRoot"] ?? "C:\\Windows";
   // Windows-only: Windows paths whatever the test OS.
@@ -394,52 +517,14 @@ export function readUninstallOutcome(path: string, read: (p: string) => string =
  * what it is about to do: it stops this very server (and the menu-bar helper,
  * and the LaunchAgent they run under). A child of this process would be killed
  * partway through the uninstall it was asked to perform — the same hazard
- * startUpdater above goes through Start-Process to avoid on Windows, solved
- * here the way the work order names for macOS: its own session, surviving the
- * process that asked for it.
- *
- * `detached` is what matters, not `nohup`: a new session has no controlling
- * terminal to be hung up on, and launchd's teardown of this server's job does
- * not reach it. Its output goes to a file, so nothing is written to a pipe
- * whose other end is about to be gone. Resolving on "spawn" rather than "exit"
- * is the honest contract: this never exits before the server it is stopping.
+ * startUpdater goes through Start-Process to avoid on Windows, and the same one
+ * the macOS updater has, which is why both go through the one startDetached
+ * above.
  */
 export function startUninstaller(
   script: string,
   choice: UninstallChoice,
   deps: { spawnImpl?: typeof spawn; openImpl?: typeof openSync; closeImpl?: typeof closeSync; logPath?: string } = {},
 ): Promise<string> {
-  const logPath = deps.logPath ?? uninstallLogPath();
-  let out: number | "ignore" = "ignore";
-  try {
-    out = (deps.openImpl ?? openSync)(logPath, "a");
-  } catch {
-    out = "ignore";
-  }
-  const child = (deps.spawnImpl ?? spawn)("/bin/bash", uninstallArgs(script, choice), {
-    cwd: "/",
-    detached: true,
-    stdio: ["ignore", out, out],
-  });
-  child.unref?.();
-  return new Promise((resolveStart, rejectStart) => {
-    const release = (): void => {
-      // The child has its own copy of the descriptor from here on.
-      if (typeof out === "number") {
-        try {
-          (deps.closeImpl ?? closeSync)(out);
-        } catch {
-          /* already closed */
-        }
-      }
-    };
-    child.once?.("error", (err: Error) => {
-      release();
-      rejectStart(err);
-    });
-    child.once?.("spawn", () => {
-      release();
-      resolveStart(logPath);
-    });
-  });
+  return startDetached("/bin/bash", uninstallArgs(script, choice), deps.logPath ?? uninstallLogPath(), deps);
 }

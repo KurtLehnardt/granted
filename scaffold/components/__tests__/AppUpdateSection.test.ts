@@ -55,8 +55,10 @@ describe("what it says", () => {
       String(noteFor({ ...base, canUpdate: false, reason: "not-installer-made", latest: "v0.2.0", updateAvailable: true }, true, idle)),
       /developer checkout: update it with git pull/,
     );
+    // A platform with no installer of its own (Linux): the releases page, not
+    // a button. Windows and macOS installs both reach the button above.
     assert.match(
-      text(noteFor({ ...base, canUpdate: false, reason: "not-windows", latest: "v0.2.0", updateAvailable: true }, true, idle)),
+      text(noteFor({ ...base, canUpdate: false, reason: "unsupported-platform", latest: "v0.2.0", updateAvailable: true }, true, idle)),
       /download it from the releases page/,
     );
   });

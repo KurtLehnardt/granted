@@ -36,7 +36,7 @@ export interface AppUpdateInfo {
   canUpdate: boolean;
   reason: CannotUpdateReason | null;
   autoUpdate: boolean;
-  /** The last update's outcome (update.ps1), if any. */
+  /** The last update's outcome (the updater), if any. */
   status: UpdateStatus | null;
   releasesPage: string;
 }
@@ -116,7 +116,7 @@ export function autoCheckDue(opts: { autoUpdate: boolean; canUpdate: boolean; la
 }
 
 /**
- * An update that failed (update.ps1 wrote "error") goes to the error log —
+ * An update that failed (the updater wrote "error") goes to the error log —
  * once per failure, however often the page asks.
  */
 function logUpdateFailure(status: UpdateStatus | null): void {
@@ -231,7 +231,7 @@ export async function handleUpdatePost(req: Req & { json?: () => Promise<unknown
     if (auto && last?.state === "error" && last.to === latest.tag) {
       return NextResponse.json({ started: false, lastFailed: latest.tag });
     }
-    // "running" BEFORE launching: update.ps1 takes seconds to start and write
+    // "running" BEFORE launching: the updater takes seconds to start and write
     // it, and a second click (or the automatic check) must not start another.
     const startedAt = new Date(d.now()).toISOString();
     d.writeUpdateStatus({ state: "running", from: version, to: latest.tag, message: null, at: startedAt });
