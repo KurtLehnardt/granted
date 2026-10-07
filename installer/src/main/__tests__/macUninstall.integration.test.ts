@@ -287,10 +287,13 @@ test(
     assert.match(code, /"\$LAUNCHER_SCRIPT" remove-from-dock/);
     assert.match(code, /"\$LAUNCHER_SCRIPT" remove/);
     assert.ok(!code.includes("persistent-apps"), "the Dock is applications-launcher.sh's business, not this script's");
-    // A --backup-dir inside the folder being deleted is bad input, not a
-    // backup: the move-and-delete it is meant to survive would destroy it,
-    // and the run would report keeping it anyway.
-    assert.match(code, /BACKUP_DIR#"\$INSTALL_DIR"\//);
+    // A --backup-dir inside the folder being deleted -- or inside the shared
+    // settings/log folders, both removed by the same run's last-install-out
+    // cleanup -- is bad input, not a backup: the move-and-delete it is meant
+    // to survive would destroy it, and the run would report keeping it
+    // anyway. Checked against all three, not just INSTALL_DIR.
+    assert.match(code, /BACKUP_DIR#"\$protected_dir"\//);
+    assert.match(code, /for protected_dir in "\$INSTALL_DIR" "\$SUPPORT_DIR" "\$LOG_DIR"/);
     // Asked of the filesystem as well as of the two strings, so that another
     // NAME for the same folder — a different capitalisation, a symlinked
     // parent, a sideways ".." — is caught too.
@@ -741,22 +744,33 @@ describe(
     //
     // The case here is not an alias at all, which is the point: the backup goes
     // into the SHARED settings folder, which this same run deletes as the last
-    // install out. No containment check against the install folder could ever
-    // catch that, and before this the run reported
-    // {"removed":true,"keptKeys":"<that path>"} for a folder it had just
-    // removed — exit 0, and the user sent to look for keys that are gone.
-    test("a copy of the keys that was destroyed during the uninstall is reported as no copy, not as a path that's gone", async () => {
+    // install out. The up-front containment guard now checks SUPPORT_DIR and
+    // LOG_DIR too (not just INSTALL_DIR), so this is refused before anything
+    // is touched -- exit 64, nothing destroyed, nothing falsely reported.
+    // Before that guard was extended, this same case slipped past it and the
+    // run reported {"removed":true,"keptKeys":"<that path>"} for a folder it
+    // had just removed -- exit 0, and the user sent to look for keys that are
+    // gone.
+    test("a --backup-dir inside the shared settings/log folders is refused up front, not silently destroyed", async () => {
       const b = await box();
       const inside = join(b.supportDir, "kept");
       const { code, result } = await uninstall(b, ["--quiet", "--force", "--backup-dir", inside]);
-      assert.equal(code, 0, JSON.stringify(result));
-      assert.equal(result["removed"], true);
-      assert.equal(existsSync(b.installDir), false, "the install really did go");
-      assert.equal(existsSync(inside), false, "and so did the copy, with the settings folder it was in");
-      assert.equal(result["keptKeys"], null, "so the answer claims no copy rather than naming one that isn't there");
+      assert.equal(code, 64, JSON.stringify(result));
+      assert.equal(result["removed"], false);
+      assert.match(String(result["detail"]), /outside the folder being deleted/);
+      assert.equal(existsSync(b.installDir), true, "refused before anything was touched -- the install is still there");
+      assert.equal(existsSync(b.supportDir), true, "the settings folder the backup pointed inside is untouched too");
 
-      // The general rule, stated the other way round: whatever keptKeys names,
-      // it exists.
+      const insideLog = join(b.logDir, "kept");
+      const { code: logCode, result: logResult } = await uninstall(b, ["--quiet", "--force", "--backup-dir", insideLog]);
+      assert.equal(logCode, 64, JSON.stringify(logResult));
+      assert.equal(existsSync(b.logDir), true, "the log folder the backup pointed inside is untouched too");
+
+      // The general rule, stated the other way round, in a real successful
+      // run: whatever keptKeys names, it exists. kept_keys_json()'s own
+      // existence check (asserted by source-shape above) is what would still
+      // catch a destroyed backup even if some path nobody has thought of yet
+      // ever got past the up-front guard above.
       const good = await box();
       const fine = await uninstall(good, ["--quiet", "--backup-dir", good.backupDir]);
       assert.equal(fine.code, 0, JSON.stringify(fine.result));

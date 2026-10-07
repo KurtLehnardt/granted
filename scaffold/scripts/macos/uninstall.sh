@@ -118,9 +118,12 @@
 # without --force, 64 bad input (an unknown option, an option given no value, a
 # --port that isn't a number, a --backup-dir inside the install folder). Every
 # one of those prints its JSON line too ({"removed":false,"reason":"bad-input"})
-# and not only a message on stderr, so the app -- which reads this script's
-# output out of a log file and has no stderr to look at -- can say what was
-# wrong instead of waiting out its "an uninstall was started" window.
+# and not only a message on stderr -- the app's own uninstall --check already
+# fails identically on bad input (so its panel never gets far enough to render
+# a started/waiting state over this), but the menu-bar helper and a
+# hand-run CLI invocation both go straight to a real run and have no
+# equivalent --check step first, so this is what lets THEM report the real
+# reason instead of just a nonzero exit.
 set -euo pipefail
 # errtrace, exactly as install-macos.sh sets it and for the same reason: bash
 # does NOT run an ERR trap for a command that fails inside a shell function
@@ -134,14 +137,19 @@ DEFAULT_INSTALL_DIR="$(cd -- "$SCRIPT_DIR/../../.." && pwd -P)"
 
 # --- output ----------------------------------------------------------------
 # Defined up here, before the arguments are read, so that the bad-input
-# refusals below can print a JSON line too. The app starts this script
-# detached and learns what happened by reading the one JSON line it writes to
-# a log file (lib/appUpdate/install.ts, parseUninstallOutcome); an exit that
-# printed only to stderr is an exit it can never parse an answer for, so its
-# Uninstall panel would sit on "an uninstall was started" until the staleness
-# window elapsed instead of saying what was actually wrong. Two of these are
-# reachable without a single typed argument -- GRANTED_UNINSTALL_BACKUP_DIR
-# pointed inside the install folder, and a GRANTED_PORT that isn't a number.
+# refusals below can print a JSON line too. Every caller of this script
+# (the app, the menu-bar helper, a hand-run CLI invocation) learns what
+# happened by reading the one JSON line written to a log file
+# (lib/appUpdate/install.ts, parseUninstallOutcome); an exit that printed
+# only to stderr is an exit none of them could parse an answer for. The app
+# itself is shielded from ever hitting these specific paths, since its own
+# uninstall --check fails on the same bad input before a real run ever
+# starts -- but the menu-bar helper and a direct CLI run have no such
+# --check step first, so for them this is the only way to report the real
+# reason instead of a bare nonzero exit. Two of these are reachable without
+# a single typed argument -- GRANTED_UNINSTALL_BACKUP_DIR pointed inside the
+# install folder (or, now, the shared settings/log folders), and a
+# GRANTED_PORT that isn't a number.
 json_string() {
   printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"
 }
@@ -312,35 +320,52 @@ dir_id() {
   stat -f '%d:%i' -- "$1" 2>/dev/null || true
 }
 
-# "/" contains every path there is, and an --install-dir of "/" is refused by
-# name further down (PROTECTED_DIRS); answering it here with "your backup
-# folder is inside it" would answer a different question than the one that is
-# actually wrong.
-if [ "$INSTALL_DIR" != "/" ]; then
-  if [ "$BACKUP_DIR" = "$INSTALL_DIR" ] || [ "${BACKUP_DIR#"$INSTALL_DIR"/}" != "$BACKUP_DIR" ]; then
+# Not just INSTALL_DIR: SUPPORT_DIR and LOG_DIR are both removed by this same
+# run (the last-install-out cleanup further down), so a backup placed inside
+# either of those is destroyed exactly the same way a backup inside
+# INSTALL_DIR would be. kept_keys_json()'s existence check at report time
+# would still catch it and keep the final JSON honest either way, but
+# refusing up front -- same as we already do for INSTALL_DIR -- means the
+# keys are never put at risk in the first place, not just honestly reported
+# as lost afterward.
+BACKUP_INSIDE_WHAT=""
+for protected_dir in "$INSTALL_DIR" "$SUPPORT_DIR" "$LOG_DIR"; do
+  # "/" contains every path there is, and an --install-dir of "/" is refused
+  # by name further down (PROTECTED_DIRS); answering it here with "your
+  # backup folder is inside it" would answer a different question than the
+  # one that is actually wrong.
+  [ "$protected_dir" = "/" ] && continue
+  if [ "$BACKUP_DIR" = "$protected_dir" ] || [ "${BACKUP_DIR#"$protected_dir"/}" != "$BACKUP_DIR" ]; then
     BACKUP_INSIDE=1
+    BACKUP_INSIDE_WHAT="$protected_dir"
+    break
   fi
-  INSTALL_ID="$(dir_id "$INSTALL_DIR")"
+  protected_id="$(dir_id "$protected_dir")"
   BACKUP_REAL="$(existing_ancestor "$BACKUP_DIR" || true)"
-  if [ "$BACKUP_INSIDE" = "0" ] && [ -n "$INSTALL_ID" ] && [ -n "$BACKUP_REAL" ]; then
+  if [ -n "$protected_id" ] && [ -n "$BACKUP_REAL" ]; then
     # From where the backup would be created, up to the root.
     probe="$BACKUP_REAL"
     while : ; do
-      if [ "$(dir_id "$probe")" = "$INSTALL_ID" ]; then BACKUP_INSIDE=1; break; fi
+      if [ "$(dir_id "$probe")" = "$protected_id" ]; then
+        BACKUP_INSIDE=1
+        BACKUP_INSIDE_WHAT="$protected_dir"
+        break
+      fi
       [ "$probe" = "/" ] && break
       probe="$(dirname -- "$probe")"
     done
   fi
-fi
+  [ "$BACKUP_INSIDE" = "1" ] && break
+done
 
 if [ "$BACKUP_INSIDE" = "1" ]; then
   # The resolved path is named as well when it differs, because the whole
   # difficulty with these is that the path as typed does not look like it is
   # inside anything.
   if [ -n "${BACKUP_REAL:-}" ] && [ "$BACKUP_REAL" != "$BACKUP_DIR" ]; then
-    bad_input "the copy of your API keys has to go outside the folder being deleted, and $BACKUP_DIR (really under $BACKUP_REAL) is inside $INSTALL_DIR"
+    bad_input "the copy of your API keys has to go outside the folder being deleted, and $BACKUP_DIR (really under $BACKUP_REAL) is inside $BACKUP_INSIDE_WHAT"
   else
-    bad_input "the copy of your API keys has to go outside the folder being deleted, and $BACKUP_DIR is inside $INSTALL_DIR"
+    bad_input "the copy of your API keys has to go outside the folder being deleted, and $BACKUP_DIR is inside $BACKUP_INSIDE_WHAT"
   fi
 fi
 
