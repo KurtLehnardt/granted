@@ -56,6 +56,14 @@ async function until<T>(fn: () => Promise<T>, ok: (v: T) => boolean, timeoutMs =
   return last;
 }
 
+async function uninstallerLog(log: string): Promise<string> {
+  return until(
+    async () => (existsSync(log) ? readFileSync(log, "utf8") : ""),
+    (text) => /"removed"/.test(text),
+    60_000,
+  );
+}
+
 /** Whether `swift` can build (the Xcode Command Line Tools are installed). */
 function hasSwift(): boolean {
   try {
@@ -1104,7 +1112,7 @@ describe(
         false,
         "the install was removed by the detached uninstaller",
       );
-      assert.match(readFileSync(log, "utf8"), /"removed":true/, "and it reported what it did in its own log");
+      assert.match(await uninstallerLog(log), /"removed":true/, "and it reported what it did in its own log");
       // An install too old to have the script says so rather than pretending.
       const old = await box();
       await rm(old.uninstallScript, { force: true });
@@ -1186,7 +1194,7 @@ describe(
         await until(async () => existsSync(b.installDir), (there) => !there, 120_000),
         false,
       );
-      assert.match(readFileSync(log, "utf8"), /"removed":true/);
+      assert.match(await uninstallerLog(log), /"removed":true/, "the uninstaller reported what it did in its own log");
     });
   },
 );
