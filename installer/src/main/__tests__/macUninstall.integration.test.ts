@@ -264,8 +264,10 @@ test(
     // the one check that keeps a developer's own checkout out of this.
     assert.match(code, /MARKER="\$INSTALL_DIR\/\.git\/granted-installer"/);
     assert.match(code, /not-made-by-installer/);
-    // And the other refusals, each with its own reason.
-    for (const reason of ["is-a-link", "already-gone", "not-a-granted-install", "unsaved-work", "files-in-use", "access-denied", "cancelled"]) {
+    // And the other refusals, each with its own reason. ("already-gone" is not
+    // one of them: a folder deleted by hand is removed:true and exit 0, as in
+    // uninstall.ps1 — see the tests further down.)
+    for (const reason of ["is-a-link", "not-a-granted-install", "unsaved-work", "files-in-use", "access-denied", "cancelled"]) {
       assert.ok(code.includes(reason), `refuses with reason "${reason}"`);
     }
     // Moved aside FIRST, deleted after — the ordering that keeps a failure
@@ -282,9 +284,18 @@ test(
     // Stopping Granted, removing the launcher and the Dock tile are all done
     // by the scripts that own them, never reimplemented here.
     assert.match(code, /"\$TRAY_SCRIPT" stop --port/);
-    assert.match(code, /"\$TRASH_LAUNCHER_SCRIPT" remove-from-dock/);
-    assert.match(code, /"\$TRASH_LAUNCHER_SCRIPT" remove/);
+    assert.match(code, /"\$LAUNCHER_SCRIPT" remove-from-dock/);
+    assert.match(code, /"\$LAUNCHER_SCRIPT" remove/);
     assert.ok(!code.includes("persistent-apps"), "the Dock is applications-launcher.sh's business, not this script's");
+    // A --backup-dir inside the folder being deleted is bad input, not a
+    // backup: the move-and-delete it is meant to survive would destroy it,
+    // and the run would report keeping it anyway.
+    assert.match(code, /BACKUP_DIR#"\$INSTALL_DIR"\//);
+    // An explicit --keep-keys / --no-keep-keys decides it, rather than being
+    // overwritten by whatever the interactive dialog was answered.
+    assert.match(code, /--keep-keys\) KEEP_KEYS=1; KEEP_KEYS_GIVEN=1/);
+    assert.match(code, /--no-keep-keys\) KEEP_KEYS=0; KEEP_KEYS_GIVEN=1/);
+    assert.match(code, /\[ "\$KEEP_KEYS_GIVEN" = "0" \]/);
     // Every `rm -rf` of a path a caller can choose is guarded.
     assert.match(code, /PROTECTED_DIRS=\(/);
     assert.match(code, /basename -- "\$SUPPORT_DIR"\)" = "Granted"/);
@@ -445,19 +456,68 @@ describe(
       assert.ok(existsSync(link), "and so is the link");
     });
 
-    test("a folder already deleted by hand says so rather than failing", async () => {
+    // REGRESSION (review): this used to exit 2 with removed:false and clean up
+    // NOTHING, leaving the LaunchAgent, the launcher, its Dock tile and the
+    // shared settings and logs orphaned with nothing left that would ever
+    // remove them — both ways in went with the folder. uninstall.ps1 treats
+    // this case as removed:true and tidies up, and so does this now.
+    test("a folder already deleted by hand: removed:true (exit 0), and what the install left elsewhere goes too", async () => {
       const gone = await box();
+      // The LaunchAgent, the launcher and its Dock tile are all in place, and
+      // all belong to THIS install.
+      const plist = execFileSync("/bin/bash", [gone.trayScript, "plist", "--port", String(PORT)], {
+        encoding: "utf8",
+        env: { ...process.env, ...gone.env },
+      });
+      await writeFile(gone.plistPath, plist, "utf8");
+      await execFileAsync("/bin/bash", [gone.launcherScript, "install", "--port", String(PORT), "--add-to-dock"], {
+        env: { ...process.env, ...gone.env },
+        timeout: 120_000,
+      });
+      assert.ok(existsSync(gone.appPath));
+      assert.ok(dockPlist(gone).includes(gone.appPath));
+
       await rm(gone.installDir, { recursive: true, force: true });
       // Asked through another copy of the script, with --install-dir: the one
       // inside the folder went with it (Windows keeps a copy outside the
       // install for its Installed-apps entry; on macOS both ways in — the
       // menu-bar icon and the app's own Settings — are gone with the folder
-      // too, so this is the state a person reaches from a terminal).
+      // too, so this is the state a person reaches from a terminal). The
+      // launcher is removed by the copy of applications-launcher.sh beside the
+      // script that is running, there being no moved-aside folder to use.
       const other = await box();
-      const { code, result } = await uninstall(other, ["--quiet", "--install-dir", gone.installDir]);
-      assert.equal(code, 2, JSON.stringify(result));
-      assert.equal(result["reason"], "already-gone");
+      const { code, result } = await uninstall({ ...gone, uninstallScript: other.uninstallScript }, ["--quiet", "--install-dir", gone.installDir]);
+      assert.equal(code, 0, JSON.stringify(result));
+      assert.equal(result["removed"], true);
+      assert.equal(result["alreadyGone"], true);
+      assert.equal(result["removedLaunchAgent"], true);
+      assert.equal(result["removedLauncher"], true);
+      assert.equal(result["removedFromDock"], true);
+      assert.equal(result["removedSettings"], true);
+      assert.equal(result["removedLogs"], true);
+      assert.equal(existsSync(gone.plistPath), false, "the orphaned LaunchAgent plist is gone");
+      assert.equal(existsSync(gone.appPath), false, "and the orphaned launcher");
+      assert.ok(!dockPlist(gone).includes(gone.appPath), "and its Dock tile");
+      assert.equal(existsSync(gone.supportDir), false, "and the settings");
+      assert.equal(existsSync(gone.logDir), false, "and the logs");
       assert.ok(existsSync(join(other.scaffold, "package.json")), "and the install it was run from is untouched");
+    });
+
+    // The one place this is deliberately stricter than uninstall.ps1, which has
+    // Windows' Installed-apps list to count instead: with the folder gone there
+    // is no marker left to read, so the shared settings and logs go only when
+    // something still points at that exact folder.
+    test("a folder that was never a Granted install: nothing points at it, so the shared settings stay", async () => {
+      const b = await box();
+      const typo = join(b.root, "granted-typo-no-such-folder");
+      const { code, result } = await uninstall(b, ["--quiet", "--install-dir", typo]);
+      assert.equal(code, 0, JSON.stringify(result));
+      assert.equal(result["alreadyGone"], true);
+      assert.equal(result["removedSettings"], false, "another install's settings are not this one's to delete");
+      assert.equal(result["removedLogs"], false);
+      assert.ok(existsSync(join(b.supportDir, "settings.json")));
+      assert.ok(existsSync(b.logDir));
+      assert.ok(existsSync(join(b.scaffold, "package.json")), "and the real install beside it is untouched");
     });
 
     test("work that isn't on GitHub: --quiet refuses it (exit 4) and only --force deletes it", async () => {
@@ -560,6 +620,68 @@ describe(
       assert.equal(without.code, 0);
       assert.equal(without.result["keptKeys"], null);
       assert.equal(existsSync(none.backupDir), false);
+    });
+
+    // REGRESSION (review): a --backup-dir inside the install folder was copied
+    // to, then destroyed by the very move-and-delete it was meant to survive —
+    // and the run still exited 0 and reported {"keptKeys":"<that path>"}, for a
+    // path that no longer existed. The script's whole promise about the keys is
+    // that they are somewhere safe before anything is deleted, so this is bad
+    // input and is refused as such.
+    test("a --backup-dir inside the install folder is a usage error (64), and nothing is deleted", async () => {
+      const b = await box();
+      for (const backup of [join(b.installDir, "kept-inside"), b.installDir, join(b.scaffold, "keys")]) {
+        const { code, result } = await uninstall(b, ["--quiet", "--force", "--backup-dir", backup]);
+        assert.equal(code, 64, `${backup}: ${JSON.stringify(result)}`);
+        assert.ok(existsSync(join(b.scaffold, "package.json")), "nothing was deleted");
+        assert.ok(existsSync(join(b.scaffold, ".env.local")), "and the keys are still where they were");
+      }
+      // Said plainly, on stderr, the way every other bad argument here is.
+      await assert.rejects(
+        () =>
+          execFileAsync("/bin/bash", [b.uninstallScript, "--quiet", "--port", String(PORT), "--backup-dir", join(b.installDir, "kept-inside")], {
+            env: { ...process.env, ...b.env },
+            timeout: 60_000,
+          }),
+        (err: { stderr?: string }) => /has to go outside the folder being deleted/.test(err.stderr ?? ""),
+      );
+      // A relative one is resolved before it is judged, rather than slipping
+      // through and then being resolved against the wrong folder.
+      const relative = await execFileAsync("/bin/bash", ["-c", `cd ${JSON.stringify(b.installDir)} && /bin/bash ${JSON.stringify(b.uninstallScript)} --quiet --backup-dir kept-rel; echo "exit=$?"`], {
+        env: { ...process.env, ...b.env },
+        timeout: 60_000,
+      });
+      assert.match(relative.stdout, /exit=64/);
+      // And a sibling whose name merely STARTS with the install's is fine.
+      const sibling = await uninstall(b, ["--check", "--backup-dir", `${b.installDir}-backup`]);
+      assert.equal(sibling.code, 0, JSON.stringify(sibling.result));
+      assert.equal(sibling.result["backupDir"], `${b.installDir}-backup`);
+      assert.ok(existsSync(join(b.scaffold, "package.json")));
+    });
+
+    // REGRESSION (review): the keys dialog's answer used to overwrite an
+    // explicit --keep-keys/--no-keep-keys on every run that wasn't --quiet, so
+    // `--confirmed --no-keep-keys` wrote the API keys to the backup folder
+    // anyway whenever the dialog was answered "Keep a copy". Secrets written to
+    // disk against an explicit instruction not to is the wrong way round for
+    // that to fail.
+    test("an explicit --keep-keys / --no-keep-keys decides it, whatever the dialog is answered", async () => {
+      // ask=no means "no" to "Delete your API keys with Granted?", i.e. keep a
+      // copy — the opposite of what --no-keep-keys says.
+      const none = await box({ ask: "no" });
+      const without = await uninstall(none, ["--confirmed", "--no-keep-keys", "--backup-dir", none.backupDir]);
+      assert.equal(without.code, 0, JSON.stringify(without.result));
+      assert.equal(without.result["keptKeys"], null, "the flag was obeyed, not the dialog");
+      assert.equal(existsSync(none.backupDir), false, "and no copy of the keys was written anywhere");
+      assert.equal(existsSync(none.installDir), false);
+
+      // And the other way round: ask=yes means "delete them", which --keep-keys
+      // overrides just as explicitly.
+      const kept = await box({ ask: "yes" });
+      const withCopy = await uninstall(kept, ["--confirmed", "--keep-keys", "--backup-dir", kept.backupDir]);
+      assert.equal(withCopy.code, 0, JSON.stringify(withCopy.result));
+      assert.equal(withCopy.result["keptKeys"], kept.backupDir);
+      assert.match(readFileSync(join(kept.backupDir, ".env.local"), "utf8"), /sk-uninstall-test/);
     });
 
     test("a copy of the keys that can't be made stops the uninstall before anything is deleted (exit 1)", async () => {
@@ -712,6 +834,39 @@ describe(
       assert.equal(existsSync(b.installDir), false);
       assert.equal(existsSync(b.appPath), false);
       assert.ok(!dockPlist(b).includes(b.appPath));
+    });
+
+    // The other half of the exit-3 case, as the app sees it. Settings → About
+    // Granted is answered "started" as soon as the script is running, which is
+    // before the script has decided anything; what the page then polls for is
+    // this line in the log, and a refusal has to be IN there for the page to
+    // have anything to recover from (scaffold/lib/appUpdate/install.ts's
+    // parseUninstallOutcome reads exactly this line).
+    test("an uninstaller that refuses after it was started says so in its log, which is what the app reads", async () => {
+      const b = await box({ ask: "yes" });
+      // Outside the folder that is about to be made unwritable.
+      const log = join(root, `refused-${randomUUID()}.log`);
+      chmodSync(b.root, 0o555);
+      try {
+        const { stdout } = await execFileAsync("/bin/bash", [b.trayScript, "uninstall", "--port", String(PORT)], {
+          env: { ...process.env, ...b.env, GRANTED_UNINSTALL_LOG: log },
+          timeout: 60_000,
+        });
+        const answer = JSON.parse(stdout.trim().split("\n").pop() as string) as { started?: boolean; log?: string };
+        assert.equal(answer.started, true, "the caller is told it started, which is all it can know");
+        assert.equal(answer.log, log);
+        const written = await until(
+          async () => (existsSync(log) ? readFileSync(log, "utf8") : ""),
+          (text) => /"removed"/.test(text),
+          60_000,
+        );
+        const outcome = JSON.parse(written.trim().split(/\r?\n/).filter(Boolean).pop() as string) as Record<string, unknown>;
+        assert.equal(outcome["removed"], false, "and it then refused, in the log the app polls");
+        assert.equal(outcome["reason"], "access-denied");
+        assert.ok(existsSync(join(b.scaffold, "package.json")), "with the install whole and Granted still installed");
+      } finally {
+        chmodSync(b.root, 0o755);
+      }
     });
 
     test("another Granted's LaunchAgent and launcher are left alone, and the shared settings go with the last install out", async () => {

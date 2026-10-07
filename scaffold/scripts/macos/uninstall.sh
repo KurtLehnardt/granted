@@ -21,7 +21,8 @@
 #                                    change nothing at all
 #
 # Other options: --install-dir DIR (default: the install this script sits in),
-# --backup-dir DIR, --keep-keys / --no-keep-keys, --port N.
+# --backup-dir DIR (which must be outside the install folder), --keep-keys /
+# --no-keep-keys, --port N.
 #
 # What it does, in this order:
 #
@@ -37,8 +38,10 @@
 #     scaffold/data/local/llm-config.json) outside the folder, in your
 #     Documents folder. Unlike the Windows script's opt-in -KeepKeys this
 #     defaults to YES, including under --quiet: keeping a copy is the
-#     non-destructive choice, and the work order for this item asks for it;
-#     --no-keep-keys turns it off;
+#     non-destructive choice, and the work order for this item asks for it.
+#     --keep-keys and --no-keep-keys decide it outright wherever either is
+#     given, --quiet or not, and the question is then not asked at all; the
+#     dialog decides only an interactive run that was given neither;
 #   - quits Granted: the menu-bar helper and the server under its LaunchAgent
 #     (through granted-tray.sh stop, so none of that logic lives twice), then
 #     any node/npm still running from inside the folder (a `npm run dev` left
@@ -51,6 +54,19 @@
 #   - prints one JSON line saying what it did.
 #
 # Git, Node and Homebrew are left alone: other programs use them.
+#
+# A FOLDER ALREADY DELETED BY HAND is not a refusal. uninstall.ps1 treats that
+# case as removed (exit 0, alreadyGone), tidying up what the install left
+# elsewhere, and this does the same: the LaunchAgent plist, the launcher, its
+# Dock tile and the shared settings and logs are all still there otherwise, and
+# nothing would ever clean them up -- the two ways in (the menu-bar icon and
+# the app's own Settings) went with the folder. ONE rule here is deliberately
+# stricter than the Windows script's. There is no marker left to read and no
+# Installed-apps list to count, so the shared settings and logs are deleted in
+# that case only when a LaunchAgent plist or an ~/Applications launcher naming
+# THIS exact folder is found -- the only evidence available that the path given
+# ever was a Granted install. Without it, `--install-dir /a/typo` would delete
+# a real install's settings while reporting success.
 #
 # WHY THE FOLDER IS MOVED ASIDE FIRST, and what that does and does not buy on
 # macOS. The Windows script moves the folder before deleting anything because
@@ -95,10 +111,12 @@
 #   script passes through by calling those scripts rather than reimplementing
 #   them.
 #
-# Exit codes, matching uninstall.ps1's: 0 removed (or --check), 1 cancelled or
-# an unexpected error, 2 refused (not a Granted install, not made by the
-# installer, a symlink), 3 the folder could not be moved aside so nothing was
-# deleted, 4 unsaved work under --quiet without --force, 64 bad input.
+# Exit codes, matching uninstall.ps1's: 0 removed (or --check, or a folder that
+# was already deleted by hand), 1 cancelled or an unexpected error, 2 refused
+# (not a Granted install, not made by the installer, a symlink), 3 the folder
+# could not be moved aside so nothing was deleted, 4 unsaved work under --quiet
+# without --force, 64 bad input (an unknown option, an option given no value, a
+# --port that isn't a number, a --backup-dir inside the install folder).
 set -euo pipefail
 # errtrace, exactly as install-macos.sh sets it and for the same reason: bash
 # does NOT run an ERR trap for a command that fails inside a shell function
@@ -116,6 +134,14 @@ FORCE=0
 CONFIRMED=0
 CHECK=0
 KEEP_KEYS=1
+# Whether --keep-keys or --no-keep-keys was given at all, kept separately from
+# the value the way applications-launcher.sh keeps PORT_GIVEN beside PORT: an
+# explicit choice has to be distinguishable from this default, or an
+# interactive run cannot tell "keep them, because nobody said otherwise" from
+# "keep them, because the caller said so" -- and it would then put the
+# interactive dialog's answer over the caller's explicit flag. The keys are
+# secrets, and --no-keep-keys means do not write them anywhere.
+KEEP_KEYS_GIVEN=0
 BACKUP_DIR=""
 PORT="${GRANTED_PORT:-3000}"
 
@@ -141,8 +167,8 @@ while [ $# -gt 0 ]; do
     --force) FORCE=1; shift ;;
     --confirmed) CONFIRMED=1; shift ;;
     --check) CHECK=1; shift ;;
-    --keep-keys) KEEP_KEYS=1; shift ;;
-    --no-keep-keys) KEEP_KEYS=0; shift ;;
+    --keep-keys) KEEP_KEYS=1; KEEP_KEYS_GIVEN=1; shift ;;
+    --no-keep-keys) KEEP_KEYS=0; KEEP_KEYS_GIVEN=1; shift ;;
     *) printf 'uninstall.sh: unknown option %s\n' "$1" >&2; exit 64 ;;
   esac
 done
@@ -180,6 +206,37 @@ APPLICATIONS_DIR="${GRANTED_APPLICATIONS_DIR:-$HOME/Applications}"
 APP_PATH="$APPLICATIONS_DIR/Granted.app"
 DOMAIN="gui/$(id -u)"
 [ -n "$BACKUP_DIR" ] || BACKUP_DIR="${GRANTED_UNINSTALL_BACKUP_DIR:-$HOME/Documents/Granted backup $(date '+%Y-%m-%d %H%M')}"
+
+# The copy of the keys has to go somewhere that outlives the uninstall, so the
+# finished BACKUP_DIR is made absolute and then refused if it is inside the
+# folder about to be deleted.
+#
+# Absolute first, and against $PWD here rather than when it is used: this run
+# changes its own working directory to "/" before anything is deleted (see
+# `cd /` below), so a relative path kept as given would be resolved against a
+# different folder than the one the caller typed it in.
+#
+# And then the check that matters. A backup inside the install folder is
+# destroyed by the very move-and-delete it is meant to survive -- and the run
+# would still exit 0, report "keptKeys" and name a path that no longer exists,
+# which breaks the one promise this script makes about the keys while claiming
+# to have kept it. It is bad input, and it is reported the way every other bad
+# argument here is: a message on stderr, exit 64, and nothing touched.
+case "$BACKUP_DIR" in
+  /*) ;;
+  *) BACKUP_DIR="$PWD/$BACKUP_DIR" ;;
+esac
+while [ "${BACKUP_DIR%/}" != "$BACKUP_DIR" ]; do BACKUP_DIR="${BACKUP_DIR%/}"; done
+[ -n "$BACKUP_DIR" ] || BACKUP_DIR="/"
+# "/" contains every path there is, and an --install-dir of "/" is refused by
+# name further down (PROTECTED_DIRS); answering it here with "your backup
+# folder is inside it" would answer a different question than the one that is
+# actually wrong.
+if [ "$INSTALL_DIR" != "/" ] && { [ "$BACKUP_DIR" = "$INSTALL_DIR" ] || [ "${BACKUP_DIR#"$INSTALL_DIR"/}" != "$BACKUP_DIR" ]; }; then
+  printf 'uninstall.sh: the copy of your API keys has to go outside the folder being deleted, and %s is inside %s\n' \
+    "$BACKUP_DIR" "$INSTALL_DIR" >&2
+  exit 64
+fi
 
 # Everything that could still be reported after a partial run, so the JSON line
 # is filled in as the uninstall goes rather than guessed at the end.
@@ -517,31 +574,39 @@ if [ -L "$INSTALL_DIR" ]; then
   exit 2
 fi
 
-if [ ! -d "$INSTALL_DIR" ]; then
-  notify "Granted's folder ($INSTALL_DIR) is already gone, so there was nothing to uninstall."
-  refused "already-gone"
-  exit 2
-fi
+# Already deleted by hand: not a refusal, and not nothing to do either -- see
+# the header. Everything the install put OUTSIDE its own folder is still here,
+# so the run goes on to remove it and reports success; the two checks below are
+# skipped because the folder they read is gone, and so is the move-and-delete.
+ALREADY_GONE=0
+if [ ! -d "$INSTALL_DIR" ]; then ALREADY_GONE=1; fi
 
-if ! is_granted_install "$INSTALL_DIR"; then
-  notify "$INSTALL_DIR doesn't look like a Granted install, so nothing was deleted."
-  refused "not-a-granted-install"
-  exit 2
-fi
+if [ "$ALREADY_GONE" != "1" ]; then
+  if ! is_granted_install "$INSTALL_DIR"; then
+    notify "$INSTALL_DIR doesn't look like a Granted install, so nothing was deleted."
+    refused "not-a-granted-install"
+    exit 2
+  fi
 
-# The marker install-macos.sh writes into the clones it makes. Without it this
-# is someone's own checkout that happens to sit here, and it is never deleted
-# -- not even with --force, whose job is the unsaved-work question below and
-# not this one.
-if [ ! -f "$MARKER" ]; then
-  notify "$INSTALL_DIR wasn't installed by the Granted installer, so it wasn't deleted. Delete the folder yourself if you're sure."
-  refused "not-made-by-installer"
-  exit 2
+  # The marker install-macos.sh writes into the clones it makes. Without it
+  # this is someone's own checkout that happens to sit here, and it is never
+  # deleted -- not even with --force, whose job is the unsaved-work question
+  # below and not this one.
+  if [ ! -f "$MARKER" ]; then
+    notify "$INSTALL_DIR wasn't installed by the Granted installer, so it wasn't deleted. Delete the folder yourself if you're sure."
+    refused "not-made-by-installer"
+    exit 2
+  fi
 fi
 
 # --- asking ----------------------------------------------------------------
 if [ "$QUIET" != "1" ] && [ "$CONFIRMED" != "1" ]; then
-  if ! ask "Uninstall Granted?" "This deletes $INSTALL_DIR, Granted's menu-bar icon, its Applications launcher and its settings. Git and Node stay installed."; then
+  if [ "$ALREADY_GONE" = "1" ]; then
+    first_detail="$INSTALL_DIR is already gone. This removes what Granted left elsewhere on this Mac: its menu-bar icon's background job, its Applications launcher and Dock tile, and its settings and logs."
+  else
+    first_detail="This deletes $INSTALL_DIR, Granted's menu-bar icon, its Applications launcher and its settings. Git and Node stay installed."
+  fi
+  if ! ask "Uninstall Granted?" "$first_detail"; then
     refused "cancelled"
     exit 1
   fi
@@ -566,9 +631,17 @@ if [ "${#UNSAVED[@]}" -gt 0 ]; then
 fi
 
 # --- the API keys ----------------------------------------------------------
+# A caller that said --keep-keys or --no-keep-keys has already answered this,
+# and is obeyed: the question is asked only by an interactive run that was
+# given neither (KEEP_KEYS_GIVEN, above, is what tells those two apart). The
+# dialog used to be asked unconditionally whenever this was not --quiet, which
+# overwrote the flag -- so `--confirmed --no-keep-keys` copied the keys to the
+# backup folder anyway whenever the dialog was answered "keep a copy". Writing
+# secrets to disk against an explicit instruction not to is the wrong way round
+# for that to fail.
 if [ -n "$(present_key_files)" ]; then
   keep="$KEEP_KEYS"
-  if [ "$QUIET" != "1" ]; then
+  if [ "$QUIET" != "1" ] && [ "$KEEP_KEYS_GIVEN" = "0" ]; then
     # Default yes: the question is put the other way round so that the dialog's
     # safe default button is the one that keeps the copy.
     if ask "Delete your API keys with Granted?" "Granted can keep a copy of your API keys and settings in:"$'\n'"$BACKUP_DIR" "Delete them" "Keep a copy"; then
@@ -591,74 +664,82 @@ stop_granted
 # The move: a sibling folder, then deleted (see the header for why not the
 # Trash, and for what this ordering does and does not buy on macOS). Tried a
 # few times, because a process that was just stopped can take a moment to let
-# go of things.
-#
-# The name has to be one that doesn't exist yet: `mv dir existing-dir` moves
-# the folder INSIDE that one instead of renaming it, which would hide a whole
-# install inside whatever was there.
+# go of things. Nothing to move when the folder was already deleted by hand, in
+# which case TRASH stays empty and everything below reads that as "there was no
+# folder".
 TRASH=""
-for _ in 1 2 3 4 5; do
-  candidate="$INSTALL_DIR.uninstalling-$$-$RANDOM"
-  if [ ! -e "$candidate" ]; then TRASH="$candidate"; break; fi
-done
-if [ -z "$TRASH" ]; then
-  printf '{"removed":false,"reason":"error","detail":%s,"installDir":%s}\n' \
-    "$(json_string "couldn't find an unused name to move $INSTALL_DIR aside to")" "$(json_string "$INSTALL_DIR")"
-  exit 1
-fi
-#
-# `mv`'s own message is kept in a temp FILE rather than captured with
-# `move_error="$(mv … 2>&1)"`. That shape looks tidier and is a trap: a command
-# substitution runs in a subshell, which inherits the ERR trap above (that is
-# what `set -o errtrace` is for), and the enclosing `if` does not suppress it
-# in there -- so a failing `mv` ran on_error INSIDE the substitution and its
-# whole JSON line ended up inside the message this script then reported. The
-# `if` below suppresses errexit for the `mv` itself, which is not in a subshell
-# at all.
-MOVE_ERROR_FILE="$(mktemp "${TMPDIR:-/tmp}/granted-uninstall-mv.XXXXXX")"
-move_error=""
-moved=0
-for _ in 1 2 3 4 5 6 7 8 9 10; do
-  if mv -- "$INSTALL_DIR" "$TRASH" 2>"$MOVE_ERROR_FILE"; then
-    moved=1
-    break
+if [ "$ALREADY_GONE" != "1" ]; then
+  # The name has to be one that doesn't exist yet: `mv dir existing-dir` moves
+  # the folder INSIDE that one instead of renaming it, which would hide a whole
+  # install inside whatever was there.
+  for _ in 1 2 3 4 5; do
+    candidate="$INSTALL_DIR.uninstalling-$$-$RANDOM"
+    if [ ! -e "$candidate" ]; then TRASH="$candidate"; break; fi
+  done
+  if [ -z "$TRASH" ]; then
+    printf '{"removed":false,"reason":"error","detail":%s,"installDir":%s}\n' \
+      "$(json_string "couldn't find an unused name to move $INSTALL_DIR aside to")" "$(json_string "$INSTALL_DIR")"
+    exit 1
   fi
-  sleep 0.5
-done
-if [ "$moved" != "1" ]; then
-  # One line, so it fits in the JSON message and in a dialog.
-  move_error="$(tr '\n' ' ' < "$MOVE_ERROR_FILE" 2>/dev/null || true)"
-  [ -n "$move_error" ] || move_error="mv $INSTALL_DIR failed"
-fi
-rm -f -- "$MOVE_ERROR_FILE"
-if [ -n "$move_error" ]; then
-  # The two reasons the Windows script tells apart, for the same reason: what
-  # the user has to do about it differs. Both exit 3, and both have changed
-  # nothing.
-  case "$move_error" in
-    *"Permission denied"*|*"Operation not permitted"*|*"Read-only file system"*)
-      move_reason="access-denied"
-      move_message="macOS won't let this account move or delete $INSTALL_DIR, so nothing was deleted. Check that you can write to $(dirname -- "$INSTALL_DIR"), then uninstall again."
-      ;;
-    *)
-      move_reason="files-in-use"
-      move_message="Granted's folder couldn't be moved, so nothing was deleted. Close anything using $INSTALL_DIR (a terminal open in there, say), then uninstall again."
-      ;;
-  esac
-  notify "$move_message"
-  printf '{"removed":false,"reason":"%s","detail":%s,"installDir":%s,"keptKeys":%s}\n' \
-    "$move_reason" "$(json_string "$move_error")" "$(json_string "$INSTALL_DIR")" \
-    "$([ -n "$KEPT_KEYS" ] && json_string "$KEPT_KEYS" || printf 'null')"
-  exit 3
+  #
+  # `mv`'s own message is kept in a temp FILE rather than captured with
+  # `move_error="$(mv … 2>&1)"`. That shape looks tidier and is a trap: a
+  # command substitution runs in a subshell, which inherits the ERR trap above
+  # (that is what `set -o errtrace` is for), and the enclosing `if` does not
+  # suppress it in there -- so a failing `mv` ran on_error INSIDE the
+  # substitution and its whole JSON line ended up inside the message this
+  # script then reported. The `if` below suppresses errexit for the `mv`
+  # itself, which is not in a subshell at all.
+  MOVE_ERROR_FILE="$(mktemp "${TMPDIR:-/tmp}/granted-uninstall-mv.XXXXXX")"
+  move_error=""
+  moved=0
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    if mv -- "$INSTALL_DIR" "$TRASH" 2>"$MOVE_ERROR_FILE"; then
+      moved=1
+      break
+    fi
+    sleep 0.5
+  done
+  if [ "$moved" != "1" ]; then
+    # One line, so it fits in the JSON message and in a dialog.
+    move_error="$(tr '\n' ' ' < "$MOVE_ERROR_FILE" 2>/dev/null || true)"
+    [ -n "$move_error" ] || move_error="mv $INSTALL_DIR failed"
+  fi
+  rm -f -- "$MOVE_ERROR_FILE"
+  if [ -n "$move_error" ]; then
+    # The two reasons the Windows script tells apart, for the same reason: what
+    # the user has to do about it differs. Both exit 3, and both have changed
+    # nothing.
+    case "$move_error" in
+      *"Permission denied"*|*"Operation not permitted"*|*"Read-only file system"*)
+        move_reason="access-denied"
+        move_message="macOS won't let this account move or delete $INSTALL_DIR, so nothing was deleted. Check that you can write to $(dirname -- "$INSTALL_DIR"), then uninstall again."
+        ;;
+      *)
+        move_reason="files-in-use"
+        move_message="Granted's folder couldn't be moved, so nothing was deleted. Close anything using $INSTALL_DIR (a terminal open in there, say), then uninstall again."
+        ;;
+    esac
+    notify "$move_message"
+    printf '{"removed":false,"reason":"%s","detail":%s,"installDir":%s,"keptKeys":%s}\n' \
+      "$move_reason" "$(json_string "$move_error")" "$(json_string "$INSTALL_DIR")" \
+      "$([ -n "$KEPT_KEYS" ] && json_string "$KEPT_KEYS" || printf 'null')"
+    exit 3
+  fi
 fi
 
 # --- from here on, Granted is going ---------------------------------------
-# The scripts that do the removing have moved with the folder, so they are run
-# from where they are now. They are the same files, and calling them is what
-# keeps their "how do I remove this" logic in one place: the Dock round trip
-# that preserves every other app's tile lives in applications-launcher.sh, and
-# this script must not grow a second copy of it.
-TRASH_LAUNCHER_SCRIPT="$TRASH/scaffold/scripts/macos/applications-launcher.sh"
+# The script that does the removing moved with the folder, so it is run from
+# where it is now -- or, for a folder that was already deleted by hand, from
+# beside THIS script, which is the only copy left. It is the same file either
+# way, and calling it is what keeps its "how do I remove this" logic in one
+# place: the Dock round trip that preserves every other app's tile lives in
+# applications-launcher.sh, and this script must not grow a second copy of it.
+if [ -n "$TRASH" ]; then
+  LAUNCHER_SCRIPT="$TRASH/scaffold/scripts/macos/applications-launcher.sh"
+else
+  LAUNCHER_SCRIPT="$SCRIPT_DIR/applications-launcher.sh"
+fi
 
 # Each of these says in the JSON whether it worked, and none of them stops the
 # run: the folder has already gone, so a plist that could not be removed is
@@ -669,17 +750,19 @@ if [ "$AGENT_OWNER" = "own" ]; then
   [ -e "$PLIST_PATH" ] || REMOVED_LAUNCH_AGENT=true
 fi
 
-if [ "$LAUNCHER_OWNER" = "own" ] && [ -f "$TRASH_LAUNCHER_SCRIPT" ]; then
+if [ "$LAUNCHER_OWNER" = "own" ] && [ -f "$LAUNCHER_SCRIPT" ]; then
   # The Dock entry first: removing it reads the launcher's path out of the Dock
   # preferences, and that is clearer to do while the bundle is still there.
-  dock_out="$(/bin/bash "$TRASH_LAUNCHER_SCRIPT" remove-from-dock 2>/dev/null || true)"
+  dock_out="$(/bin/bash "$LAUNCHER_SCRIPT" remove-from-dock 2>/dev/null || true)"
   case "$dock_out" in *'"removed"'*) REMOVED_FROM_DOCK=true ;; esac
-  launcher_out="$(/bin/bash "$TRASH_LAUNCHER_SCRIPT" remove 2>/dev/null || true)"
+  launcher_out="$(/bin/bash "$LAUNCHER_SCRIPT" remove 2>/dev/null || true)"
   case "$launcher_out" in *'"removed":true'*) REMOVED_LAUNCHER=true ;; esac
 fi
 
-rm -rf -- "$TRASH" || true
-if [ -e "$TRASH" ]; then LEFTOVER="$TRASH"; fi
+if [ -n "$TRASH" ]; then
+  rm -rf -- "$TRASH" || true
+  if [ -e "$TRASH" ]; then LEFTOVER="$TRASH"; fi
+fi
 
 # The settings and the logs are shared by every Granted install on this Mac,
 # so they go with the last one out -- the same rule the Windows script applies
@@ -688,7 +771,15 @@ if [ -e "$TRASH" ]; then LEFTOVER="$TRASH"; fi
 # to another install: a LaunchAgent plist or an ~/Applications launcher this
 # install didn't write. Either one means there is another Granted, and the
 # shared files stay.
-if [ "$AGENT_OWNER" != "other" ] && [ "$LAUNCHER_OWNER" != "other" ]; then
+SHARED_GO=1
+if [ "$AGENT_OWNER" = "other" ] || [ "$LAUNCHER_OWNER" = "other" ]; then SHARED_GO=0; fi
+# And for a folder deleted by hand there has to be some evidence that the path
+# given really was a Granted install before the settings of a possibly
+# different one are deleted -- see the header. The marker went with the folder,
+# so what is left to go on is a LaunchAgent plist or a launcher that names this
+# exact folder.
+if [ "$ALREADY_GONE" = "1" ] && [ "$AGENT_OWNER" != "own" ] && [ "$LAUNCHER_OWNER" != "own" ]; then SHARED_GO=0; fi
+if [ "$SHARED_GO" = "1" ]; then
   # Only ever a folder actually called Granted, however GRANTED_SETTINGS_PATH
   # and GRANTED_LOG_DIR were pointed: this is an `rm -rf` of a path the caller
   # chooses.
@@ -702,7 +793,11 @@ if [ "$AGENT_OWNER" != "other" ] && [ "$LAUNCHER_OWNER" != "other" ]; then
   fi
 fi
 
-done_text="Granted was uninstalled."
+if [ "$ALREADY_GONE" = "1" ]; then
+  done_text="Granted's folder ($INSTALL_DIR) was already deleted. What it left elsewhere on this Mac has been removed."
+else
+  done_text="Granted was uninstalled."
+fi
 if [ -n "$LEFTOVER" ]; then
   done_text="$done_text"$'\n\n'"A few files couldn't be deleted. You can delete this folder yourself: $LEFTOVER"
 fi
@@ -711,7 +806,8 @@ if [ -n "$KEPT_KEYS" ]; then
 fi
 notify "$done_text"
 
-printf '{"removed":true,"installDir":%s,"keptKeys":%s,"leftover":%s,"removedLaunchAgent":%s,"removedLauncher":%s,"removedFromDock":%s,"removedSettings":%s,"removedLogs":%s}\n' \
+printf '{"removed":true,"alreadyGone":%s,"installDir":%s,"keptKeys":%s,"leftover":%s,"removedLaunchAgent":%s,"removedLauncher":%s,"removedFromDock":%s,"removedSettings":%s,"removedLogs":%s}\n' \
+  "$([ "$ALREADY_GONE" = "1" ] && printf true || printf false)" \
   "$(json_string "$INSTALL_DIR")" \
   "$([ -n "$KEPT_KEYS" ] && json_string "$KEPT_KEYS" || printf 'null')" \
   "$([ -n "$LEFTOVER" ] && json_string "$LEFTOVER" || printf 'null')" \
