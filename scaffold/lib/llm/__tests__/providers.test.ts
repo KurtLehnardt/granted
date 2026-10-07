@@ -134,11 +134,11 @@ describe("fcc preset — Anthropic-compatible proxy shape", () => {
     assert.equal(fcc.privacyNote, "Prompts are forwarded to third-party free providers, which may log them.");
   });
 
-  test("groq and openrouter also get gentler free-tier concurrency; hosted anthropic/openai keep none set", () => {
+  test("groq and openrouter also get gentler free-tier concurrency; hosted openai is capped at 4 (it may be the only key, so it runs every stage); anthropic keeps none set", () => {
     assert.equal(getCloudProvider("groq")?.concurrency, 2);
     assert.equal(getCloudProvider("openrouter")?.concurrency, 2);
     assert.equal(getCloudProvider("anthropic")?.concurrency, undefined);
-    assert.equal(getCloudProvider("openai")?.concurrency, undefined);
+    assert.equal(getCloudProvider("openai")?.concurrency, 4);
   });
 
   test("groq, openrouter and fcc also get a gentler free-tier batch size (2); hosted anthropic/openai keep none set", () => {

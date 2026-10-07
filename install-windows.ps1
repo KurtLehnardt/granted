@@ -7,11 +7,12 @@
 # box, notably Windows Server), clones the repo, and runs `npm ci` (installs
 # exactly what's in package-lock.json, and never rewrites it).
 # Safe to re-run: skips anything already present/done (npm ci does remove and
-# reinstall node_modules each time, which is expected).
+# reinstall node_modules each time, which is expected). Set GRANTED_REF to a
+# release tag (v1.2.3) to install that release instead of main.
 #
-# After this finishes, `cd granted\scaffold` and run `npm run setup` (hosted
-# API keys) or `npm run setup:local -- --yes` (fully local via Ollama), then
-# `npm run dev`.
+# After this finishes, `cd granted\scaffold` and run `npm run setup` (an
+# OpenAI or Claude key for scoring) or `npm run setup:local -- --yes` (fully
+# local via Ollama), then `npm run dev`.
 
 $ErrorActionPreference = "Stop"
 
@@ -23,10 +24,20 @@ $ErrorActionPreference = "Stop"
 # STATUS_FILE is set by the GUI to a path that matches what it's polling;
 # falls back to a fixed name so this script still no-ops safely when run
 # standalone (copy-pasted into a terminal by hand, as the README documents).
+# While this console window is alive the GUI keeps waiting however long a UAC
+# prompt sits unanswered; once it's gone without a done/error the GUI knows
+# the window was closed (a real Windows 11 run went past the GUI's old fixed
+# 10-minute limit at a UAC prompt, and a second click then started a
+# concurrent install). "Alive" = this window still holds an exclusive lock on
+# "<status>.lock" (Windows releases it the moment the process exits, and
+# unlike a PID it can't be inherited by an unrelated process); `pid` in each
+# status write is the fallback. The lock line must stay identical to
+# STATUS_LOCK_LINE in installer/src/main/ipcPure.ts -- a test checks.
 $StatusPath = if ($env:GRANTED_STATUS_FILE) { $env:GRANTED_STATUS_FILE } else { Join-Path $env:TEMP "granted-install-status.json" }
+try { $global:GrantedStatusLock = [System.IO.File]::Open("$StatusPath.lock", 'OpenOrCreate', 'ReadWrite', 'None') } catch { }
 function Write-Status($state, $message) {
   try {
-    $payload = @{ state = $state; message = $message } | ConvertTo-Json -Compress
+    $payload = @{ state = $state; message = $message; pid = $PID } | ConvertTo-Json -Compress
     Set-Content -Path $StatusPath -Value $payload -Encoding utf8 -ErrorAction Stop
   } catch {
     # Never let status reporting itself break the install -- but don't go
@@ -44,6 +55,61 @@ function Log($msg)  { Write-Host "`n$msg" -ForegroundColor White }
 function Ok($msg)   { Write-Host "  [ok] $msg" -ForegroundColor Green }
 function Warn($msg) { Write-Host "  [!] $msg" -ForegroundColor Yellow }
 function Die($msg)  { Write-Status "error" $msg; Write-Host "  [x] $msg" -ForegroundColor Red; exit 1 }
+
+# The Microsoft Visual C++ runtime. The built-in search model runs on
+# onnxruntime, whose DLL needs these four files; a clean Windows install
+# doesn't have them, and without them the model can't load (search then runs
+# keyword-only and Settings says why). Defined up here, before the script does
+# anything, so the installer's tests can run them on their own.
+$VCRuntimeDlls = @("msvcp140.dll", "msvcp140_1.dll", "vcruntime140.dll", "vcruntime140_1.dll")
+$VCRedistUrl = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
+
+# Which of the four DLLs are missing from $SystemDir (System32 by default).
+function Get-MissingVCRuntime([string]$SystemDir = (Join-Path $env:SystemRoot "System32")) {
+  return @($VCRuntimeDlls | Where-Object { -not (Test-Path -LiteralPath (Join-Path $SystemDir $_)) })
+}
+
+# Installs the runtime if any DLL is missing: winget first (Microsoft.VCRedist.
+# 2015+.x64), else Microsoft's own installer from aka.ms. Both ask for
+# Administrator rights through a UAC prompt when not already elevated (the
+# runtime is machine-wide). Never fails the install: Granted works without it,
+# keyword-only, so anything that goes wrong is a warning. Returns $true when the
+# DLLs are all there afterwards. The install steps are parameters so tests can
+# stand in for winget and the download.
+function Install-VCRuntime {
+  param(
+    [string]$SystemDir = (Join-Path $env:SystemRoot "System32"),
+    [bool]$UseWinget = [bool](Get-Command "winget" -ErrorAction SilentlyContinue),
+    [scriptblock]$WingetInstall = {
+      winget install -e --id Microsoft.VCRedist.2015+.x64 --silent --accept-package-agreements --accept-source-agreements
+    },
+    [scriptblock]$DownloadInstall = {
+      $installer = Join-Path $env:TEMP "vc_redist.x64.exe"
+      Invoke-WebRequest -Uri $VCRedistUrl -OutFile $installer -UseBasicParsing
+      # /install /quiet /norestart; exit 3010 means "installed, restart later", 1638 "a newer one is there".
+      $p = Start-Process -FilePath $installer -ArgumentList "/install", "/quiet", "/norestart" -Wait -PassThru
+      Remove-Item $installer -ErrorAction SilentlyContinue
+      if ($p.ExitCode -notin 0, 1638, 3010) { throw "vc_redist.x64.exe exited with code $($p.ExitCode)" }
+    }
+  )
+  $missing = @(Get-MissingVCRuntime $SystemDir)
+  if ($missing.Count -eq 0) { Ok "Microsoft Visual C++ runtime already installed"; return $true }
+  Log "Installing the Microsoft Visual C++ runtime (the built-in search model needs it; missing: $($missing -join ', '))..."
+  if (-not $script:IsElevated) { Warn "This needs Administrator rights: approve the Windows prompt if one appears." }
+  $attempts = @()
+  if ($UseWinget) { $attempts += @{ name = "winget"; run = $WingetInstall } }
+  $attempts += @{ name = "Microsoft's installer"; run = $DownloadInstall }
+  foreach ($attempt in $attempts) {
+    try {
+      & $attempt.run | Out-Host
+    } catch {
+      Warn "Installing the Visual C++ runtime with $($attempt.name) didn't work ($($_.Exception.Message))."
+    }
+    if (@(Get-MissingVCRuntime $SystemDir).Count -eq 0) { Ok "Microsoft Visual C++ runtime installed"; return $true }
+  }
+  Warn "The Microsoft Visual C++ runtime still isn't installed, so search will run in keyword-only mode until it is. Install it from $VCRedistUrl, then restart Granted."
+  return $false
+}
 
 # Catches anything Die() doesn't -- a terminating error PowerShell itself
 # raises (a failed Invoke-WebRequest/Invoke-RestMethod, for example) would
@@ -65,8 +131,15 @@ Write-Status "running" $null
 # TLS 1.2 before any web request.
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$RepoUrl = "https://github.com/KurtLehnardt/granted.git"
+# GRANTED_REPO_URL: tests point this at a local repo.
+$RepoUrl = if ($env:GRANTED_REPO_URL) { $env:GRANTED_REPO_URL } else { "https://github.com/KurtLehnardt/granted.git" }
 $TargetDir = if ($env:GRANTED_INSTALL_DIR) { $env:GRANTED_INSTALL_DIR } else { "granted" }
+# GRANTED_REF: install this release (a tag like v1.2.3) instead of the latest
+# code on main. The downloadable installer (Granted-Setup-x.y.z.exe) sets it
+# to its own version -- or to a newer release, if the user asked it to check
+# for updates -- and an install made by this script is moved to it on a re-run.
+$Ref = $env:GRANTED_REF
+if ($Ref -and $Ref -notmatch '^v\d+\.\d+\.\d+$') { Die "GRANTED_REF must be a release tag like v1.2.3 (got '$Ref')." }
 $NodeMajorMin = 22
 
 function Have($cmd) { return [bool](Get-Command $cmd -ErrorAction SilentlyContinue) }
@@ -197,26 +270,202 @@ if (-not $nodeOk) {
 # that doesn't exist yet. If $TargetDir exists but isn't a finished clone,
 # `git clone` below fails with its own clear error rather than this script
 # guessing whether it's safe to delete.
-if (Test-Path "$TargetDir\scaffold\package.json") {
+# Quits Granted if it's running from this folder -- its background tray
+# (which stops its server) and any node.exe running from in here, e.g. a
+# `npm run dev` in a terminal -- and WAITS until it has: an update replaces
+# files a running server holds open (npm ci would fail with EBUSY/EPERM).
+# It starts again the next time Granted is opened.
+#
+# Paths are compared in their LONG form: the same folder can also be named by
+# its 8.3 short form (C:\Users\JOSMIT~1\...; %TEMP% often is), even mixed
+# with long names, in a command line -- so each path is converted first.
+function Get-LongPath([string]$path) {
+  if (-not ("GrantedInstall.Paths" -as [type])) {
+    Add-Type -Namespace GrantedInstall -Name Paths -MemberDefinition @'
+[System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+public static extern uint GetLongPathName(string path, System.Text.StringBuilder buffer, uint size);
+'@
+  }
+  $buffer = New-Object System.Text.StringBuilder 32768
+  $n = [GrantedInstall.Paths]::GetLongPathName($path, $buffer, 32768)
+  if ($n -gt 0 -and $n -lt 32768) { return $buffer.ToString() }
+  return $path
+}
+# The absolute paths in a command line, each in its long form.
+function Get-LongPathsIn([string]$text) {
+  if (-not $text) { return @() }
+  return @([regex]::Matches($text, '"([A-Za-z]:\\[^"]+)"|([A-Za-z]:\\[^\s"]+)') | ForEach-Object {
+    $p = if ($_.Groups[1].Success) { $_.Groups[1].Value } else { $_.Groups[2].Value }
+    try { Get-LongPath ([System.IO.Path]::GetFullPath($p)) } catch { $p }
+  })
+}
+function Stop-GrantedIn([string]$dir) {
+  $full = (Get-LongPath (Get-Item -LiteralPath $dir).FullName).TrimEnd('\')
+  $tray = Join-Path $full "scaffold\scripts\windows\granted-tray.ps1"
+  $trays = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object {
+    $_.ProcessId -ne $PID -and @(Get-LongPathsIn $_.CommandLine | Where-Object { $_ -ieq $tray }).Count -gt 0
+  })
+  foreach ($t in $trays) {
+    # Its port: its own -Port, else GRANTED_PORT (as the tray reads it), else 3000.
+    $port = if ($t.CommandLine -match '-Port\s+(\d+)') { [int]$Matches[1] } elseif ($env:GRANTED_PORT -match '^\d+$') { [int]$env:GRANTED_PORT } else { 3000 }
+    try { & $tray -Stop -Port $port | Out-Null } catch { }
+  }
+  $deadline = (Get-Date).AddSeconds(30)
+  while ((Get-Date) -lt $deadline -and @($trays | Where-Object { Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue }).Count -gt 0) {
+    Start-Sleep -Milliseconds 500
+  }
+  $node = @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object {
+    @(Get-LongPathsIn $_.CommandLine | Where-Object { $_.StartsWith("$full\", [StringComparison]::OrdinalIgnoreCase) }).Count -gt 0
+  })
+  # Anything still running: stopped outright. taskkill via Start-Process --
+  # never PowerShell's native-command handling, which turns its stderr (a
+  # process already gone) into a terminating error here.
+  foreach ($p in @($trays | Where-Object { Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue }) + $node) {
+    Start-Process -FilePath (Join-Path $env:SystemRoot "System32\taskkill.exe") -ArgumentList "/PID $($p.ProcessId) /T /F" -WindowStyle Hidden -Wait
+  }
+  if ($trays.Count -gt 0 -or $node.Count -gt 0) { Ok "stopped the Granted that was running (it starts again when you open it)" }
+}
+
+# "1.2.3" (or "v1.2.3", "1.2.3-dev") -> [version] 1.2.3, for comparing.
+function Get-VersionNumber([string]$text) {
+  if ($text -match '(\d+)\.(\d+)\.(\d+)') { return [version]"$($Matches[1]).$($Matches[2]).$($Matches[3])" }
+  return $null
+}
+
+$existingInstall = Test-Path "$TargetDir\scaffold\package.json"
+if ($existingInstall) {
   Ok "$TargetDir already cloned"
+  # Asked for a specific release: move an install THIS script made to it (an
+  # update) -- never someone's own checkout (no marker), never over changes
+  # made in the folder, and never backwards: an older installer run again
+  # (or one whose update check failed) must not replace newer code.
+  if ($Ref) {
+    if (-not (Test-Path -LiteralPath (Join-Path $TargetDir ".git\granted-installer"))) {
+      Warn "Not changing $TargetDir to $Ref -- it wasn't installed by this installer (your own checkout?)."
+    } elseif (git -C $TargetDir status --porcelain) {
+      Warn "Not changing $TargetDir to $Ref -- it has local changes."
+    } else {
+      # Just this tag, forced: a release tag that was moved on GitHub (re-tagged
+      # after a fix) must not break updates, and a stale local copy of it must
+      # not be what's installed.
+      git -C $TargetDir fetch --quiet --force origin "+refs/tags/${Ref}:refs/tags/${Ref}"
+      Assert-LastExitCode "Couldn't download Granted $Ref (git fetch failed)."
+      git -C $TargetDir merge-base --is-ancestor "refs/tags/$Ref" HEAD
+      if ($LASTEXITCODE -eq 0) {
+        Ok "already includes Granted $Ref -- nothing to update"
+      } else {
+        $have = Get-VersionNumber ((Get-Content -LiteralPath "$TargetDir\scaffold\package.json" -Raw | ConvertFrom-Json).version)
+        $want = Get-VersionNumber $Ref
+        if ($have -and $want -and $have -gt $want -and $env:GRANTED_ALLOW_DOWNGRADE -ne "1") {
+          Warn "Not changing $TargetDir to $Ref -- it already has a newer Granted ($have)."
+        } else {
+          Log "Updating $TargetDir to Granted $Ref ..."
+          Stop-GrantedIn $TargetDir
+          git -C $TargetDir -c advice.detachedHead=false checkout --quiet "refs/tags/$Ref"
+          Assert-LastExitCode "Couldn't switch $TargetDir to $Ref (git checkout failed)."
+          Ok "now at $Ref"
+        }
+      }
+    }
+  }
 } else {
   Log "Cloning $RepoUrl into .\$TargetDir ..."
-  git clone $RepoUrl $TargetDir
-  Assert-LastExitCode "git clone failed. If $TargetDir was partially created, remove it before re-running."
+  if ($Ref) {
+    # Clone, then check out the release tag -- not `clone --branch <tag>`,
+    # which prints a scary (harmless) "refs/tags/vX is not a commit!" for an
+    # annotated tag, as releases are.
+    git clone --no-checkout $RepoUrl $TargetDir
+    Assert-LastExitCode "git clone failed. If $TargetDir was partially created, remove it before re-running."
+    git -C $TargetDir -c advice.detachedHead=false checkout --quiet "refs/tags/$Ref"
+    if ($LASTEXITCODE -ne 0) {
+      # This run just created the folder (it held no install): remove it, so a
+      # re-run isn't blocked by a half-made clone.
+      Remove-Item -LiteralPath $TargetDir -Recurse -Force -ErrorAction SilentlyContinue
+      Die "Couldn't check out Granted $Ref (is it a published release?)."
+    }
+  } else {
+    git clone $RepoUrl $TargetDir
+    Assert-LastExitCode "git clone failed. If $TargetDir was partially created, remove it before re-running."
+  }
+  # Marks this clone as made by the installer (inside .git, so git never
+  # sees it): only such clones are listed in Installed apps -- a folder that
+  # was already here may be someone's own checkout, which Settings must never
+  # offer to delete. See scaffold\scripts\windows\uninstall.ps1.
+  Set-Content -LiteralPath (Join-Path $TargetDir ".git\granted-installer") -Value "Cloned by install-windows.ps1 on $(Get-Date -Format s)" -Encoding ascii
   Ok "cloned"
 }
 
 # 4) npm ci -- installs exactly what package-lock.json pins, and never rewrites it
 # (unlike `npm install`, which can touch the lockfile on a version/registry mismatch).
+# A re-run (an update, say) while Granted is running: quit it first -- its
+# server holds files in node_modules that npm ci is about to replace.
+if ($existingInstall) { Stop-GrantedIn $TargetDir }
 Set-Location "$TargetDir\scaffold"
 Log "Installing npm dependencies..."
-npm ci
+# No audit/funding summaries: advice for a developer, not someone installing an app.
+npm ci --no-audit --no-fund
 Assert-LastExitCode "npm ci failed -- see the output above for the underlying error."
 Ok "dependencies installed"
 
+# 4a) The Microsoft Visual C++ runtime the search model needs (see
+# Install-VCRuntime above). A no-op when it's already there, as it is on most
+# machines; never fails the install.
+try {
+  [void](Install-VCRuntime)
+} catch {
+  Warn "Couldn't check for the Microsoft Visual C++ runtime ($($_.Exception.Message)). If search says it's keyword-only, install it from $VCRedistUrl."
+}
+
+# 4b) The built-in search model (about 275 MB), so search works offline and
+# needs no API key. scripts\fetch-model.mjs verifies the files it already has
+# and only downloads what's missing or damaged, so a re-run (an update) is
+# quick. Never fails the install: if it can't download now, Granted fetches
+# the model the first time someone searches. GRANTED_MODEL_URL points it at a
+# mirror. An older checkout without the script simply skips this step.
+if (Test-Path -LiteralPath "scripts\fetch-model.mjs") {
+  Log "Downloading the built-in search model (about 275 MB)..."
+  try {
+    node scripts/fetch-model.mjs
+    if ($LASTEXITCODE -eq 0) {
+      Ok "search model ready"
+    } else {
+      Warn "Couldn't download the search model now. Granted will download it the first time you search."
+    }
+  } catch {
+    Warn "Couldn't download the search model now ($($_.Exception.Message)). Granted will download it the first time you search."
+  }
+}
+
+# 5) List Granted in Settings -> Apps -> Installed apps (per-user, no admin),
+# so it can be uninstalled from there like any other app -- only a clone this
+# script made (see the marker above). Never fails the install: Granted works
+# the same without the entry. -LiteralPath / .FullName: a folder name with
+# [brackets] is a wildcard pattern to Test-Path and Resolve-Path.
+$uninstallScript = Join-Path (Get-Location).ProviderPath "scripts\windows\uninstall.ps1"
+if (Test-Path -LiteralPath $uninstallScript) {
+  try {
+    $registered = (& $uninstallScript -Register -InstallDir (Get-Item -LiteralPath "..").FullName | Select-Object -Last 1) | ConvertFrom-Json
+    if ($registered.registered) {
+      Ok "added to Installed apps (uninstall it from Settings -> Apps)"
+    } elseif ($registered.reason -eq "not-made-by-installer") {
+      Ok "not added to Installed apps: $TargetDir was already here before this install (your own checkout?)"
+    } else {
+      Warn "Couldn't add Granted to Installed apps ($($registered.detail)). Granted still works."
+    }
+  } catch {
+    Warn "Couldn't add Granted to Installed apps ($($_.Exception.Message)). Granted still works."
+  }
+}
+
 Write-Status "done" $null
+# Run by the Granted installer app (it set GRANTED_STATUS_FILE): it takes it
+# from here -- keys, local models, opening Granted -- so no terminal commands.
+if ($env:GRANTED_STATUS_FILE) {
+  Log "Done. Granted is installed -- carry on in the Granted installer."
+  return
+}
 Log "Done. Next steps:"
 Write-Host "  cd $TargetDir\scaffold"
-Write-Host "  npm run setup                  # hosted API keys (OpenAI + Anthropic), or"
+Write-Host "  npm run setup                  # an OpenAI or Claude key for scoring (search needs none), or"
 Write-Host "  npm run setup:local -- --yes   # fully local via Ollama, no API keys"
 Write-Host "  npm run dev                    # -> http://localhost:3000"

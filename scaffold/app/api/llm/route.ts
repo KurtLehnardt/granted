@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { isLocalLlm, defaultLocalModel } from "@/lib/llm/client";
-import { listOllamaChatModels } from "@/lib/llm/ollamaInfo";
-import { resolveCloudConfig, resolveCloudApiKey, publicKeySource } from "@/lib/llm/config";
-import { EMBEDDINGS_IS_OPENAI } from "@/lib/embed";
+import { isLocalLlm } from "@/lib/llm/client";
+import { getOllamaStatus } from "@/lib/llm/ollamaStatus";
+import { resolveCloudConfig, resolveCloudApiKey, publicKeySource, isEnvCloudConfig } from "@/lib/llm/config";
+import { buildSearchStatus } from "@/lib/embeddings/searchStatus";
+import { withErrorLogging } from "@/lib/errorLog/withErrorLogging";
 
 // Next 14 would otherwise prerender this at build time, freezing the backend/model list.
 export const dynamic = "force-dynamic";
@@ -22,32 +23,43 @@ function buildCloudBlock(cfg: NonNullable<ReturnType<typeof resolveCloudConfig>>
     hasKey: Boolean(resolved.key),
     ...(resolved.key ? { keyHint: resolved.key.slice(-4) } : {}),
     keySource: publicKeySource(cfg.keySource),
+    // From ANTHROPIC_API_KEY / OPENAI_API_KEY in .env.local, not saved in
+    // Settings: Settings' Remove can't remove it (it would just come back).
+    ...(isEnvCloudConfig() ? { fromEnv: true } : {}),
   };
 }
 
-export async function GET() {
+async function getLlmStatus() {
   const cfg = resolveCloudConfig();
   const cloud = cfg ? buildCloudBlock(cfg) : undefined;
+  // The "Search" line: which embeddings search uses and the built-in model's download state
+  // (lib/embeddings/searchStatus.ts), built once per request.
+  const search = buildSearchStatus();
 
   if (isLocalLlm()) {
+    // Settings → Model → Local: installed / running / models / what to download (lib/llm/ollamaStatus.ts).
+    const ollama = await getOllamaStatus();
     return NextResponse.json({
       local: true,
       provider: "ollama" as const,
-      model: defaultLocalModel(),
-      models: await listOllamaChatModels(),
-      openAiEmbeddings: EMBEDDINGS_IS_OPENAI,
+      model: ollama.defaultModel, // what "Default" actually runs: an installed model when there is one
+      models: ollama.chatModels,
+      ollama,
+      search,
       ...(cloud ? { cloud } : {}),
     });
   }
 
   if (!cfg) {
-    return NextResponse.json({ local: false, provider: "cloud" as const, openAiEmbeddings: EMBEDDINGS_IS_OPENAI });
+    return NextResponse.json({ local: false, provider: "cloud" as const, search });
   }
 
   return NextResponse.json({
     local: false,
     provider: "cloud" as const,
-    openAiEmbeddings: EMBEDDINGS_IS_OPENAI,
+    search,
     cloud,
   });
 }
+
+export const GET = withErrorLogging("llm-config", getLlmStatus);

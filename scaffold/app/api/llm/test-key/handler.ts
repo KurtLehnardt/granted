@@ -5,6 +5,7 @@ import { isCloudProviderId, getCloudProvider } from "@/lib/llm/providers";
 import { resolveDraftBaseUrl, resolveDraftKey, savedKeySourceFor } from "@/lib/llm/validateCloudConfig";
 import { probeCloudKey } from "@/lib/llm/cloudModels";
 import { MODEL } from "@/lib/claude";
+import { logError } from "@/lib/errorLog/server";
 
 // POST /api/llm/test-key — "Test key" button, every cloud provider. Loopback-only
 // (spends real credit / hits the provider). Accepts either a draft (not-yet-saved)
@@ -75,5 +76,10 @@ export async function handleTestKeyPost(
     model: model ?? (providerId === "anthropic" ? MODEL : undefined),
   });
   if (outcome.ok) return NextResponse.json({ ok: true });
-  return NextResponse.json({ ok: false, error: outcome.message });
+  const errorId = logError("llm-provider", `Testing the ${String(providerId)} key failed: ${outcome.message}`, {
+    stack: null,
+    path: "/api/llm/test-key",
+    secrets: draft.key ? [draft.key] : [],
+  });
+  return NextResponse.json({ ok: false, error: outcome.message, errorId });
 }

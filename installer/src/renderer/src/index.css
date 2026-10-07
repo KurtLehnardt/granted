@@ -120,6 +120,13 @@ button.link:disabled {
   color: #d3232f;
 }
 
+p.satisfied {
+  margin: 12px 0 0;
+  color: #1a9c4a;
+  font-weight: 600;
+  font-size: 14px;
+}
+
 .check-list .detail {
   color: #666;
   font-size: 12px;
@@ -140,6 +147,111 @@ button.link:disabled {
   padding: 10px 12px;
 }
 
+.status-note.error {
+  background: #fdecee;
+  color: #a1141e;
+}
+
+.question {
+  font-weight: 600;
+  margin: 0 0 12px;
+}
+
+.detail {
+  color: #666;
+  font-size: 12px;
+}
+
+.actions.spaced {
+  margin-top: 16px;
+}
+
+.choices {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+button.choice {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+  background: #fff;
+  border: 1px solid #d9d9de;
+  padding: 12px 14px;
+}
+
+button.choice:hover {
+  border-color: #0a66ff;
+}
+
+button.choice span {
+  color: #555;
+  font-size: 13px;
+}
+
+.shortcut-options {
+  border: 1px solid #e2e2e6;
+  border-radius: 8px;
+  padding: 10px 14px 12px;
+  margin: 0 0 16px;
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  font-size: 14px;
+}
+
+.shortcut-options legend {
+  padding: 0 4px;
+  font-weight: 600;
+}
+
+.shortcut-options label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.update-option {
+  margin: 16px 0 0;
+  font-size: 14px;
+}
+
+.update-option label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.update-option .detail {
+  margin: 4px 0 0 22px;
+}
+
+.open-in-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 16px;
+  font-size: 14px;
+}
+
+.keys-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+  font-size: 14px;
+}
+
+.keys-form input {
+  font: inherit;
+  padding: 8px 10px;
+  border: 1px solid #d9d9de;
+  border-radius: 6px;
+}
+
 code.command {
   display: block;
   margin-top: 8px;
@@ -150,4 +262,10 @@ code.command {
   font-size: 12px;
   overflow-x: auto;
   white-space: pre;
+}
+
+/* "Report this problem" under an error. */
+.report-problem {
+  margin-top: 8px;
+  font-size: 13px;
 }

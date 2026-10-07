@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { NextResponse } from "next/server";
 import { isLoopbackRequest } from "@/lib/corpus/loopback";
 import { clampCorpusSize } from "@/lib/searchSettings";
+import { logError } from "@/lib/errorLog/server";
 import {
   acquireRefreshLock,
   clearStopRequest,
@@ -78,6 +79,7 @@ export async function handleRefreshPost(
     throw e;
   }
   child.on("error", (e) => {
+    logError("corpus-refresh", e);
     try {
       d.writeRefreshStatus({ lastAttemptAt: new Date().toISOString(), lastError: e.message });
     } finally {

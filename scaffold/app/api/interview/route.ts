@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateQuestions, type InterviewQuestion } from "@/lib/interview/generateQuestions";
 import { rateLimit, clientKey } from "@/lib/security/rateLimit";
+import { withErrorLogging } from "@/lib/errorLog/withErrorLogging";
+import { logError } from "@/lib/errorLog/server";
 
 /**
  * Input bounds for the unauthenticated interview endpoint (security review
@@ -16,8 +18,8 @@ const INTERVIEW_RATE_WINDOW_MS = Number(process.env.INTERVIEW_RATE_WINDOW_MS) ||
  * FE-03 — R1 pre-search interview: question generation ROUTE.
  *
  * Thin server wrapper around INT-01 (`generateQuestions`). Runs the cheap/fast
- * model pass server-side ONLY — `generateQuestions` reads `OPENAI_API_KEY`
- * from the environment, which must never reach the client bundle.
+ * model pass server-side ONLY — `generateQuestions` uses the configured model
+ * provider (lib/llm) and its key, which must never reach the client bundle.
  *
  * Contract with the client (components/IntakeForm.tsx /
  * components/PreSearchInterview.tsx): this route NEVER 5xxs on a generation
@@ -31,7 +33,7 @@ function badRequest(error: string) {
   return NextResponse.json({ error }, { status: 400 });
 }
 
-export async function POST(req: NextRequest) {
+async function postInterview(req: NextRequest) {
   const limit = rateLimit(clientKey(req), { limit: INTERVIEW_RATE_LIMIT, windowMs: INTERVIEW_RATE_WINDOW_MS });
   if (!limit.ok) {
     // Still a 200-shaped contract for the client's happy path would be wrong
@@ -68,8 +70,11 @@ export async function POST(req: NextRequest) {
     // output) degrades to an empty interview rather than a 5xx — the client
     // falls back to searching directly. Log server-side for visibility.
     console.error("interview generation failed:", err);
+    logError("interview", err);
     questions = [];
   }
 
   return NextResponse.json({ questions });
 }
+
+export const POST = withErrorLogging("interview", postInterview);

@@ -1,5 +1,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
+import { refreshEmbedsBuiltinVectors } from "../refresh";
+import { getSpace } from "../../embeddings/spaces";
 import {
   opportunityEmbedText,
   planEmbedding,
@@ -336,4 +338,11 @@ describe("computeStopOutcome", () => {
     assert.equal(outcome.save, true);
     assert.deepEqual(outcome.corpus.map((o) => o.id).sort(), ["a", "c"]);
   });
+});
+
+
+test("data:refresh embeds built-in vectors only when search is built-in (never CPU work in OpenAI mode)", () => {
+  assert.equal(refreshEmbedsBuiltinVectors(getSpace("builtin")), true);
+  assert.equal(refreshEmbedsBuiltinVectors(getSpace("openai")), false);
+  assert.equal(refreshEmbedsBuiltinVectors(getSpace("custom")), false);
 });

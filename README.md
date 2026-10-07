@@ -14,7 +14,88 @@ Run it with your own API keys or a fully local model — see **Run it yourself**
 
 Every OS below ends up running the exact same `npm` commands — the setup scripts detect your platform automatically. Only the prerequisite installs (Node, git, Ollama) differ, so pick yours:
 
+## Quick links
+
+- **[Windows](#install-on-windows)** — most users start here: [GUI installer](#windows-gui-installer) · [command line](#windows-command-line) · [cloud models](#windows-cloud-models) · [fully local](#windows-fully-local) · [run in the background](#windows-run-in-the-background)
+- **[macOS](#install-on-macos)** — [command line](#macos-command-line) · [cloud models](#macos-cloud-models) · [fully local](#macos-fully-local)
+- **[Linux](#install-on-linux)** — [command line](#linux-command-line) · [cloud models](#linux-cloud-models) · [fully local](#linux-fully-local)
+
+## Install on Windows
+
+#### Windows GUI installer
+
+**Easiest: download the installer.** Get **Granted-Setup-x.y.z.exe** from the [latest release](https://github.com/KurtLehnardt/granted/releases/latest) and double-click it.
+- **SmartScreen warning:** the installer isn't code-signed yet, so Windows may say "Windows protected your PC". Click **More info**, then **Run anyway**.
+- **What it does:** it walks you through everything. It installs Git and Node.js if they're missing, then installs Granted, offers Desktop and Start menu shortcuts, and can open Granted for you. Uninstall it from **Settings → Apps → Installed apps**.
+- **Which version:** each installer installs its own release. With **"Check for and install the latest version of Granted"** ticked (the default), it installs a newer release instead, if there is one. Run a newer installer over an existing install to update it.
+
+#### Windows command line
+
+Prefer the command line? The steps below do the same thing, from `main`.
+
+*The app's local-model flow is verified end to end on Windows 11 (HP ZBook, 32GB RAM, 4GB Quadro P1000): qwen2.5:3b + nomic-embed-text, fully local, a novel-company search scoring 34 candidates completed in 7m33s. `install-windows.ps1` itself is separately verified on a fresh Windows Server 2022 box with no `winget` present, forcing the direct-download fallback path for both Node and git.*
+
+**1. Install prerequisites + clone (one command, PowerShell)**
+```powershell
+irm https://raw.githubusercontent.com/KurtLehnardt/granted/main/install-windows.ps1 | iex
+```
+Installs Node 22+ and git if missing — via `winget` where available, otherwise a direct official-installer download (winget isn't present on every Windows box, notably Windows Server, which this was verified against) — clones the repo into `.\granted` and runs `npm ci`. It then:
+- adds the Microsoft Visual C++ runtime if it's missing (the built-in search model needs it);
+- downloads the search model;
+- adds Granted to **Installed apps**.
+
+Safe to re-run.
+
+Prefer to do it by hand?
+```powershell
+winget install OpenJS.NodeJS.LTS
+winget install Git.Git
+git clone https://github.com/KurtLehnardt/granted.git
+cd granted/scaffold
+```
+No `winget`? Grab [Node 22+](https://nodejs.org) and [git](https://git-scm.com/download/win) directly instead. PowerShell (default on Windows 10/11) or Git Bash both work with everything below.
+
+#### Windows cloud models
+
+**2. Search your own company — hosted (one key for scoring: Claude or OpenAI)**
+```powershell
+npm run setup      # interactive: writes .env.local, collects your keys
+npm run dev
+```
+Or by hand: `Copy-Item .env.example .env.local` (PowerShell) or `cp .env.example .env.local` (Git Bash), then edit `scaffold/.env.local` and set `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` for the scoring. Search itself needs no key — see **What you need** below.
+
+#### Windows fully local
+
+**3. Fully local (Ollama, no API keys)**
+```powershell
+# No Ollama yet? setup:local installs it via winget (or get it at https://ollama.com/download).
+npm run setup:local -- --yes        # picks a model sized for your RAM/VRAM and pulls it
+npm run dev
+```
+
+#### Windows run in the background
+
+**4. Run it in the background, from a shortcut (optional)**
+
+Instead of keeping a terminal open for `npm run dev`, Granted can run hidden in the background with an icon by the clock. The GUI installer offers this. Its "Installation complete" screen has **Desktop** and **Start menu** shortcut boxes, and "Open Granted" starts it this way. To add the shortcuts by hand:
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\shortcuts.ps1 -Desktop -StartMenu
+```
+- **The Granted shortcut** starts Granted if it isn't already running, then opens it. Nothing starts at sign-in.
+- **Its own window:** Granted opens like an app, in an Edge window with no tabs or address bar and its own taskbar entry (Edge's app mode, `msedge --app=…`; Chrome if there's no Edge). To use a normal browser tab instead, untick **Open in its own window** in the tray icon's menu or on the installer's last screen. The choice is saved in `%LOCALAPPDATA%\Granted\settings.json`. Links to other sites open in a regular Edge (or Chrome) window, not in your default browser.
+- **The Granted icon by the clock** has a right-click menu: **Open Granted**, its status, **Open in its own window**, **Show log** (the server output, in `%LOCALAPPDATA%\Granted\logs`), **Restart** and **Quit Granted**. Quitting stops the server.
+- **Updates:** **Settings → About Granted** shows the version, with **Check for updates**. On an install made by the installer, **Update to vX.Y.Z** updates in place: Granted closes, installs the release, reopens, and the page reloads. **Install updates automatically** does the same when Granted is opened, at most every 6 hours. A developer checkout is told to `git pull` instead, and is never changed.
+- **Uninstalling:** the install adds Granted to **Settings → Apps → Installed apps** (per-user, no admin needed). **Uninstall** there:
+  - quits Granted;
+  - removes its shortcuts, its folder and its settings and logs;
+  - first offers to save a copy of your API keys to your Documents folder.
+
+  Git and Node stay installed. If a program is still using the folder, nothing is deleted and it says so. From PowerShell: `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\uninstall.ps1` (add `-Quiet` to skip the questions). An install made before this existed shows up after re-running the installer, or: `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\uninstall.ps1 -Register`.
+- **No window, even on Windows 11:** the shortcut runs `scripts\windows\granted-tray.ps1` through `conhost.exe --headless`. A plain `powershell -WindowStyle Hidden` still opens a visible Windows Terminal window when Windows Terminal is the default console host, as it is by default on Windows 11.
+
 ## Install on macOS
+
+#### macOS command line
 
 *The app's local-model flow is verified end to end on a 32GB Mac: auto-picked `qwen2.5:14b` and completed a full novel-company search (18 candidates, fully local, zero API calls) in **3 minutes 43 seconds**. `install-macos.sh` is separately verified on a 2015 MacBook Pro (Intel i7-4770HQ, 16GB, macOS 12.7.6) — the oldest realistic case, which forces the Ollama CLI-tarball path described below — and on a clean macOS 15 (Sequoia) VM with nothing pre-installed, both with Homebrew already present and with no Homebrew and no terminal to prompt through (the one-liner bootstraps Homebrew itself in that case): `llama3.2:3b` on 4 vCPU/8GB completed a full novel-company search in 13m36s, fully local, zero API calls.*
 
@@ -32,17 +113,21 @@ cd granted/scaffold
 npm install
 ```
 
-**2. cloud models (OpenAI + Anthropic)**
+#### macOS cloud models
+
+**2. cloud models (one key for scoring: Claude or OpenAI)**
 ```bash
 npm run setup      # interactive: writes .env.local, collects your keys
 npm run dev
 ```
-Or by hand: `cp .env.example .env.local`, then edit `scaffold/.env.local` and set `OPENAI_API_KEY` + `ANTHROPIC_API_KEY` — see **What you need** below for where to get them.
+Or by hand: `cp .env.example .env.local`, then edit `scaffold/.env.local` and set `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` for the scoring. Search itself needs no key — see **What you need** below.
+
+#### macOS fully local
 
 **3. Fully local (Ollama, no API keys)**
 ```bash
 brew install ollama                 # already done if install-macos.sh found Homebrew; or https://ollama.com/download
-npm run setup:local -- --yes        # picks a model sized for your RAM, pulls it, re-embeds the corpus
+npm run setup:local -- --yes        # picks a model sized for your RAM and pulls it
 npm run dev
 ```
 
@@ -55,40 +140,9 @@ npm run dev
 > ```
 > There's no `.app` wrapper on this path, so start the daemon yourself with `ollama serve` — and again after each reboot, since nothing auto-starts it.
 
-## Install on Windows
-
-*The app's local-model flow is verified end to end on Windows 11 (HP ZBook, 32GB RAM, 4GB Quadro P1000): qwen2.5:3b + nomic-embed-text, fully local, a novel-company search scoring 34 candidates completed in 7m33s. `install-windows.ps1` itself is separately verified on a fresh Windows Server 2022 box with no `winget` present, forcing the direct-download fallback path for both Node and git.*
-
-**1. Install prerequisites + clone (one command, PowerShell)**
-```powershell
-irm https://raw.githubusercontent.com/KurtLehnardt/granted/main/install-windows.ps1 | iex
-```
-Installs Node 22+ and git if missing — via `winget` where available, otherwise a direct official-installer download (winget isn't present on every Windows box, notably Windows Server, which this was verified against) — clones the repo into `.\granted`, and runs `npm ci`. Safe to re-run.
-
-Prefer to do it by hand?
-```powershell
-winget install OpenJS.NodeJS.LTS
-winget install Git.Git
-git clone https://github.com/KurtLehnardt/granted.git
-cd granted/scaffold
-```
-No `winget`? Grab [Node 22+](https://nodejs.org) and [git](https://git-scm.com/download/win) directly instead. PowerShell (default on Windows 10/11) or Git Bash both work with everything below.
-
-**2. Search your own company — hosted (OpenAI + Anthropic)**
-```powershell
-npm run setup      # interactive: writes .env.local, collects your keys
-npm run dev
-```
-Or by hand: `Copy-Item .env.example .env.local` (PowerShell) or `cp .env.example .env.local` (Git Bash), then edit `scaffold/.env.local` and set `OPENAI_API_KEY` + `ANTHROPIC_API_KEY` — see **What you need** below.
-
-**3. Fully local (Ollama, no API keys)**
-```powershell
-# No Ollama yet? setup:local installs it via winget (or get it at https://ollama.com/download).
-npm run setup:local -- --yes        # picks a model sized for your RAM/VRAM, pulls it, re-embeds the corpus
-npm run dev
-```
-
 ## Install on Linux
+
+#### Linux command line
 
 **1. Install prerequisites + clone (one command)**
 ```bash
@@ -110,17 +164,21 @@ cd granted/scaffold
 ```
 Both install Node 22, which is also what the one-shot script installs — see **Which Node version** below for why 22 and not 20.
 
-**3. Search your own company — hosted (OpenAI + Anthropic)**
+#### Linux cloud models
+
+**2. Search your own company — hosted (one key for scoring: Claude or OpenAI)**
 ```bash
 npm run setup      # interactive: writes .env.local, collects your keys
 npm run dev
 ```
-Or by hand: `cp .env.example .env.local`, then edit `scaffold/.env.local` and set `OPENAI_API_KEY` + `ANTHROPIC_API_KEY` — see **What you need** below.
+Or by hand: `cp .env.example .env.local`, then edit `scaffold/.env.local` and set `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` for the scoring. Search itself needs no key — see **What you need** below.
+
+#### Linux fully local
 
 **3. Fully local (Ollama, no API keys)**
 ```bash
 curl -fsSL https://ollama.com/install.sh | sh
-npm run setup:local -- --yes        # picks a model sized for your RAM, pulls it, re-embeds the corpus
+npm run setup:local -- --yes        # picks a model sized for your RAM and pulls it
 npm run dev
 ```
 Verified end to end via `install-linux.sh` on a fresh Amazon Linux 2023 box (2 vCPU, 8GB RAM, no GPU — the smallest realistic case): auto-picked `llama3.2:1b` and completed a full novel-company search (21 candidates, fully local) in **18 minutes 58 seconds**. The same flow on Ubuntu, same hardware class, ran comparably (20m43s). A machine with a GPU or more cores will be dramatically faster — the macOS and Windows numbers above are the same engine, just more hardware.
@@ -146,8 +204,9 @@ CI runs the suite on Node 22 and 24.
 
 | Thing | Required? | Where | Notes |
 |---|---|---|---|
-| **OpenAI API key** | For your own searches (the 4 samples work without any keys) | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) | Embeddings (`text-embedding-3-small`). Pennies per search. |
-| **Anthropic API key** | For your own searches (the 4 samples work without any keys) | [console.anthropic.com](https://console.anthropic.com/settings/keys) | Claude: scoring + explanations. A novel search runs ~$0.05–0.33. Or pick another provider in **Settings → Model → Cloud** (OpenAI, Gemini, OpenRouter, Groq, Mistral, or any OpenAI-compatible URL) and paste its key or point to an env var / secret file. No paid key? Run [Free Claude Code](https://github.com/KurtLehnardt/free-claude-code-secure) and pick **Anthropic-compatible proxy** (defaults to `http://127.0.0.1:8082` and `~/.fcc/proxy_auth_token`). Prompts are tuned on Claude. |
+| **A scoring key** | **One** for your own searches: Anthropic **or** OpenAI (or another provider in Settings, or a local model). The 4 samples work without any keys. | below | Search itself needs no key: it runs on a built-in model on your computer (see **How search works** below). |
+| **Anthropic API key** | Either this or OpenAI's (recommended) | [console.anthropic.com](https://console.anthropic.com/settings/keys) | Claude: scoring + explanations. A novel search runs ~$0.05–0.33. Or pick another provider in **Settings → Model → Cloud** (OpenAI, Gemini, OpenRouter, Groq, Mistral, or any OpenAI-compatible URL) and paste its key or point to an env var / secret file. No paid key? Run [Free Claude Code](https://github.com/KurtLehnardt/free-claude-code-secure) and pick **Anthropic-compatible proxy** (defaults to `http://127.0.0.1:8082` and `~/.fcc/proxy_auth_token`). Prompts are tuned on Claude. |
+| **OpenAI API key** | Either this or Anthropic's | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) | Scoring with `gpt-4o-mini` when there's no Claude key. When it's set, search also uses OpenAI's embeddings (`text-embedding-3-small`, pennies per search), as it always has; `SEARCH_EMBEDDINGS=builtin` keeps search on your computer instead. |
 | **Exa API key** | Optional | [dashboard.exa.ai](https://dashboard.exa.ai) | Only for the deep competitor analysis' *live web* results. Without it, that feature degrades honestly to federal awardees only. |
 
 ### Picking a local model manually
@@ -169,18 +228,21 @@ LOCAL_LLM_MODEL=<the tag you pulled>
 ```
 Every scoring/explanation call now routes to Ollama's OpenAI-compatible endpoint, with grammar-constrained JSON so a local model stays parseable. Any OpenAI-compatible server works (LM Studio, vLLM, llama.cpp) — set `LLM_BASE_URL` to its `/v1` URL.
 
-### Fully offline
+### How search works (and why it needs no key)
 
-**Embeddings are a SEPARATE setting from the LLM.** `LLM_PROVIDER=ollama` only moves the scoring/explanation calls — it does **not** move the query embedding. By default that tiny embedding still uses OpenAI (the corpus ships pre-embedded at 512 dims; it costs fractions of a cent), and if `OPENAI_API_KEY` is missing or still the `.env.example` placeholder you'll get a clear error rather than a hosted call. `npm run setup:local` sets this up for you; to do it by hand, pull a local embedding model and re-embed the corpus with it:
-```bash
-ollama pull nomic-embed-text
-# add these two lines to scaffold/.env.local:
-EMBEDDINGS_BASE_URL=http://localhost:11434/v1
-EMBEDDINGS_MODEL=nomic-embed-text
-# then just run (data:embed:local reads scaffold/.env.local — no inline env needed):
-npm run data:embed:local  # re-embeds the 4,698-opportunity corpus into the gitignored data/local/
-```
-Now nothing leaves your machine.
+Search embeds your description and compares it with every program in the corpus. That runs on a **built-in model, on your computer**: [nomic-embed-text-v1.5](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5) (fp16 ONNX, about 275 MB, run in the app by `@huggingface/transformers`). The corpus's vectors for it ship with Granted (`scaffold/data/vectors/`), so there is nothing to re-embed. No key, no per-search cost, and once the model is downloaded it works offline.
+
+- **The model download.** The installers fetch it into `scaffold/models/` (gitignored) right after `npm ci`. If that didn't happen, the first search downloads it (Settings → Model shows the progress, with a **Download now** button), or run `npm run model:fetch`. The files are pinned to one Hugging Face revision and checked against SHA-256 checksums. At runtime the app only loads from `scaffold/models/`; it never fetches a model from the internet by itself except for that one download.
+- **Behind a proxy or firewall.** The download uses Node's built-in `fetch`, which ignores `HTTPS_PROXY`. Point `GRANTED_MODEL_URL` at a mirror holding the same files instead (it fetches `<GRANTED_MODEL_URL>/onnx/model_fp16.onnx` and so on; the checksums still apply), or copy a `scaffold/models/` folder from another machine.
+- **On Windows** the model needs the Microsoft Visual C++ runtime. The Windows installer adds it when it's missing (through winget, or Microsoft's own installer; it may ask for Administrator rights). Without it, the search model can't start.
+- **If the model can't be downloaded or started**, search doesn't fail: it falls back to keyword matching and says so above the results ("Search is running in keyword-only mode: …"), and the Search line in Settings shows the reason with a **Retry** button.
+- **Which embeddings search uses** is `SEARCH_EMBEDDINGS` in `scaffold/.env.local`: `auto` (the default) uses OpenAI's embeddings when a valid `OPENAI_API_KEY` is set, so existing setups behave exactly as before, and the built-in model otherwise; `builtin` always uses the built-in model; `openai` always uses OpenAI's. Settings → Model shows a **Search** line saying which one is in use.
+- **With a Claude-only key** (or Gemini, Groq, OpenRouter, the Free Claude Code proxy and so on), search is built-in and that provider does the scoring.
+- **On Local (Ollama)**, search is built-in too. Its vectors are the same ones Ollama's `nomic-embed-text` produces, so one shipped corpus serves both, and Local needs no embedding model pulled and no re-embedding. Nothing leaves your machine.
+
+**How good is built-in search?** Coarser than OpenAI's embeddings, so Claude-only and Local users get somewhat different, and likely lower, recall than OpenAI users. Measured without any paid calls (`npm run eval:builtin`): the two models agree on 53.6% of each program's 24 nearest neighbours, and of the 7 strong matches in the four demo searches that are still in the corpus, 4 reach scoring through built-in retrieval (all 7 clear its similarity floor; 3 rank in its top 24). Those demo matches came from the OpenAI pipeline, so they favour it; a fair head-to-head would need paid OpenAI queries. Keyword (BM25) matching runs alongside either model. If recall matters most and you have an OpenAI key, `SEARCH_EMBEDDINGS=auto` already uses OpenAI's embeddings.
+
+**Your own embedding server.** Setting `EMBEDDINGS_BASE_URL` / `EMBEDDINGS_MODEL` in `.env.local` still points search at any OpenAI-compatible embedder, over a corpus you re-embed with it (`npm run data:embed:local`). Setups made by an older `npm run setup:local` look like this and keep working unchanged. To switch one to the built-in model, remove those two lines, and if `.env.local` also has an OpenAI key, add `SEARCH_EMBEDDINGS=builtin` (otherwise search moves to OpenAI's embeddings, and uses the shipped grant list until you next refresh, since the refreshed copy holds the old local-model vectors).
 
 ### The tradeoff
 
@@ -212,18 +274,19 @@ The corpus (`scaffold/data/opportunities.json`, which contains opportunities acr
 ```bash
 cd scaffold
 npm run data:mvp        # fetch SAM assistance, assemble
-npm run data:embed      # embed everything (~1 min, <$1 of OpenAI)
+npm run data:embed:builtin # vectors for the built-in search model (no key; ~40 min on a laptop CPU)
+npm run data:embed      # OpenAI vectors too, for SEARCH_EMBEDDINGS=openai (~1 min, <$1 of OpenAI)
 npm run data:precompute # (optional) freeze the demo test cases for instant renders
 ```
 
-To stay current, `npm run data:refresh` (or Settings → "Refresh cached grants") fetches every open listing, drops expired deadlines, and embeds only new/changed records into a gitignored `scaffold/data/local/` copy the running app picks up without a restart. It uses the app's embedding settings (no API key with local Ollama embeddings). Settings → "Max cached opportunities" (1,000–20,000, default 1,000) or `CORPUS_MAX` caps its size.
+To stay current, `npm run data:refresh` (or Settings → "Refresh cached grants") fetches every open listing, drops expired deadlines, and embeds only new/changed records into a gitignored `scaffold/data/local/` copy the running app picks up without a restart. It embeds with whatever search uses. With the built-in model it needs no API key: new and changed records are embedded on your computer's CPU (a few hundred new grants take a few minutes; the whole corpus about 40 minutes on a laptop), and every unchanged record keeps its vector. With OpenAI it embeds only OpenAI vectors and spends no CPU on the built-in model; if you switch to the built-in model later, Granted indexes the grants that are missing in the background, and the Search line in Settings shows how many are indexed meanwhile (the rest are still found by keyword). Settings → "Max cached opportunities" (1,000–20,000, default 1,000) or `CORPUS_MAX` caps its size.
 
 ---
 
 ## How it works
 
 1. **Intake.** Describe your company in natural language; Claude extracts a structured profile + expands it into government vocabulary.
-2. **Retrieval.** OpenAI embeddings + in-memory cosine similarity over the 4,698-opportunity corpus (no vector DB); per-type quotas keep every instrument reachable.
+2. **Retrieval.** Embeddings (the built-in model, or OpenAI's) + in-memory cosine similarity over the 4,698-opportunity corpus (no vector DB), plus keyword (BM25) matching; per-type quotas keep every instrument reachable.
 3. **Scoring.** Claude scores each candidate 0–100 on the criteria a program officer would apply, with a met/unmet checklist and plain-language explanations.
 4. **Eligibility screen.** A rules layer buckets eligibility from *stated* facts; it never turns a model guess into an exclusion.
 5. **Discernment** *(flag)*. Recommend / verify / **don't-recommend** per match, plus a whole-map verdict, so a weak idea gets an honest "don't apply" instead of a wall of maybes.
@@ -233,7 +296,11 @@ Results **stream**. Progress and grounded evidence appear in seconds rather than
 
 ## Troubleshooting
 
-- **`OPENAI_API_KEY is not set`** → add it to `scaffold/.env.local` and restart `npm run dev`.
+- **The installer says "Couldn't download the Granted installer from GitHub (The remote name could not be resolved: 'raw.githubusercontent.com')"** → the PC couldn't reach GitHub. It retries for about 40 seconds first. A VPN that's still connecting (or a DNS hiccup) is the usual cause: wait until you're online, then click **Try again**.
+- **`No cloud provider is configured`** → scoring needs one provider: add `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` to `scaffold/.env.local` (then restart `npm run dev`), pick one in Settings → Model, or switch to Local.
+- **"Search is running in keyword-only mode: couldn't download the search model (…)"** → run `npm run model:fetch` in `scaffold/` to see the full error. Behind a proxy or firewall, set `GRANTED_MODEL_URL` to a mirror (Node's `fetch` ignores `HTTPS_PROXY`).
+- **"Search is running in keyword-only mode: the search model couldn't start because the Microsoft Visual C++ runtime is missing on this computer"** → install it from https://aka.ms/vs/17/release/vc_redist.x64.exe (or run the Granted installer again), then restart Granted.
+- **"Embedding dimension mismatch"** → `.env.local` points `EMBEDDINGS_*` at a model the corpus wasn't embedded with: re-embed (`npm run data:embed:local`) or remove those settings to use the built-in model.
 - **Anthropic 400 "credit balance too low"** → top up at console.anthropic.com; every search spends credits.
 - **A flag change did nothing** → `NEXT_PUBLIC_*` vars are read at build/start; restart the dev server.
 - **`npm test` prints `Could not find '…/**/*.test.ts'` and runs nothing** → you're on Node 20. The test runner only learned to expand globs in Node 22; upgrade to 22+ (see **Which Node version**). Running the app is unaffected.
@@ -242,6 +309,21 @@ Results **stream**. Progress and grounded evidence appear in seconds rather than
 
 ---
 
-**Built with:** Next.js · TypeScript · Tailwind · OpenAI (embeddings) · Anthropic Claude (scoring & explanations).
+**Built with:** Next.js · TypeScript · Tailwind · nomic-embed-text-v1.5 via Transformers.js (search) · Anthropic Claude (scoring & explanations).
 
 **License:** see [LICENSE](LICENSE).
+
+## Releasing (maintainers)
+
+Releases publish the Windows installer, `Granted-Setup-x.y.z.exe`, through `.github/workflows/release.yml`.
+1. Set `"version"` to the new version in **both** `installer/package.json` and `scaffold/package.json`, and merge that.
+2. Tag `main` and push the tag: `git tag v0.2.0 && git push origin v0.2.0`.
+
+The workflow:
+- checks that the tag matches both versions;
+- runs the installer's tests;
+- builds the `.exe` with the tag baked in, so it installs exactly that release (or a newer one, when asked);
+- smoke-tests the packaged app;
+- publishes the release with the `.exe` and a SHA-256 checksum.
+
+To build it locally: `cd installer; $env:GRANTED_RELEASE_TAG='v0.2.0'; npm run dist`, which writes `installer\dist\Granted-Setup-<version>.exe`.

@@ -3,6 +3,8 @@ import { isLocalLlm } from "@/lib/llm/client";
 import { createCostMeter } from "@/lib/metering/meter";
 import { analyzeCompetitors, InsufficientEvidenceError } from "@/lib/competitors/analyze";
 import type { CompetitorStreamEvent } from "@/lib/contracts/competitorAnalysis";
+import { withErrorLogging } from "@/lib/errorLog/withErrorLogging";
+import { logError } from "@/lib/errorLog/server";
 
 /**
  * R5-deep — live "competitor & grant intelligence" market brief.
@@ -70,7 +72,7 @@ function deriveKeywords(description: string): string[] {
   return out;
 }
 
-export async function POST(req: NextRequest) {
+async function postCompetitors(req: NextRequest) {
   let body: any;
   try {
     body = await req.json();
@@ -144,9 +146,15 @@ export async function POST(req: NextRequest) {
         // Insufficient grounded evidence, or Anthropic/OpenAI unavailable → an HONEST
         // "unavailable" state the client renders (never fabricate).
         const insufficient = err instanceof InsufficientEvidenceError;
+        // Too little public data is an honest answer, and a closed modal isn't a failure; anything
+        // else (including running out of time budget) goes to the error log.
+        const reason: unknown = controller.signal.reason;
+        const clientGone = controller.signal.aborted && !(reason instanceof Error && reason.message === "budget");
+        const errorId = insufficient || clientGone ? undefined : logError("competitors", err);
         send({
           type: "error",
           ok: false,
+          ...(errorId ? { errorId } : {}),
           reason: insufficient ? "insufficient_evidence" : "unavailable",
           message: insufficient
             ? "Not enough grounded public award data was found for a reliable live brief."
@@ -176,3 +184,5 @@ export async function POST(req: NextRequest) {
     },
   });
 }
+
+export const POST = withErrorLogging("competitors", postCompetitors);

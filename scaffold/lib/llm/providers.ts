@@ -96,6 +96,10 @@ export const CLOUD_PROVIDERS: readonly CloudProviderPreset[] = [
     baseUrl: "https://api.openai.com/v1",
     defaultModel: "gpt-4o-mini",
     isKeyValid: isValidOpenAiKeyFormat,
+    // It's now the default scorer whenever only OPENAI_API_KEY is set — often
+    // a new, low-tier account. Cap the fan-out so a novel search's batches
+    // don't all hit the tokens-per-minute limit at once (429s → slow/partial results).
+    concurrency: 4,
   },
   {
     id: "google",

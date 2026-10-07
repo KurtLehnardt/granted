@@ -158,3 +158,14 @@ export function computeStopOutcome(params: {
   const corpus = mergePartialSave(reused, embeddedSoFar, notYetEmbedded, priorById, dims);
   return { save: true, corpus, status: { lastStoppedAt: stoppedAt, stopped: true, savedCount: corpus.length } };
 }
+
+/**
+ * Whether a data:refresh embeds built-in vectors: only when search uses a
+ * vector-file space (the built-in model). On OpenAI or a custom embedder the
+ * refresh never spends CPU on the built-in model; if search switches to it
+ * later, the app fills in the missing vectors in the background
+ * (lib/embeddings/backfill.ts).
+ */
+export function refreshEmbedsBuiltinVectors(space: { vectors: { kind: "inline" } | { kind: "file"; name: string } }): boolean {
+  return space.vectors.kind === "file";
+}

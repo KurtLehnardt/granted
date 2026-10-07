@@ -51,7 +51,9 @@ test("a rejected batch logs one warning with the dropped candidate count and sta
 
   const candidates = [opp("a"), opp("b")];
   let call = 0;
-  globalThis.fetch = (async () => {
+  globalThis.fetch = (async (url: unknown) => {
+    // The local client reads Ollama's /api/tags once to resolve the default model; not a batch.
+    if (String(url).endsWith("/api/tags")) return { ok: true, json: async () => ({ models: [] }) };
     call++;
     if (call === 1) {
       return { ok: false, status: 429, text: async () => `rate limited for key ${FAKE_KEY}` };

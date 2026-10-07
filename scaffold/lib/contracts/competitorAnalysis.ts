@@ -301,4 +301,4 @@ export type CompetitorStreamEvent =
       webProfiles: WebCompetitorProfile[];
     }
   | { type: "result"; ok: true; analysis: CompetitorAnalysis }
-  | { type: "error"; ok: false; reason: "insufficient_evidence" | "unavailable"; message: string };
+  | { type: "error"; ok: false; reason: "insufficient_evidence" | "unavailable"; message: string; errorId?: string };

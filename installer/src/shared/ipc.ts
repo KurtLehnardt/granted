@@ -82,10 +82,174 @@ export function isSupportedPlatform(p: string): p is SupportedPlatform {
   return p === "darwin" || p === "win32" || p === "linux";
 }
 
+/**
+ * Which Granted the install will set up (see chooseInstallRef). `pinned` is
+ * the release this installer was built for (null in a development build,
+ * which installs main); `latest` is the newest release found when checking
+ * for updates; `ref` is what will actually be installed.
+ */
+export interface InstallVersionPlan {
+  pinned: string | null;
+  latest: string | null;
+  ref: string | null;
+  checkForUpdates: boolean;
+  /** Checking for updates failed (offline, say): the pinned release is installed. */
+  checkFailed: boolean;
+}
+
+/** Where Granted got installed, and how far its first-run setup already got. */
+export interface GrantedSetupState {
+  /** Absolute path of the clone (install-windows.ps1's $TargetDir, resolved). */
+  installDir: string;
+  /**
+   * process.platform, so the screen can word what it says about running in
+   * the background for the machine it's on (a tray icon "by the clock" on
+   * Windows, an icon in the menu bar on macOS) rather than fetching the
+   * prereq report again just to learn which OS this is.
+   */
+  platform: string;
+  /** True once the clone's scaffold/package.json exists. */
+  installed: boolean;
+  /** OPENAI_API_KEY is set to a real (non-placeholder) value. */
+  openaiKeySet: boolean;
+  /** ANTHROPIC_API_KEY is set to a real (non-placeholder) value. */
+  anthropicKeySet: boolean;
+  /** What hosted (API-key) mode needs to run: one key to score with, OpenAI's or Anthropic's (search needs none). */
+  hostedKeysSet: boolean;
+  /** `npm run setup:local` finished: .env.local points at Ollama (and, for an older setup that re-embedded the corpus, that re-embed finished). */
+  localConfigured: boolean;
+  /** A model provider was already chosen in Granted's Settings → Model (data/local/llm-config.json), e.g. Gemini or Groq. */
+  settingsProviderSet: boolean;
+  /**
+   * This install has its platform's background runner, so Granted can run
+   * with no window to keep open: scripts/windows/granted-tray.ps1 (a tray
+   * icon by the clock) on Windows, scripts/macos/granted-tray.sh (a LaunchAgent
+   * plus a menu-bar icon) on macOS.
+   */
+  trayAvailable: boolean;
+  /** This install has scripts/windows/shortcuts.ps1, so Desktop/Start menu shortcuts can be offered. */
+  shortcutsAvailable: boolean;
+  /**
+   * macOS's counterpart of shortcutsAvailable: this install has
+   * scripts/macos/applications-launcher.sh, so a ~/Applications/Granted.app
+   * launcher can be created and offered a place in the Dock. The launcher
+   * itself is not optional (the work order makes only the Dock placement a
+   * choice), so this flag gates both the creation and the checkbox.
+   */
+  launcherAvailable: boolean;
+  /** This install has scripts/windows/open-granted.ps1, so Granted can open in its own window (Edge/Chrome app mode). */
+  appWindowAvailable: boolean;
+  /** The saved preference: open Granted in its own window, or in a browser tab. */
+  openIn: OpenIn;
+}
+
+/** Where Granted opens: its own app window, or a tab in the default browser. */
+export type OpenIn = "window" | "browser";
+
+/** What the "Use my API keys" form sends. Blank = leave whatever is already there. */
+export interface ApiKeysInput {
+  openaiApiKey: string;
+  anthropicApiKey: string;
+  exaApiKey: string;
+}
+
+export interface ActionResult {
+  ok: boolean;
+  message: string;
+}
+
+/**
+ * Pushed from main → renderer when a long-running "Open Granted" step
+ * finishes: the fully-local setup (`npm run setup:local -- --yes`, which can
+ * take half an hour) or starting the app itself (`npm run dev`, then waiting
+ * for it to answer before opening the browser).
+ */
+export interface TaskStatusEvent {
+  task: "local-setup" | "start-app";
+  state: "done" | "error";
+  message?: string | null;
+  /** start-app only: where Granted is (or would have been) served. */
+  url?: string;
+  /**
+   * start-app only: Granted runs in the background with an icon that can
+   * open and quit it — a tray icon (scripts/windows/granted-tray.ps1) on
+   * Windows, a menu-bar icon over a LaunchAgent
+   * (scripts/macos/granted-tray.sh) on macOS — rather than in a console
+   * window the user must keep open, or (on macOS) a plain detached process
+   * with nothing to manage it. False only for an older install without that
+   * script.
+   */
+  background?: boolean;
+  /** start-app "done" only: whether Granted opened in its own window or a browser tab. */
+  openedIn?: OpenIn;
+}
+
+/** saveApiKeys's result: `suggestLocal` = offer "use local models instead" (no usable search key was given). */
+export interface SaveKeysResult extends ActionResult {
+  suggestLocal?: boolean;
+}
+
+/** startGranted's result: `background` says whether it's starting in the background (tray icon) or a console window. */
+export interface StartResult extends ActionResult {
+  background?: boolean;
+}
+
+/** Which "Granted" shortcuts to create (the installer's checkboxes). */
+export interface ShortcutChoice {
+  desktop: boolean;
+  startMenu: boolean;
+}
+
+export interface ShortcutsResult extends ActionResult {
+  /** The .lnk files created. */
+  created: string[];
+}
+
+/**
+ * macOS: what to do about the Dock when the ~/Applications launcher is
+ * created (the installer's "Add Granted to the Dock" checkbox, ticked by
+ * default). The launcher is created either way — only its place in the Dock
+ * is a choice.
+ */
+export interface LauncherChoice {
+  addToDock: boolean;
+}
+
+export interface LauncherResult extends ActionResult {
+  /** The ~/Applications/Granted.app that was created, or null if it wasn't. */
+  launcherPath: string | null;
+  /** Whether it ended up in the Dock (false when the user didn't ask, or it couldn't be added). */
+  inDock: boolean;
+}
+
 /** contextBridge surface exposed to the renderer as `window.api`. */
 export interface GrantedInstallerApi {
   checkPrereqs: () => Promise<PrereqReport>;
-  openInstallTerminal: () => Promise<OpenInstallTerminalResult>;
+  /** Which Granted the install will set up — checking GitHub for a newer release if asked. */
+  planInstallVersion: (checkForUpdates: boolean) => Promise<InstallVersionPlan>;
+  openInstallTerminal: (checkForUpdates: boolean) => Promise<OpenInstallTerminalResult>;
   /** Subscribe to install-status pushes (see InstallStatusEvent). Returns an unsubscribe function. */
   onInstallStatus: (listener: (status: InstallStatusEvent) => void) => () => void;
+  getSetupState: () => Promise<GrantedSetupState>;
+  /** Writes the keys into scaffold/.env.local (same rules as scaffold/scripts/setup.mjs). */
+  saveApiKeys: (keys: ApiKeysInput) => Promise<SaveKeysResult>;
+  /** Opens a PowerShell window running `npm run setup:local -- --yes`; a TaskStatusEvent follows. */
+  runLocalSetup: () => Promise<ActionResult>;
+  /** Starts Granted in the background (tray icon) and opens it once it answers; a TaskStatusEvent follows. */
+  startGranted: () => Promise<StartResult>;
+  onTaskStatus: (listener: (status: TaskStatusEvent) => void) => () => void;
+  /** Creates the "Granted" Desktop and/or Start menu shortcut. */
+  createShortcuts: (choice: ShortcutChoice) => Promise<ShortcutsResult>;
+  /** macOS: creates the ~/Applications/Granted.app launcher, and adds it to the Dock if asked. */
+  createLauncher: (choice: LauncherChoice) => Promise<LauncherResult>;
+  /** Saves where Granted opens from now on (the installer, the tray and the shortcuts all follow it). */
+  setOpenIn: (openIn: OpenIn) => Promise<ActionResult>;
+  /** Closes the installer window. */
+  quit: () => void;
+  /**
+   * Opens a pre-filled GitHub "new issue" page in the user's browser for an
+   * error the installer showed (sanitized: no keys, emails or user folder).
+   * The user reviews and submits it with their own account.
+   */
+  reportProblem: (message: string, where: string) => Promise<ActionResult>;
 }

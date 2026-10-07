@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { EMBEDDINGS_IS_OPENAI } from "@/lib/embed";
 
 const CONFIG_PATH = path.join(os.tmpdir(), `granted-llm-config-route-test-${process.pid}.json`);
 
@@ -63,8 +62,32 @@ describe("GET /api/llm", () => {
     assert.equal(j.cloud.keyHint, "5678");
     assert.deepEqual(j.cloud.keySource, { type: "env", name: "ANTHROPIC_API_KEY" });
     assert.equal(JSON.stringify(j).includes("sk-ant-abcd1234efgh5678"), false);
-    assert.equal(j.openAiEmbeddings, EMBEDDINGS_IS_OPENAI);
+    assert.equal("openAiEmbeddings" in j, false, "dead field removed; the UI reads search");
+    assert.equal("localEmbeddings" in j, false, "the Ollama re-embed job is retired");
+    assert.equal(typeof j.search.label, "string");
     assert.equal(fetched, false, "hosted must never call Ollama");
+  });
+
+  test("a Claude-only key -> search runs on the built-in model, and says so", async () => {
+    const saved = { openai: process.env.OPENAI_API_KEY, emb: process.env.EMBEDDINGS_API_KEY, setting: process.env.SEARCH_EMBEDDINGS };
+    delete process.env.LLM_PROVIDER;
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.EMBEDDINGS_API_KEY;
+    delete process.env.SEARCH_EMBEDDINGS;
+    process.env.ANTHROPIC_API_KEY = "sk-ant-abcd1234efgh5678";
+    try {
+      const j = await (await GET()).json();
+      assert.equal(j.cloud.providerId, "anthropic");
+      assert.equal(j.search.space, "builtin");
+      assert.equal(j.search.label, "Built-in, on this computer");
+      assert.equal(j.search.reason, "No OpenAI key");
+      assert.ok(["ready", "missing", "downloading", "failed"].includes(j.search.builtin.state));
+    } finally {
+      for (const [k, v] of [["OPENAI_API_KEY", saved.openai], ["EMBEDDINGS_API_KEY", saved.emb], ["SEARCH_EMBEDDINGS", saved.setting]] as const) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
   });
 
   test("hosted with no key anywhere -> no cloud block", async () => {
@@ -179,5 +202,10 @@ describe("GET /api/llm", () => {
     assert.equal(j.local, true);
     assert.equal(j.model, "gemma3:12b");
     assert.deepEqual(j.models, [{ name: "gemma3:12b", paramsB: 12 }]);
+    // Settings → Model → Local's status rides along: running, chat vs embedding models, the default.
+    assert.equal(j.ollama.running, true);
+    assert.deepEqual(j.ollama.chatModels, [{ name: "gemma3:12b", paramsB: 12 }]);
+    assert.deepEqual(j.ollama.embeddingModels, ["nomic-embed-text"]);
+    assert.equal(j.ollama.defaultModel, "gemma3:12b");
   });
 });

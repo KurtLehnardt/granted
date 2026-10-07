@@ -2,8 +2,10 @@
 // EVL-03(a) — blind interview quality eval over the FROZEN golden set.
 // ----------------------------------------------------------------------------
 // For every golden-set entry, calls generateQuestions(entry.description) LIVE
-// against the funded gpt-4o-mini model (INTERVIEW_MODEL, imported from
-// generateQuestions.ts — never overridden), then checks, per entry:
+// on whichever model provider Granted is configured with (lib/llm: Settings →
+// Model, or ANTHROPIC_API_KEY / OPENAI_API_KEY; INTERVIEW_MODEL, imported from
+// generateQuestions.ts and never overridden, is what's asked of Anthropic), then
+// checks, per entry:
 //
 //   1. Gate-first ordering held (code-level regression check — normalize()'s
 //      own TARGET_RANK/GATE_RANK sort already enforces this; this just checks
@@ -12,7 +14,7 @@
 //      structured (select kinds have options + allow_free_text; free_text has
 //      no options) — also a regression check on normalize()'s own guarantees.
 //   3. No question re-asks a fact the description already states — judged by
-//      gpt-4o-mini as an LLM judge (the one check that needs judgment).
+//      the same provider as an LLM judge (the one check that needs judgment).
 //   4. A holistic 1-5 "worth a founder's time" score from the same judge call.
 //
 // Run (from repo root):
@@ -22,21 +24,23 @@
 // not a harness failure (per the task's test plan) — this script exits 0 as
 // long as it completed a full run over every entry (including per-entry
 // InterviewGenerationError / judge failures, which are recorded, not fatal).
-// It exits 1 only on a hard setup failure (missing OPENAI_API_KEY, golden set
-// unreadable, etc.) that means the eval could not run at all.
+// It exits 1 only on a hard setup failure (no model provider configured, golden
+// set unreadable, etc.) that means the eval could not run at all. Every entry is
+// a live, paid model call (two, with the judge).
 // ============================================================================
 
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { createHash } from "node:crypto";
-import OpenAI from "openai";
 import {
   generateQuestions,
   InterviewGenerationError,
   INTERVIEW_MODEL,
   RoutingTargetSchema,
+  parseModelJson,
 } from "../scaffold/lib/interview/generateQuestions.ts";
+import { makeLlmClient } from "../scaffold/lib/llm/client.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const GOLDEN_SET_PATH = join(__dirname, "golden-set.jsonl");
@@ -76,9 +80,12 @@ console.log(
 console.log(`  model: ${INTERVIEW_MODEL} (funded default, not overridden)`);
 console.log("=".repeat(78));
 
-if (!process.env.OPENAI_API_KEY) {
+let client;
+try {
+  client = makeLlmClient({ timeout: HARNESS_TIMEOUT_MS, maxRetries: 1 });
+} catch (err) {
   console.error(
-    "\n*** OPENAI_API_KEY is not set — the interview eval cannot run. ESCALATE per the task's " +
+    `\n*** No model provider is configured (${err.message}) — the interview eval cannot run. ESCALATE per the task's ` +
       "'Escalate if' clause. ***",
   );
   process.exitCode = 1;
@@ -195,18 +202,15 @@ async function judge(client, entry, questions) {
       skippedScore: true,
     };
   }
-  const completion = await client.chat.completions.create({
+  const msg = await client.messages.create({
     model: INTERVIEW_MODEL,
     temperature: 0,
     max_tokens: 500,
-    response_format: { type: "json_object" },
-    messages: [
-      { role: "system", content: JUDGE_SYSTEM_PROMPT },
-      { role: "user", content: buildJudgeUserMessage(entry, questions) },
-    ],
+    system: `${JUDGE_SYSTEM_PROMPT}\n\nRespond with a single JSON object and nothing else.`,
+    messages: [{ role: "user", content: buildJudgeUserMessage(entry, questions) }],
   });
-  const content = completion.choices[0]?.message?.content ?? "";
-  const parsed = JSON.parse(content); // let a malformed judge response throw — caught by the caller
+  const content = msg.content.filter((b) => b.type === "text").map((b) => b.text).join("");
+  const parsed = parseModelJson(content); // let a malformed judge response throw — caught by the caller
   return {
     reasked_question_ids: Array.isArray(parsed.reasked_question_ids) ? parsed.reasked_question_ids : [],
     reasked_explanation: parsed.reasked_explanation ?? "",
@@ -221,11 +225,9 @@ async function judge(client, entry, questions) {
 // Main run
 // ---------------------------------------------------------------------------
 
-const client = new OpenAI({ timeout: HARNESS_TIMEOUT_MS, maxRetries: 1 });
-
 const perEntryResults = [];
 
-console.log(`\nRunning generateQuestions() + judge over ${entries.length} entries (live OpenAI calls)...\n`);
+console.log(`\nRunning generateQuestions() + judge over ${entries.length} entries (live model calls)...\n`);
 
 for (const entry of entries) {
   const row = { id: entry.id, violations: [] };

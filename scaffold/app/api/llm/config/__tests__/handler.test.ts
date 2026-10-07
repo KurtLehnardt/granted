@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { handleLlmConfigPost, type LlmConfigDeps } from "../handler";
 import { readLlmConfig, resolveCloudConfig, resetLlmConfigCache, type LlmConfigFile } from "@/lib/llm/config";
+import type { SearchStatus } from "@/lib/embeddings/searchStatus";
 
 async function withRealConfigFile(initial: object, fn: () => Promise<void>) {
   const p = path.join(os.tmpdir(), `granted-llm-config-handler-${process.pid}-${Date.now()}.json`);
@@ -37,6 +38,10 @@ function fakeDeps(overrides: Partial<LlmConfigDeps> = {}, initial: LlmConfigFile
   const writes: LlmConfigFile[] = [];
   return {
     isLoopbackRequest: () => true,
+    searchStatus: () => null,
+    startModelDownload: () => {
+      throw new Error("fakeDeps: no model download in these tests");
+    },
     readLlmConfig: () => stored,
     writeLlmConfig: (patch: LlmConfigFile) => {
       stored = { ...stored, ...patch };
@@ -267,7 +272,7 @@ describe("POST /api/llm/config", () => {
 
   test("switching to ollama moves a legacy #210 key into cloud rather than dropping it (real file)", async () => {
     await withRealConfigFile({ provider: "anthropic", anthropicApiKey: "sk-ant-legacyplaintext0" }, async () => {
-      const res = await handleLlmConfigPost(fakeReq({ provider: "ollama" }), { isLoopbackRequest: () => true });
+      const res = await handleLlmConfigPost(fakeReq({ provider: "ollama" }), { isLoopbackRequest: () => true, searchStatus: () => null });
       assert.equal(res.status, 200);
       assert.deepEqual(readLlmConfig(), {
         provider: "ollama",
@@ -279,7 +284,7 @@ describe("POST /api/llm/config", () => {
 
   test("clearCloud on a legacy #210 file removes the key entirely (real file)", async () => {
     await withRealConfigFile({ provider: "anthropic", anthropicApiKey: "sk-ant-legacyplaintext0" }, async () => {
-      const res = await handleLlmConfigPost(fakeReq({ provider: "ollama", clearCloud: true }), { isLoopbackRequest: () => true });
+      const res = await handleLlmConfigPost(fakeReq({ provider: "ollama", clearCloud: true }), { isLoopbackRequest: () => true, searchStatus: () => null });
       assert.equal(res.status, 200);
       assert.deepEqual(readLlmConfig(), { provider: "ollama" });
     });
@@ -289,7 +294,7 @@ describe("POST /api/llm/config", () => {
     await withRealConfigFile({ provider: "ollama", anthropicApiKey: "sk-ant-legacyplaintext0" }, async () => {
       const res = await handleLlmConfigPost(
         fakeReq({ provider: "cloud", cloud: { providerId: "anthropic", keySource: { type: "saved" } } }),
-        { isLoopbackRequest: () => true },
+        { isLoopbackRequest: () => true, searchStatus: () => null },
       );
       assert.equal(res.status, 200);
       assert.deepEqual(readLlmConfig(), {
@@ -376,5 +381,80 @@ describe("POST /api/llm/config", () => {
     const json = await res.json();
     assert.equal(res.status, 400);
     assert.equal(json.error, "Please enter a key for your cloud provider.");
+  });
+});
+
+describe("POST /api/llm/config — switching to Local prepares built-in search", () => {
+  const status = (builtin: Partial<SearchStatus["builtin"]> = {}, space: SearchStatus["space"] = "builtin"): SearchStatus => ({
+    space,
+    label: space === "builtin" ? "Built-in, on this computer" : "OpenAI embeddings",
+    model: "nomic-embed-text-v1.5",
+    reason: "Local model selected",
+    setting: "auto",
+    builtin: { state: "missing", model: "nomic-embed-text-v1.5", totalBytes: 274574153, ...builtin },
+  });
+
+  function withSearch(initial: SearchStatus | null, startImpl?: () => void) {
+    let starts = 0;
+    const deps = fakeDeps({
+      searchStatus: () => initial,
+      startModelDownload: () => {
+        starts++;
+        if (startImpl) startImpl();
+      },
+    });
+    return { deps, starts: () => starts };
+  }
+
+  test("model not downloaded yet → starts the download and reports it", async () => {
+    const { deps, starts } = withSearch(status());
+    const res = await handleLlmConfigPost(fakeReq({ provider: "ollama" }), deps);
+    assert.equal(res.status, 200);
+    assert.equal(starts(), 1);
+    const json = await res.json();
+    assert.equal(json.provider, "ollama");
+    assert.equal(json.search.builtin.state, "downloading");
+    assert.equal("localEmbeddings" in json, false, "there is no re-embed job any more");
+  });
+
+  test("a previous failed download → re-picking Local retries it", async () => {
+    const { deps, starts } = withSearch(status({ state: "failed", error: "offline" }));
+    const json = await (await handleLlmConfigPost(fakeReq({ provider: "ollama" }), deps)).json();
+    assert.equal(starts(), 1);
+    assert.equal(json.search.builtin.error, undefined);
+  });
+
+  test("model ready, or already downloading → nothing to start", async () => {
+    for (const state of ["ready", "downloading"] as const) {
+      const { deps, starts } = withSearch(status({ state }));
+      const json = await (await handleLlmConfigPost(fakeReq({ provider: "ollama" }), deps)).json();
+      assert.equal(starts(), 0, state);
+      assert.equal(json.search.builtin.state, state);
+    }
+  });
+
+  test("search not on the built-in model (SEARCH_EMBEDDINGS=openai, or a custom embedder) → no download", async () => {
+    const { deps, starts } = withSearch(status({}, "openai"));
+    await handleLlmConfigPost(fakeReq({ provider: "ollama" }), deps);
+    assert.equal(starts(), 0);
+  });
+
+  test("a download that can't start never fails the provider switch", async () => {
+    const { deps } = withSearch(status(), () => {
+      throw new Error("EACCES");
+    });
+    const res = await handleLlmConfigPost(fakeReq({ provider: "ollama" }), deps);
+    assert.equal(res.status, 200);
+    assert.deepEqual(deps._get(), { provider: "ollama" });
+  });
+
+  test("a cloud save never starts it", async () => {
+    const { deps, starts } = withSearch(status());
+    const res = await handleLlmConfigPost(
+      fakeReq({ provider: "cloud", cloud: { providerId: "anthropic", keySource: { type: "inline", key: "sk-ant-abcXYZ1234567890" } } }),
+      deps,
+    );
+    assert.equal(res.status, 200);
+    assert.equal(starts(), 0);
   });
 });

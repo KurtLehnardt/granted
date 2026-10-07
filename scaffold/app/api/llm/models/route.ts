@@ -1,6 +1,5 @@
 import type { NextRequest } from "next/server";
 import { handleModelsPost } from "./handler";
+import { withErrorLogging } from "@/lib/errorLog/withErrorLogging";
 
-export async function POST(req: NextRequest) {
-  return handleModelsPost(req);
-}
+export const POST = withErrorLogging("llm-provider", async (req: NextRequest) => handleModelsPost(req));

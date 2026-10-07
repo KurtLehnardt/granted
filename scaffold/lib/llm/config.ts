@@ -162,16 +162,37 @@ export function resolveProvider(): ProviderName {
 /**
  * Resolved cloud config, normalized from whichever shape is on disk (or env):
  * the new `cloud` object wins; else the #210 `anthropicApiKey`; else a valid
- * `ANTHROPIC_API_KEY` env var. Returns undefined when nothing resolves.
+ * `ANTHROPIC_API_KEY` env var; else a valid `OPENAI_API_KEY` env var (the
+ * OpenAI preset's default chat model) — so one cloud key of either kind is
+ * enough for scoring (search needs none: lib/embeddings/spaces.ts). Returns
+ * undefined when nothing resolves.
  */
 export function resolveCloudConfig(file: LlmConfigFile = readLlmConfig()): CloudConfig | undefined {
   const fileCloud = file.cloud ?? legacyAnthropicCloud(file);
   if (fileCloud) return fileCloud;
-  const envKey = process.env.ANTHROPIC_API_KEY;
+  const envKey = (process.env.ANTHROPIC_API_KEY || "").trim();
   if (envKey && isValidAnthropicKey(envKey)) {
     return { providerId: "anthropic", keySource: { type: "env", name: "ANTHROPIC_API_KEY" } };
   }
+  // A Claude key that's set but malformed (a typo, a truncated paste) must
+  // fail loudly — not quietly hand the scoring to OpenAI while the user
+  // believes Claude is doing it. Only an absent key (or .env.example's
+  // placeholder) falls through to OpenAI.
+  if (envKey && envKey !== "sk-ant-...") return undefined;
+  const openAiKey = (process.env.OPENAI_API_KEY || "").trim();
+  if (openAiKey && getCloudProvider("openai")?.isKeyValid(openAiKey)) {
+    return { providerId: "openai", keySource: { type: "env", name: "OPENAI_API_KEY" } };
+  }
   return undefined;
+}
+
+/**
+ * Whether resolveCloudConfig's result comes from an env var (ANTHROPIC_API_KEY
+ * / OPENAI_API_KEY in .env.local) rather than a provider saved in Settings —
+ * Settings can't remove that one (only editing .env.local can), so it says so.
+ */
+export function isEnvCloudConfig(file: LlmConfigFile = readLlmConfig()): boolean {
+  return !(file.cloud ?? legacyAnthropicCloud(file)) && resolveCloudConfig(file) !== undefined;
 }
 
 /** Resolves the actual secret for a cloud config (or the current one, if omitted). Never throws. */

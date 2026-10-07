@@ -23,6 +23,13 @@
 
 import { priceUsage, PRICING_AS_OF } from "./pricing";
 
+/**
+ * Who served a call. "builtin" is the in-process search model and "custom" a
+ * self-hosted embedder: both cost nothing, and neither may be reported as OpenAI.
+ */
+export type MeterProvider = "anthropic" | "openai" | "builtin" | "custom";
+const METER_PROVIDERS: readonly MeterProvider[] = ["anthropic", "openai", "builtin", "custom"];
+
 /** One completed API call's usage, normalized to a provider-agnostic shape
  *  by the call site (`lib/claude.ts` / `lib/embed.ts`) before it reaches
  *  `record()`. This module never looks at a provider SDK's raw response. */
@@ -36,7 +43,7 @@ export interface MeterRecordInput {
    * contract's enum type.
    */
   stage: string;
-  provider: "anthropic" | "openai";
+  provider: MeterProvider;
   model: string;
   inputTokens: number;
   outputTokens: number;
@@ -61,7 +68,7 @@ export interface MeterRecordInput {
 /** One stage's aggregated cost/latency, as it appears in `SearchCostDebug.stages`. */
 export interface StageCost {
   stage: string;
-  provider: "anthropic" | "openai";
+  provider: MeterProvider;
   model: string;
   inputTokens: number;
   outputTokens: number;
@@ -151,7 +158,7 @@ export function createCostMeter(): CostMeter {
       if (!input || typeof input !== "object") return;
 
       const stageName = typeof input.stage === "string" && input.stage.length > 0 ? input.stage : "unknown";
-      const provider: "anthropic" | "openai" = input.provider === "openai" ? "openai" : "anthropic";
+      const provider: MeterProvider = METER_PROVIDERS.includes(input.provider) ? input.provider : "anthropic";
       const model = typeof input.model === "string" && input.model.length > 0 ? input.model : "unknown";
       const inputTokens = safeNumber(input.inputTokens);
       const outputTokens = safeNumber(input.outputTokens);
@@ -184,7 +191,8 @@ export function createCostMeter(): CostMeter {
         existing.cacheReadInputTokens = (existing.cacheReadInputTokens ?? 0) + cacheRead;
       }
 
-      const { costUsd } = priceUsage(model, inputTokens, outputTokens);
+      // Built-in and self-hosted embeddings are free whatever their token counts.
+      const { costUsd } = provider === "builtin" || provider === "custom" ? { costUsd: 0 } : priceUsage(model, inputTokens, outputTokens);
       existing.costUsd += costUsd;
 
       stages.set(stageName, existing);

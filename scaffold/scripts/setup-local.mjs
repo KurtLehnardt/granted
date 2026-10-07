@@ -10,12 +10,13 @@
  *   2. Verifies Ollama is installed and its daemon is reachable, offering to install
  *      it (winget on Windows, Homebrew on macOS 14+) before falling back to guidance.
  *   3. Installs a NEW recommended model or lets you pick an EXISTING one.
- *   4. ALWAYS pulls the SEPARATE embeddings model (`nomic-embed-text`) — the seam
- *      people miss: `LLM_PROVIDER=ollama` moves only scoring/explanations, NOT the
- *      query embedding, which otherwise 401s against OpenAI (or silently costs).
+ *   4. Makes sure the built-in search model is downloaded (`npm run model:fetch`).
+ *      Search doesn't go through Ollama: it runs nomic-embed-text-v1.5 in the app
+ *      itself, against corpus vectors that ship with Granted (the same vectors
+ *      Ollama's nomic-embed-text produces), so there is no embedding model to pull
+ *      and nothing to re-embed.
  *   5. Merges the local env into scaffold/.env.local (never clobbering a value you
- *      already set), then offers to re-embed the corpus so query + corpus dims
- *      match (a 512-dim OpenAI corpus vs a 768-dim local query = broken retrieval).
+ *      already set).
  *
  * Mirrors scripts/setup.mjs: idempotent, never overwrites an existing non-empty
  * value, never leaves a half-written .env.local. Cross-platform (no bash/
@@ -29,8 +30,35 @@
 import { readFileSync, writeFileSync, existsSync, copyFileSync, realpathSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { dirname, join, win32 } from "node:path";
+import { dirname, join } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
+import {
+  OLLAMA_MIN_MACOS,
+  parseMacosMajor,
+  MODEL_TIERS,
+  recommendModel,
+  pickAutoInstallCommand,
+  ollamaWindowsDir,
+  withOllamaOnPath,
+  waitForDaemon,
+  installGuidance,
+  launchOllamaDaemon,
+} from "./lib/ollamaSetup.mjs";
+
+// Shared with the app's Settings → Model → Local panel (lib/llm/ollamaJobs.ts);
+// re-exported so existing importers (and the tests) keep their paths.
+export {
+  OLLAMA_MIN_MACOS,
+  parseMacosMajor,
+  MODEL_TIERS,
+  recommendModel,
+  pickAutoInstallCommand,
+  ollamaWindowsDir,
+  withOllamaOnPath,
+  waitForDaemon,
+  installGuidance,
+  launchOllamaDaemon,
+};
 
 const SCAFFOLD = join(dirname(fileURLToPath(import.meta.url)), "..");
 const ENV = join(SCAFFOLD, ".env.local");
@@ -38,7 +66,6 @@ const EXAMPLE = join(SCAFFOLD, ".env.example");
 
 const OLLAMA_BASE_URL = "http://localhost:11434/v1";
 const OLLAMA_API_TAGS = "http://localhost:11434/api/tags";
-const EMBED_MODEL = "nomic-embed-text";
 // Non-interactive fallback when memory detection is unreliable and we can't ask:
 // a middling small model that runs on modest hardware.
 const DEFAULT_MODEL_WHEN_UNKNOWN = "llama3.2:3b";
@@ -46,72 +73,6 @@ const DEFAULT_MODEL_WHEN_UNKNOWN = "llama3.2:3b";
 // ---------------------------------------------------------------------------
 // PURE LOGIC (exported + unit-tested — no I/O, no child processes)
 // ---------------------------------------------------------------------------
-
-/**
- * Lowest macOS major version Ollama's .app/.dmg (and the Homebrew cask) support.
- * Below this the app won't launch and Homebrew has no bottle — only the release's
- * CLI tarball runs. Bump this if Ollama raises its floor again.
- */
-export const OLLAMA_MIN_MACOS = 14;
-
-/**
- * Parse `sw_vers -productVersion` ("12.7.6", "26.4") → major version number.
- * Returns null on anything unparseable, so a failed detection degrades to the
- * generic guidance rather than wrongly claiming a Mac is too old.
- */
-export function parseMacosMajor(text) {
-  const m = String(text ?? "").trim().match(/^(\d+)/);
-  if (!m) return null;
-  const n = Number(m[1]);
-  return Number.isFinite(n) && n > 0 ? n : null;
-}
-
-/**
- * Memory (GB) → recommended Ollama chat model. A small, easy-to-edit table of
- * WIDELY-AVAILABLE public tags. Ordered high→low; `recommendModel` picks the
- * first tier the machine clears.
- */
-export const MODEL_TIERS = [
-  {
-    minGB: 32,
-    model: "qwen2.5:14b",
-    alt: "llama3.1:8b",
-    note: "Best local quality; needs ~32GB+ of memory/VRAM.",
-  },
-  {
-    minGB: 16,
-    model: "qwen2.5:7b",
-    alt: "llama3.1:8b",
-    note: "Strong, well-calibrated local default for 16–32GB.",
-  },
-  {
-    minGB: 8,
-    model: "llama3.2:3b",
-    alt: "qwen2.5:3b",
-    note: "Good balance for 8–16GB machines.",
-  },
-  {
-    minGB: 0,
-    model: "llama3.2:1b",
-    alt: "qwen2.5:1.5b",
-    note: "Fits small/4GB GPUs, but quality is rougher and scoring is slow.",
-  },
-];
-
-/**
- * Pick a recommended model for `memGB` gigabytes of usable memory/VRAM.
- * Non-finite / non-positive input is treated conservatively (smallest tier), so
- * a failed detection never over-recommends. Returns the matching tier object.
- */
-export function recommendModel(memGB) {
-  if (!Number.isFinite(memGB) || memGB <= 0) {
-    return MODEL_TIERS[MODEL_TIERS.length - 1];
-  }
-  for (const tier of MODEL_TIERS) {
-    if (memGB >= tier.minGB) return tier;
-  }
-  return MODEL_TIERS[MODEL_TIERS.length - 1];
-}
 
 /** Return the value already set for `key` in env text, or "" if blank/absent. */
 export function currentValue(text, key) {
@@ -234,150 +195,6 @@ export function parseOllamaList(stdout) {
     .filter(Boolean);
 }
 
-/**
- * Automatic Ollama install command for this platform, or null → manual `installGuidance`.
- * @param {string} platform
- * @param {{ hasWinget?: boolean, hasBrew?: boolean, macosMajor?: number | null }} [opts]
- */
-export function pickAutoInstallCommand(platform, { hasWinget = false, hasBrew = false, macosMajor = null } = {}) {
-  if (platform === "win32" && hasWinget) {
-    return {
-      cmd: "winget",
-      args: [
-        "install",
-        "-e",
-        "--id",
-        "Ollama.Ollama",
-        "--silent",
-        "--accept-package-agreements",
-        "--accept-source-agreements",
-      ],
-      label: "winget install -e --id Ollama.Ollama",
-    };
-  }
-  const macTooOld = macosMajor !== null && macosMajor < OLLAMA_MIN_MACOS;
-  if (platform === "darwin" && hasBrew && !macTooOld) {
-    return { cmd: "brew", args: ["install", "ollama"], label: "brew install ollama" };
-  }
-  return null;
-}
-
-/** Windows install dir for the Ollama CLI/daemon (winget's default target). */
-export function ollamaWindowsDir(localAppData) {
-  return win32.join(String(localAppData ?? ""), "Programs", "Ollama");
-}
-
-/**
- * `env` with the Windows Ollama install dir appended to PATH, so a just-installed
- * `ollama` resolves in child processes without a shell restart. Appended, so an
- * `ollama` already on PATH still wins.
- */
-export function withOllamaOnPath(env, platform, localAppData) {
-  if (platform !== "win32" || !localAppData) return env;
-  const dir = ollamaWindowsDir(localAppData);
-  const key = Object.keys(env).find((k) => k.toLowerCase() === "path") || "PATH";
-  const existing = env[key] || "";
-  if (existing.split(";").includes(dir)) return env;
-  return { ...env, [key]: existing ? `${existing};${dir}` : dir };
-}
-
-/**
- * Poll `fetchTags` (an injectable `() => Promise<boolean ok>`) until it
- * resolves true, or `timeoutMs` elapses. `sleepFn` is injectable so tests
- * don't wait for real. Returns true iff the daemon answered within budget.
- *
- * @param {() => Promise<boolean>} fetchTags
- * @param {{ timeoutMs?: number, intervalMs?: number, sleepFn?: (ms: number) => Promise<void> }} [opts]
- */
-export async function waitForDaemon(fetchTags, { timeoutMs = 120000, intervalMs = 2000, sleepFn } = {}) {
-  const sleep = sleepFn || ((ms) => new Promise((r) => setTimeout(r, ms)));
-  const start = Date.now();
-  for (;;) {
-    if (await fetchTags()) return true;
-    if (Date.now() - start >= timeoutMs) return false;
-    await sleep(intervalMs);
-  }
-}
-
-/**
- * Warm the embed model, run `data:embed`, and retry once on failure.
- *   `warmFn()`  → Promise<boolean> — one small embeddings request (with its
- *                 own retry) to burn off a cold-start before the real run.
- *   `runFn()`   → Promise<{ ok: boolean, output: string }> — runs `npm run
- *                 data:embed`, capturing output for the failure report.
- *   `waitFn(ms)`→ Promise<void> — injectable delay between attempts.
- * Never throws; always resolves { ok, output, attempts }.
- *
- * @param {{
- *   warmFn?: () => Promise<boolean>,
- *   runFn: () => Promise<{ ok: boolean, output: string }>,
- *   waitFn?: (ms: number) => Promise<void>,
- *   retryDelayMs?: number,
- * }} opts
- */
-export async function embedWithRetry({ warmFn, runFn, waitFn, retryDelayMs = 5000 }) {
-  const wait = waitFn || ((ms) => new Promise((r) => setTimeout(r, ms)));
-  if (warmFn) await warmFn();
-  let attempts = 0;
-  let last = { ok: false, output: "" };
-  for (let i = 0; i < 2; i++) {
-    attempts++;
-    last = await runFn();
-    if (last.ok) return { ok: true, output: last.output, attempts };
-    if (i === 0) await wait(retryDelayMs);
-  }
-  return { ok: false, output: last.output, attempts };
-}
-
-/** Platform → the human install guidance shown when Ollama is missing. */
-/**
- * Platform-specific Ollama install instructions.
- *
- * @param {string} platform - a `process.platform` value ("darwin"/"win32"/…).
- * @param {number | null} [macosMajor] - macOS major version from
- *   `parseMacosMajor`, or null when unknown/not macOS. When null the generic
- *   guidance is returned, so a failed detection never wrongly claims a Mac is
- *   too old for Ollama's app.
- * @returns {string}
- */
-export function installGuidance(platform, macosMajor = null) {
-  if (platform === "darwin") {
-    // Ollama's .app/.dmg (and the Homebrew cask) are built for macOS
-    // OLLAMA_MIN_MACOS+. On an older Mac the download page hands you an app that
-    // refuses to launch, and Homebrew itself has dropped those releases (no
-    // bottles), so `brew install ollama` fails too. The release's CLI tarball is
-    // a universal binary that DOES run there — it just has no .app wrapper, so
-    // the daemon has to be started by hand and won't survive a reboot.
-    if (macosMajor !== null && macosMajor < OLLAMA_MIN_MACOS) {
-      return [
-        `  Your macOS (${macosMajor}) is older than Ollama's app requires (${OLLAMA_MIN_MACOS}+),`,
-        "  so the download page and `brew install ollama` will NOT work. Use the CLI build:",
-        "",
-        "    curl -fsSL -o ollama-darwin.tgz \\",
-        "      https://github.com/ollama/ollama/releases/latest/download/ollama-darwin.tgz",
-        "    mkdir -p ~/.local/ollama && tar xzf ollama-darwin.tgz -C ~/.local/ollama",
-        "    ln -sf ~/.local/ollama/ollama /usr/local/bin/ollama",
-        "",
-        "  Then start it:   `ollama serve` in another terminal (re-run after each reboot).",
-      ].join("\n");
-    }
-    return [
-      "  Install Ollama:  https://ollama.com/download   (or: brew install ollama)",
-      "  Then start it:   open the Ollama app, or run `ollama serve` in another terminal.",
-    ].join("\n");
-  }
-  if (platform === "win32") {
-    return [
-      "  Install Ollama:  https://ollama.com/download",
-      "  Then start it:   launch the Ollama app (it runs a background daemon).",
-    ].join("\n");
-  }
-  // linux + anything else
-  return [
-    "  Install Ollama:  curl -fsSL https://ollama.com/install.sh | sh",
-    "  Then start it:   `ollama serve` (or the systemd service: `systemctl start ollama`).",
-  ].join("\n");
-}
 
 // ---------------------------------------------------------------------------
 // I/O + child-process helpers (impure; kept thin so the pure parsers do the work)
@@ -453,88 +270,20 @@ async function ollamaDaemonModels() {
   }
 }
 
-/**
- * Send one small embeddings request to warm the model, retrying once. A cold
- * embed model can take long enough on its first request that `data:embed`'s
- * very first call times out/fails even though the daemon is healthy.
- */
-async function warmEmbedModel() {
-  for (let i = 0; i < 2; i++) {
-    try {
-      const ac = new AbortController();
-      const timer = setTimeout(() => ac.abort(), 30000);
-      const res = await fetch(`${OLLAMA_BASE_URL}/embeddings`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: EMBED_MODEL, input: "warmup" }),
-        signal: ac.signal,
-      });
-      clearTimeout(timer);
-      if (res.ok) return true;
-    } catch {
-      /* retry below */
-    }
-    if (i === 0) await new Promise((r) => setTimeout(r, 3000));
-  }
-  return false;
-}
-
 /** Extend the live env for THIS process's child_process calls (Windows PATH fix-up). */
 function childEnv() {
   return withOllamaOnPath(process.env, process.platform, process.env.LOCALAPPDATA);
 }
 
-/** `npm run data:embed:local` in scaffold/ (writes the gitignored data/local/, never the committed corpus), streaming output live while keeping a tail for the failure report. */
-function runDataEmbed() {
+/** `node scripts/fetch-model.mjs`: download (or verify) the built-in search model, output shown live. Resolves true on success. */
+function runFetchModel() {
   return new Promise((resolve) => {
-    let output = "";
-    const p = spawn("npm run data:embed:local", {
-      shell: true,
-      cwd: SCAFFOLD,
-      env: childEnv(),
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    for (const [stream, sink] of [
-      [p.stdout, process.stdout],
-      [p.stderr, process.stderr],
-    ]) {
-      stream.setEncoding("utf8");
-      stream.on("data", (s) => {
-        sink.write(s);
-        output = (output + s).slice(-8000);
-      });
-    }
-    p.on("error", (err) => resolve({ ok: false, output: `${output}\n${err.message}` }));
-    p.on("close", (code) => resolve({ ok: code === 0, output }));
+    const p = spawn(process.execPath, [join(SCAFFOLD, "scripts", "fetch-model.mjs")], { cwd: SCAFFOLD, stdio: "inherit" });
+    p.on("error", () => resolve(false));
+    p.on("close", (code) => resolve(code === 0));
   });
 }
 
-/**
- * Launch the Ollama daemon detached, with stdio NOT inherited — a `start`-launched
- * Windows child inherits our stdio pipes otherwise, so it (and any grandchild it
- * spawns) can keep them open forever and hang a caller waiting on the child to exit.
- * `spawnFn` is injectable for tests; returns the child (unref'd) it spawned.
- * @param {string} platform
- * @param {object} [opts]
- * @param {string} [opts.localAppData]
- * @param {NodeJS.ProcessEnv} [opts.env]
- * @param {(cmd: string, args: string[], options: object) => import("node:child_process").ChildProcess} [opts.spawnFn]
- */
-export function launchOllamaDaemon(platform, opts = {}) {
-  const { localAppData = "", env, spawnFn = spawn } = opts;
-  const child =
-    platform === "win32"
-      ? spawnFn("cmd", ["/c", "start", "", join(ollamaWindowsDir(localAppData), "ollama app.exe")], {
-          stdio: "ignore",
-          detached: true,
-          windowsHide: true,
-          env,
-        })
-      : spawnFn("ollama", ["serve"], { detached: true, stdio: "ignore", env });
-  child.on("error", () => {});
-  child.unref();
-  return child;
-}
 
 /** Try to install Ollama automatically (winget on Windows, brew on macOS 14+). */
 async function tryAutoInstall(platform, macosMajor) {
@@ -780,28 +529,19 @@ async function main() {
     console.log(`  ${c.g("✓")} Pulled ${c.b(chosenModel)}`);
   }
 
-  // 5) ALWAYS ensure the SEPARATE embeddings model.
-  heading("Embeddings model (the seam people miss)");
+  // 5) The built-in search model. Search runs in the app, not through Ollama, so this is
+  //    a download of model files (not an Ollama pull), and failing it isn't fatal: the app
+  //    downloads them itself on the first search.
+  heading("Search model (built in)");
   console.log(
     c.dim(
-      "  Embeddings are a SEPARATE model from the chat LLM. Without a local embedder,\n" +
-        "  your query embedding still calls OpenAI — a 401 (or a silent hosted call) even\n" +
-        `  with LLM_PROVIDER=ollama. Pulling ${EMBED_MODEL} closes that seam.`,
+      "  Search runs on a small built-in model (nomic-embed-text-v1.5) inside Granted, against\n" +
+        "  vectors that ship with it. Nothing to re-embed and no key needed.",
     ),
   );
-  const haveEmbed = parseOllamaList(run("ollama", ["list"]) ?? "").some((m) => m.startsWith(EMBED_MODEL));
-  if (haveEmbed) {
-    console.log(`  ${c.g("✓")} ${EMBED_MODEL} already installed`);
-  } else {
-    console.log(c.dim(`  Pulling ${EMBED_MODEL} …`));
-    if (!runInherit("ollama", ["pull", EMBED_MODEL])) {
-      console.log(
-        c.r(`\n  Failed to pull "${EMBED_MODEL}".`) +
-          c.dim("\n  Retrieval can't go local without it. Fix the daemon and re-run. Nothing was written to .env.local."),
-      );
-      process.exit(1);
-    }
-    console.log(`  ${c.g("✓")} Pulled ${c.b(EMBED_MODEL)}`);
+  const modelOk = await runFetchModel();
+  if (!modelOk) {
+    console.log(c.y("  ! Couldn't download the search model now. Granted will download it on your first search."));
   }
 
   // 6) Merge into .env.local (single write; never half-written).
@@ -820,8 +560,6 @@ async function main() {
     LLM_PROVIDER: "ollama",
     LOCAL_LLM_MODEL: chosenModel,
     LLM_BASE_URL: OLLAMA_BASE_URL,
-    EMBEDDINGS_BASE_URL: OLLAMA_BASE_URL,
-    EMBEDDINGS_MODEL: EMBED_MODEL,
     // Competitor & market analysis is free on local inference — enable it so it
     // works out of the box. (mergeEnvLocal never clobbers a value you already set.)
     NEXT_PUBLIC_FLAG_R5_DEEP_ANALYSIS: "true",
@@ -839,54 +577,20 @@ async function main() {
     );
   }
 
-  // 7) Offer to re-embed the corpus with the local embedder.
-  heading("Re-embed the corpus (the step people forget)");
-  console.log(
-    c.dim(
-      "  The committed corpus is OpenAI 512-dim vectors. Your local query embeds at a\n" +
-        `  different size (${EMBED_MODEL} is 768-dim), so retrieval is broken until you\n` +
-        "  re-embed the corpus with the SAME local model. Runs `npm run data:embed:local` —\n" +
-        "  may take a while, from a few minutes to a half hour depending on your system\n" +
-        "  specifications and the number of grants being searched — writing to the gitignored\n" +
-        "  data/local/ — the committed corpus is untouched.",
-    ),
-  );
-  const doEmbed = await confirm("Re-embed the corpus now?", true);
-  if (doEmbed) {
-    console.log(c.dim("\n  Warming the embedding model (avoids a cold-start failure on the first request)…"));
-    console.log(c.dim("  Re-embedding locally … (reads scaffold/.env.local; nothing leaves your machine)"));
-    let attempt = 0;
-    const result = await embedWithRetry({
-      warmFn: warmEmbedModel,
-      runFn: () => {
-        if (attempt++) console.log(c.y("\n  data:embed failed — retrying once…"));
-        return runDataEmbed();
-      },
-    });
-    if (result.ok) {
-      console.log(`  ${c.g("✓")} Corpus re-embedded with ${EMBED_MODEL}`);
-    } else {
-      const tail = result.output.trim().split(/\r?\n/).slice(-20).join("\n");
-      console.log(
-        c.r(`\n  data:embed failed after ${result.attempts} attempt(s). Retrieval is still broken.\n`) +
-          c.dim(`\n  Last output:\n${tail}\n`),
-      );
-      console.log(c.y("\n  Fix the error above, then re-run: ") + c.g("npm run data:embed:local") + c.dim(" in scaffold/"));
-      process.exit(1);
-    }
-  } else {
+  // A setup from before the built-in model pointed EMBEDDINGS_BASE_URL at Ollama and re-embedded
+  // the corpus. That still works (search keeps using it), but the built-in model is simpler.
+  if (currentValue(text, "EMBEDDINGS_BASE_URL")) {
     console.log(
-      c.y("  Skipped.") +
-        c.dim(` Retrieval will be broken until you run ${"`npm run data:embed:local`"} (dim mismatch).`),
+      c.y("  • EMBEDDINGS_BASE_URL is set in .env.local, so search keeps using that embedder.") +
+        c.dim(" Remove EMBEDDINGS_BASE_URL and EMBEDDINGS_MODEL to use the built-in search model instead."),
     );
   }
 
-  // 8) Success summary.
+  // 7) Success summary.
   heading("You're fully local — next steps");
   console.log(`  ${c.dim("Chat model:")}      ${c.b(chosenModel)}`);
-  console.log(`  ${c.dim("Embeddings:")}      ${c.b(EMBED_MODEL)} ${c.dim(`@ ${OLLAMA_BASE_URL}`)}`);
+  console.log(`  ${c.dim("Search:")}          ${c.b("Built-in, on this computer")} ${c.dim("(nomic-embed-text-v1.5)")}`);
   console.log(`  ${c.dim("Config written:")}  scaffold/.env.local`);
-  if (!doEmbed) console.log(c.y("  ! Run `npm run data:embed:local` before searching — retrieval is broken otherwise."));
   console.log(`\n  ${c.b("Now run:")} ${c.g("npm run dev")}   ${c.dim("→ http://localhost:3000")}`);
   console.log(
     c.dim(

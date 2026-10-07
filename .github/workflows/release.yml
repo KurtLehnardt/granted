@@ -1,0 +1,143 @@
+name: release
+
+# Publishes a GitHub Release with the downloadable Windows installer,
+# Granted-Setup-<version>.exe, whenever a version tag is pushed. To release:
+#   1. Set "version" to the new version (e.g. 0.2.0) in BOTH
+#      installer/package.json and scaffold/package.json, and merge that.
+#   2. Tag main and push the tag:
+#        git tag v0.2.0 && git push origin v0.2.0
+# The build job checks the tag is on main and matches both versions, runs
+# the installer's tests, builds the .exe with the tag baked in (so it
+# installs exactly that release, or a newer one if the user leaves "check
+# for updates" ticked -- see installer/src/main/release.ts) and
+# smoke-tests the packaged app. Only then does the publish job create the
+# release, with the .exe and its SHA-256 checksum attached.
+#
+# Two jobs on purpose: the build runs npm install scripts, the test suite
+# and electron-builder, so it gets a READ-ONLY token (and checkout doesn't
+# leave even that in .git/config); only the small publish job, which runs
+# nothing but `gh release create`, can write to the repo.
+#
+# The .exe is not code-signed yet, so Windows SmartScreen shows "Windows
+# protected your PC" until it is; the release notes tell users what to click.
+# Signing slots in as a build step between "Build" and "Smoke-test" once a
+# certificate (or SignPath, free for open source) is set up.
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: installer
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # to check the tag is on main
+          persist-credentials: false
+
+      - name: Check the tag is on main and matches the versions
+        shell: pwsh
+        run: |
+          if ($env:TAG -notmatch '^v\d+\.\d+\.\d+$') { Write-Error "Tag $env:TAG isn't vMAJOR.MINOR.PATCH"; exit 1 }
+          git merge-base --is-ancestor $env:GITHUB_SHA origin/main
+          if ($LASTEXITCODE -ne 0) { Write-Error "Tag $env:TAG isn't on main. Release only what's been merged."; exit 1 }
+          $version = $env:TAG.TrimStart('v')
+          $installer = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $scaffold = (Get-Content ../scaffold/package.json -Raw | ConvertFrom-Json).version
+          if ($installer -ne $version -or $scaffold -ne $version) {
+            Write-Error "Tag $env:TAG doesn't match installer/package.json ($installer) and scaffold/package.json ($scaffold). Bump both, merge, then tag."
+            exit 1
+          }
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: installer/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit + integration tests
+        run: npm test
+
+      - name: Build Granted-Setup-x.y.z.exe
+        env:
+          GRANTED_RELEASE_TAG: ${{ github.ref_name }}
+        run: npm run dist
+
+      - name: Smoke-test the packaged installer
+        env:
+          GRANTED_PACKAGED_EXE: ${{ github.workspace }}\installer\dist\win-unpacked\Granted Setup.exe
+          GRANTED_EXPECT_TAG: ${{ github.ref_name }}
+        run: npx playwright test e2e/packaged.spec.ts
+
+      - name: Checksum
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release | Out-Null
+          $exe = Get-Item "dist/Granted-Setup-$($env:TAG.TrimStart('v')).exe"
+          Copy-Item $exe.FullName release/
+          $hash = (Get-FileHash $exe.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $($exe.Name)" | Set-Content -Encoding ascii release/SHA256SUMS.txt
+          Get-Content release/SHA256SUMS.txt
+
+      - name: Keep the files for the publish job
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-files
+          path: installer/release/
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - name: Get the built files
+        uses: actions/download-artifact@v8
+        with:
+          name: release-files
+          path: release
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          exe="Granted-Setup-${TAG#v}.exe"
+          cat > release-notes.md <<EOF
+          ## Install on Windows
+
+          1. Download **${exe}** below and double-click it.
+          2. Windows may say **"Windows protected your PC"**: the installer isn't code-signed yet. Click **More info**, then **Run anyway**.
+          3. Follow the steps. It installs Git and Node.js if they're missing, then Granted, and can open it for you.
+
+          This installer installs Granted ${TAG}. Leave **"Check for and install the latest version of Granted"** ticked (the default) to get a newer release instead, if there is one. Running it over an existing install updates it (never to an older version). Uninstall Granted from **Settings -> Apps -> Installed apps**.
+
+          Checksum (SHA-256): see SHA256SUMS.txt.
+          EOF
+          sed -i 's/^          //' release-notes.md
+          gh release create "$TAG" "release/${exe}" release/SHA256SUMS.txt --title "Granted ${TAG}" --notes-file release-notes.md --generate-notes --verify-tag

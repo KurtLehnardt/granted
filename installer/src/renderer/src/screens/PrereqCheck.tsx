@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import type { InstallStatusEvent, OpenInstallTerminalResult, PrereqReport } from "../../../shared/ipc";
+import type { InstallStatusEvent, InstallVersionPlan, OpenInstallTerminalResult, PrereqReport } from "../../../shared/ipc";
+import ReportProblem from "../ReportProblem";
 
 type LoadState =
   | { status: "loading" }
@@ -12,7 +13,12 @@ const PLATFORM_LABEL: Record<string, string> = {
   linux: "Linux",
 };
 
-export default function PrereqCheck(): React.JSX.Element {
+interface PrereqCheckProps {
+  /** Called once a Windows install reports it finished successfully. */
+  onInstallComplete: () => void;
+}
+
+export default function PrereqCheck({ onInstallComplete }: PrereqCheckProps): React.JSX.Element {
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [terminalResult, setTerminalResult] = useState<OpenInstallTerminalResult | null>(null);
   const [openingTerminal, setOpeningTerminal] = useState(false);
@@ -22,6 +28,24 @@ export default function PrereqCheck(): React.JSX.Element {
   // into starting a second, racing install. Only ever set on Windows — it's
   // the only platform that reports a real completion event (see below).
   const [waitingForInstall, setWaitingForInstall] = useState(false);
+  // "Check for and install the latest version" (a release build only: a
+  // development build installs main). Re-planned whenever it's toggled.
+  const [checkForUpdates, setCheckForUpdates] = useState(true);
+  const [plan, setPlan] = useState<InstallVersionPlan | null>(null);
+  const [planning, setPlanning] = useState(false);
+
+  useEffect(() => {
+    let current = true;
+    setPlanning(true);
+    window.api
+      .planInstallVersion(checkForUpdates)
+      .then((p) => current && setPlan(p))
+      .catch(() => current && setPlan(null))
+      .finally(() => current && setPlanning(false));
+    return () => {
+      current = false;
+    };
+  }, [checkForUpdates]);
 
   const refreshPrereqs = useCallback((): void => {
     setState((prev) => (prev.status === "loaded" ? prev : { status: "loading" }));
@@ -40,28 +64,38 @@ export default function PrereqCheck(): React.JSX.Element {
     refreshPrereqs();
   }, [refreshPrereqs]);
 
-  // Automatically re-checks once Windows's install actually finishes, so a
-  // user who just watched "Done." in the console doesn't come back to this
-  // screen and still see two stale red marks with no way to clear them.
+  // Once Windows's install actually finishes, move straight on to the
+  // "Installation complete" screen — the console's "Done. Next steps:" is
+  // otherwise the only sign it worked, and this screen's button would just
+  // invite running the whole install again.
   useEffect(() => {
     return window.api.onInstallStatus((status: InstallStatusEvent) => {
+      if (status.state === "running") {
+        // A progress notice (e.g. "still waiting at a UAC prompt"), not an
+        // outcome: show it, and keep the button disabled — the install is
+        // still going, and a second click would start a concurrent one.
+        if (status.message) {
+          const notice = status.message;
+          setTerminalResult((prev) => (prev ? { ...prev, message: notice } : prev));
+        }
+        return;
+      }
       setWaitingForInstall(false);
       if (status.state === "done") {
-        setTerminalResult((prev) => (prev ? { ...prev, message: "Install finished — re-checking…" } : prev));
-        refreshPrereqs();
+        onInstallComplete();
       } else if (status.state === "error") {
-        setTerminalResult((prev) =>
-          prev ? { ...prev, ok: false, message: status.message ?? "The install didn't finish successfully." } : prev,
-        );
+        // Shown even if this screen didn't start the install (a reattached one), so it can be reported.
+        const message = status.message ?? "The install didn't finish successfully.";
+        setTerminalResult((prev) => (prev ? { ...prev, ok: false, message } : { ok: false, message, command: "", pollingStarted: false }));
       }
     });
-  }, [refreshPrereqs]);
+  }, [onInstallComplete]);
 
   const handleOpenTerminal = (): void => {
     setOpeningTerminal(true);
     setTerminalResult(null);
     window.api
-      .openInstallTerminal()
+      .openInstallTerminal(checkForUpdates)
       .then((result) => {
         setTerminalResult(result);
         // Main process is the source of truth for whether a
@@ -83,6 +117,9 @@ export default function PrereqCheck(): React.JSX.Element {
   };
 
   const busy = openingTerminal || waitingForInstall;
+  // Git and Node are both already there: the button only installs Granted
+  // itself, so say that rather than "Open a terminal for me".
+  const satisfied = state.status === "loaded" && state.report.allSatisfied;
 
   return (
     <main className="screen">
@@ -92,7 +129,10 @@ export default function PrereqCheck(): React.JSX.Element {
       {state.status === "loading" && <p>Checking git and Node.js…</p>}
 
       {state.status === "error" && (
-        <p className="status-note">Couldn't run the check: {state.message}</p>
+        <>
+          <p className="status-note">Couldn't run the check: {state.message}</p>
+          <ReportProblem message={`Couldn't run the check: ${state.message}`} where="prereq-check" />
+        </>
       )}
 
       {state.status === "loaded" && (
@@ -108,17 +148,41 @@ export default function PrereqCheck(): React.JSX.Element {
           <button type="button" className="link" onClick={refreshPrereqs} disabled={busy}>
             Check again
           </button>
+          {satisfied && <p className="satisfied">✓ Node and Git dependencies satisfied.</p>}
         </>
+      )}
+
+      {plan?.pinned && (
+        <div className="update-option">
+          <label>
+            <input
+              type="checkbox"
+              checked={checkForUpdates}
+              onChange={(e) => setCheckForUpdates(e.target.checked)}
+              disabled={busy}
+            />
+            Check for and install the latest version of Granted
+          </label>
+          <p className="detail" data-testid="install-version">
+            {planning ? "Checking for a newer version…" : versionNote(plan)}
+          </p>
+        </div>
       )}
 
       <div className="actions">
         <button
           type="button"
-          className="secondary"
+          className={satisfied ? "primary" : "secondary"}
           onClick={handleOpenTerminal}
-          disabled={busy}
+          disabled={busy || planning}
         >
-          {openingTerminal ? "Opening…" : waitingForInstall ? "Installing…" : "Open a terminal for me"}
+          {openingTerminal
+            ? "Opening…"
+            : waitingForInstall
+              ? "Installing…"
+              : satisfied
+                ? "Continue with installing the application"
+                : "Open a terminal for me"}
         </button>
       </div>
 
@@ -128,8 +192,18 @@ export default function PrereqCheck(): React.JSX.Element {
           {terminalResult.command && <code className="command">{terminalResult.command}</code>}
         </div>
       )}
+      {terminalResult && !terminalResult.ok && <ReportProblem message={terminalResult.message} where="install" />}
     </main>
   );
+}
+
+/** What the install will set up, in words. */
+function versionNote(plan: InstallVersionPlan): string {
+  const own = `Granted ${plan.pinned} (this installer's version)`;
+  if (!plan.checkForUpdates) return `${own} will be installed.`;
+  if (plan.checkFailed) return `Couldn't check for updates, so ${own} will be installed.`;
+  if (plan.ref !== plan.pinned) return `A newer version is available: Granted ${plan.ref} will be installed.`;
+  return `Granted ${plan.pinned} is the latest version.`;
 }
 
 function ToolRow({

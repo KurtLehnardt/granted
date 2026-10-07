@@ -4,8 +4,9 @@
  *
  *   npm run setup      (from the scaffold/ directory)
  *
- * Scaffolds `.env.local`, collects the two required API keys (and optional ones),
- * installs dependencies, and prints exactly what to do next. Idempotent and safe
+ * Scaffolds `.env.local`, collects the API keys (every one optional: search runs on a built-in model
+ * with no key, and one OpenAI or Anthropic key does the scoring), installs dependencies, downloads the
+ * search model, and prints exactly what to do next. Idempotent and safe
  * to re-run — it never overwrites a key you've already set, and it never prints a
  * key back to the screen. It does NOT touch any cloud account; the README covers
  * the Supabase / Google-OAuth steps that genuinely require a dashboard.
@@ -15,6 +16,7 @@ import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { execSync } from "node:child_process";
+import { setupKeyReport } from "./lib/setupKeys.mjs";
 
 const SCAFFOLD = join(dirname(fileURLToPath(import.meta.url)), "..");
 const ENV = join(SCAFFOLD, ".env.local");
@@ -133,13 +135,18 @@ let text = readFileSync(ENV, "utf8");
 
 heading("API keys");
 console.log(c.dim("Pasted keys are hidden and written straight to .env.local (gitignored)."));
-text = await collectKey(text, "OPENAI_API_KEY", "OpenAI (embeddings)", {
-  required: true,
-  help: "Get one at https://platform.openai.com/api-keys — used for text-embedding-3-small.",
+// Every key is optional. Search runs on the built-in model with no key (or on
+// OpenAI's embeddings when an OpenAI key is present, as before). Scoring needs one
+// provider: an Anthropic key (Claude), an OpenAI key, another provider set in
+// Settings → Model, or a local model (npm run setup:local). See lib/llm/config.ts
+// resolveCloudConfig and lib/embeddings/spaces.ts.
+text = await collectKey(text, "ANTHROPIC_API_KEY", "Anthropic (Claude, for scoring and explanations)", {
+  required: false,
+  help: "https://console.anthropic.com/settings/keys. One scoring key is enough: this one or OpenAI's.",
 });
-text = await collectKey(text, "ANTHROPIC_API_KEY", "Anthropic (scoring + explanations)", {
-  required: true,
-  help: "Get one at https://console.anthropic.com/settings/keys — used for Claude.",
+text = await collectKey(text, "OPENAI_API_KEY", "OpenAI (scoring if you skip Claude; search uses its embeddings when set)", {
+  required: false,
+  help: "https://platform.openai.com/api-keys. Not needed for search: without it, search runs on this computer.",
 });
 text = await collectKey(text, "EXA_API_KEY", "Exa (optional — live web competitors)", {
   required: false,
@@ -164,14 +171,40 @@ if (wantsInstall === "" || wantsInstall === "y") {
   console.log(c.dim("  Skipped — run `npm ci` in scaffold/ before starting."));
 }
 
-// 3) Next steps.
-const haveOpenAI = !!currentValue(readFileSync(ENV, "utf8"), "OPENAI_API_KEY").replace("sk-...", "");
-const haveAnthropic = currentValue(readFileSync(ENV, "utf8"), "ANTHROPIC_API_KEY").replace("sk-ant-...", "");
+// 3) The built-in search model (about 275 MB, into scaffold/models/). Not fatal:
+// the app downloads it on the first search if this fails.
+heading("Search model");
+try {
+  execSync("node scripts/fetch-model.mjs", { cwd: SCAFFOLD, stdio: "inherit" });
+} catch {
+  console.log(c.y("  Couldn't download it now. Granted will download it on your first search (or run npm run model:fetch)."));
+}
+
+// 4) Next steps. The key rules live in scripts/lib/setupKeys.mjs (tested), with the same
+// shape checks the app uses, so a truncated paste is caught here rather than on the first search.
+const keys = setupKeyReport(readFileSync(ENV, "utf8"));
 
 heading("You're set — next steps");
-if (!haveOpenAI || !haveAnthropic) {
-  console.log(c.y("  ! Add the missing required key(s) to scaffold/.env.local first."));
+if (!keys.hasScoringKey) {
+  console.log(
+    c.y("  ! No scoring key yet. Search works without one, but scoring the matches needs a provider:") +
+      c.dim("\n    add ANTHROPIC_API_KEY or OPENAI_API_KEY to scaffold/.env.local, pick another provider in Settings → Model,") +
+      c.dim("\n    or run fully local: npm run setup:local"),
+  );
 }
+if (keys.openAiMalformed) {
+  console.log(c.y("  ! OPENAI_API_KEY doesn't look like an OpenAI key (they start with sk- and are 20+ characters) — check scaffold/.env.local."));
+}
+if (keys.anthropicMalformed) {
+  console.log(c.y("  ! ANTHROPIC_API_KEY doesn't look like a Claude key (they start with sk-ant-) — fix it in scaffold/.env.local."));
+}
+console.log(
+  c.dim(
+    keys.searchUses === "openai"
+      ? "  Search uses OpenAI embeddings (your OpenAI key). SEARCH_EMBEDDINGS=builtin in .env.local runs it on this computer instead."
+      : "  Search runs on this computer with the built-in model. No key needed.",
+  ),
+);
 console.log(`  ${c.b("1.")} Start the app:      ${c.g("npm run dev")}   ${c.dim("→ http://localhost:3000")}`);
 console.log(`  ${c.b("2.")} Describe a company in the box and run a search. That's the whole core app.`);
 console.log(c.dim("     (The 4,698-opportunity corpus ships committed — no data pipeline needed to start.)"));

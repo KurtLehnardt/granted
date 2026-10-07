@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CorpusStore } from "../store";
+import { CorpusStore, attachSpaceVectors } from "../store";
+import { getSpace, type EmbeddingSpace } from "../../embeddings/spaces";
+import { textHash, writeVectorFile } from "../../../scripts/lib/vectorFile.mjs";
+import { spaceDocumentText } from "../../../scripts/lib/spaceVectors.mjs";
 
 function makeBaseDir() {
   return mkdtempSync(join(tmpdir(), "granted-corpus-store-"));
@@ -172,6 +175,128 @@ describe("CorpusStore", () => {
     const info = store.load();
     assert.deepEqual(info.opportunities, []);
     assert.equal(info.meta.count, 0);
+    rmSync(baseDir, { recursive: true, force: true });
+  });
+});
+
+describe("CorpusStore — vectors come from the active embedding space", () => {
+  // A small stand-in for the built-in space: same vector-file storage and prefixes, 3 dims.
+  const builtin3: EmbeddingSpace = { ...getSpace("builtin"), dims: 3 };
+  const NAME = "nomic-embed-text-v1.5";
+  const opp = (id: string, description = `About ${id}.`) => ({ id, program: `P ${id}`, agency: "A", description, embedding: [9, 9] });
+  const entry = (o: ReturnType<typeof opp>, vector: number[]) => ({ id: o.id, vector, textHash: textHash(spaceDocumentText(builtin3, o)) });
+  const meta = { space: "builtin", model: "nomic-embed-text-v1.5", dims: 3 };
+
+  test("OpenAI (inline): the vectors in opportunities.json, untouched", () => {
+    const baseDir = makeBaseDir();
+    writeCommitted(baseDir, [opp("a")]);
+    const info = new CorpusStore(baseDir, { space: () => getSpace("openai") }).load();
+    assert.equal(info.space.id, "openai");
+    assert.deepEqual(info.opportunities[0].embedding, [9, 9]);
+    assert.equal(info.withVectors, 1);
+    rmSync(baseDir, { recursive: true, force: true });
+  });
+
+  test("built-in: each record gets its vector from data/vectors by id, and the inline OpenAI vector is dropped", () => {
+    const baseDir = makeBaseDir();
+    const [a, b] = [opp("a"), opp("b")];
+    writeCommitted(baseDir, [a, b]);
+    writeVectorFile(join(baseDir, "data", "vectors"), NAME, meta, [entry(b, [0, 1, 0]), entry(a, [1, 0, 0])]);
+    const info = new CorpusStore(baseDir, { space: () => builtin3 }).load();
+    assert.deepEqual(info.opportunities.map((o) => o.embedding), [[1, 0, 0], [0, 1, 0]]);
+    assert.equal(info.withVectors, 2);
+    rmSync(baseDir, { recursive: true, force: true });
+  });
+
+  test("built-in after a data:refresh: the refresh's vectors win, the committed ones fill in, a changed record without one has none", () => {
+    const baseDir = makeBaseDir();
+    const [a, b] = [opp("a"), opp("b")];
+    writeCommitted(baseDir, [a, b]);
+    writeVectorFile(join(baseDir, "data", "vectors"), NAME, meta, [entry(a, [1, 0, 0]), entry(b, [0, 1, 0])]);
+    const bChanged = opp("b", "A rewritten description.");
+    const c = opp("c");
+    writeLocal(baseDir, [a, bChanged, c]);
+    writeVectorFile(join(baseDir, "data", "local", "vectors"), NAME, meta, [entry(c, [0, 0, 1])]);
+    const info = new CorpusStore(baseDir, { space: () => builtin3 }).load();
+    assert.equal(info.source, "local");
+    const byId = Object.fromEntries(info.opportunities.map((o) => [o.id, o.embedding]));
+    assert.deepEqual(byId.a, [1, 0, 0], "unchanged: the committed vector");
+    assert.equal(byId.b, undefined, "text changed since the committed vector: no stale vector");
+    assert.deepEqual(byId.c, [0, 0, 1], "new: the refresh's vector");
+    assert.equal(info.withVectors, 2);
+    rmSync(baseDir, { recursive: true, force: true });
+  });
+
+  test("switching spaces on the same store reloads with the other space's vectors", () => {
+    const baseDir = makeBaseDir();
+    const a = opp("a");
+    writeCommitted(baseDir, [a]);
+    writeVectorFile(join(baseDir, "data", "vectors"), NAME, meta, [entry(a, [1, 0, 0])]);
+    let space: EmbeddingSpace = getSpace("openai");
+    const store = new CorpusStore(baseDir, { space: () => space });
+    assert.deepEqual(store.load().opportunities[0].embedding, [9, 9]);
+    space = builtin3;
+    assert.deepEqual(store.load().opportunities[0].embedding, [1, 0, 0]);
+    space = getSpace("openai");
+    assert.deepEqual(store.load().opportunities[0].embedding, [9, 9]);
+    rmSync(baseDir, { recursive: true, force: true });
+  });
+
+  test("the retired Settings → Local index (data/local/local-embeddings/) is ignored", () => {
+    const baseDir = makeBaseDir();
+    writeCommitted(baseDir, [opp("committed")]);
+    const dir = join(baseDir, "data", "local", "local-embeddings");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "opportunities.json"), JSON.stringify([{ id: "x" }]));
+    const info = new CorpusStore(baseDir, { space: () => getSpace("openai") }).load();
+    assert.equal(info.source, "committed");
+    assert.equal(info.opportunities[0].id, "committed");
+    rmSync(baseDir, { recursive: true, force: true });
+  });
+
+  test("attachSpaceVectors never uses a vector of the wrong size", () => {
+    const a = opp("a");
+    const out = attachSpaceVectors(builtin3, [a as any], [new Map([["a", { vector: [1, 0], textHash: entry(a, []).textHash }]])]);
+    assert.equal(out.withVectors, 0);
+    assert.equal(out.opportunities[0].embedding, undefined);
+  });
+});
+
+describe("CorpusStore — a data:refresh copy from another model", () => {
+  const opp = (id: string, embedding: number[]) => ({ id, program: `P ${id}`, agency: "A", description: `About ${id}.`, embedding });
+
+  test("OpenAI search over a local copy with 768-dim inline vectors (an old setup:local) -> the shipped snapshot, with a note", () => {
+    const baseDir = makeBaseDir();
+    writeCommitted(baseDir, [opp("shipped", new Array(512).fill(0.01))]);
+    writeLocal(baseDir, [opp("refreshed", new Array(768).fill(0.01))]);
+    const info = new CorpusStore(baseDir, { space: () => getSpace("openai") }).load();
+    assert.equal(info.source, "committed");
+    assert.equal(info.opportunities[0].id, "shipped");
+    assert.match(info.note!, /768-dimension vectors/);
+    assert.match(info.note!, /Refresh cached grants/);
+    rmSync(baseDir, { recursive: true, force: true });
+  });
+
+  test("a local copy with matching inline vectors is used as before, with no note", () => {
+    const baseDir = makeBaseDir();
+    writeCommitted(baseDir, [opp("shipped", new Array(512).fill(0.01))]);
+    writeLocal(baseDir, [opp("refreshed", new Array(512).fill(0.01))]);
+    const info = new CorpusStore(baseDir, { space: () => getSpace("openai") }).load();
+    assert.equal(info.source, "local");
+    assert.equal(info.note, undefined);
+    rmSync(baseDir, { recursive: true, force: true });
+  });
+
+  test("a vector file made by another model (or revision) is never used", () => {
+    const baseDir = makeBaseDir();
+    const space: EmbeddingSpace = { ...getSpace("builtin"), dims: 2 };
+    const o = { id: "a", program: "P a", agency: "A", description: "About a." };
+    writeCommitted(baseDir, [o]);
+    const hash = textHash(spaceDocumentText(space, o));
+    writeVectorFile(join(baseDir, "data", "vectors"), "nomic-embed-text-v1.5", { space: "builtin", model: "some-other-model", dims: 2 }, [{ id: "a", vector: [1, 0], textHash: hash }]);
+    assert.equal(new CorpusStore(baseDir, { space: () => space }).load().withVectors, 0);
+    writeVectorFile(join(baseDir, "data", "vectors"), "nomic-embed-text-v1.5", { space: "builtin", model: "nomic-embed-text-v1.5", revision: "an-older-revision", dims: 2 }, [{ id: "a", vector: [1, 0], textHash: hash }]);
+    assert.equal(new CorpusStore(baseDir, { space: () => space }).load().withVectors, 0);
     rmSync(baseDir, { recursive: true, force: true });
   });
 });

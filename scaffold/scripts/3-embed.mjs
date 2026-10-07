@@ -1,8 +1,22 @@
 /**
  * Step 3 — embed every program description once, at build time, with the SAME
  * model/endpoint lib/embed.ts uses at request time (or the vectors aren't
- * comparable). Honors the local-embedder env seam documented in lib/embed.ts:
+ * comparable).
  *
+ * --space picks the embedding space (scripts/lib/spaces.mjs):
+ *
+ *   --space=builtin   nomic-embed-text-v1.5, run in this process from scaffold/models/
+ *                     (`npm run model:fetch` first). No key and no network. Writes
+ *                     data/vectors/nomic-embed-text-v1.5.{f16.bin,json} and leaves
+ *                     opportunities.json alone. Unchanged records keep their vectors.
+ *   --space=openai    OpenAI text-embedding-3-small @ 512, stored inline in
+ *                     opportunities.json (needs OPENAI_API_KEY).
+ *   --space=custom    the EMBEDDINGS_BASE_URL / EMBEDDINGS_MODEL embedder, inline.
+ *   (no --space)      openai, or custom when EMBEDDINGS_BASE_URL, EMBEDDINGS_MODEL or
+ *                     EMBEDDINGS_DIMENSIONS describe another embedder (the same rule
+ *                     search uses): what this script always did.
+ *
+ * Env for the HTTP spaces:
  *   EMBEDDINGS_BASE_URL    OpenAI-compatible base  (default https://api.openai.com/v1)
  *   EMBEDDINGS_MODEL       model name              (default text-embedding-3-small)
  *   EMBEDDINGS_DIMENSIONS  OpenAI text-embedding-3-* only (512 matches the OpenAI corpus);
@@ -10,33 +24,83 @@
  *   EMBEDDINGS_API_KEY     bearer token (falls back to OPENAI_API_KEY; Ollama ignores it)
  *
  * These are read from the environment OR from scaffold/.env.local (see the import
- * below), so the fully-local flow needs no inline env — just set the two vars in
- * scaffold/.env.local and run `npm run data:embed`.
+ * below).
  *
- * Fully-local example (Ollama nomic-embed-text, 768-dim) — in scaffold/.env.local:
- *   EMBEDDINGS_BASE_URL=http://localhost:11434/v1
- *   EMBEDDINGS_MODEL=nomic-embed-text
- *
- * --target=local (or npm run data:embed:local): re-embeds the corpus the app
+ * --target=local (or npm run data:embed:local): embeds the corpus the app
  * actually loads (data/local/ if a data:refresh corpus exists, else the committed
- * snapshot) and writes it to the gitignored data/local/ — the same place
- * scripts/refresh-corpus.mjs writes and lib/corpus/store.ts prefers. Used by
- * setup-local.mjs so a fresh clone's re-embed never dirties the committed corpus.
+ * snapshot) and writes to the gitignored data/local/ — the same place
+ * scripts/refresh-corpus.mjs writes and lib/corpus/store.ts prefers — so it never
+ * dirties the committed corpus.
  */
 import "./_loadEnvLocal.mjs"; // honor scaffold/.env.local when run as plain `node`
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { corpusDims, embedOpportunities } from "./lib/embedCorpus.mjs";
+import { SPACES, customEmbedderFromEnv } from "./lib/spaces.mjs";
+import { buildSpaceVectors, compatibleVectorFile } from "./lib/spaceVectors.mjs";
+import { readVectorFile, writeVectorFile } from "./lib/vectorFile.mjs";
+import { BUILTIN_MODEL, builtinModelPresent, loadBuiltinEmbedder } from "./lib/builtinModel.mjs";
 
 const TARGET_LOCAL = process.argv.includes("--target=local");
 const OUT_DIR = TARGET_LOCAL ? "data/local" : "data";
 const IN_DIR = TARGET_LOCAL && existsSync("data/local/opportunities.json") ? "data/local" : "data";
 
-const BASE_URL = (process.env.EMBEDDINGS_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
-const MODEL = process.env.EMBEDDINGS_MODEL || "text-embedding-3-small";
+const spaceArg = process.argv.find((a) => a.startsWith("--space="))?.slice("--space=".length);
+if (spaceArg && !SPACES[spaceArg]) {
+  console.error(`Unknown --space=${spaceArg}. Use one of: ${Object.keys(SPACES).join(", ")}.`);
+  process.exit(1);
+}
+// No --space: the same rule search uses (scripts/lib/spaces.mjs), minus the built-in default.
+const SPACE_ID = spaceArg ?? (customEmbedderFromEnv() ? "custom" : "openai");
+
+if (SPACES[SPACE_ID].vectors.kind === "file") {
+  await embedVectorFileSpace(SPACES[SPACE_ID]);
+  process.exit(0);
+}
+
+/** --space=builtin: write the space's own vector file, reusing every vector whose id and text are unchanged. */
+async function embedVectorFileSpace(space) {
+  if (!builtinModelPresent()) {
+    console.error("The built-in search model isn't in scaffold/models/ yet. Run `npm run model:fetch` first.");
+    process.exit(1);
+  }
+  const opps = JSON.parse(await readFile(`${IN_DIR}/opportunities.json`, "utf8"));
+  const vecDir = `${OUT_DIR}/vectors`;
+  // A local run starts from the committed vectors, so only records a refresh changed get embedded.
+  // Only vectors from this model and revision are ever reused.
+  const prior = [readVectorFile(vecDir, space.vectors.name), TARGET_LOCAL ? readVectorFile("data/vectors", space.vectors.name) : null].find((f) =>
+    compatibleVectorFile(f, space),
+  );
+  const embedder = await loadBuiltinEmbedder();
+  const t0 = Date.now();
+  const result = await buildSpaceVectors(space, opps, {
+    prior: prior?.vectors,
+    embed: embedder.embed,
+    batch: 16,
+    onProgress: (n, total) => process.stdout.write(`\rembedded ${n}/${total} (${Math.round((Date.now() - t0) / 1000)}s)`),
+  });
+  const meta = writeVectorFile(
+    vecDir,
+    space.vectors.name,
+    { space: space.id, model: space.model, revision: BUILTIN_MODEL.revision, dims: space.dims },
+    result.entries,
+  );
+  console.log(
+    `\n→ ${meta.count} programs in ${vecDir}/${space.vectors.name}.f16.bin ` +
+      `(${result.reused} reused, ${result.embedded} embedded with ${space.model})`,
+  );
+}
+
+// --space=openai always means OpenAI's model, whatever EMBEDDINGS_BASE_URL says.
+const FORCE_OPENAI = spaceArg === "openai";
+const BASE_URL = (FORCE_OPENAI ? "https://api.openai.com/v1" : process.env.EMBEDDINGS_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
+const MODEL = FORCE_OPENAI ? SPACES.openai.model : process.env.EMBEDDINGS_MODEL || "text-embedding-3-small";
 const IS_OPENAI = /api\.openai\.com/.test(BASE_URL);
 // OpenAI's text-embedding-3-* accept a `dimensions` param (512 matches the corpus);
 // local models have a fixed size, so we omit it there unless explicitly set.
-const DIMENSIONS = process.env.EMBEDDINGS_DIMENSIONS
+const DIMENSIONS = FORCE_OPENAI
+  ? SPACES.openai.dims
+  : process.env.EMBEDDINGS_DIMENSIONS
   ? Number(process.env.EMBEDDINGS_DIMENSIONS)
   : IS_OPENAI
     ? 512
@@ -48,46 +112,20 @@ if (IS_OPENAI && !process.env.EMBEDDINGS_API_KEY && !process.env.OPENAI_API_KEY)
 }
 
 const opps = JSON.parse(await readFile(`${IN_DIR}/opportunities.json`, "utf8"));
-const BATCH = 32;
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-function embedBody(inputs) {
-  return JSON.stringify(
-    DIMENSIONS != null ? { model: MODEL, dimensions: DIMENSIONS, input: inputs } : { model: MODEL, input: inputs },
-  );
-}
-
-/** POST one batch, retrying with exponential backoff on 429/5xx (honors Retry-After). */
-async function embedBatch(inputs, attempt = 0) {
-  const res = await fetch(`${BASE_URL}/embeddings`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${KEY}` },
-    body: embedBody(inputs),
-  });
-
-  if (res.status === 429 || res.status >= 500) {
-    if (attempt >= 7) throw new Error(`Gave up after ${attempt} retries (${res.status}): ${await res.text()}`);
-    const ra = Number(res.headers.get("retry-after"));
-    const wait = Number.isFinite(ra) && ra > 0 ? ra * 1000 : Math.min(60000, 1000 * 2 ** attempt);
-    process.stdout.write(`\n  ${res.status} rate-limited — backing off ${Math.round(wait / 1000)}s (retry ${attempt + 1}/7)`);
-    await sleep(wait);
-    return embedBatch(inputs, attempt + 1);
-  }
-  if (!res.ok) throw new Error(`Embeddings failed (${res.status}) at ${BASE_URL}: ${await res.text()}`);
-  return (await res.json()).data;
-}
-
-let done = 0;
-for (let i = 0; i < opps.length; i += BATCH) {
-  const slice = opps.slice(i, i + BATCH);
-  const data = await embedBatch(slice.map((o) => `${o.program}. ${o.agency}. ${o.description}`.slice(0, 8000)));
-  data.forEach((d, k) => {
-    slice[k].embedding = d.embedding.map((v) => Math.round(v * 1e5) / 1e5);
-  });
-  done += slice.length;
-  process.stdout.write(`\rembedded ${done}/${opps.length}`);
-  if (IS_OPENAI) await sleep(400); // gentle inter-batch pacing for the hosted API; unneeded locally
-}
+// The batch/retry loop for HTTP embedders lives in scripts/lib/embedCorpus.mjs.
+await embedOpportunities(opps, {
+  baseUrl: BASE_URL,
+  model: MODEL,
+  dimensions: DIMENSIONS,
+  key: KEY,
+  batch: 32,
+  interBatchDelayMs: IS_OPENAI ? 400 : 0, // gentle inter-batch pacing for the hosted API; unneeded locally
+  onProgress: (n, total) => process.stdout.write(`\rembedded ${n}/${total}`),
+  onRetry: ({ status, waitMs, attempt }) =>
+    process.stdout.write(`\n  ${status} rate-limited — backing off ${Math.round(waitMs / 1000)}s (retry ${attempt}/7)`),
+});
+const done = opps.length;
 
 if (TARGET_LOCAL) await mkdir(OUT_DIR, { recursive: true });
 await writeFile(`${OUT_DIR}/opportunities.json`, JSON.stringify(opps));
@@ -112,7 +150,7 @@ await writeFile(
         : "When this committed opportunity snapshot was built (written by scripts/3-embed.mjs on every data:embed). Read by lib/corpus/meta.ts to surface an honest 'Opportunities as of <date>' caveat.",
       count: opps.length,
       embeddingModel: MODEL,
-      dims: opps.find((o) => Array.isArray(o.embedding) && o.embedding.length > 0)?.embedding?.length,
+      dims: corpusDims(opps),
     },
     null,
     2,
