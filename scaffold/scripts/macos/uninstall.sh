@@ -116,7 +116,11 @@
 # (not a Granted install, not made by the installer, a symlink), 3 the folder
 # could not be moved aside so nothing was deleted, 4 unsaved work under --quiet
 # without --force, 64 bad input (an unknown option, an option given no value, a
-# --port that isn't a number, a --backup-dir inside the install folder).
+# --port that isn't a number, a --backup-dir inside the install folder). Every
+# one of those prints its JSON line too ({"removed":false,"reason":"bad-input"})
+# and not only a message on stderr, so the app -- which reads this script's
+# output out of a log file and has no stderr to look at -- can say what was
+# wrong instead of waiting out its "an uninstall was started" window.
 set -euo pipefail
 # errtrace, exactly as install-macos.sh sets it and for the same reason: bash
 # does NOT run an ERR trap for a command that fails inside a shell function
@@ -127,6 +131,41 @@ set -o errtrace
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 DEFAULT_INSTALL_DIR="$(cd -- "$SCRIPT_DIR/../../.." && pwd -P)"
+
+# --- output ----------------------------------------------------------------
+# Defined up here, before the arguments are read, so that the bad-input
+# refusals below can print a JSON line too. The app starts this script
+# detached and learns what happened by reading the one JSON line it writes to
+# a log file (lib/appUpdate/install.ts, parseUninstallOutcome); an exit that
+# printed only to stderr is an exit it can never parse an answer for, so its
+# Uninstall panel would sit on "an uninstall was started" until the staleness
+# window elapsed instead of saying what was actually wrong. Two of these are
+# reachable without a single typed argument -- GRANTED_UNINSTALL_BACKUP_DIR
+# pointed inside the install folder, and a GRANTED_PORT that isn't a number.
+json_string() {
+  printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+}
+
+# A JSON list of the strings given, or [].
+json_list() {
+  local first=1 item
+  printf '['
+  for item in "$@"; do
+    [ "$first" = "1" ] || printf ','
+    first=0
+    json_string "$item"
+  done
+  printf ']'
+}
+
+# An argument or an environment variable this script cannot work with: say so
+# on stderr for whoever typed it, say the same thing in JSON for whatever
+# started it, and exit 64 having touched nothing.
+bad_input() {
+  printf 'uninstall.sh: %s\n' "$1" >&2
+  printf '{"removed":false,"reason":"bad-input","detail":%s}\n' "$(json_string "$1")"
+  exit 64
+}
 
 INSTALL_DIR=""
 QUIET=0
@@ -154,8 +193,7 @@ PORT="${GRANTED_PORT:-3000}"
 # a cancelled uninstall reports.
 need_value() {
   [ "$1" -ge 2 ] && return 0
-  printf 'uninstall.sh: %s needs a value\n' "$2" >&2
-  exit 64
+  bad_input "$2 needs a value"
 }
 
 while [ $# -gt 0 ]; do
@@ -169,12 +207,12 @@ while [ $# -gt 0 ]; do
     --check) CHECK=1; shift ;;
     --keep-keys) KEEP_KEYS=1; KEEP_KEYS_GIVEN=1; shift ;;
     --no-keep-keys) KEEP_KEYS=0; KEEP_KEYS_GIVEN=1; shift ;;
-    *) printf 'uninstall.sh: unknown option %s\n' "$1" >&2; exit 64 ;;
+    *) bad_input "unknown option $1" ;;
   esac
 done
 
 case "$PORT" in
-  ''|*[!0-9]*) printf 'uninstall.sh: --port must be a number (got %s)\n' "$PORT" >&2; exit 64 ;;
+  ''|*[!0-9]*) bad_input "--port must be a number (got $PORT)" ;;
 esac
 
 [ -n "$INSTALL_DIR" ] || INSTALL_DIR="$DEFAULT_INSTALL_DIR"
@@ -228,14 +266,82 @@ case "$BACKUP_DIR" in
 esac
 while [ "${BACKUP_DIR%/}" != "$BACKUP_DIR" ]; do BACKUP_DIR="${BACKUP_DIR%/}"; done
 [ -n "$BACKUP_DIR" ] || BACKUP_DIR="/"
+# Comparing the two as text catches the literal spellings and misses every
+# other NAME for the same place. On this Mac's case-insensitive APFS volume
+# "<install>/keys" and "<INSTALL>/keys" are one folder with two names; a
+# symlinked parent is a third name for it; a sideways ".." that climbs out of
+# the install folder and straight back into it is a fourth. All three were
+# reproduced against a textual check: the keys were copied in, the folder was
+# destroyed by the very move-and-delete the copy was meant to survive, and the
+# run still exited 0 reporting "keptKeys" at a path that no longer existed.
+#
+# `pwd -P` alone is not the answer either. It does resolve symlinks and
+# collapse "..", but it reports a path's on-disk CAPITALISATION only when what
+# it was given contained a symlink, which is what forces bash to ask getcwd(3)
+# instead of tracking the path itself -- verified here, where an
+# already-resolved ".../GRANTED" comes back spelled exactly that way.
+#
+# So the question goes to the filesystem instead. A directory has one identity,
+# its device and inode numbers, however many names lead to it, and that is
+# immune to spelling by construction: ".../GRANTED" and ".../granted" report
+# the same pair.
+BACKUP_INSIDE=0
+
+# The real path of the nearest ancestor of $1 that exists -- the backup folder
+# itself usually does not yet, and it is judged by where it would be created.
+# `cd` can only enter a directory that is there, which is exactly the walk's
+# stopping condition, and the path it hands back has no symlinks and no ".."
+# left in it, so climbing it afterwards with `dirname` really does visit the
+# parents.
+existing_ancestor() {
+  local path="$1"
+  while [ ! -d "$path" ]; do
+    case "$path" in /|.|"") return 1 ;; esac
+    path="$(dirname -- "$path")"
+  done
+  (cd -- "$path" 2>/dev/null && pwd -P) || return 1
+}
+
+# Device and inode, of the directory itself and never of what a symlink points
+# at (BSD stat is lstat unless given -L). That matters for INSTALL_DIR: a
+# folder that is a symlink to a Granted install is reported as the link it is
+# and never followed (see is_a_link below), so it is not going to be deleted
+# and a backup inside the folder it POINTS at is not in danger. The literal
+# comparison below still refuses a backup written through the link's own path.
+dir_id() {
+  stat -f '%d:%i' -- "$1" 2>/dev/null || true
+}
+
 # "/" contains every path there is, and an --install-dir of "/" is refused by
 # name further down (PROTECTED_DIRS); answering it here with "your backup
 # folder is inside it" would answer a different question than the one that is
 # actually wrong.
-if [ "$INSTALL_DIR" != "/" ] && { [ "$BACKUP_DIR" = "$INSTALL_DIR" ] || [ "${BACKUP_DIR#"$INSTALL_DIR"/}" != "$BACKUP_DIR" ]; }; then
-  printf 'uninstall.sh: the copy of your API keys has to go outside the folder being deleted, and %s is inside %s\n' \
-    "$BACKUP_DIR" "$INSTALL_DIR" >&2
-  exit 64
+if [ "$INSTALL_DIR" != "/" ]; then
+  if [ "$BACKUP_DIR" = "$INSTALL_DIR" ] || [ "${BACKUP_DIR#"$INSTALL_DIR"/}" != "$BACKUP_DIR" ]; then
+    BACKUP_INSIDE=1
+  fi
+  INSTALL_ID="$(dir_id "$INSTALL_DIR")"
+  BACKUP_REAL="$(existing_ancestor "$BACKUP_DIR" || true)"
+  if [ "$BACKUP_INSIDE" = "0" ] && [ -n "$INSTALL_ID" ] && [ -n "$BACKUP_REAL" ]; then
+    # From where the backup would be created, up to the root.
+    probe="$BACKUP_REAL"
+    while : ; do
+      if [ "$(dir_id "$probe")" = "$INSTALL_ID" ]; then BACKUP_INSIDE=1; break; fi
+      [ "$probe" = "/" ] && break
+      probe="$(dirname -- "$probe")"
+    done
+  fi
+fi
+
+if [ "$BACKUP_INSIDE" = "1" ]; then
+  # The resolved path is named as well when it differs, because the whole
+  # difficulty with these is that the path as typed does not look like it is
+  # inside anything.
+  if [ -n "${BACKUP_REAL:-}" ] && [ "$BACKUP_REAL" != "$BACKUP_DIR" ]; then
+    bad_input "the copy of your API keys has to go outside the folder being deleted, and $BACKUP_DIR (really under $BACKUP_REAL) is inside $INSTALL_DIR"
+  else
+    bad_input "the copy of your API keys has to go outside the folder being deleted, and $BACKUP_DIR is inside $INSTALL_DIR"
+  fi
 fi
 
 # Everything that could still be reported after a partial run, so the JSON line
@@ -249,20 +355,33 @@ REMOVED_LOGS=false
 LEFTOVER=""
 
 # --- output ----------------------------------------------------------------
-json_string() {
-  printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"
-}
+# (json_string and json_list are defined near the top, above the argument
+# parsing, so that bad input can report itself in JSON as well -- see
+# bad_input.)
 
-# A JSON list of the strings given, or [].
-json_list() {
-  local first=1 item
-  printf '['
-  for item in "$@"; do
-    [ "$first" = "1" ] || printf ','
-    first=0
-    json_string "$item"
-  done
-  printf ']'
+# Where the copy of the keys ACTUALLY is, for every JSON line that mentions it
+# -- not where it was meant to go.
+#
+# The containment check above refuses a --backup-dir inside the install folder,
+# and asks the filesystem rather than the two strings so that a symlink, a ".."
+# or a different capitalisation of that folder is caught before anything is
+# copied. That is still a prediction, about one folder; this is not a prediction
+# at all. By the time any of these lines is printed the move and the delete have
+# either happened or they have not, so the only question left worth asking is
+# whether the folder named is there.
+#
+# Which is why this is the check that closes the question rather than a second
+# opinion on the first one. The install folder is not the only thing a run
+# deletes: a --backup-dir inside the SHARED settings folder is destroyed by
+# this same run as the last install out, and no amount of comparing against
+# the install folder would ever see that coming.
+#
+# `keptKeys` naming a path that does not exist is the single promise this
+# script makes about the keys, broken while claiming to have kept it -- and it
+# reads as success, exit 0 and all. A folder that is gone is reported as no
+# copy instead, which is true, and the text below says so in words.
+kept_keys_json() {
+  if [ -n "$KEPT_KEYS" ] && [ -d "$KEPT_KEYS" ]; then json_string "$KEPT_KEYS"; else printf 'null'; fi
 }
 
 refused() {
@@ -279,7 +398,7 @@ on_error() {
   printf '{"removed":false,"reason":"error","detail":%s,"installDir":%s,"keptKeys":%s}\n' \
     "$(json_string "uninstall.sh failed at line $line: $command")" \
     "$(json_string "$INSTALL_DIR")" \
-    "$([ -n "$KEPT_KEYS" ] && json_string "$KEPT_KEYS" || printf 'null')"
+    "$(kept_keys_json)"
   exit 1
 }
 trap 'on_error "$LINENO" "$BASH_COMMAND"' ERR
@@ -429,18 +548,26 @@ collect_unsaved() {
 # WorkingDirectory is the install's own scaffold folder (see granted-tray.sh's
 # emit_plist). "none" | "own" | "other" -- and only "own" is ever removed, the
 # same rule the Windows script applies to a shortcut before deleting it.
+#
+# Matched with the "<string>…</string>" delimiters around it rather than as a
+# bare substring of the file. A bare one answers "own" for ANOTHER install
+# whose path merely contains this one's: an install at "/granted" and one at
+# "/Volumes/disk/granted" are different installs, and the second's plist does
+# contain the first's path. Contrived, and the consequence is deleting another
+# install's LaunchAgent, so the one character on each side is worth having.
 launch_agent_owner() {
   [ -f "$PLIST_PATH" ] || { printf 'none'; return 0; }
-  if grep -qF "$SCAFFOLD_DIR" "$PLIST_PATH" 2>/dev/null; then printf 'own'; else printf 'other'; fi
+  if grep -qF ">$SCAFFOLD_DIR<" "$PLIST_PATH" 2>/dev/null; then printf 'own'; else printf 'other'; fi
 }
 
 # The same question for the ~/Applications launcher: its executable has this
 # install's own granted-tray.sh baked into it (see
-# applications-launcher.sh's emit_launcher_script).
+# applications-launcher.sh's emit_launcher_script), as a single-quoted
+# assignment -- so the quotes are the boundary here, for the reason above.
 launcher_owner() {
   local exe="$APP_PATH/Contents/MacOS/Granted"
   [ -e "$APP_PATH" ] || { printf 'none'; return 0; }
-  if [ -f "$exe" ] && grep -qF "$TRAY_SCRIPT" "$exe" 2>/dev/null; then printf 'own'; else printf 'other'; fi
+  if [ -f "$exe" ] && grep -qF "TRAY_SCRIPT='$TRAY_SCRIPT'" "$exe" 2>/dev/null; then printf 'own'; else printf 'other'; fi
 }
 
 # --- the keys --------------------------------------------------------------
@@ -723,7 +850,7 @@ if [ "$ALREADY_GONE" != "1" ]; then
     notify "$move_message"
     printf '{"removed":false,"reason":"%s","detail":%s,"installDir":%s,"keptKeys":%s}\n' \
       "$move_reason" "$(json_string "$move_error")" "$(json_string "$INSTALL_DIR")" \
-      "$([ -n "$KEPT_KEYS" ] && json_string "$KEPT_KEYS" || printf 'null')"
+      "$(kept_keys_json)"
     exit 3
   fi
 fi
@@ -801,6 +928,16 @@ fi
 if [ -n "$LEFTOVER" ]; then
   done_text="$done_text"$'\n\n'"A few files couldn't be deleted. You can delete this folder yourself: $LEFTOVER"
 fi
+# The copy of the keys, checked against the disk rather than against what this
+# run meant to do -- see kept_keys_json, which this is the deciding half of. A
+# backup folder that was written and is not there now was inside something this
+# uninstall deleted. The user asked for that copy, so this says so plainly
+# rather than quietly reporting none; and clearing KEPT_KEYS here is what makes
+# the JSON line below say null as well.
+if [ -n "$KEPT_KEYS" ] && [ ! -d "$KEPT_KEYS" ]; then
+  done_text="$done_text"$'\n\n'"A copy of your API keys couldn't be kept: $KEPT_KEYS was inside something this uninstall deleted, so it went too."
+  KEPT_KEYS=""
+fi
 if [ -n "$KEPT_KEYS" ]; then
   done_text="$done_text"$'\n\n'"A copy of your API keys and settings is in: $KEPT_KEYS"
 fi
@@ -809,7 +946,7 @@ notify "$done_text"
 printf '{"removed":true,"alreadyGone":%s,"installDir":%s,"keptKeys":%s,"leftover":%s,"removedLaunchAgent":%s,"removedLauncher":%s,"removedFromDock":%s,"removedSettings":%s,"removedLogs":%s}\n' \
   "$([ "$ALREADY_GONE" = "1" ] && printf true || printf false)" \
   "$(json_string "$INSTALL_DIR")" \
-  "$([ -n "$KEPT_KEYS" ] && json_string "$KEPT_KEYS" || printf 'null')" \
+  "$(kept_keys_json)" \
   "$([ -n "$LEFTOVER" ] && json_string "$LEFTOVER" || printf 'null')" \
   "$REMOVED_LAUNCH_AGENT" "$REMOVED_LAUNCHER" "$REMOVED_FROM_DOCK" "$REMOVED_SETTINGS" "$REMOVED_LOGS"
 exit 0

@@ -224,6 +224,91 @@ describe("POST /api/app/uninstall", () => {
     assert.equal(w.calls.started.length, 1);
   });
 
+  // REGRESSION (review): the "one at a time" latch used to be written AFTER the
+  // readUninstallCheck await, which is a real subprocess taking tens of
+  // milliseconds. Node yields there, so two POSTs arriving close together both
+  // passed the "already running" guard while it was still false and both went on
+  // to spawn a real uninstaller against the same folder. One wins the atomic
+  // rename; the other's retry loop exhausts and it exits 3 "files-in-use"
+  // claiming "nothing was deleted" — which is false, because the install is
+  // gone. Whichever log is written last is what the page polls, so the user
+  // could be shown "couldn't delete, try again" after Granted had been removed.
+  // Reachable from two browser tabs, a reload-and-reclick, or any client of the
+  // loopback endpoint.
+  test("two uninstalls started at the same time: exactly one 202, the other 409, and only one uninstaller spawned", async () => {
+    // Every attempt here shares one world, so what it started is counted across
+    // both requests rather than per request.
+    const w = world({
+      deps: {
+        // The real readUninstallCheck runs `uninstall.sh --check` and takes
+        // around 70ms. A timer rather than a bare `async` makes the window the
+        // race needs unmistakable instead of a single microtask wide.
+        readUninstallCheck: async () => {
+          await new Promise((r) => setTimeout(r, 20));
+          return { installDir: "/Users/a/granted", grantedInstall: true, installerMade: true, unsaved: [], keyFiles: [], backupDir: "/b" };
+        },
+      },
+    });
+    const [first, second] = await Promise.all([
+      handleUninstallPost(postReq({ action: "uninstall" }), w.deps),
+      handleUninstallPost(postReq({ action: "uninstall" }), w.deps),
+    ]);
+    const statuses = [first.status, second.status].sort();
+    assert.deepEqual(statuses, [202, 409], "one started, one was told an uninstall is already running");
+    const refused = first.status === 409 ? first : second;
+    assert.match((await refused.json()).error, /already running/);
+    assert.equal(w.calls.started.length, 1, "and only ONE uninstaller was spawned against the folder");
+  });
+
+  // The other half of moving that latch earlier: the refusals that now happen
+  // AFTER it is written have to put it back, or a single refused attempt locks
+  // the feature out for the whole staleness window.
+  test("a refusal that happens after the latch is taken releases it, so the next attempt is not 'already running'", async () => {
+    const dirty = {
+      installDir: "/Users/a/granted",
+      grantedInstall: true,
+      installerMade: true,
+      unsaved: ["changed or new files (2)"],
+      keyFiles: [],
+      backupDir: "/b",
+    };
+    // Unsaved work without --force: 409, and retryable at once.
+    const unsaved = world({ check: dirty });
+    assert.equal((await handleUninstallPost(postReq({ action: "uninstall" }), unsaved.deps)).status, 409);
+    assert.equal((await (await handleUninstallGet(getReq("?check=0"), unsaved.deps)).json()).running, false, "no latch left behind");
+    const forced = await handleUninstallPost(postReq({ action: "uninstall", force: true }), world({ check: dirty }).deps);
+    assert.equal(forced.status, 202, "the same person answering yes gets through immediately");
+
+    // And a folder the installer didn't make: also 409, also retryable.
+    resetUninstallStateForTests();
+    const notOurs = world({
+      check: { installDir: "/Users/a/own", grantedInstall: true, installerMade: false, unsaved: [], keyFiles: [], backupDir: "/b" },
+    });
+    assert.equal((await handleUninstallPost(postReq({ action: "uninstall" }), notOurs.deps)).status, 409);
+    assert.equal((await (await handleUninstallGet(getReq("?check=0"), notOurs.deps)).json()).running, false, "no latch left behind");
+    assert.equal((await handleUninstallPost(postReq({ action: "uninstall" }), world().deps)).status, 202);
+  });
+
+  // A refusal must not wipe what the LAST uninstall said either: the page shows
+  // that outcome, and a request that changed nothing has nothing to report over
+  // it.
+  test("a refused attempt leaves the previous uninstaller's outcome on display", async () => {
+    const started = world();
+    assert.equal((await handleUninstallPost(postReq({ action: "uninstall" }), started.deps)).status, 202);
+    // That one refused, which is read out of its log and clears the latch.
+    const read = world({ outcome: refusal("files-in-use") });
+    assert.equal((await (await handleUninstallGet(getReq("?check=0"), read.deps)).json()).outcome.reason, "files-in-use");
+
+    // Now an attempt that is refused here, before any script runs.
+    const notOurs = world({
+      check: { installDir: "/Users/a/own", grantedInstall: true, installerMade: false, unsaved: [], keyFiles: [], backupDir: "/b" },
+    });
+    assert.equal((await handleUninstallPost(postReq({ action: "uninstall" }), notOurs.deps)).status, 409);
+    const after = await (await handleUninstallGet(getReq("?check=0"), world().deps)).json();
+    assert.equal(after.running, false);
+    assert.equal(after.outcome?.reason, "files-in-use", "the real outcome is still what the page can show");
+  });
+
   // REGRESSION (review): the script is only SPAWNED when this answers 202, and
   // it can still refuse afterwards — exit 3 for a parent folder it can't write
   // to leaves the install whole and Granted running. The latch used to be

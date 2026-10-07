@@ -291,6 +291,26 @@ test(
     // backup: the move-and-delete it is meant to survive would destroy it,
     // and the run would report keeping it anyway.
     assert.match(code, /BACKUP_DIR#"\$INSTALL_DIR"\//);
+    // Asked of the filesystem as well as of the two strings, so that another
+    // NAME for the same folder — a different capitalisation, a symlinked
+    // parent, a sideways ".." — is caught too.
+    assert.match(code, /stat -f '%d:%i'/, "directory identity, not spelling");
+    assert.match(code, /existing_ancestor/);
+    // And the check that needs no prediction at all: whatever got past the
+    // above, keptKeys only ever names a folder that is really there.
+    assert.match(code, /kept_keys_json\(\) \{\n\s*if \[ -n "\$KEPT_KEYS" \] && \[ -d "\$KEPT_KEYS" \]/);
+    assert.ok(
+      !/"\$\(\[ -n "\$KEPT_KEYS" \] && json_string/.test(code),
+      "no report site names the backup folder without checking it is there",
+    );
+    // Bad input answers in JSON too, not only on stderr: the app reads this
+    // script's output from a log file and has no stderr to look at.
+    assert.match(code, /"reason":"bad-input"/);
+    // Whether a plist or a launcher belongs to THIS install is a bounded
+    // match, so an install whose path merely CONTAINS another's is not
+    // mistaken for it.
+    assert.match(code, /grep -qF ">\$SCAFFOLD_DIR<"/);
+    assert.match(code, /grep -qF "TRAY_SCRIPT='\$TRAY_SCRIPT'"/);
     // An explicit --keep-keys / --no-keep-keys decides it, rather than being
     // overwritten by whatever the interactive dialog was answered.
     assert.match(code, /--keep-keys\) KEEP_KEYS=1; KEEP_KEYS_GIVEN=1/);
@@ -657,6 +677,123 @@ describe(
       assert.equal(sibling.code, 0, JSON.stringify(sibling.result));
       assert.equal(sibling.result["backupDir"], `${b.installDir}-backup`);
       assert.ok(existsSync(join(b.scaffold, "package.json")));
+    });
+
+    // REGRESSION (review, round 3): the containment check above was textual, so
+    // it only caught a --backup-dir SPELLED as a path under the install folder.
+    // Every other name for the same place went straight through, had the keys
+    // copied into it, and was destroyed by the move-and-delete — and the run
+    // still exited 0 reporting keptKeys at a path that no longer existed. Three
+    // shapes were reproduced on this Mac, all of which the check now resolves
+    // through by asking the filesystem for each directory's device and inode
+    // rather than comparing two strings.
+    test("a --backup-dir that is another NAME for a folder inside the install is refused too (64)", async () => {
+      // 1. A different capitalisation. The volume these run on is
+      //    case-insensitive, so "<base>/GRANTED" and "<base>/granted" are one
+      //    folder — which `stat` confirms by reporting one inode for both, and
+      //    which a string comparison cannot see at all.
+      const folded = await box({ name: "granted-case" });
+      const upper = join(folded.root, "GRANTED-CASE", "kept-inside");
+      if (existsSync(join(folded.root, "GRANTED-CASE"))) {
+        const { code, result } = await uninstall(folded, ["--quiet", "--force", "--backup-dir", upper]);
+        assert.equal(code, 64, `${upper}: ${JSON.stringify(result)}`);
+        assert.equal(result["reason"], "bad-input");
+        assert.ok(existsSync(join(folded.scaffold, "package.json")), "nothing was deleted");
+        assert.ok(existsSync(join(folded.scaffold, ".env.local")), "and the keys are still where they were");
+      }
+
+      // 2. A symlinked parent pointing at the install folder. `[ -d ]` follows
+      //    it, so the copy really would land inside the install.
+      const linked = await box();
+      const link = join(linked.root, "link-to-install");
+      symlinkSync(linked.installDir, link);
+      const viaLink = await uninstall(linked, ["--quiet", "--force", "--backup-dir", join(link, "kept-inside")]);
+      assert.equal(viaLink.code, 64, JSON.stringify(viaLink.result));
+      assert.equal(viaLink.result["reason"], "bad-input");
+      assert.ok(existsSync(join(linked.scaffold, "package.json")), "nothing was deleted");
+      assert.ok(existsSync(join(linked.scaffold, ".env.local")), "and the keys are still where they were");
+
+      // 3. A sideways ".." that climbs out of the install folder and back in.
+      const sideways = await box();
+      mkdirSync(join(sideways.root, "sideways"), { recursive: true });
+      const viaDotDot = await uninstall(sideways, [
+        "--quiet",
+        "--force",
+        "--backup-dir",
+        join(sideways.root, "sideways", "..", "granted-throwaway", "kept-inside"),
+      ]);
+      assert.equal(viaDotDot.code, 64, JSON.stringify(viaDotDot.result));
+      assert.ok(existsSync(join(sideways.scaffold, "package.json")), "nothing was deleted");
+
+      // And the sibling that merely starts the same way is STILL fine, for all
+      // three of those: the test is "is it the same folder", not "does the
+      // name look similar".
+      const ok = await box();
+      const fine = await uninstall(ok, ["--check", "--backup-dir", `${ok.installDir}-backup`]);
+      assert.equal(fine.code, 0, JSON.stringify(fine.result));
+      assert.equal(fine.result["backupDir"], `${ok.installDir}-backup`);
+    });
+
+    // REGRESSION (review, round 3): and the check that closes the question
+    // whatever the spelling. The containment check above is a prediction about
+    // which names mean the same place; this one asks the disk, after everything
+    // has been deleted, whether the folder keptKeys names is actually there.
+    //
+    // The case here is not an alias at all, which is the point: the backup goes
+    // into the SHARED settings folder, which this same run deletes as the last
+    // install out. No containment check against the install folder could ever
+    // catch that, and before this the run reported
+    // {"removed":true,"keptKeys":"<that path>"} for a folder it had just
+    // removed — exit 0, and the user sent to look for keys that are gone.
+    test("a copy of the keys that was destroyed during the uninstall is reported as no copy, not as a path that's gone", async () => {
+      const b = await box();
+      const inside = join(b.supportDir, "kept");
+      const { code, result } = await uninstall(b, ["--quiet", "--force", "--backup-dir", inside]);
+      assert.equal(code, 0, JSON.stringify(result));
+      assert.equal(result["removed"], true);
+      assert.equal(existsSync(b.installDir), false, "the install really did go");
+      assert.equal(existsSync(inside), false, "and so did the copy, with the settings folder it was in");
+      assert.equal(result["keptKeys"], null, "so the answer claims no copy rather than naming one that isn't there");
+
+      // The general rule, stated the other way round: whatever keptKeys names,
+      // it exists.
+      const good = await box();
+      const fine = await uninstall(good, ["--quiet", "--backup-dir", good.backupDir]);
+      assert.equal(fine.code, 0, JSON.stringify(fine.result));
+      assert.equal(fine.result["keptKeys"], good.backupDir);
+      assert.ok(existsSync(String(fine.result["keptKeys"])), "a keptKeys that is reported is a folder that is there");
+    });
+
+    // REGRESSION (review, round 3): bad input printed only to stderr. The app
+    // starts this script detached and reads the one JSON line it writes to a
+    // log file — it has no stderr to read — so an exit 64 with no JSON line
+    // left the Uninstall panel sitting on "an uninstall was started" until the
+    // staleness window elapsed, instead of saying what was wrong. Two of these
+    // need no typed argument at all: GRANTED_UNINSTALL_BACKUP_DIR pointed
+    // inside the install folder, and a GRANTED_PORT that isn't a number.
+    test("every bad-input refusal prints a JSON line as well, so the app can read an answer", async () => {
+      const b = await box();
+      const cases: Array<{ args: string[]; env?: Record<string, string>; detail: RegExp }> = [
+        { args: ["--port", "soon"], detail: /--port must be a number/ },
+        { args: ["--no-such-option"], detail: /unknown option --no-such-option/ },
+        { args: ["--quiet", "--backup-dir"], detail: /--backup-dir needs a value/ },
+        { args: ["--quiet", "--force", "--backup-dir", join(b.installDir, "kept-inside")], detail: /outside the folder being deleted/ },
+        // Through the environment, which is how the app reaches this at all:
+        // it passes neither --backup-dir nor --port.
+        { args: ["--quiet", "--force"], env: { GRANTED_UNINSTALL_BACKUP_DIR: join(b.scaffold, "kept") }, detail: /outside the folder being deleted/ },
+      ];
+      for (const c of cases) {
+        const { code, result } = await uninstall(b, c.args, c.env ?? {});
+        assert.equal(code, 64, `${c.args.join(" ")}: ${JSON.stringify(result)}`);
+        assert.equal(result["removed"], false, `${c.args.join(" ")} says removed:false`);
+        assert.equal(result["reason"], "bad-input", `${c.args.join(" ")} says why`);
+        assert.match(String(result["detail"]), c.detail);
+        assert.ok(existsSync(join(b.scaffold, "package.json")), `${c.args.join(" ")} deleted nothing`);
+      }
+      // And it is a line parseUninstallOutcome can read, which is the only
+      // reason it is there.
+      const { result } = await uninstall(b, ["--port", "soon"]);
+      assert.equal(typeof result["removed"], "boolean");
     });
 
     // REGRESSION (review): the keys dialog's answer used to overwrite an

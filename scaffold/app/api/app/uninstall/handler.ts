@@ -204,13 +204,42 @@ export async function handleUninstallPost(req: Req & { json?: () => Promise<unkn
     return NextResponse.json({ error: "This copy of Granted can't uninstall itself", started: false, reason: install.reason }, { status: 409 });
   }
   if (uninstallState(d).running) return NextResponse.json({ error: "An uninstall is already running", started: false }, { status: 409 });
+  // Taken HERE, in the same synchronous run as the check above it, with no
+  // `await` in between — which is the whole point. It used to be taken further
+  // down, after `readUninstallCheck`, and that is a real subprocess (around
+  // 70ms): Node yields there, so two POSTs arriving close together both found
+  // the latch still clear, both got past this guard, and both spawned a real
+  // uninstaller against the same folder. One won the atomic rename; the other
+  // exhausted its retry loop and reported exit 3 "files-in-use, nothing was
+  // deleted" — false, because the install was gone. Whichever log was written
+  // last is what the page polls, so the user could be told the uninstall
+  // failed and to try again after Granted had already been removed. Two
+  // browser tabs, a reload-and-reclick, or any client of this loopback
+  // endpoint is enough to do it.
+  //
+  // The cost of taking it this early is that every refusal below now happens
+  // while holding it, and has to put it back (`release()`); a refusal that
+  // kept the latch would lock the feature out for the whole staleness window
+  // over a question the user can answer straight away.
+  const previousOutcome = lastOutcome;
+  run = { startedAt: d.now(), log: "" };
+  lastOutcome = null;
+  const release = (): void => {
+    run = null;
+    // What the LAST uninstall said goes back on display too: a request that
+    // refused to start one has changed nothing and has nothing to report over
+    // it.
+    lastOutcome = previousOutcome;
+  };
 
   const check = await d.readUninstallCheck(install.script);
   if (!check || !check.grantedInstall || !check.installerMade) {
+    release();
     return NextResponse.json({ error: "This folder isn't an install Granted's installer made, so it wasn't deleted", started: false }, { status: 409 });
   }
   const force = body.force === true;
   if (check.unsaved.length > 0 && !force) {
+    release();
     return NextResponse.json(
       { error: "This folder has work that isn't saved to GitHub", started: false, unsaved: check.unsaved },
       { status: 409 },
@@ -218,18 +247,15 @@ export async function handleUninstallPost(req: Req & { json?: () => Promise<unkn
   }
 
   const choice: UninstallChoice = { keepKeys: body.keepKeys !== false, force };
-  // Latched BEFORE the script is launched, so a second click can't start a
-  // second uninstall in the seconds before bash is up; the log it will report
-  // to is filled in as soon as that is known, and a launch that failed clears
-  // the latch again.
-  run = { startedAt: d.now(), log: "" };
-  lastOutcome = null;
   try {
+    // The log the uninstaller will report to is filled in as soon as that is
+    // known; the latch itself has been held since before the check above.
     const log = await d.startUninstaller(install.script, choice);
     run = { startedAt: d.now(), log };
     return NextResponse.json({ started: true, installDir: check.installDir, keptKeys: choice.keepKeys ? check.backupDir : null, log }, { status: 202 });
   } catch (err) {
-    run = null;
+    // Nothing was started, so this is a refusal like the others: let it go.
+    release();
     const message = `Couldn't start the uninstaller: ${err instanceof Error ? err.message : String(err)}`;
     return NextResponse.json({ error: message, started: false, errorId: logError("app-uninstall", err, { path: "/api/app/uninstall" }) }, { status: 500 });
   }
