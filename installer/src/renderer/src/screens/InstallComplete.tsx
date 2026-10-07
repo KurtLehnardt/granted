@@ -279,8 +279,17 @@ export default function InstallComplete(): React.JSX.Element {
 
       {step.id === "local-setup" && (
         <div className="status-note">
-          Setting up the local AI model in a separate PowerShell window. This can take up to half an hour — Granted will
-          open by itself when it's done. To cancel, close that window.
+          {isMac ? (
+            <>
+              Setting up the local AI model in the background. This can take up to half an hour — Granted will open by
+              itself when it's done. You can check the progress in the log file in your system's temporary folder.
+            </>
+          ) : (
+            <>
+              Setting up the local AI model in a separate PowerShell window. This can take up to half an hour — Granted
+              will open by itself when it's done. To cancel, close that window.
+            </>
+          )}
         </div>
       )}
 
