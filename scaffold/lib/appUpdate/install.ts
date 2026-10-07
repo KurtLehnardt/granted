@@ -6,10 +6,17 @@
  * scripts/windows/update.ps1 and the installer's marker (.git\granted-
  * installer). A developer's own checkout is never touched — it's told what's
  * available and to `git pull` — and so is any other platform for now.
+ *
+ * This file also owns the other thing an install can do to itself:
+ * uninstalling (uninstallInfo/startUninstaller, below). That is macOS-only and
+ * on purpose — on Windows, Granted is uninstalled from Windows' own "Installed
+ * apps" list, which scripts/windows/uninstall.ps1 registers it in. macOS has no
+ * such list, so the work order puts uninstall in the menu-bar menu and in
+ * Settings → About Granted, which is what this half serves.
  */
-import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { execFile, spawn } from "node:child_process";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import path, { dirname, join } from "node:path";
 
 /** The scaffold folder the server runs in (`npm run dev` starts there). */
@@ -201,5 +208,186 @@ export function startUpdater(
     child.once?.("exit", (code: number | null) =>
       code === 0 ? resolveStart() : rejectStart(new Error(`the updater couldn't be started (exit code ${code})`)),
     );
+  });
+}
+
+// --- uninstalling (macOS) ---------------------------------------------------
+
+export type CannotUninstallReason = "not-macos" | "not-installer-made" | "no-uninstaller";
+
+export interface UninstallInfo {
+  installDir: string;
+  canUninstall: boolean;
+  /** Why it can't uninstall itself (null when it can). */
+  reason: CannotUninstallReason | null;
+  /** The uninstaller this install would run (null when it has none it may run). */
+  script: string | null;
+}
+
+/**
+ * Whether this install can uninstall itself from Settings → About Granted, and
+ * with what.
+ *
+ * The same three-part test installInfo() makes for updating, for the same
+ * reasons: the platform, the installer's `.git/granted-installer` marker (so a
+ * developer's own checkout is never offered a button that would delete it), and
+ * the script itself being present (an install made before this existed).
+ *
+ * macOS only. Windows installs are uninstalled from Windows' "Installed apps"
+ * list, which is where a Windows user looks and which scripts/windows/
+ * uninstall.ps1 already registers Granted in; putting a second, different
+ * uninstall button inside the app there would be two mechanisms for one job.
+ */
+export function uninstallInfo(
+  dir = scaffoldDir(),
+  platform: NodeJS.Platform = process.platform,
+  exists: (p: string) => boolean = existsSync,
+): UninstallInfo {
+  // POSIX paths for the macOS answer, whatever platform is asking (a test of
+  // it runs on Windows CI too) — the convention this file's settingsPath()
+  // records.
+  const p = platform === "darwin" ? path.posix : path;
+  const installDir = p.resolve(dir, "..");
+  const script = p.join(dir, "scripts", "macos", "uninstall.sh");
+  let reason: CannotUninstallReason | null = null;
+  if (platform !== "darwin") reason = "not-macos";
+  else if (!exists(p.join(installDir, ".git", "granted-installer"))) reason = "not-installer-made";
+  else if (!exists(script)) reason = "no-uninstaller";
+  return { installDir, canUninstall: reason === null, reason, script: reason === null ? script : null };
+}
+
+export interface UninstallChoice {
+  /** Copy the API keys and settings somewhere safe first (the script's own default). */
+  keepKeys: boolean;
+  /** Delete the folder even though it holds work that isn't on GitHub. */
+  force: boolean;
+}
+
+/**
+ * The uninstall.sh arguments for one choice.
+ *
+ * Always --quiet: the asking is done in the page, which is the only place that
+ * can ask a person sitting in front of a browser. (The script's own dialogs are
+ * for the menu-bar item, which has no page.) --force is therefore passed only
+ * when the page actually showed the unsaved work and the user said yes anyway
+ * — exactly the rule --quiet and --force are there to enforce.
+ */
+export function uninstallArgs(script: string, choice: UninstallChoice): string[] {
+  const args = [script, "--quiet", choice.keepKeys ? "--keep-keys" : "--no-keep-keys"];
+  if (choice.force) args.push("--force");
+  return args;
+}
+
+/** uninstall.sh --check: what an uninstall would find, changing nothing. */
+export function uninstallCheckArgs(script: string): string[] {
+  return [script, "--check"];
+}
+
+export interface UninstallCheck {
+  installDir: string;
+  grantedInstall: boolean;
+  installerMade: boolean;
+  /** Work in the folder that isn't on GitHub, in the script's own words. */
+  unsaved: string[];
+  /** The API-key and settings files a copy would be kept of. */
+  keyFiles: string[];
+  /** Where that copy would go. */
+  backupDir: string;
+}
+
+/** uninstall.sh --check's JSON → what it found (null if the output isn't that shape). */
+export function parseUninstallCheck(stdout: string): UninstallCheck | null {
+  try {
+    const line = stdout.trim().split(/\r?\n/).filter(Boolean).pop() ?? "";
+    const parsed = JSON.parse(line) as Record<string, unknown>;
+    if (parsed["check"] !== true) return null;
+    const strings = (value: unknown): string[] =>
+      Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
+    return {
+      installDir: typeof parsed["installDir"] === "string" ? parsed["installDir"] : "",
+      grantedInstall: parsed["grantedInstall"] === true,
+      installerMade: parsed["installerMade"] === true,
+      unsaved: strings(parsed["unsaved"]),
+      keyFiles: strings(parsed["keyFiles"]),
+      backupDir: typeof parsed["backupDir"] === "string" ? parsed["backupDir"] : "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Runs uninstall.sh --check (which changes nothing) and reads its answer. */
+export async function readUninstallCheck(
+  script: string,
+  deps: { execFileImpl?: typeof execFile } = {},
+): Promise<UninstallCheck | null> {
+  const run = deps.execFileImpl ?? execFile;
+  return new Promise((resolveCheck) => {
+    run("/bin/bash", uninstallCheckArgs(script), { timeout: 30_000 }, (_err, stdout) => {
+      resolveCheck(parseUninstallCheck(typeof stdout === "string" ? stdout : String(stdout ?? "")));
+    });
+  });
+}
+
+/** Where a started uninstaller's output goes: the temporary folder, never a folder it deletes. */
+export function uninstallLogPath(now: Date = new Date(), dir: string = tmpdir()): string {
+  return join(dir, `granted-uninstall-${now.toISOString().replace(/[:.]/g, "-")}.log`);
+}
+
+/**
+ * Starts scripts/macos/uninstall.sh for this install and resolves as soon as it
+ * is running, with the path of the log it is writing to.
+ *
+ * Detached, with no inherited stdio and a working directory of "/", because of
+ * what it is about to do: it stops this very server (and the menu-bar helper,
+ * and the LaunchAgent they run under). A child of this process would be killed
+ * partway through the uninstall it was asked to perform — the same hazard
+ * startUpdater above goes through Start-Process to avoid on Windows, solved
+ * here the way the work order names for macOS: its own session, surviving the
+ * process that asked for it.
+ *
+ * `detached` is what matters, not `nohup`: a new session has no controlling
+ * terminal to be hung up on, and launchd's teardown of this server's job does
+ * not reach it. Its output goes to a file, so nothing is written to a pipe
+ * whose other end is about to be gone. Resolving on "spawn" rather than "exit"
+ * is the honest contract: this never exits before the server it is stopping.
+ */
+export function startUninstaller(
+  script: string,
+  choice: UninstallChoice,
+  deps: { spawnImpl?: typeof spawn; openImpl?: typeof openSync; closeImpl?: typeof closeSync; logPath?: string } = {},
+): Promise<string> {
+  const logPath = deps.logPath ?? uninstallLogPath();
+  let out: number | "ignore" = "ignore";
+  try {
+    out = (deps.openImpl ?? openSync)(logPath, "a");
+  } catch {
+    out = "ignore";
+  }
+  const child = (deps.spawnImpl ?? spawn)("/bin/bash", uninstallArgs(script, choice), {
+    cwd: "/",
+    detached: true,
+    stdio: ["ignore", out, out],
+  });
+  child.unref?.();
+  return new Promise((resolveStart, rejectStart) => {
+    const release = (): void => {
+      // The child has its own copy of the descriptor from here on.
+      if (typeof out === "number") {
+        try {
+          (deps.closeImpl ?? closeSync)(out);
+        } catch {
+          /* already closed */
+        }
+      }
+    };
+    child.once?.("error", (err: Error) => {
+      release();
+      rejectStart(err);
+    });
+    child.once?.("spawn", () => {
+      release();
+      resolveStart(logPath);
+    });
   });
 }

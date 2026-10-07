@@ -7,11 +7,18 @@ import { fetchLatestRelease, isNewerRelease, parseLatestRelease, parseReleaseTag
 import {
   appVersion,
   installInfo,
+  parseUninstallCheck,
+  readUninstallCheck,
   readUpdateSettings,
   readUpdateStatus,
   settingsPath,
   startProcessCommand,
+  startUninstaller,
   startUpdater,
+  uninstallArgs,
+  uninstallCheckArgs,
+  uninstallInfo,
+  uninstallLogPath,
   updateStatusPath,
   writeUpdateSettings,
 } from "../install";
@@ -74,6 +81,32 @@ describe("this install", () => {
     assert.equal(installInfo(scaffold, "darwin", has(marker, updater)).reason, "not-windows");
     assert.equal(installInfo(scaffold, "win32", has(updater)).reason, "not-installer-made", "a developer's own checkout");
     assert.equal(installInfo(scaffold, "win32", has(marker)).reason, "no-updater");
+  });
+
+  // The uninstall half of the same question, and macOS-only on purpose: a
+  // Windows install is uninstalled from Windows' own "Installed apps" list.
+  test("only an installer-made macOS install with the uninstaller can uninstall itself", () => {
+    const scaffold = "/Users/a/granted/scaffold";
+    const has = (...paths: string[]) => (p: string) => paths.some((q) => p.endsWith(q));
+    const marker = "/.git/granted-installer";
+    const script = "/scripts/macos/uninstall.sh";
+    const both = uninstallInfo(scaffold, "darwin", has(marker, script));
+    assert.deepEqual(both, {
+      installDir: "/Users/a/granted",
+      canUninstall: true,
+      reason: null,
+      script: "/Users/a/granted/scaffold/scripts/macos/uninstall.sh",
+    });
+    assert.equal(uninstallInfo(scaffold, "win32", has(marker, script)).reason, "not-macos");
+    assert.equal(uninstallInfo(scaffold, "linux", has(marker, script)).reason, "not-macos");
+    assert.equal(uninstallInfo(scaffold, "darwin", has(script)).reason, "not-installer-made", "a developer's own checkout");
+    assert.equal(uninstallInfo(scaffold, "darwin", has(marker)).reason, "no-uninstaller");
+    // Nothing a copy that can't uninstall itself could be run with.
+    for (const platform of ["win32", "linux"] as const) {
+      assert.equal(uninstallInfo(scaffold, platform, has(marker, script)).script, null);
+    }
+    // The macOS path is POSIX on every runner (see the note below).
+    assert.ok(!both.script?.includes("\\"));
   });
 });
 
@@ -157,5 +190,100 @@ describe("starting the updater", () => {
     assert.equal(options["detached"], undefined, "REGRESSION (review): detached gives PowerShell no console, and it never runs the update");
     assert.equal(options["stdio"], "ignore");
     assert.equal(options["windowsHide"], true);
+  });
+});
+
+describe("starting the uninstaller (macOS)", () => {
+  test("--quiet always, --keep-keys unless turned off, --force only when asked for", () => {
+    const script = "/g/scaffold/scripts/macos/uninstall.sh";
+    assert.deepEqual(uninstallArgs(script, { keepKeys: true, force: false }), [script, "--quiet", "--keep-keys"]);
+    assert.deepEqual(uninstallArgs(script, { keepKeys: false, force: false }), [script, "--quiet", "--no-keep-keys"]);
+    assert.deepEqual(uninstallArgs(script, { keepKeys: true, force: true }), [script, "--quiet", "--keep-keys", "--force"]);
+    assert.deepEqual(uninstallCheckArgs(script), [script, "--check"]);
+  });
+
+  test("parseUninstallCheck reads the script's own line, and nothing it doesn't recognize", () => {
+    const line =
+      '{"check":true,"installDir":"/g","exists":true,"isLink":false,"grantedInstall":true,"installerMade":true,' +
+      '"unsaved":["changed or new files (2)"],"keyFiles":["/g/scaffold/.env.local"],"launchAgent":"own","launcher":"none",' +
+      '"settingsPath":"/s","logDir":"/l","backupDir":"/b"}';
+    assert.deepEqual(parseUninstallCheck(`something a shell printed\n${line}\n`), {
+      installDir: "/g",
+      grantedInstall: true,
+      installerMade: true,
+      unsaved: ["changed or new files (2)"],
+      keyFiles: ["/g/scaffold/.env.local"],
+      backupDir: "/b",
+    });
+    // An uninstall's own result line is not a check, and must never be read as one.
+    assert.equal(parseUninstallCheck('{"removed":true,"installDir":"/g"}'), null);
+    assert.equal(parseUninstallCheck("not json at all"), null);
+    assert.equal(parseUninstallCheck(""), null);
+    // A garbled list is a list of nothing, never a crash.
+    assert.deepEqual(parseUninstallCheck('{"check":true,"unsaved":"lots"}')?.unsaved, []);
+  });
+
+  test("readUninstallCheck runs uninstall.sh --check through bash, and reads nothing as nothing", async () => {
+    const calls: Array<{ file: string; args: string[] }> = [];
+    const execFileImpl = ((file: string, args: string[], _options: unknown, cb: (e: null, out: string) => void) => {
+      calls.push({ file, args });
+      cb(null, '{"check":true,"installDir":"/g","grantedInstall":true,"installerMade":true,"unsaved":[],"keyFiles":[],"backupDir":"/b"}');
+    }) as unknown as typeof import("node:child_process").execFile;
+    const check = await readUninstallCheck("/g/scaffold/scripts/macos/uninstall.sh", { execFileImpl });
+    assert.deepEqual(calls, [{ file: "/bin/bash", args: ["/g/scaffold/scripts/macos/uninstall.sh", "--check"] }]);
+    assert.equal(check?.installerMade, true);
+
+    const broken = ((_f: string, _a: string[], _o: unknown, cb: (e: Error, out: string) => void) => {
+      cb(new Error("no such file"), "");
+    }) as unknown as typeof import("node:child_process").execFile;
+    assert.equal(await readUninstallCheck("/nope", { execFileImpl: broken }), null);
+  });
+
+  test("the uninstaller is started detached, out of the folder it deletes, with its output in a file", async () => {
+    const calls: Array<{ file: string; args: string[]; options: Record<string, unknown> }> = [];
+    const closed: number[] = [];
+    const spawnImpl = ((file: string, args: string[], options: Record<string, unknown>) => {
+      calls.push({ file, args, options });
+      return {
+        unref() {},
+        once(event: string, cb: () => void) {
+          if (event === "spawn") setTimeout(cb, 0);
+        },
+      };
+    }) as unknown as typeof import("node:child_process").spawn;
+    const log = await startUninstaller(
+      "/g/scaffold/scripts/macos/uninstall.sh",
+      { keepKeys: true, force: false },
+      { spawnImpl, logPath: "/tmp/u.log", openImpl: (() => 7) as unknown as typeof import("node:fs").openSync, closeImpl: (fd: number) => closed.push(fd) },
+    );
+    assert.equal(log, "/tmp/u.log");
+    assert.equal(calls.length, 1);
+    const { file, args, options } = calls[0];
+    assert.equal(file, "/bin/bash");
+    assert.deepEqual(args, ["/g/scaffold/scripts/macos/uninstall.sh", "--quiet", "--keep-keys"]);
+    // The three things that keep the uninstaller alive while it stops the very
+    // server that started it: its own session, a working directory outside the
+    // folder being deleted, and no pipe back to this process.
+    assert.equal(options["detached"], true);
+    assert.equal(options["cwd"], "/");
+    assert.deepEqual(options["stdio"], ["ignore", 7, 7]);
+    assert.deepEqual(closed, [7], "this process doesn't keep the log's descriptor");
+  });
+
+  test("an uninstaller that can't be started is reported, not swallowed", async () => {
+    const spawnImpl = (() => ({
+      unref() {},
+      once(event: string, cb: (err?: Error) => void) {
+        if (event === "error") setTimeout(() => cb(new Error("ENOENT")), 0);
+      },
+    })) as unknown as typeof import("node:child_process").spawn;
+    await assert.rejects(
+      () => startUninstaller("/nope", { keepKeys: false, force: false }, { spawnImpl, logPath: join(dir, "u.log") }),
+      /ENOENT/,
+    );
+  });
+
+  test("the log goes in the temporary folder, never one the uninstall deletes", () => {
+    assert.equal(uninstallLogPath(new Date("2026-10-06T12:34:56.000Z"), "/tmp"), "/tmp/granted-uninstall-2026-10-06T12-34-56-000Z.log");
   });
 });
