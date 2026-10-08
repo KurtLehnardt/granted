@@ -11,7 +11,7 @@ import OpportunityGraph from "./OpportunityGraph";
 import FundingStrategy from "./FundingStrategy";
 import OpportunityAlerts from "./OpportunityAlerts";
 import type { OpportunityMap as MapT, Match } from "@/lib/types";
-import { isFlagEnabled } from "@/lib/flags";
+import { isFlagEnabled, isFlagExplicitlyDisabled } from "@/lib/flags";
 import { aggregateSimilarCompanies } from "@/lib/similar/aggregate";
 import { fundingCell, closingSoonCount, expiredCount } from "@/lib/ui/opportunitySummary";
 import { useCorpusAsOf } from "@/lib/corpus/useCorpusAsOf";
@@ -262,14 +262,15 @@ export default function OpportunityMap({ map }: { map: MapT }) {
             <p className={eyebrowClass("mb-4")}>
               {w ? "Adjacent and partial matches" : "Your opportunity map"}
             </p>
-            {/* Match-results filter/sort (location/match %/award/recency),
-                flag-gated (default off) — takes precedence over the C1b
-                kind-filter chips when both are on, feeding its own filtered+
-                sorted array into whichever of those two renders next, so the
-                two controls stack rather than one replacing the other.
-                Falls through to C1b's own kind-filter-or-flat-list choice
-                when match_filters is off, exactly as before this feature. */}
-            {isFlagEnabled("match_filters") ? (
+            {/* Match-results filter/sort (location/match %/award/recency).
+                Shown by default (shipped and tested in #259/#263/#304), so it
+                no longer needs a flag turned on; NEXT_PUBLIC_FLAG_MATCH_FILTERS=false
+                still hides it. It takes precedence over the C1b kind-filter
+                chips, feeding its own filtered+sorted array into whichever of
+                those two renders next, so the two controls stack rather than
+                one replacing the other. With it switched off, C1b's own
+                kind-filter-or-flat-list choice applies, as before. */}
+            {!isFlagExplicitlyDisabled("match_filters") ? (
               <OpportunityFilters matches={shown} startupProfile={map.profile} />
             ) : isFlagEnabled("c1b_type_groups") ? (
               <OpportunityGroups matches={shown} startupProfile={map.profile} />

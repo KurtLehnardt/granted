@@ -216,8 +216,8 @@ export const FLAG_REGISTRY: Record<FlagName, FlagDefinition> = {
       "User-facing filter/sort control on the opportunity map: filter by location (state, via the " +
       "new CA/IL/NC sources' geography field; never hides a nationwide/geography-less opportunity) " +
       "and sort by match %, award amount, or recency (Granted's own first-seen retrieved_at timestamp " +
-      "— 'added to Granted,' not 'posted by the agency'). Default OFF: on day one only a few hundred " +
-      "records carry geography, so the control's usefulness grows with the corpus.",
+      "— 'added to Granted,' not 'posted by the agency'). Graduated: shown unless this is explicitly " +
+      "set to false (OpportunityMap checks isFlagExplicitlyDisabled), so it's an off switch now, not an on switch.",
     envVar: "NEXT_PUBLIC_FLAG_MATCH_FILTERS",
   },
 };
