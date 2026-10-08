@@ -9,7 +9,7 @@ import SettingsPanel from "@/components/SettingsPanel";
 import AppSidebar from "@/components/AppSidebar";
 
 /**
- * FE-06 — one nav cluster: hamburger menu (always present; Settings is
+ * FE-06 — one nav cluster: settings button (always present; Settings is
  * device-local and independent of sign-in) + the PLT-01 mock-auth surface
  * (only when r9_0_mockauth is on), reconciled here instead of living inline
  * in app/page.tsx.
@@ -48,21 +48,23 @@ export function SettingsPanelProvider({ children }: { children: ReactNode }) {
 }
 
 // ---------------------------------------------------------------------------
-// Hamburger menu
+// Settings button
 // ---------------------------------------------------------------------------
 
 /**
- * `center` renders between the hamburger and the auth surface, on the SAME row
- * and vertically centred against them — the page's wordmark lives there, so the
- * nav control and the brand sit at one level instead of stacking. Laid out as
- * `1fr auto 1fr` rather than `justify-between`, so the centre cell is centred on
- * the VIEWPORT and does not drift when the right-hand slot appears or changes
- * width (the sign-in surface is flag-gated, so it often isn't there at all).
+ * `center` renders in its own grid cell, vertically centred against the other
+ * controls — the page's wordmark lives there, so the nav controls and the
+ * brand sit at one level instead of stacking. Laid out as `1fr auto 1fr`
+ * rather than `justify-between`, so the centre cell is centred on the
+ * VIEWPORT and does not drift as the right-hand slot's content changes width
+ * (it now holds both the settings button and the flag-gated sign-in surface).
+ * The left cell is an empty spacer that exists only to keep this 3-column
+ * balance — both real controls live on the right.
  */
 export default function AppMenu({ center }: { center?: ReactNode } = {}) {
-  // FE-07: when on, the hamburger opens a left slide-out drawer (AppSidebar)
-  // instead of Settings directly (Settings lives inside the drawer).
-  // Default OFF -> the hamburger opens the Settings modal directly.
+  // FE-07: when on, the settings button opens a left slide-out drawer
+  // (AppSidebar) instead of Settings directly (Settings lives inside the drawer).
+  // Default OFF -> the settings button opens the Settings modal directly.
   const sidebar = isFlagEnabled("left_sidebar");
   // Show the sign-in surface when the mock auth flag is on. (A real Supabase
   // backend used to be a second way to turn this on; removed along with the
@@ -72,7 +74,7 @@ export default function AppMenu({ center }: { center?: ReactNode } = {}) {
   const { openSettings } = useSettingsPanel();
 
   // Polish: real hover fill + press feedback on the icon control (44px target).
-  const hamburgerBtnClass =
+  const settingsBtnClass =
     "flex min-h-[44px] min-w-[44px] items-center justify-center rounded-sm border border-structure-on-canvas p-2 text-structure-on-canvas transition hover:bg-structure hover:text-token-white active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2";
 
   const signInLinkClass =
@@ -93,27 +95,17 @@ export default function AppMenu({ center }: { center?: ReactNode } = {}) {
     );
   }
 
-  // FE-07 OFF (default): the hamburger opens the Settings modal directly
-  // (no intermediate dropdown) + the top-right mock-auth surface.
+  // FE-07 OFF (default): the settings button opens the Settings modal directly
+  // (no intermediate dropdown), grouped with the top-right mock-auth surface.
   return (
     <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
-      <div className="justify-self-start">
-        <button
-          type="button"
-          onClick={openSettings}
-          aria-label="Open settings"
-          data-tour="settings"
-          className={hamburgerBtnClass}
-        >
-          <HamburgerIcon className="h-4 w-4" />
-        </button>
-      </div>
+      <div aria-hidden="true" />
 
       {/* `min-w-0` so the wordmark shrinks on a narrow screen instead of
           pushing the side cells out and overlapping the controls. */}
       <div className="min-w-0 justify-self-center">{center}</div>
 
-      <div className="justify-self-end">
+      <div className="flex items-center justify-end gap-3">
         {authOn && !loading && (
           user ? (
             <UserMenu />
@@ -123,12 +115,21 @@ export default function AppMenu({ center }: { center?: ReactNode } = {}) {
             </Link>
           )
         )}
+        <button
+          type="button"
+          onClick={openSettings}
+          aria-label="Open settings"
+          data-tour="settings"
+          className={settingsBtnClass}
+        >
+          <SettingsIcon className="h-4 w-4" />
+        </button>
       </div>
     </div>
   );
 }
 
-function HamburgerIcon({ className }: { className?: string }) {
+function SettingsIcon({ className }: { className?: string }) {
   return (
     <svg
       viewBox="0 0 24 24"
@@ -136,10 +137,12 @@ function HamburgerIcon({ className }: { className?: string }) {
       stroke="currentColor"
       strokeWidth="2"
       strokeLinecap="round"
+      strokeLinejoin="round"
       className={className}
       aria-hidden="true"
     >
-      <path d="M4 6h16M4 12h16M4 18h16" />
+      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+      <circle cx="12" cy="12" r="3" />
     </svg>
   );
 }
