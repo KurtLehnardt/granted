@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { renderToStaticMarkup } from "react-dom/server";
 import React from "react";
 
-import SettingsForm from "../SettingsForm";
+import SettingsForm, { shouldNudgeRefresh } from "../SettingsForm";
 
 /**
  * The SAM.gov / UEI / AOR / E-Biz auto-fill requirement fields (and the
@@ -37,5 +37,36 @@ describe("SettingsForm", () => {
     assert.match(html, /State grant sources/);
     assert.match(html, /data-testid="state-sources-section"/);
     assert.match(html, /data-testid="state-source-ut-grants"/);
+  });
+
+  test("no nudge hint on first render (nothing has been checked yet)", () => {
+    assert.doesNotMatch(render(), /Click to fetch data for your newly selected states/);
+  });
+});
+
+describe("shouldNudgeRefresh", () => {
+  test("checking a state whose source isn't cached nudges", () => {
+    assert.equal(shouldNudgeRefresh([], ["ut-grants"], ["grants.gov", "ca-grants"]), true);
+  });
+
+  test("checking a state whose source is already cached does not nudge", () => {
+    assert.equal(shouldNudgeRefresh([], ["ca-grants"], ["grants.gov", "ca-grants"]), false);
+  });
+
+  test("unchecking a box never nudges, even if other state sources are missing", () => {
+    assert.equal(shouldNudgeRefresh(["ca-grants", "ut-grants"], ["ca-grants"], ["grants.gov"]), false);
+  });
+
+  test("checking a second, already-cached state alongside a first does not re-nudge for it", () => {
+    // Only the newly ADDED id(s) matter -- il-grants was already selected and cached.
+    assert.equal(shouldNudgeRefresh(["il-grants"], ["il-grants", "ca-grants"], ["il-grants", "ca-grants"]), false);
+  });
+
+  test("checking two states at once, only one of them uncached, still nudges", () => {
+    assert.equal(shouldNudgeRefresh([], ["ca-grants", "ut-grants"], ["ca-grants"]), true);
+  });
+
+  test("no corpus status yet (sourcesPresent unknown) -> nudges on any newly checked state", () => {
+    assert.equal(shouldNudgeRefresh([], ["ca-grants"], []), true);
   });
 });
