@@ -31,6 +31,11 @@ const REAL_DEPS: RefreshDeps = {
   spawn,
 };
 
+// Settings' per-state "refresh just this one" link. Kept in sync by hand with
+// refresh-corpus.mjs's own TOGGLEABLE_STATE_SOURCES (not imported -- that
+// file runs a real refresh unconditionally on import, so nothing imports it).
+const TOGGLEABLE_STATE_SOURCES = ["ca-grants", "il-grants", "nc-grants", "ut-grants"];
+
 export async function handleRefreshPost(
   req: { headers: { get(name: string): string | null }; json?: () => Promise<unknown> },
   deps: Partial<RefreshDeps> = {},
@@ -43,12 +48,16 @@ export async function handleRefreshPost(
 
   let max: number | undefined;
   let stateSources: string[] | undefined;
+  let onlySource: string | undefined;
   try {
-    const body = (await req.json?.()) as { max?: unknown; stateSources?: unknown } | undefined;
+    const body = (await req.json?.()) as { max?: unknown; stateSources?: unknown; onlySource?: unknown } | undefined;
     const n = Number(body?.max);
     if (Number.isFinite(n)) max = clampCorpusSize(n);
     if (Array.isArray(body?.stateSources) && body.stateSources.every((s) => typeof s === "string")) {
       stateSources = body.stateSources;
+    }
+    if (typeof body?.onlySource === "string" && TOGGLEABLE_STATE_SOURCES.includes(body.onlySource)) {
+      onlySource = body.onlySource;
     }
   } catch {
     /* no body: script default */
@@ -62,6 +71,7 @@ export async function handleRefreshPost(
   const args = ["--import", "tsx", "scripts/refresh-corpus.mjs"];
   if (max != null) args.push("--max", String(max));
   if (stateSources != null) args.push(`--state-sources=${stateSources.join(",")}`);
+  if (onlySource != null) args.push(`--only-source=${onlySource}`);
 
   let child: ChildProcess;
   try {

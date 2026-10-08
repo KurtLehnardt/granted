@@ -11,6 +11,7 @@
  */
 import "./_loadEnvLocal.mjs"; // honor scaffold/.env.local when run as plain `node`
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { embedBatch, EMBEDDINGS_DIMENSIONS, EMBEDDINGS_MODEL } from "../lib/embed.ts";
@@ -45,6 +46,7 @@ import {
 } from "../lib/corpus/refreshStatus.ts";
 import { overallPct } from "../lib/corpus/refreshProgress.ts";
 import { normalizeGrantsRecord, normalizeSbirSolicitation } from "./lib/normalizeGrants.mjs";
+import { shouldFetchFederal, shouldFetchState as shouldFetchStateScope } from "./lib/refreshScope.mjs";
 import {
   normalizeSamRow,
   normalizeCaRow,
@@ -97,6 +99,17 @@ const SELECTED_STATE_SOURCES = stateSourcesFlag
   : ["ca-grants", "il-grants", "nc-grants"];
 const wantsSource = (id) => SELECTED_STATE_SOURCES.includes(id);
 const TOGGLEABLE_STATE_SOURCES = ["ca-grants", "il-grants", "nc-grants", "ut-grants"];
+
+// Settings' per-state "refresh just this one" link: skip re-fetching
+// grants.gov/SAM.gov and every OTHER state source this run, reusing
+// whatever's already on disk from the last real fetch for them (the merge
+// step below reads each raw/*.json file fresh regardless of whether this
+// run re-fetched it) -- only ONLY_SOURCE itself gets a live fetch. Absent
+// entirely, every selected source is fetched as before, unchanged.
+const onlySourceFlag = process.argv.find((a) => a.startsWith("--only-source="));
+const ONLY_SOURCE = onlySourceFlag ? onlySourceFlag.slice("--only-source=".length) : null;
+const FETCH_FEDERAL = shouldFetchFederal(ONLY_SOURCE, existsSync(join(RAW_DIR, "grants.json")));
+const shouldFetchState = (id) => shouldFetchStateScope(ONLY_SOURCE, id);
 
 /** `{ escalate: true }` when the first batch's real dims differ from priorDims (EMBEDDINGS_DIMENSIONS is unset off OpenAI). */
 async function embedAll(toEmbedList, { foundCount, keptCount, allowReembedEscalation, priorDims }) {
@@ -211,25 +224,27 @@ async function main() {
     await mkdir(RAW_DIR, { recursive: true });
     const rawEnv = { RAW_DIR };
     reportProgress("grants.gov search");
-    const grantsRun = run(
-      "grants.gov (everything open)",
-      "scripts/1-fetch.mjs",
-      { ...rawEnv, GRANTS_FETCH_MODE: "all", GRANTS_ONLY: "1" },
-      { tsx: true },
-    );
+    const grantsRun = FETCH_FEDERAL
+      ? run(
+          "grants.gov (everything open)",
+          "scripts/1-fetch.mjs",
+          { ...rawEnv, GRANTS_FETCH_MODE: "all", GRANTS_ONLY: "1" },
+          { tsx: true },
+        )
+      : { stopped: false };
     if (grantsRun.stopped) return await applyStop({});
 
     const grantsFound = new Set((await readJson(join(RAW_DIR, "grants.json"), [])).map((g) => g.id)).size;
 
     reportProgress("sam.gov", { foundCount: grantsFound });
     if (isStopRequested()) return await applyStop({});
-    run("SAM.gov assistance (everything open)", "scripts/1-fetch-sam-assistance.mjs", { ...rawEnv, SAM_FETCH_MODE: "all" });
+    if (FETCH_FEDERAL) run("SAM.gov assistance (everything open)", "scripts/1-fetch-sam-assistance.mjs", { ...rawEnv, SAM_FETCH_MODE: "all" });
 
     if (isStopRequested()) return await applyStop({});
-    if (wantsSource("ca-grants")) run("California Grants Portal", "scripts/1-fetch-ca-grants.mjs", rawEnv);
-    if (wantsSource("il-grants")) run("Illinois CSFA", "scripts/1-fetch-il-grants.mjs", rawEnv);
-    if (wantsSource("nc-grants")) run("North Carolina grant directory", "scripts/1-fetch-nc-grants.mjs", rawEnv);
-    if (wantsSource("ut-grants")) run("Utah funding opportunities", "scripts/1-fetch-ut-grants.mjs", rawEnv);
+    if (wantsSource("ca-grants") && shouldFetchState("ca-grants")) run("California Grants Portal", "scripts/1-fetch-ca-grants.mjs", rawEnv);
+    if (wantsSource("il-grants") && shouldFetchState("il-grants")) run("Illinois CSFA", "scripts/1-fetch-il-grants.mjs", rawEnv);
+    if (wantsSource("nc-grants") && shouldFetchState("nc-grants")) run("North Carolina grant directory", "scripts/1-fetch-nc-grants.mjs", rawEnv);
+    if (wantsSource("ut-grants") && shouldFetchState("ut-grants")) run("Utah funding opportunities", "scripts/1-fetch-ut-grants.mjs", rawEnv);
 
     if (isStopRequested()) return await applyStop({});
 

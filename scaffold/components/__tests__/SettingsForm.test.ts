@@ -46,27 +46,34 @@ describe("SettingsForm", () => {
 
 describe("shouldNudgeRefresh", () => {
   test("checking a state whose source isn't cached nudges", () => {
-    assert.equal(shouldNudgeRefresh([], ["ut-grants"], ["grants.gov", "ca-grants"]), true);
+    assert.equal(shouldNudgeRefresh([], ["ut-grants"], { "grants.gov": 1000, "ca-grants": 142 }), true);
   });
 
   test("checking a state whose source is already cached does not nudge", () => {
-    assert.equal(shouldNudgeRefresh([], ["ca-grants"], ["grants.gov", "ca-grants"]), false);
+    assert.equal(shouldNudgeRefresh([], ["ca-grants"], { "grants.gov": 1000, "ca-grants": 142 }), false);
+  });
+
+  test("a source present with a 0 count still nudges (same as absent)", () => {
+    assert.equal(shouldNudgeRefresh([], ["ca-grants"], { "grants.gov": 1000, "ca-grants": 0 }), true);
   });
 
   test("unchecking a box never nudges, even if other state sources are missing", () => {
-    assert.equal(shouldNudgeRefresh(["ca-grants", "ut-grants"], ["ca-grants"], ["grants.gov"]), false);
+    assert.equal(shouldNudgeRefresh(["ca-grants", "ut-grants"], ["ca-grants"], { "grants.gov": 1000 }), false);
   });
 
   test("checking a second, already-cached state alongside a first does not re-nudge for it", () => {
     // Only the newly ADDED id(s) matter -- il-grants was already selected and cached.
-    assert.equal(shouldNudgeRefresh(["il-grants"], ["il-grants", "ca-grants"], ["il-grants", "ca-grants"]), false);
+    assert.equal(
+      shouldNudgeRefresh(["il-grants"], ["il-grants", "ca-grants"], { "il-grants": 50, "ca-grants": 142 }),
+      false,
+    );
   });
 
   test("checking two states at once, only one of them uncached, still nudges", () => {
-    assert.equal(shouldNudgeRefresh([], ["ca-grants", "ut-grants"], ["ca-grants"]), true);
+    assert.equal(shouldNudgeRefresh([], ["ca-grants", "ut-grants"], { "ca-grants": 142 }), true);
   });
 
-  test("no corpus status yet (sourcesPresent unknown) -> nudges on any newly checked state", () => {
-    assert.equal(shouldNudgeRefresh([], ["ca-grants"], []), true);
+  test("no corpus status yet (sourceCounts unknown) -> nudges on any newly checked state", () => {
+    assert.equal(shouldNudgeRefresh([], ["ca-grants"], {}), true);
   });
 });
