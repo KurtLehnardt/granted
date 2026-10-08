@@ -107,7 +107,7 @@ export default function CompetitorResults({ raw }: { raw: unknown }) {
 
   return (
     <div className="print-section-competitor-analysis text-foreground">
-      <div className="flex flex-wrap items-center gap-4">
+      <div className="no-print flex flex-wrap items-center gap-4">
         <button type="button" onClick={() => printElement("competitor-analysis")} className={textBtnClass}>
           Export as PDF
         </button>
@@ -116,7 +116,7 @@ export default function CompetitorResults({ raw }: { raw: unknown }) {
         </button>
       </div>
 
-      <div className="rounded-sm border border-structure-on-canvas bg-canvas-alt px-3 py-2 mt-4">
+      <div className="print-avoid-break rounded-sm border border-structure-on-canvas bg-canvas-alt px-3 py-2 mt-4">
         <p className="font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas">
           Live analysis
         </p>
@@ -174,7 +174,7 @@ export default function CompetitorResults({ raw }: { raw: unknown }) {
             return (
               <li
                 key={c.recordId}
-                className="rounded-lg border border-structure-on-canvas bg-canvas-alt p-4 shadow-card"
+                className="print-avoid-break rounded-lg border border-structure-on-canvas bg-canvas-alt p-4 shadow-card"
               >
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div className="min-w-0">
@@ -236,7 +236,7 @@ export default function CompetitorResults({ raw }: { raw: unknown }) {
           </p>
           <ul className="mt-4 space-y-3">
             {data.webProfiles.map((p) => (
-              <li key={p.id} className="rounded-lg border border-structure-on-canvas bg-canvas p-4">
+              <li key={p.id} className="print-avoid-break rounded-lg border border-structure-on-canvas bg-canvas p-4">
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <p className="font-display text-[14px] font-bold leading-snug text-foreground">{p.company}</p>
                   <span className={chipClass}>Public web profile · not a federal awardee</span>
@@ -267,7 +267,7 @@ export default function CompetitorResults({ raw }: { raw: unknown }) {
 
         <ol className="mt-4 space-y-4">
           {data.analysis.recommendations.map((rec, i) => (
-            <li key={i} className="rounded-lg border border-structure-on-canvas bg-canvas p-4">
+            <li key={i} className="print-avoid-break rounded-lg border border-structure-on-canvas bg-canvas p-4">
               <p className="text-pretty font-body text-[13px] leading-relaxed text-foreground">{rec.advice}</p>
               <CitationRow citations={rec.citations} resolve={resolveCitation} className={citationClass} />
             </li>
@@ -286,7 +286,7 @@ export default function CompetitorResults({ raw }: { raw: unknown }) {
           </p>
           <ol className="mt-4 space-y-4">
             {data.analysis.opportunities.map((op, i) => (
-              <li key={i} className="rounded-lg border border-structure-on-canvas bg-canvas-alt p-4">
+              <li key={i} className="print-avoid-break rounded-lg border border-structure-on-canvas bg-canvas-alt p-4">
                 <p className="text-pretty font-body text-[13px] leading-relaxed text-foreground">{op.advice}</p>
                 <CitationRow citations={op.citations} resolve={resolveCitation} className={citationClass} />
               </li>
@@ -297,7 +297,7 @@ export default function CompetitorResults({ raw }: { raw: unknown }) {
 
       {/* ── Honest-degradation note ────────────────────────────────────── */}
       {data.degraded && (data.degraded.notes.length > 0 || data.degraded.sources.length > 0) && (
-        <div className="mt-6 rounded-sm border border-structure-on-canvas bg-canvas-alt px-3 py-2">
+        <div className="print-avoid-break mt-6 rounded-sm border border-structure-on-canvas bg-canvas-alt px-3 py-2">
           <p className="font-mono text-[10px] uppercase tracking-eyebrow text-structure-on-canvas">Sources</p>
           <p className="mt-1 font-body text-[11px] leading-relaxed text-foreground">
             Retrieved from: {data.degraded.sources.length ? data.degraded.sources.join(", ") : "none"}.
@@ -316,10 +316,10 @@ export default function CompetitorResults({ raw }: { raw: unknown }) {
             Built from the same grounded analysis above — paste this into Claude, ChatGPT, or any LLM to
             draft a proposal narrative. Granted doesn't draft or submit anything itself.
           </p>
-          <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap rounded-sm border border-structure-on-canvas bg-canvas p-3 font-mono text-[11px] leading-relaxed text-foreground">
+          <pre className="print-avoid-break mt-3 max-h-96 overflow-auto whitespace-pre-wrap rounded-sm border border-structure-on-canvas bg-canvas p-3 font-mono text-[11px] leading-relaxed text-foreground">
             {proposalPrompt}
           </pre>
-          <div className="mt-3 flex flex-wrap items-center gap-3">
+          <div className="no-print mt-3 flex flex-wrap items-center gap-3">
             <button type="button" onClick={handleCopyPrompt} className={textBtnClass}>
               Copy to clipboard
             </button>

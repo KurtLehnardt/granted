@@ -171,20 +171,77 @@ body {
  * the printed page on its own (no modal backdrop, no app chrome, no clipped
  * overflow from the on-screen scrollable dialog it normally lives inside).
  * A new printable section needs its own PrintTarget + its own pair here.
+ *
+ * The two print-section classes can be NESTED in the DOM (the grant-proposal
+ * prompt's section lives inside the competitor-analysis section, once
+ * revealed) — the position:absolute rule below is scoped per data-print-
+ * target value specifically so BOTH never get it at once: printing
+ * "competitor-analysis" while the prompt happens to be expanded must leave
+ * the nested prompt section in normal flow as part of that document, not
+ * ALSO absolutely-positioned to the page's top-left, which would land it on
+ * top of (overlapping) the analysis content around it. REGRESSION, found
+ * live: the original unscoped rule did exactly that.
  */
 @media print {
+  @page {
+    /* Consistent breathing room on every printed page, including the top of
+       a page a section break lands on — not just the physical page edge a
+       0-margin layout would otherwise print flush against. */
+    margin: 0.75in;
+  }
+
   body[data-print-target] * { visibility: hidden; }
   body[data-print-target="competitor-analysis"] .print-section-competitor-analysis,
   body[data-print-target="competitor-analysis"] .print-section-competitor-analysis * { visibility: visible; }
   body[data-print-target="grant-proposal-prompt"] .print-section-grant-proposal-prompt,
   body[data-print-target="grant-proposal-prompt"] .print-section-grant-proposal-prompt * { visibility: visible; }
-  .print-section-competitor-analysis,
-  .print-section-grant-proposal-prompt {
+
+  body[data-print-target="competitor-analysis"] .print-section-competitor-analysis {
     position: absolute;
     left: 0;
     top: 0;
     width: 100%;
     background: #fff;
     color: #111;
+  }
+  body[data-print-target="grant-proposal-prompt"] .print-section-grant-proposal-prompt {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    background: #fff;
+    color: #111;
+  }
+
+  /* On-screen-only controls (Export as PDF / Draft a prompt / Copy / the
+     copy-feedback status) are dead weight in a printed document — hide them
+     rather than print inert buttons, which also removes any chance of them
+     overlapping the content below once the fix above is in place. */
+  .no-print { display: none !important; }
+
+  /* Keep each card-like unit (an awardee, a recommendation, a gap, an info
+     box, the prompt text block) whole across a page break where it
+     reasonably fits, instead of being cut mid-card; never strand a section
+     heading alone at the bottom of a page with its content starting fresh
+     on the next. */
+  .print-avoid-break {
+    break-inside: avoid;
+    page-break-inside: avoid; /* older engines without break-inside support */
+  }
+  .print-section-competitor-analysis h3,
+  .print-section-grant-proposal-prompt h3 {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  /* The prompt text's on-screen max-h-96 + overflow-auto (a scrollable box
+     so a long prompt doesn't push the on-screen page down too far) would
+     clip the SAME way on paper -- print never "unrolls" scrollable overflow
+     on its own -- silently cutting off the end of a long prompt in the
+     actual exported PDF. Printing needs every word, so the cap is lifted
+     here specifically. */
+  .print-section-grant-proposal-prompt pre {
+    max-height: none;
+    overflow: visible;
   }
 }

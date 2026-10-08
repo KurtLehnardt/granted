@@ -53,6 +53,24 @@ describe("CompetitorResults — export/prompt actions", () => {
     assert.match(html, /class="print-section-competitor-analysis/);
   });
 
+  // REGRESSION (reported live): the on-screen action buttons used to render
+  // (and overlap the content below once a nested print-section's own
+  // absolute-positioning bug surfaced them at the page's top-left) in the
+  // actual printed/PDF output. They're on-screen-only now -- no-print hides
+  // them via CSS; this test can only confirm the CLASS is present (real
+  // visibility is confirmed live, since renderToStaticMarkup has no CSS).
+  test("both button rows carry no-print, so they never appear in the exported PDF", () => {
+    const html = renderToStaticMarkup(React.createElement(CompetitorResults, { raw: { ...fixture() } }));
+    const topRow = html.match(/<div class="no-print[^"]*">[\s\S]*?Export as PDF/)?.[0];
+    assert.ok(topRow, "top button row must carry no-print");
+  });
+
+  test("every card-like unit (competitor, recommendation) carries print-avoid-break, so a page break never cuts one in half", () => {
+    const html = render();
+    assert.match(html, /class="print-avoid-break rounded-lg border[^"]*">[\s\S]*?QUALTRAX, INC/);
+    assert.match(html, /class="print-avoid-break rounded-lg border[^"]*">[\s\S]*?Target lab QMS compliance contracts\./);
+  });
+
   test("a thrown (ungrounded) payload still throws before any of this renders -- unaffected by the new actions", () => {
     const bad = fixture();
     bad.analysis.competitors[0].recordId = "ghost_99";
