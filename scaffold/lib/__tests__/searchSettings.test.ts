@@ -1,6 +1,15 @@
 import { test, describe, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { getModel, setModel, LAST_SEARCH_MS_KEY, getSelectedStateSources, setSelectedStateSources, DEFAULT_STATE_SOURCES } from "../searchSettings";
+import {
+  getModel,
+  setModel,
+  LAST_SEARCH_MS_KEY,
+  getSelectedStateSources,
+  setSelectedStateSources,
+  DEFAULT_STATE_SOURCES,
+  hasDeclinedStateEnablePrompt,
+  markStateEnablePromptDeclined,
+} from "../searchSettings";
 
 let mem: Map<string, string>;
 
@@ -38,8 +47,8 @@ describe("setModel", () => {
 });
 
 describe("getSelectedStateSources / setSelectedStateSources", () => {
-  test("default (nothing stored yet) is CA/IL/NC on, Utah opt-in off", () => {
-    assert.deepEqual(getSelectedStateSources(), ["ca-grants", "il-grants", "nc-grants"]);
+  test("default (nothing stored yet) is every state off", () => {
+    assert.deepEqual(getSelectedStateSources(), []);
     assert.deepEqual(getSelectedStateSources(), DEFAULT_STATE_SOURCES);
   });
 
@@ -56,5 +65,28 @@ describe("getSelectedStateSources / setSelectedStateSources", () => {
   test("malformed stored JSON falls back to the default, not a crash", () => {
     mem.set("granted:selectedStateSources", "{not json");
     assert.deepEqual(getSelectedStateSources(), DEFAULT_STATE_SOURCES);
+  });
+});
+
+describe("hasDeclinedStateEnablePrompt / markStateEnablePromptDeclined", () => {
+  test("nothing declined yet -> false for any state", () => {
+    assert.equal(hasDeclinedStateEnablePrompt("ut-grants"), false);
+  });
+
+  test("marking one state declined doesn't affect another", () => {
+    markStateEnablePromptDeclined("ut-grants");
+    assert.equal(hasDeclinedStateEnablePrompt("ut-grants"), true);
+    assert.equal(hasDeclinedStateEnablePrompt("ca-grants"), false);
+  });
+
+  test("marking the same state declined twice doesn't duplicate it", () => {
+    markStateEnablePromptDeclined("ca-grants");
+    markStateEnablePromptDeclined("ca-grants");
+    assert.deepEqual(JSON.parse(mem.get("granted:declinedStateEnablePrompts")!), ["ca-grants"]);
+  });
+
+  test("malformed stored JSON reads as nothing declined, not a crash", () => {
+    mem.set("granted:declinedStateEnablePrompts", "{not json");
+    assert.equal(hasDeclinedStateEnablePrompt("ut-grants"), false);
   });
 });

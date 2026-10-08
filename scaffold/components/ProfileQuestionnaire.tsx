@@ -15,6 +15,15 @@ import type { Provenance, Provenanced } from "@/lib/contracts/primitives";
 import type { StartupProfile } from "@/lib/types";
 import { readJSON, writeJSON } from "@/lib/localStore";
 import { ChevronIcon } from "@/components/OpportunityCard";
+import { detectUnselectedSupportedState } from "@/lib/location";
+import {
+  getMaxCorpusSize,
+  getSelectedStateSources,
+  hasDeclinedStateEnablePrompt,
+  markStateEnablePromptDeclined,
+  setSelectedStateSources,
+} from "@/lib/searchSettings";
+import { confirmEnableState } from "@/lib/ui/confirmSwal";
 
 /**
  * B1b — ProfileQuestionnaire: the structured, gap-first intake form.
@@ -312,6 +321,78 @@ export default function ProfileQuestionnaire({
   // showing errors, only after a required field has been visited and left
   // empty (see `fieldValidationMessage` above).
   const [touchedFields, setTouchedFields] = useState<Set<string>>(new Set());
+
+  // Typing a supported-but-not-yet-selected state into the location field
+  // (e.g. "Draper, UT") prompts "Enable grants for <state>?" (swal2,
+  // lib/ui/confirmSwal.ts). Accepting enables it in Settings AND fetches it
+  // right then, via the same --only-source= scoped refresh Settings' own
+  // per-state "Refresh <State>" link uses (StateSourcesSection.tsx) — so by
+  // the time the user clicks "Find opportunities" it's already in the
+  // corpus, not merely queued for next time. `pendingStateFetch` holds the
+  // state's label while that fetch is in flight and gates the submit button
+  // below so the search can't run against stale/absent data for it.
+  const [pendingStateFetch, setPendingStateFetch] = useState<string | null>(null);
+  const locationPromptTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Guards against re-prompting for the SAME resolved state on every
+  // keystroke once it's already been asked about this mount — switching to
+  // a DIFFERENT state (a new id) is a fresh prompt; re-typing the same one
+  // isn't. A real decline is remembered across the whole app in
+  // localStorage (hasDeclinedStateEnablePrompt), checked before this.
+  const lastPromptedStateIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (locationPromptTimerRef.current) clearTimeout(locationPromptTimerRef.current);
+    };
+  }, []);
+
+  const locationText = draftValue(profile, values, "location");
+
+  useEffect(() => {
+    if (locationPromptTimerRef.current) clearTimeout(locationPromptTimerRef.current);
+    locationPromptTimerRef.current = setTimeout(() => {
+      const candidate = detectUnselectedSupportedState(locationText, getSelectedStateSources());
+      if (!candidate) return;
+      if (lastPromptedStateIdRef.current === candidate.id) return;
+      if (hasDeclinedStateEnablePrompt(candidate.id)) return;
+      lastPromptedStateIdRef.current = candidate.id;
+
+      void (async () => {
+        const confirmed = await confirmEnableState(candidate.label);
+        if (!confirmed) {
+          markStateEnablePromptDeclined(candidate.id);
+          return;
+        }
+        const updatedSelection = [...getSelectedStateSources(), candidate.id];
+        setSelectedStateSources(updatedSelection);
+        setPendingStateFetch(candidate.label);
+        try {
+          const res = await fetch("/api/corpus/refresh", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ max: getMaxCorpusSize(), stateSources: updatedSelection, onlySource: candidate.id }),
+          });
+          if (res.status === 202) {
+            // Poll /api/corpus's own `refreshing` flag (same signal Settings'
+            // progress bar uses) until this scoped refresh finishes, so the
+            // submit button unblocks the moment real data is ready — not on
+            // a fixed timer that could easily be too short or too long.
+            for (;;) {
+              await new Promise((r) => setTimeout(r, 1500));
+              const statusRes = await fetch("/api/corpus");
+              if (!statusRes.ok) break;
+              const status = (await statusRes.json()) as { refreshing?: boolean };
+              if (!status.refreshing) break;
+            }
+          }
+        } catch {
+          /* offline/unreachable — the search just runs against whatever's cached already */
+        } finally {
+          setPendingStateFetch(null);
+        }
+      })();
+    }, 600);
+  }, [locationText]);
 
   // Focus management for the optional-details section: a manual click on "+ Add
   // optional details" should move focus into the newly-revealed heading, so
@@ -742,10 +823,20 @@ export default function ProfileQuestionnaire({
           </div>
 
           <div className="mt-5 flex flex-wrap items-center gap-3">
-            <button type="button" onClick={handleSubmit} disabled={disabled || !canSubmit} className={primaryButtonClass}>
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={disabled || !canSubmit || pendingStateFetch != null}
+              className={primaryButtonClass}
+            >
               Find opportunities
             </button>
-            {requiredGaps.length > 0 && (
+            {pendingStateFetch && (
+              <span className={hintTextClass} role="status" aria-live="polite">
+                Fetching {pendingStateFetch} grants…
+              </span>
+            )}
+            {!pendingStateFetch && requiredGaps.length > 0 && (
               <span className={hintTextClass}>
                 {requiredGaps.length} required field{requiredGaps.length === 1 ? "" : "s"} left
               </span>

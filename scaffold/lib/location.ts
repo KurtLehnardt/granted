@@ -147,3 +147,34 @@ export function statesMatch(a?: string | null, b?: string | null): boolean {
   const na = normalizeStateName(a);
   return na !== undefined && na === normalizeStateName(b);
 }
+
+/** The states Granted has a real grant-data source for (mirrors
+ *  components/StateSourcesSection.tsx's STATE_SOURCE_OPTIONS ids) --
+ *  duplicated by hand, like TOGGLEABLE_STATE_SOURCES in
+ *  app/api/corpus/refresh/handler.ts, rather than importing a component
+ *  file into this dependency-free lib module. */
+export const SUPPORTED_STATE_SOURCES: Readonly<Record<string, string>> = {
+  California: "ca-grants",
+  Illinois: "il-grants",
+  "North Carolina": "nc-grants",
+  Utah: "ut-grants",
+};
+
+/**
+ * Resolves free-text location input (the "Primary US location" field) to a
+ * supported, not-yet-selected state source -- the trigger for Settings'
+ * "Enable grants for <state>?" prompt. `null` when the location doesn't
+ * resolve to a state at all (normalizeStateName's own conservative rules),
+ * resolves to a state Granted has no source for, or resolves to one already
+ * in `selectedSources` (nothing to prompt about).
+ */
+export function detectUnselectedSupportedState(
+  locationText: string | null | undefined,
+  selectedSources: readonly string[],
+): { id: string; label: string } | null {
+  const state = normalizeStateName(locationText);
+  if (!state) return null;
+  const id = SUPPORTED_STATE_SOURCES[state];
+  if (!id || selectedSources.includes(id)) return null;
+  return { id, label: state };
+}

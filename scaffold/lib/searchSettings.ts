@@ -104,15 +104,18 @@ export function setMaxCorpusSize(value: number): void {
   }
 }
 
-/** Per-source "which states should we fetch" selection (Settings' new state-sources
+/** Per-source "which states should we fetch" selection (Settings' state-sources
  *  control). Default/fallback — both when nothing is stored yet AND when localStorage
- *  is unavailable — is today's actual unconditional behavior for the three established
- *  sources: California, Illinois, North Carolina on. Utah is meaningfully weaker data
- *  (no deadline/eligibility, no stable id, occasional federal overlap — see
- *  scripts/1-fetch-ut-grants.mjs) and a headless-browser-only source, so it ships
- *  opt-in: off unless the user explicitly turns it on here. */
+ *  is unavailable — is every state OFF. (Was CA/IL/NC-on-by-default; changed so a
+ *  state only ever gets fetched because the user actually wants it — either checked
+ *  directly in Settings, or confirmed via the "Enable grants for <state>?" prompt
+ *  triggered by typing a supported state into the location field — never silently
+ *  on day one for a state nobody asked about.) Utah was always opt-in, for its own
+ *  separate reason: meaningfully weaker data (no deadline/eligibility, no stable id,
+ *  occasional federal overlap — see scripts/1-fetch-ut-grants.mjs) and a
+ *  headless-browser-only source. */
 const STATE_SOURCES_KEY = "granted:selectedStateSources";
-export const DEFAULT_STATE_SOURCES = ["ca-grants", "il-grants", "nc-grants"];
+export const DEFAULT_STATE_SOURCES: string[] = [];
 
 export function getSelectedStateSources(): string[] {
   try {
@@ -130,5 +133,36 @@ export function setSelectedStateSources(sources: string[]): void {
     window.localStorage.setItem(STATE_SOURCES_KEY, JSON.stringify(sources));
   } catch {
     /* localStorage unavailable — nothing to persist */
+  }
+}
+
+/** Which state sources the "Enable grants for <state>?" prompt has already
+ *  been declined for, so it asks at most once per state -- a "no" is a real
+ *  answer, not a formality to keep re-litigating every time the location
+ *  field happens to still say that state. Persisted (not per-session):
+ *  matches every other preference in this file, and the user can always
+ *  still enable a state by hand in Settings regardless of a past decline. */
+const DECLINED_STATE_PROMPTS_KEY = "granted:declinedStateEnablePrompts";
+
+export function hasDeclinedStateEnablePrompt(sourceId: string): boolean {
+  try {
+    const raw = window.localStorage.getItem(DECLINED_STATE_PROMPTS_KEY);
+    if (raw == null) return false;
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.includes(sourceId);
+  } catch {
+    return false;
+  }
+}
+
+export function markStateEnablePromptDeclined(sourceId: string): void {
+  try {
+    const raw = window.localStorage.getItem(DECLINED_STATE_PROMPTS_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    const existing = Array.isArray(parsed) && parsed.every((s) => typeof s === "string") ? parsed : [];
+    if (existing.includes(sourceId)) return;
+    window.localStorage.setItem(DECLINED_STATE_PROMPTS_KEY, JSON.stringify([...existing, sourceId]));
+  } catch {
+    /* localStorage unavailable — nothing to persist; worst case, asks again next time */
   }
 }

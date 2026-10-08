@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { normalizeStateName, statesMatch } from "../location";
+import { normalizeStateName, statesMatch, detectUnselectedSupportedState } from "../location";
 
 test("[case] bare full name", () => {
   assert.equal(normalizeStateName("Utah"), "Utah");
@@ -92,4 +92,23 @@ test("statesMatch: one or both unresolvable is never a match", () => {
   assert.equal(statesMatch("Utah", "Remote"), false);
   assert.equal(statesMatch(undefined, "Utah"), false);
   assert.equal(statesMatch(undefined, undefined), false);
+});
+
+test("detectUnselectedSupportedState: a supported state not yet selected resolves", () => {
+  assert.deepEqual(detectUnselectedSupportedState("Draper, UT", []), { id: "ut-grants", label: "Utah" });
+  assert.deepEqual(detectUnselectedSupportedState("California", []), { id: "ca-grants", label: "California" });
+});
+
+test("detectUnselectedSupportedState: already-selected -> null, nothing to prompt about", () => {
+  assert.equal(detectUnselectedSupportedState("Utah", ["ut-grants"]), null);
+});
+
+test("detectUnselectedSupportedState: a real state Granted has no source for -> null", () => {
+  assert.equal(detectUnselectedSupportedState("Austin, TX", []), null);
+});
+
+test("detectUnselectedSupportedState: unresolvable input -> null, never a guess", () => {
+  assert.equal(detectUnselectedSupportedState("Remote", []), null);
+  assert.equal(detectUnselectedSupportedState("", []), null);
+  assert.equal(detectUnselectedSupportedState(undefined, []), null);
 });

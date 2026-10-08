@@ -328,6 +328,24 @@ test("ProfileQuestionnaire: re-expanded keeps the bar and reveals the form with 
   assert.match(html, /id="pq-form-fields" class="reveal/);
 });
 
+// --- the "Enable grants for <state>?" auto-detect prompt (lib/location.ts's
+// detectUnselectedSupportedState, lib/ui/confirmSwal.ts) is debounced client
+// effect + real swal2 DOM + network -- not reachable from a static-markup
+// render, so only the one thing that CAN regress here (the new gate doesn't
+// change anything before its effect has ever fired) gets a render assertion;
+// the actual detect -> prompt -> enable -> fetch -> unblock flow is verified
+// live in a browser instead, same split as OpportunityFilters.tsx/
+// StateSourcesSection.tsx's own DOM-dependent pieces.
+test("ProfileQuestionnaire: 'Find opportunities' isn't disabled and no fetch status shows before the location effect has ever fired", () => {
+  const html = renderPQ({});
+  assert.doesNotMatch(html, /Fetching .* grants…/);
+  const btn = html.match(/<button[^>]*>\s*Find opportunities\s*<\/button>/)?.[0];
+  assert.ok(btn, "Find opportunities button found");
+  // Required fields are empty on a fresh form, so disabled is still expected --
+  // from !canSubmit, not from the new pendingStateFetch gate.
+  assert.match(btn!, /disabled=""/);
+});
+
 // --- draftValue / splitBooleanText / resolveBooleanTextField --------------
 
 test("draftValue: with no live edit yet, falls back to the saved profile cell", () => {
