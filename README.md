@@ -180,7 +180,7 @@ npm run dev
 ```bash
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/KurtLehnardt/granted/main/install-linux.sh)"
 ```
-Installs git and Node 22+ if missing (supports `apt`, `dnf`, and `yum` — verified end to end on both Ubuntu and Amazon Linux 2023), clones the repo into `./granted`, and runs `npm ci`. Safe to re-run.
+Installs git and Node 22+ if missing (supports `apt`, `dnf`, `yum`, and `pacman` — verified end to end on Ubuntu and Amazon Linux 2023), clones the repo into `./granted`, and runs `npm ci`. Safe to re-run.
 
 On a distro it doesn't cover, or prefer to do it by hand?
 ```bash
@@ -190,6 +190,8 @@ sudo apt-get install -y nodejs git
 # Amazon Linux 2023 / Fedora / RHEL
 curl -fsSL https://rpm.nodesource.com/setup_22.x | sudo -E bash -
 sudo dnf install -y nodejs git   # older releases: sudo yum install -y nodejs git
+# Arch Linux
+sudo pacman -Sy --needed nodejs npm git
 
 git clone https://github.com/KurtLehnardt/granted.git
 cd granted/scaffold

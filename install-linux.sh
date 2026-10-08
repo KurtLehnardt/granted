@@ -38,8 +38,9 @@ log "Granted — Linux install"
 if command -v apt-get >/dev/null 2>&1; then PM=apt
 elif command -v dnf >/dev/null 2>&1; then PM=dnf
 elif command -v yum >/dev/null 2>&1; then PM=yum
+elif command -v pacman >/dev/null 2>&1; then PM=pacman
 else
-  die "No supported package manager found (need apt-get, dnf, or yum). Install Node.js ${NODE_MAJOR_MIN}+ and git manually — see the README's Linux section."
+  die "No supported package manager found (need apt-get, dnf, yum, or pacman). Install Node.js ${NODE_MAJOR_MIN}+ and git manually — see the README's Linux section."
 fi
 ok "Detected package manager: $PM"
 
@@ -69,6 +70,7 @@ else
     apt) $SUDO apt-get update -y && $SUDO apt-get install -y git ;;
     dnf) $SUDO dnf install -y git ;;
     yum) $SUDO yum install -y git ;;
+    pacman) $SUDO pacman -Sy --needed --noconfirm git ;;
   esac
   ok "git installed ($(git --version))"
 fi
@@ -105,6 +107,12 @@ if [ "$NODE_OK" -ne 1 ]; then
     yum)
       curl -fsSL "https://rpm.nodesource.com/setup_${NODE_MAJOR_MIN}.x" | as_root bash -
       $SUDO yum install -y nodejs
+      ;;
+    pacman)
+      # Arch is rolling-release and its `nodejs` package tracks current
+      # upstream, already well above NODE_MAJOR_MIN -- no nodesource-style
+      # version-pinned setup script needed here.
+      $SUDO pacman -Sy --needed --noconfirm nodejs npm
       ;;
   esac
   ok "node installed ($(node -v))"
