@@ -162,3 +162,29 @@ body {
   }
   .app-content-shift.app-content-shift--instant { transition: none; }
 }
+
+/*
+ * lib/ui/printElement.ts's print-isolation pairs. "Export as PDF" sets
+ * body[data-print-target] to one of these values right before window.print();
+ * everything in <body> hides except the one element carrying the matching
+ * print-section-<target> class, which is pulled out of normal flow to fill
+ * the printed page on its own (no modal backdrop, no app chrome, no clipped
+ * overflow from the on-screen scrollable dialog it normally lives inside).
+ * A new printable section needs its own PrintTarget + its own pair here.
+ */
+@media print {
+  body[data-print-target] * { visibility: hidden; }
+  body[data-print-target="competitor-analysis"] .print-section-competitor-analysis,
+  body[data-print-target="competitor-analysis"] .print-section-competitor-analysis * { visibility: visible; }
+  body[data-print-target="grant-proposal-prompt"] .print-section-grant-proposal-prompt,
+  body[data-print-target="grant-proposal-prompt"] .print-section-grant-proposal-prompt * { visibility: visible; }
+  .print-section-competitor-analysis,
+  .print-section-grant-proposal-prompt {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    background: #fff;
+    color: #111;
+  }
+}
