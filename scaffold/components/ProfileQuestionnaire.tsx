@@ -339,9 +339,17 @@ export default function ProfileQuestionnaire({
   // isn't. A real decline is remembered across the whole app in
   // localStorage (hasDeclinedStateEnablePrompt), checked before this.
   const lastPromptedStateIdRef = useRef<string | null>(null);
+  // REGRESSION GUARD: the refresh-status poll below has no React lifecycle
+  // of its own (it's a plain async loop inside an event handler, not an
+  // effect) -- without this, a component unmount mid-poll (navigating away,
+  // a parent re-render that remounts the form) leaves it running forever in
+  // the background with nothing left to stop it, polling the network every
+  // 1.5s for the rest of the tab's life. Checked before every poll.
+  const unmountedRef = useRef(false);
 
   useEffect(() => {
     return () => {
+      unmountedRef.current = true;
       if (locationPromptTimerRef.current) clearTimeout(locationPromptTimerRef.current);
     };
   }, []);
@@ -377,8 +385,16 @@ export default function ProfileQuestionnaire({
             // progress bar uses) until this scoped refresh finishes, so the
             // submit button unblocks the moment real data is ready — not on
             // a fixed timer that could easily be too short or too long.
-            for (;;) {
-              await new Promise((r) => setTimeout(r, 1500));
+            // Bounded both ways: stops immediately if this component is
+            // gone (unmountedRef), and gives up after ~10 minutes even if
+            // the backend is genuinely stuck (a dead/zombied refresh lock,
+            // say) rather than polling forever — the search then just runs
+            // against whatever's cached already, same as the offline case.
+            const POLL_MS = 1500;
+            const MAX_POLLS = 400;
+            for (let i = 0; i < MAX_POLLS && !unmountedRef.current; i++) {
+              await new Promise((r) => setTimeout(r, POLL_MS));
+              if (unmountedRef.current) break;
               const statusRes = await fetch("/api/corpus");
               if (!statusRes.ok) break;
               const status = (await statusRes.json()) as { refreshing?: boolean };
@@ -388,7 +404,7 @@ export default function ProfileQuestionnaire({
         } catch {
           /* offline/unreachable — the search just runs against whatever's cached already */
         } finally {
-          setPendingStateFetch(null);
+          if (!unmountedRef.current) setPendingStateFetch(null);
         }
       })();
     }, 600);
