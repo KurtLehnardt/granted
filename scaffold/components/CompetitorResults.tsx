@@ -306,12 +306,6 @@ export default function CompetitorResults({ raw }: { raw: unknown }) {
         </div>
       )}
 
-      <p className="mt-6 border-t border-structure-on-canvas pt-4 text-pretty font-body text-[11px] leading-relaxed text-foreground">
-        This analysis never invents a company, an amount, or an award — every figure and
-        quote above is copied from the linked public record. It is analysis to help you position, not a
-        guarantee of funding.
-      </p>
-
       {/* ── Grant-proposal prompt ──────────────────────────────────────── */}
       {showPrompt && (
         <section className="print-section-grant-proposal-prompt mt-6 rounded-sm border border-structure-on-canvas bg-canvas-alt p-4">
