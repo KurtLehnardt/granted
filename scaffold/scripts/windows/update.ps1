@@ -96,7 +96,7 @@ if (-not [System.IO.File]::Exists([System.IO.Path]::Combine($InstallDir, ".git\g
   Write-UpdateStatus "error" "Granted wasn't updated to ${Ref}: this folder wasn't installed by the Granted installer."
   exit 0
 }
-if ((Invoke-Git "status --porcelain").out) {
+if ((Invoke-Git "status --porcelain --untracked-files=no").out) {
   Write-UpdateStatus "error" "Granted wasn't updated to ${Ref}: it has local changes in $InstallDir."
   exit 0
 }

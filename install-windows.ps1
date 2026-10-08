@@ -342,7 +342,7 @@ if ($existingInstall) {
   if ($Ref) {
     if (-not (Test-Path -LiteralPath (Join-Path $TargetDir ".git\granted-installer"))) {
       Warn "Not changing $TargetDir to $Ref -- it wasn't installed by this installer (your own checkout?)."
-    } elseif (git -C $TargetDir status --porcelain) {
+    } elseif (git -C $TargetDir status --porcelain --untracked-files=no) {
       Warn "Not changing $TargetDir to $Ref -- it has local changes."
     } else {
       # Just this tag, forced: a release tag that was moved on GitHub (re-tagged
