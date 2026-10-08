@@ -14,7 +14,7 @@ import { availableLocations, filterByLocation, sortMatches, type SortKey } from 
  * recency.
  *
  * Rendered by `OpportunityMap.tsx` in place of the flat list / OpportunityGroups
- * ONLY when the `match_filters` flag is on (default off). All filter/sort LOGIC
+ * unless the `match_filters` flag is explicitly set to false. All filter/sort LOGIC
  * lives in `lib/opportunities/filterSort.ts` (pure, hermetically tested); this
  * component is the thin client shell that owns the control state and feeds the
  * filtered+sorted array into the SAME rendering path `OpportunityMap.tsx`
