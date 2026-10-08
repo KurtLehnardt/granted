@@ -19,17 +19,19 @@ export function buildCorpusStatus(deps: Partial<CorpusStatusDeps> = {}) {
   const builtAtMs = builtAt ? Date.parse(builtAt) : NaN;
   const stale = Number.isNaN(builtAtMs) || Date.now() - builtAtMs > STALE_MS;
   const status = d.readRefreshStatus();
-  // Distinct source ids actually present in the cached corpus right now --
-  // generic (every source, not just state ones), so Settings can tell
-  // whether a newly checked state source would need a real fetch, without
-  // this handler needing to know what a "state source" is.
-  const sourcesPresent = Array.from(new Set(opportunities.map((o) => o.source))).sort();
+  // How many cached records each source actually has right now -- generic
+  // (every source, not just state ones), so Settings can both tell whether a
+  // newly checked state source would need a real fetch (count 0) AND show
+  // "N cached" next to each checkbox, without this handler needing to know
+  // what a "state source" is.
+  const sourceCounts: Record<string, number> = {};
+  for (const o of opportunities) sourceCounts[o.source] = (sourceCounts[o.source] ?? 0) + 1;
 
   return {
     builtAt,
     count: meta.count ?? 0,
     stale,
-    sourcesPresent,
+    sourceCounts,
     refreshing: d.isRefreshing(),
     ...(status.lastAttemptAt ? { lastAttemptAt: status.lastAttemptAt } : {}),
     ...(status.lastStoppedAt ? { lastStoppedAt: status.lastStoppedAt } : {}),

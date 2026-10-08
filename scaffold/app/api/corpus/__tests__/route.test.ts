@@ -117,22 +117,22 @@ describe("GET /api/corpus", () => {
     rmSync(baseDir, { recursive: true, force: true });
   });
 
-  test("sourcesPresent: the distinct source ids actually in the cached corpus, sorted", () => {
+  test("sourceCounts: how many cached records each source actually has", () => {
     const baseDir = makeBaseDir([
       { id: "a", source: "grants.gov" },
       { id: "b", source: "ut-grants" },
       { id: "c", source: "ca-grants" },
-      { id: "d", source: "ca-grants" }, // duplicate source -- must not appear twice
+      { id: "d", source: "ca-grants" },
     ]);
     const body = buildCorpusStatus(depsFor(baseDir));
-    assert.deepEqual(body.sourcesPresent, ["ca-grants", "grants.gov", "ut-grants"]);
+    assert.deepEqual(body.sourceCounts, { "grants.gov": 1, "ut-grants": 1, "ca-grants": 2 });
     rmSync(baseDir, { recursive: true, force: true });
   });
 
-  test("sourcesPresent: empty corpus -> empty list, never undefined", () => {
+  test("sourceCounts: empty corpus -> empty object, never undefined", () => {
     const baseDir = makeBaseDir([]);
     const body = buildCorpusStatus(depsFor(baseDir));
-    assert.deepEqual(body.sourcesPresent, []);
+    assert.deepEqual(body.sourceCounts, {});
     rmSync(baseDir, { recursive: true, force: true });
   });
 });

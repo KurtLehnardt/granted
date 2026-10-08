@@ -25,8 +25,8 @@ interface CorpusStatus {
   builtAt: string | null;
   count: number;
   stale: boolean;
-  /** Distinct source ids actually in the cached corpus right now (see app/api/corpus/handler.ts). */
-  sourcesPresent?: string[];
+  /** How many cached records each source actually has right now (see app/api/corpus/handler.ts). */
+  sourceCounts?: Record<string, number>;
   refreshing: boolean;
   lastError?: string;
   progress?: RefreshProgress;
@@ -44,9 +44,9 @@ interface CorpusStatus {
  * resolveEffectiveLocation): only an id newly ADDED by this change counts --
  * unchecking a box, or checking one that's already cached, never nudges.
  */
-export function shouldNudgeRefresh(previousSelected: string[], nextSelected: string[], sourcesPresent: string[]): boolean {
+export function shouldNudgeRefresh(previousSelected: string[], nextSelected: string[], sourceCounts: Record<string, number>): boolean {
   const added = nextSelected.filter((id) => !previousSelected.includes(id));
-  return added.some((id) => !sourcesPresent.includes(id));
+  return added.some((id) => !(sourceCounts[id] > 0));
 }
 
 /**
@@ -148,6 +148,32 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
         // first silently refreshes using the OLD selection, contradicting what the
         // checkbox shows checked.
         body: JSON.stringify({ max: maxCorpusSize, stateSources }),
+      });
+      if (res.status === 202) {
+        setStopPending(false);
+        setCorpusStatus((s) => (s ? { ...s, refreshing: true, stopped: false, stopRequested: false } : s));
+      }
+      if (res.status === 202 || res.status === 409) await fetchCorpusStatus();
+      else {
+        const { error } = await res.json().catch(() => ({}));
+        setCorpusStatus((s) => (s ? { ...s, lastError: error ?? `HTTP ${res.status}` } : s));
+      }
+    } catch {
+      /* offline / unreachable — nothing to do, status just won't update */
+    }
+  }
+
+  /** Settings' per-state "Refresh <State>" link: the same refresh run, scoped
+   * server-side to just this one source (`--only-source=`) so it skips the
+   * slow federal re-fetch — see refresh-corpus.mjs's shouldFetchFederal. */
+  async function handleRefreshOneState(id: string) {
+    if (nudgeTimerRef.current) clearTimeout(nudgeTimerRef.current);
+    setNudgeRefresh(false);
+    try {
+      const res = await fetch("/api/corpus/refresh", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ max: maxCorpusSize, stateSources, onlySource: id }),
       });
       if (res.status === 202) {
         setStopPending(false);
@@ -354,9 +380,12 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
           selected={stateSources}
           onChange={(next) => {
             setSavedAt(null);
-            if (shouldNudgeRefresh(stateSources, next, corpusStatus?.sourcesPresent ?? [])) triggerNudge();
+            if (shouldNudgeRefresh(stateSources, next, corpusStatus?.sourceCounts ?? {})) triggerNudge();
             setStateSourcesState(next);
           }}
+          counts={corpusStatus?.sourceCounts}
+          onRefreshOne={handleRefreshOneState}
+          refreshing={corpusStatus?.refreshing}
         />
       </div>
 

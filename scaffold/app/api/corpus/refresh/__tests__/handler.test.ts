@@ -214,6 +214,59 @@ describe("POST /api/corpus/refresh (handler)", () => {
     assert.ok(args.includes("--state-sources=ca-grants,ut-grants"));
   });
 
+  test("a valid onlySource produces the matching --only-source=... flag", async () => {
+    let spawnedWith: string[] | null = null;
+    await handleRefreshPost(fakeReq({ stateSources: ["ca-grants", "ut-grants"], onlySource: "ut-grants" }), {
+      isLoopbackRequest: () => true,
+      acquireRefreshLock: () => true,
+      clearStopRequest: () => {},
+      releaseRefreshLock: () => {},
+      transferRefreshLock: () => {},
+      writeRefreshStatus: () => {},
+      spawn: (_command: string, args: string[]) => {
+        spawnedWith = args;
+        return fakeChild();
+      },
+    });
+    const args = spawnedWith as string[] | null;
+    assert.ok(args);
+    assert.ok(args.includes("--only-source=ut-grants"));
+  });
+
+  test("an onlySource outside the known toggleable state sources is ignored, not passed through", async () => {
+    let spawnedWith: string[] | null = null;
+    await handleRefreshPost(fakeReq({ onlySource: "grants.gov" }), {
+      isLoopbackRequest: () => true,
+      acquireRefreshLock: () => true,
+      clearStopRequest: () => {},
+      releaseRefreshLock: () => {},
+      transferRefreshLock: () => {},
+      writeRefreshStatus: () => {},
+      spawn: (_command: string, args: string[]) => {
+        spawnedWith = args;
+        return fakeChild();
+      },
+    });
+    assert.ok(!(spawnedWith as string[] | null)?.some((a) => a.startsWith("--only-source")));
+  });
+
+  test("no body / no onlySource omits --only-source entirely", async () => {
+    let spawnedWith: string[] | null = null;
+    await handleRefreshPost(fakeReq(), {
+      isLoopbackRequest: () => true,
+      acquireRefreshLock: () => true,
+      clearStopRequest: () => {},
+      releaseRefreshLock: () => {},
+      transferRefreshLock: () => {},
+      writeRefreshStatus: () => {},
+      spawn: (_command: string, args: string[]) => {
+        spawnedWith = args;
+        return fakeChild();
+      },
+    });
+    assert.ok(!(spawnedWith as string[] | null)?.some((a) => a.startsWith("--only-source")));
+  });
+
   test("no body / no stateSources omits --state-sources entirely, letting the script use its own default", async () => {
     let spawnedWith: string[] | null = null;
     await handleRefreshPost(fakeReq(), {
