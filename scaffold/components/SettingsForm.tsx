@@ -25,6 +25,8 @@ interface CorpusStatus {
   builtAt: string | null;
   count: number;
   stale: boolean;
+  /** Distinct source ids actually in the cached corpus right now (see app/api/corpus/handler.ts). */
+  sourcesPresent?: string[];
   refreshing: boolean;
   lastError?: string;
   progress?: RefreshProgress;
@@ -32,6 +34,19 @@ interface CorpusStatus {
   savedCount?: number;
   /** Set while a stop is requested but the running child hasn't finished handling it yet. */
   stopRequested?: boolean;
+}
+
+/**
+ * Whether checking a state-source box just introduced a source that isn't in
+ * the cached corpus yet -- i.e. whether "Refresh cached grants" is now the
+ * right next action, not merely an available one. Pure and exported for
+ * direct unit testing (same pattern as OpportunityFilters.tsx's
+ * resolveEffectiveLocation): only an id newly ADDED by this change counts --
+ * unchecking a box, or checking one that's already cached, never nudges.
+ */
+export function shouldNudgeRefresh(previousSelected: string[], nextSelected: string[], sourcesPresent: string[]): boolean {
+  const added = nextSelected.filter((id) => !previousSelected.includes(id));
+  return added.some((id) => !sourcesPresent.includes(id));
 }
 
 /**
@@ -66,7 +81,22 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
   const [stateSources, setStateSourcesState] = useState<string[]>(() => getSelectedStateSources());
   const [corpusStatus, setCorpusStatus] = useState<CorpusStatus | null>(null);
   const [stopPending, setStopPending] = useState(false);
+  const [nudgeRefresh, setNudgeRefresh] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const nudgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 4s is enough to notice and read the hint, short enough to still feel "brief."
+  const NUDGE_MS = 4000;
+  function triggerNudge() {
+    if (nudgeTimerRef.current) clearTimeout(nudgeTimerRef.current);
+    setNudgeRefresh(true);
+    nudgeTimerRef.current = setTimeout(() => setNudgeRefresh(false), NUDGE_MS);
+  }
+  useEffect(() => {
+    return () => {
+      if (nudgeTimerRef.current) clearTimeout(nudgeTimerRef.current);
+    };
+  }, []);
 
   async function fetchCorpusStatus() {
     try {
@@ -107,6 +137,8 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
   }, [corpusStatus?.stopRequested, corpusStatus?.refreshing]);
 
   async function handleRefreshCorpus() {
+    if (nudgeTimerRef.current) clearTimeout(nudgeTimerRef.current);
+    setNudgeRefresh(false);
     try {
       const res = await fetch("/api/corpus/refresh", {
         method: "POST",
@@ -261,7 +293,7 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
             type="button"
             onClick={handleRefreshCorpus}
             disabled={corpusStatus?.refreshing}
-            className={`${saveBtnClass} disabled:opacity-50`}
+            className={`${saveBtnClass} disabled:opacity-50${nudgeRefresh ? " animate-pulse ring-2 ring-action ring-offset-2" : ""}`}
           >
             {corpusStatus?.refreshing ? "Refreshing…" : "Refresh cached grants"}
           </button>
@@ -269,6 +301,11 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
             <button type="button" onClick={handleStopRefresh} className={closeTextBtnClass}>
               Stop
             </button>
+          )}
+          {nudgeRefresh && (
+            <span aria-live="polite" className="font-mono text-[11px] uppercase tracking-eyebrow text-action">
+              Click to fetch data for your newly selected states
+            </span>
           )}
         </div>
         <label className={`mt-3 flex items-center gap-2 ${labelTextClass}`}>
@@ -317,6 +354,7 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
           selected={stateSources}
           onChange={(next) => {
             setSavedAt(null);
+            if (shouldNudgeRefresh(stateSources, next, corpusStatus?.sourcesPresent ?? [])) triggerNudge();
             setStateSourcesState(next);
           }}
         />

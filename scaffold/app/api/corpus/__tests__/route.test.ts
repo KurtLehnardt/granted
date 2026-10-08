@@ -17,10 +17,10 @@ import {
 
 // Injected temp baseDir throughout — never the real cwd's data/local/ (that's
 // shared with a real `npm run data:refresh` and other suites' locks/status).
-function makeBaseDir() {
+function makeBaseDir(opportunities: unknown[] = [{ id: "a", source: "grants.gov" }]) {
   const baseDir = mkdtempSync(join(tmpdir(), "granted-corpus-route-"));
   mkdirSync(join(baseDir, "data"), { recursive: true });
-  writeFileSync(join(baseDir, "data", "opportunities.json"), JSON.stringify([{ id: "a" }]));
+  writeFileSync(join(baseDir, "data", "opportunities.json"), JSON.stringify(opportunities));
   writeFileSync(join(baseDir, "data", "corpus-meta.json"), JSON.stringify({}));
   return baseDir;
 }
@@ -114,6 +114,25 @@ describe("GET /api/corpus", () => {
     writeRefreshStatus({ stopped: true, savedCount: 10, lastStoppedAt: "2026-09-27T00:00:00.000Z" }, baseDir);
     const body = buildCorpusStatus(depsFor(baseDir));
     assert.equal(body.lastStoppedAt, "2026-09-27T00:00:00.000Z");
+    rmSync(baseDir, { recursive: true, force: true });
+  });
+
+  test("sourcesPresent: the distinct source ids actually in the cached corpus, sorted", () => {
+    const baseDir = makeBaseDir([
+      { id: "a", source: "grants.gov" },
+      { id: "b", source: "ut-grants" },
+      { id: "c", source: "ca-grants" },
+      { id: "d", source: "ca-grants" }, // duplicate source -- must not appear twice
+    ]);
+    const body = buildCorpusStatus(depsFor(baseDir));
+    assert.deepEqual(body.sourcesPresent, ["ca-grants", "grants.gov", "ut-grants"]);
+    rmSync(baseDir, { recursive: true, force: true });
+  });
+
+  test("sourcesPresent: empty corpus -> empty list, never undefined", () => {
+    const baseDir = makeBaseDir([]);
+    const body = buildCorpusStatus(depsFor(baseDir));
+    assert.deepEqual(body.sourcesPresent, []);
     rmSync(baseDir, { recursive: true, force: true });
   });
 });
