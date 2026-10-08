@@ -1,5 +1,8 @@
 "use client";
-import { useMemo, useState } from "react";
+// Explicit React import: needed under the plain `tsx`-run node:test runner
+// (this repo's tsconfig `"jsx": "preserve"` falls back to the classic JSX
+// runtime there) — see the same note in components/ApplicationChecklist.tsx.
+import React, { useMemo, useState } from "react";
 import OpportunityCard from "./OpportunityCard";
 import OpportunityGroups from "./OpportunityGroups";
 import type { Match, StartupProfile } from "@/lib/types";
@@ -18,6 +21,14 @@ import { availableLocations, filterByLocation, sortMatches, type SortKey } from 
  * already uses (the `c1b_type_groups` kind-filter chips, or the flat list) —
  * so the two filter controls stack orthogonally without either file knowing
  * about the other's state.
+ *
+ * Sort and Location are independent, not a package deal: Sort by match %/
+ * award/recency is useful on ANY result set and always shows once there's
+ * more than one match. Location only shows once at least one of the current
+ * matches actually carries a `geography` (a state-source record) -- most
+ * searches are federal-dominated and carry none, which used to hide the
+ * WHOLE row, Sort included (REGRESSION, found live: a flag-enabled user saw
+ * neither control on an all-federal result set).
  */
 
 function eyebrowClass(extra = "") {
@@ -63,8 +74,8 @@ export default function OpportunityFilters({
 
   return (
     <div>
-      {locations.length > 0 && (
-        <div className="mb-5 flex flex-wrap items-end gap-4">
+      <div className="mb-5 flex flex-wrap items-end gap-4">
+        {locations.length > 0 && (
           <label className="flex flex-col gap-1">
             <span className={eyebrowClass()}>Location</span>
             <select
@@ -80,18 +91,18 @@ export default function OpportunityFilters({
               ))}
             </select>
           </label>
-          <label className="flex flex-col gap-1">
-            <span className={eyebrowClass()}>Sort by</span>
-            <select value={sortKey} onChange={(e) => setSortKey(e.target.value as SortKey)} className={selectClass()}>
-              {(Object.keys(SORT_LABEL) as SortKey[]).map((key) => (
-                <option key={key} value={key}>
-                  {SORT_LABEL[key]}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-      )}
+        )}
+        <label className="flex flex-col gap-1">
+          <span className={eyebrowClass()}>Sort by</span>
+          <select value={sortKey} onChange={(e) => setSortKey(e.target.value as SortKey)} className={selectClass()}>
+            {(Object.keys(SORT_LABEL) as SortKey[]).map((key) => (
+              <option key={key} value={key}>
+                {SORT_LABEL[key]}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
 
       {isFlagEnabled("c1b_type_groups") ? (
         <OpportunityGroups matches={sorted} startupProfile={startupProfile} />
