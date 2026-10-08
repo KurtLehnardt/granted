@@ -304,7 +304,7 @@ if [ ! -f "$MARKER" ]; then
   write_update_status "error" "Granted wasn't updated to $REF: this folder wasn't installed by the Granted installer."
   exit 0
 fi
-if [ -n "$(git -C "$INSTALL_DIR" status --porcelain 2>/dev/null || true)" ]; then
+if [ -n "$(git -C "$INSTALL_DIR" status --porcelain --untracked-files=no 2>/dev/null || true)" ]; then
   write_update_status "error" "Granted wasn't updated to $REF: it has local changes in $INSTALL_DIR."
   exit 0
 fi

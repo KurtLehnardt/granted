@@ -373,7 +373,7 @@ if [ -f "$TARGET_DIR/scaffold/package.json" ]; then
   if [ -n "$GRANTED_REF" ]; then
     if [ ! -f "$TARGET_DIR/.git/granted-installer" ]; then
       warn "Not changing $TARGET_DIR to $GRANTED_REF -- it wasn't installed by this installer (your own checkout?)."
-    elif [ -n "$(git -C "$TARGET_DIR" status --porcelain)" ]; then
+    elif [ -n "$(git -C "$TARGET_DIR" status --porcelain --untracked-files=no)" ]; then
       warn "Not changing $TARGET_DIR to $GRANTED_REF -- it has local changes."
     else
       # Just this tag, forced: a release tag that was moved on GitHub

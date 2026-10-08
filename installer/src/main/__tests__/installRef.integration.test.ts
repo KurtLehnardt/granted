@@ -383,6 +383,28 @@ describe("install-windows.ps1 with GRANTED_REF (a pinned release)", { skip: (pro
     assert.match(out, /launched/);
   });
 
+  test("REGRESSION (user): an untracked file (say a .env.local backup) doesn't block an update; an edited tracked file still does", async () => {
+    const source = makeSource();
+    const home = freshHome();
+    await runInstall(home, source, "v0.1.0");
+    writeFileSync(join(home, "granted", "scaffold", ".env.local.bak-20261007"), "OPENAI_API_KEY=sk-x\n");
+    // The in-app updater...
+    const status = await runUpdater(home, source, "v0.2.0", ["-NoRestart"]);
+    assert.equal(status.state, "done", JSON.stringify(status));
+    assert.equal(versionIn(home), "0.2.0");
+    assert.ok(existsSync(join(home, "granted", "scaffold", ".env.local.bak-20261007")), "and the untracked file is kept");
+    // ...and re-running the installer, likewise.
+    git(source, "tag", "-a", "v0.2.5", "-m", "v0.2.5", "main");
+    const r = await runInstall(home, source, "v0.2.5");
+    assert.equal(r.state, "done", r.output);
+    assert.doesNotMatch(r.output, /has local changes/);
+    // An edited tracked file still blocks it.
+    writeFileSync(join(home, "granted", "scaffold", "server.js"), readFileSync(join(home, "granted", "scaffold", "server.js"), "utf8") + "\n// edit\n");
+    const blocked = await runUpdater(home, source, "v0.2.5", ["-NoRestart"]);
+    assert.equal(blocked.state, "error");
+    assert.match(blocked.message ?? "", /it has local changes/);
+  });
+
   test("a folder the installer didn't make (someone's own checkout) is never switched to another release", async () => {
     const source = makeSource();
     const home = freshHome();
