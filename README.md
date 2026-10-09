@@ -217,6 +217,37 @@ npm run dev
 ```
 Verified end to end via `install-linux.sh` on a fresh Amazon Linux 2023 box (2 vCPU, 8GB RAM, no GPU — the smallest realistic case): auto-picked `llama3.2:1b` and completed a full novel-company search (21 candidates, fully local) in **18 minutes 58 seconds**. The same flow on Ubuntu, same hardware class, ran comparably (20m43s). A machine with a GPU or more cores will be dramatically faster — the macOS and Windows numbers above are the same engine, just more hardware.
 
+#### Linux: starting, stopping, updating
+
+There is no tray icon or launcher on Linux, and nothing starts Granted at boot.
+
+- **Stop Granted:** press `Ctrl+C` in the terminal running `npm run dev`. Start it again with `npm run dev` from `granted/scaffold`.
+- **Update:** `git pull && npm ci` in the `granted` folder, then restart (or re-run the one-command installer, which is safe to repeat).
+- **Quitting Granted does not stop Ollama.** Ollama's official installer (`curl … | sh` above) registers Ollama as a systemd service that **starts at every boot** and keeps running, using memory, after you close Granted. Granted doesn't start or stop that service. To control it yourself:
+
+```bash
+sudo systemctl disable --now ollama   # stop it now AND keep it from starting at boot
+sudo systemctl enable --now ollama    # turn it back on (start now and at boot)
+sudo systemctl start ollama           # start for this session only (stays off at next boot)
+sudo systemctl stop ollama            # stop it (until you start it again)
+systemctl is-active ollama            # "active" = running, "inactive" = stopped
+```
+
+  If you'd rather not run it as a service at all, run `sudo systemctl disable --now ollama` once, then start it by hand only when you want local models: `ollama serve` in a spare terminal (`Ctrl+C` stops it).
+- **Free memory without stopping Ollama:** `ollama ps` lists loaded models; `ollama stop <model>` unloads one.
+- **Remove models:** `ollama list` shows what's installed (each is typically a few GB); `ollama rm <model>` deletes one.
+- **Uninstall Ollama completely** (per [Ollama's Linux docs](https://github.com/ollama/ollama/blob/main/docs/linux.md)):
+
+```bash
+sudo systemctl disable --now ollama
+sudo rm /etc/systemd/system/ollama.service
+sudo rm "$(which ollama)"
+sudo rm -r /usr/share/ollama          # downloaded models
+sudo userdel ollama && sudo groupdel ollama
+```
+
+  To uninstall Granted, delete its `granted` folder.
+
 ## Which Node version
 
 **Running** Granted needs Node 20+. **Developing** it needs **Node 22+**, and the
@@ -341,6 +372,8 @@ Results **stream**. Progress and grounded evidence appear in seconds rather than
 - **Anthropic 400 "credit balance too low"** → top up at console.anthropic.com; every search spends credits.
 - **A flag change did nothing** → `NEXT_PUBLIC_*` vars are read at build/start; restart the dev server.
 - **`npm test` prints `Could not find '…/**/*.test.ts'` and runs nothing** → you're on Node 20. The test runner only learned to expand globs in Node 22; upgrade to 22+ (see **Which Node version**). Running the app is unaffected.
+- **Ollama is still running after I quit Granted, or starts on its own at boot (Linux)** → that's Ollama's systemd service, not Granted. See **Linux: starting, stopping, updating** for the stop/disable commands.
+- **"Ollama is installed but its daemon isn't reachable at localhost:11434"** → the Ollama service isn't running. Start it with `sudo systemctl start ollama` (or `ollama serve` in a spare terminal), then retry.
 - **Port 3000 in use** → Next picks the next free port; watch the `npm run dev` output for the URL. If `localhost:3000` shows a different app (on Windows, an app listening on all interfaces doesn't block the `127.0.0.1` bind), pick a port: `npm run dev -- -p 3001`.
 - **Can't reach it from another device or a cloud VM** → `npm run dev` only listens on `127.0.0.1`. From a remote box, tunnel instead: `ssh -L 3000:127.0.0.1:3000 you@host`, then open `http://localhost:3000`. Use `npm run dev:lan` only on a network you trust.
 
