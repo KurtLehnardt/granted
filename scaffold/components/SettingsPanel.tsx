@@ -25,14 +25,14 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
   // Modal: elevated surface (rounded + overlay shadow) with a definition border
   // over the scrim.
   const panelClass =
-    "relative max-h-[85vh] w-full max-w-md overflow-y-auto rounded-lg border border-structure-on-canvas bg-canvas p-6 text-foreground shadow-overlay";
+    "relative max-h-[85vh] w-full max-w-[53rem] overflow-y-auto rounded-lg border border-structure-on-canvas bg-canvas p-6 text-foreground shadow-overlay";
   const titleClass = "mt-2 text-balance font-display text-[22px] font-bold leading-snug text-foreground";
   const closeIconBtnClass =
     "absolute right-3 top-3 rounded-sm p-1 text-foreground transition hover:bg-canvas-alt focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-structure-on-canvas focus-visible:ring-offset-2";
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 py-8"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-6 py-8"
       onClick={onClose}
     >
       <div
