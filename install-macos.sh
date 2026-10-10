@@ -52,7 +52,10 @@ mkdir "$STATUS_LOCK_DIR" 2>/dev/null || true
 
 write_status() {
   local state="$1" message="$2" tmp escaped
-  tmp="$(mktemp "${STATUS_PATH}.XXXXXX" 2>/dev/null)" || return 0
+  tmp="$(mktemp "${STATUS_PATH}.XXXXXX" 2>/dev/null)" || {
+    printf '  \033[33m!\033[0m %s\n' "Couldn't write install status to $STATUS_PATH" >&2
+    return 0
+  }
   escaped="null"
   if [ -n "$message" ]; then
     escaped="\"$(printf '%s' "$message" | sed 's/\\/\\\\/g; s/"/\\"/g')\""
@@ -110,6 +113,19 @@ NODE_MAJOR_MIN=22
 OLLAMA_MIN_MACOS=14
 OLLAMA_TGZ_URL="https://github.com/ollama/ollama/releases/latest/download/ollama-darwin.tgz"
 OLLAMA_PREFIX="${GRANTED_OLLAMA_PREFIX:-$HOME/.local/ollama}"
+# The Homebrew bootstrap installer (used below when there's no Homebrew and
+# no terminal to prompt through) is fetched from this exact commit rather
+# than from Homebrew/install's HEAD, so the bytes we execute are pinned to a
+# specific, immutable point in that repo's history instead of whatever
+# happens to be on its default branch the moment a user runs this script.
+HOMEBREW_INSTALL_COMMIT="8ab1549dfa1189fd4d818a2116592d8f0ee06d8c"
+# Because the commit above makes the raw.githubusercontent.com URL below
+# immutable, its content hash is meaningful to pin too. This is the SHA-256
+# (via `shasum -a 256`) of that exact pinned URL's contents, computed on
+# 2026-10-10. Bump this pin periodically; when you do, update BOTH the
+# commit SHA above and this hash together -- a stale pin means users install
+# an old, possibly outdated Homebrew bootstrap.
+HOMEBREW_INSTALL_SHA256="5f333bbe53bc490e51e7ccb1df8779b3dd6ee73a1a7379efda216edb08ccb148"
 
 # GRANTED_REF: install this release (a tag like v1.2.3) instead of the
 # latest code on main -- same rule as install-windows.ps1's. An install made
@@ -185,8 +201,11 @@ else
   # Fetched into a variable first and checked explicitly: a failure INSIDE a
   # $(...) substitution doesn't trip `set -e` on its own -- it would just
   # silently hand bash an empty string to run as a no-op.
-  INSTALL_SCRIPT="$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" \
+  INSTALL_SCRIPT="$(curl -fsSL "https://raw.githubusercontent.com/Homebrew/install/${HOMEBREW_INSTALL_COMMIT}/install.sh")" \
     || die "Couldn't download the Homebrew installer -- check your network connection and re-run."
+  INSTALL_SCRIPT_SHA256="$(printf '%s' "$INSTALL_SCRIPT" | shasum -a 256 | cut -d' ' -f1)"
+  [ "$INSTALL_SCRIPT_SHA256" = "$HOMEBREW_INSTALL_SHA256" ] \
+    || die "Homebrew installer hash mismatch: expected $HOMEBREW_INSTALL_SHA256, got $INSTALL_SCRIPT_SHA256 -- not running unverified code. Install Homebrew yourself from https://brew.sh and re-run."
   NONINTERACTIVE=1 /bin/bash -c "$INSTALL_SCRIPT"
   find_and_activate_brew || true
   command -v brew >/dev/null 2>&1 || die "Homebrew install finished but brew isn't on PATH -- open a new terminal and re-run."
@@ -253,7 +272,10 @@ if [ "$NODE_OK" -ne 1 ]; then
   else
     # No Homebrew: use Apple's own installer with the official universal .pkg.
     # This needs sudo, so it only works in an interactive shell — a
-    # non-interactive invocation has no TTY to prompt on.
+    # non-interactive invocation has no TTY to prompt on. Verified against
+    # nodejs.org's own published checksum below before it's handed to `sudo
+    # installer` -- the `brew install node` branch above needs no such check,
+    # since Homebrew already verifies what it downloads itself.
     log "Installing Node.js ${NODE_MAJOR_MIN}+ from nodejs.org..."
     [ -t 0 ] || die "Node.js ${NODE_MAJOR_MIN}+ is required and installing it needs sudo, which can't prompt through a pipe. Install Node from https://nodejs.org (or install Homebrew), then re-run this script."
     PKG_URL="https://nodejs.org/dist/latest-v${NODE_MAJOR_MIN}.x/"
@@ -265,8 +287,23 @@ if [ "$NODE_OK" -ne 1 ]; then
     # so match any leading directory and keep only the basename.
     PKG_NAME="$(printf '%s\n' "$PKG_INDEX" | sed -n 's|.*href="[^"]*/\(node-v[0-9.]*\.pkg\)".*|\1|p' | sed -n '1p')"
     [ -n "$PKG_NAME" ] || die "Couldn't find a Node .pkg at $PKG_URL — install Node from https://nodejs.org and re-run."
+    # nodejs.org publishes SHASUMS256.txt alongside every .pkg -- fetched into
+    # a variable first and checked explicitly, same reason as PKG_INDEX above.
+    PKG_SUMS="$(curl -fsSL "${PKG_URL}SHASUMS256.txt")" || die "Couldn't reach ${PKG_URL}SHASUMS256.txt — install Node from https://nodejs.org and re-run."
+    # Matched as an exact field, not a substring: SHASUMS256.txt lists many
+    # artifacts whose names contain each other (e.g. a .tar.gz alongside the
+    # .pkg), so a loose match could pick up the wrong line's hash entirely.
+    PKG_EXPECTED_SHA256="$(printf '%s\n' "$PKG_SUMS" | awk -v f="$PKG_NAME" '$2 == f { print $1 }')"
+    [ -n "$PKG_EXPECTED_SHA256" ] || die "Couldn't find $PKG_NAME in ${PKG_URL}SHASUMS256.txt — install Node from https://nodejs.org and re-run."
     TMP_PKG="$(mktemp -d)/$PKG_NAME"
     curl -fsSL -o "$TMP_PKG" "${PKG_URL}${PKG_NAME}"
+    # macOS ships no `sha256sum` (that's a Linux coreutils tool) -- `shasum`,
+    # part of the base system, is the equivalent here.
+    PKG_ACTUAL_SHA256="$(shasum -a 256 "$TMP_PKG" | cut -d' ' -f1)"
+    if [ "$PKG_ACTUAL_SHA256" != "$PKG_EXPECTED_SHA256" ]; then
+      rm -f "$TMP_PKG"
+      die "Downloaded $PKG_NAME doesn't match nodejs.org's published checksum (expected $PKG_EXPECTED_SHA256, got $PKG_ACTUAL_SHA256) -- not installing it. Install Node from https://nodejs.org and re-run."
+    fi
     sudo installer -pkg "$TMP_PKG" -target /
     rm -f "$TMP_PKG"
     export PATH="/usr/local/bin:$PATH"
