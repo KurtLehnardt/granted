@@ -1,6 +1,6 @@
 import { app, BrowserWindow, shell } from "electron";
 import { join } from "node:path";
-import { registerIpcHandlers } from "./ipc";
+import { registerIpcHandlers, stopOllamaIfStarted, manageOllama } from "./ipc";
 
 // Ubuntu 24.04+'s chrome-sandbox / unpacked-run issue (see installer's
 // scripts/run-electron-vite.mjs for the full explanation) is NOT fixable
@@ -51,6 +51,12 @@ void app.whenReady().then(() => {
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+});
+
+app.on("will-quit", () => {
+  if (manageOllama) {
+    stopOllamaIfStarted();
+  }
 });
 
 app.on("window-all-closed", () => {

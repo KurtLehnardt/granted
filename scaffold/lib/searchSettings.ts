@@ -166,3 +166,24 @@ export function markStateEnablePromptDeclined(sourceId: string): void {
     /* localStorage unavailable — nothing to persist; worst case, asks again next time */
   }
 }
+
+/** Ollama management: whether Granted should start/stop Ollama automatically */
+const MANAGE_OLLAMA_KEY = "granted:manageOllama";
+
+export function getManageOllama(): boolean {
+  try {
+    return window.localStorage.getItem(MANAGE_OLLAMA_KEY) === "1";
+  } catch {
+    // Default to true: manage Ollama by default
+    return true;
+  }
+}
+
+export function setManageOllama(value: boolean): void {
+  try {
+    if (value) window.localStorage.setItem(MANAGE_OLLAMA_KEY, "1");
+    else window.localStorage.removeItem(MANAGE_OLLAMA_KEY);
+  } catch {
+    /* localStorage unavailable — nothing to persist */
+  }
+}
