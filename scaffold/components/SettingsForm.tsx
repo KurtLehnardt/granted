@@ -1,12 +1,15 @@
 "use client";
 
 import React, { useEffect, useId, useRef, useState } from "react";
+import { ipcRenderer } from "electron";
 import {
   getAutoUpdateCorpus,
+  getManageOllama,
   getMaxCandidates,
   getMaxCorpusSize,
   getSelectedStateSources,
   setAutoUpdateCorpus,
+  setManageOllama,
   setMaxCandidates,
   setMaxCorpusSize,
   setSelectedStateSources,
@@ -79,6 +82,7 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
   const [autoUpdate, setAutoUpdate] = useState(() => getAutoUpdateCorpus());
   const [maxCorpusSize, setMaxCorpusSizeState] = useState(() => getMaxCorpusSize());
   const [stateSources, setStateSourcesState] = useState<string[]>(() => getSelectedStateSources());
+  const [manageOllama, setManageOllamaState] = useState(() => getManageOllama());
   const [corpusStatus, setCorpusStatus] = useState<CorpusStatus | null>(null);
   const [stopPending, setStopPending] = useState(false);
   const [nudgeRefresh, setNudgeRefresh] = useState(false);
@@ -97,6 +101,9 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
       if (nudgeTimerRef.current) clearTimeout(nudgeTimerRef.current);
     };
   }, []);
+  useEffect(() => {
+    ipcRenderer.invoke('settings:setManageOllama', manageOllama);
+  }, [manageOllama]);
 
   async function fetchCorpusStatus() {
     try {
@@ -344,6 +351,19 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
             }}
           />
           Auto-update: refresh cached grants in the background when they're stale
+        </label>
+        <label className={`mt-3 flex items-center gap-2 ${labelTextClass}`}>
+          <input
+            type="checkbox"
+            checked={manageOllama}
+            onChange={(e) => {
+              setSavedAt(null);
+              setManageOllamaState(e.target.checked);
+              setManageOllama(e.target.checked); // update localStorage
+              ipcRenderer.invoke('settings:setManageOllama', e.target.checked);
+            }}
+          />
+          Automatically manage Ollama service
         </label>
         <label className={`mt-3 block ${labelTextClass}`} htmlFor={corpusSizeId}>
           <span className="inline-flex items-center gap-1">
