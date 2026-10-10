@@ -54,7 +54,13 @@ export async function handleRefreshPost(
     const n = Number(body?.max);
     if (Number.isFinite(n)) max = clampCorpusSize(n);
     if (Array.isArray(body?.stateSources) && body.stateSources.every((s) => typeof s === "string")) {
-      stateSources = body.stateSources;
+      // Filter down to the allowlist rather than rejecting the whole request on an
+      // unknown entry: stateSources only ever flows into plain membership checks
+      // downstream (refresh-corpus.mjs's wantsSource/excludeDeselectedSources), so
+      // an unrecognized id is already harmless there -- dropping it quietly keeps
+      // the rest of a legitimate selection intact instead of failing the whole
+      // refresh over one bad entry.
+      stateSources = body.stateSources.filter((s) => TOGGLEABLE_STATE_SOURCES.includes(s));
     }
     if (typeof body?.onlySource === "string" && TOGGLEABLE_STATE_SOURCES.includes(body.onlySource)) {
       onlySource = body.onlySource;

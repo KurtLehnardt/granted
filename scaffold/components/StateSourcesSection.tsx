@@ -4,11 +4,20 @@ import React, { useId } from "react";
 
 export type StateSourceOption = { id: string; label: string; note?: string };
 
-// California/Illinois/North Carolina are the established, on-by-default state
-// sources (real APIs/HTML directories). Utah is a 4th, opt-in source: its
-// only public listing is a Looker Studio BI dashboard (needs a full headless
-// browser to read, unlike the other three), and the data itself is weaker —
-// see its note below, shown so enabling it is an informed choice.
+// California/Illinois/North Carolina are the established state sources (real
+// APIs/HTML directories). They are on by default only for the command-line
+// refresh script (scripts/refresh-corpus.mjs's default when --state-sources
+// is absent) -- not here. In this Settings UI, DEFAULT_STATE_SOURCES
+// (lib/searchSettings.ts) is every state off until the user opts one in,
+// either directly here or via the "Enable grants for <state>?" prompt. Utah
+// is a 4th, opt-in source either way: its only public listing is a Looker
+// Studio BI dashboard (needs a full headless browser to read, unlike the
+// other three), and the data itself is weaker — see its note below, shown
+// so enabling it is an informed choice.
+//
+// The four ids below are duplicated by hand, like TOGGLEABLE_STATE_SOURCES
+// in app/api/corpus/refresh/handler.ts, rather than importing this
+// client component into a schema, script, or dependency-free library file.
 export const STATE_SOURCE_OPTIONS: StateSourceOption[] = [
   { id: "ca-grants", label: "California" },
   { id: "il-grants", label: "Illinois" },

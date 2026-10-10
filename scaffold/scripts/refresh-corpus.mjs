@@ -98,6 +98,9 @@ const SELECTED_STATE_SOURCES = stateSourcesFlag
   ? stateSourcesFlag.slice("--state-sources=".length).split(",").filter(Boolean)
   : ["ca-grants", "il-grants", "nc-grants"];
 const wantsSource = (id) => SELECTED_STATE_SOURCES.includes(id);
+// Duplicated by hand, like TOGGLEABLE_STATE_SOURCES in
+// app/api/corpus/refresh/handler.ts, rather than importing a component
+// file (or a Next.js lib module) into this standalone script.
 const TOGGLEABLE_STATE_SOURCES = ["ca-grants", "il-grants", "nc-grants", "ut-grants"];
 
 // Settings' per-state "refresh just this one" link: skip re-fetching

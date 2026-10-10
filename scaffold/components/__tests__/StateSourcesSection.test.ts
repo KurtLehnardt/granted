@@ -24,7 +24,7 @@ describe("StateSourcesSection", () => {
     assert.equal(STATE_SOURCE_OPTIONS.map((o) => o.id).sort().join(","), "ca-grants,il-grants,nc-grants,ut-grants");
   });
 
-  test("reflects the default selection: CA/IL/NC checked, Utah not", () => {
+  test("given CA/IL/NC selected, renders them checked and Utah unchecked", () => {
     const html = render(["ca-grants", "il-grants", "nc-grants"]);
     const caInput = html.match(/<input[^>]*data-testid="state-source-ca-grants"[^>]*>/)?.[0];
     const ilInput = html.match(/<input[^>]*data-testid="state-source-il-grants"[^>]*>/)?.[0];

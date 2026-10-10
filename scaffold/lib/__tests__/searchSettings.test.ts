@@ -9,6 +9,8 @@ import {
   DEFAULT_STATE_SOURCES,
   hasDeclinedStateEnablePrompt,
   markStateEnablePromptDeclined,
+  getManageOllama,
+  setManageOllama,
 } from "../searchSettings";
 
 let mem: Map<string, string>;
@@ -88,5 +90,24 @@ describe("hasDeclinedStateEnablePrompt / markStateEnablePromptDeclined", () => {
   test("malformed stored JSON reads as nothing declined, not a crash", () => {
     mem.set("granted:declinedStateEnablePrompts", "{not json");
     assert.equal(hasDeclinedStateEnablePrompt("ut-grants"), false);
+  });
+});
+
+describe("getManageOllama / setManageOllama", () => {
+  test("never configured (nothing stored yet) defaults to true", () => {
+    assert.equal(getManageOllama(), true);
+  });
+
+  test("explicitly on round-trips to true", () => {
+    setManageOllama(true);
+    assert.equal(getManageOllama(), true);
+    assert.equal(mem.get("granted:manageOllama"), "1");
+  });
+
+  test("explicitly off round-trips to false, and stores \"0\" rather than removing the key", () => {
+    setManageOllama(false);
+    assert.equal(getManageOllama(), false);
+    assert.equal(mem.get("granted:manageOllama"), "0");
+    assert.equal(mem.has("granted:manageOllama"), true);
   });
 });

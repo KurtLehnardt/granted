@@ -2,7 +2,7 @@
 
 <img width="979" height="965" alt="image" src="https://github.com/user-attachments/assets/2c3b54ae-9e96-4436-881f-cd691c1e774b" />
 
-**Granted** turns a description of your business or research into a list of real **government funding opportunities** — federal grants, SBIR/STTR R&D, procurement, loans, assistance, scholarships, plus state grant programs in California, Illinois, and North Carolina. Each match is scored for fit on the criteria a program officer would apply, and screened for eligibility.
+**Granted** turns a description of your business or research into a list of real **government funding opportunities** — federal grants, SBIR/STTR R&D, procurement, loans, assistance, scholarships, plus state grant programs in California, Illinois, and North Carolina (Utah too, as an opt-in 4th source). Each match is scored for fit on the criteria a program officer would apply, and screened for eligibility.
 
 Run it with your own API keys or a fully local model — see **Run it yourself** below.
 
@@ -303,7 +303,7 @@ The full flag list lives in `scaffold/lib/flags/registry.ts`.
 
 ## Refreshing the data (optional)
 
-The corpus (`scaffold/data/opportunities.json`, which contains opportunities across grants.gov, SAM.gov assistance listings, and state grant programs in California, Illinois, and North Carolina) is committed, so you don't need this to run. To rebuild it from the live public sources:
+The corpus (`scaffold/data/opportunities.json`, which contains opportunities across grants.gov, SAM.gov assistance listings, and state grant programs in California, Illinois, and North Carolina) is committed, so you don't need this to run. (Utah is a 4th, opt-in state source with weaker data — see Settings — so it's absent from the committed corpus until you opt in and refresh.) To rebuild it from the live public sources:
 
 ```bash
 cd scaffold
