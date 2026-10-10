@@ -34,9 +34,6 @@ describe("FLAG_REGISTRY", () => {
   test("covers one flag per named requirement from the CON-03 task spec", () => {
     const expected: FlagName[] = [
       "r1_interview",
-      "r2_verify",
-      "r3_enhance",
-      "r4_progress",
       "r8_eligibility",
       "r9_0_mockauth",
       "r10_analytics",

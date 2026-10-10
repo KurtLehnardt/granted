@@ -3,18 +3,11 @@ import assert from "node:assert/strict";
 
 import { OpportunitySchema, EligibilityRuleSchema } from "../opportunity";
 import { EligibilityDeterminationSchema } from "../eligibilityDetermination";
-import { VerificationItemSchema } from "../verificationItem";
-import {
-  EntitlementsSchema,
-  DEFAULT_ENTITLEMENTS,
-} from "../entitlements";
-import { RunBudgetSchema, DEFAULT_RUN_BUDGETS } from "../runBudget";
 import {
   ModelRoutingTableSchema,
   DEFAULT_MODEL_ROUTING,
 } from "../modelRouting";
-import { RunSchema } from "../run";
-import { CompanyProfileSchema } from "../companyProfile";
+import { CitationSchema } from "../primitives";
 
 const NOW_ISO = new Date().toISOString();
 
@@ -79,50 +72,6 @@ test("§3.5 EligibilityDetermination parses; rule evals carry provenance", () =>
   assert.doesNotThrow(() => EligibilityDeterminationSchema.parse(det));
 });
 
-test("§3.3 VerificationItem parses; classification is enumerated", () => {
-  const item = {
-    id: "v1",
-    claim: "This program is still open",
-    classification: "auto_verifiable",
-    status: "verified",
-    resolution: "Open through 2026-09-30",
-    source_url: "https://grants.gov/x",
-    retrieved_at: NOW_ISO,
-  };
-  assert.doesNotThrow(() => VerificationItemSchema.parse(item));
-  assert.equal(
-    VerificationItemSchema.safeParse({ ...item, classification: "maybe" }).success,
-    false,
-  );
-});
-
-test("§3.3 a verified item WITHOUT a source_url is rejected (R2)", () => {
-  const base = {
-    id: "v2",
-    claim: "This program is still open",
-    classification: "auto_verifiable",
-  };
-  // verified + no source_url → invalid
-  assert.equal(
-    VerificationItemSchema.safeParse({ ...base, status: "verified" }).success,
-    false,
-  );
-  // verified + source_url → valid
-  assert.equal(
-    VerificationItemSchema.safeParse({
-      ...base,
-      status: "verified",
-      source_url: "https://grants.gov/x",
-    }).success,
-    true,
-  );
-  // non-verified without a source_url is fine
-  assert.equal(
-    VerificationItemSchema.safeParse({ ...base, status: "pending" }).success,
-    true,
-  );
-});
-
 test("§3.5 an `excluded` bucket with empty failed_rules is rejected (R8.2)", () => {
   const det = {
     opportunity_id: "opp_1",
@@ -171,37 +120,29 @@ test("§3.5 an exclusion with a verified/user_stated failed rule is valid", () =
   assert.equal(EligibilityDeterminationSchema.safeParse(det).success, true);
 });
 
-test("§3.7 Entitlements defaults validate for every tier", () => {
-  for (const tier of Object.keys(DEFAULT_ENTITLEMENTS) as Array<keyof typeof DEFAULT_ENTITLEMENTS>) {
-    assert.doesNotThrow(() => EntitlementsSchema.parse(DEFAULT_ENTITLEMENTS[tier]));
-  }
-});
-
-test("§3.10 RunBudget defaults validate for every tier", () => {
-  for (const tier of Object.keys(DEFAULT_RUN_BUDGETS) as Array<keyof typeof DEFAULT_RUN_BUDGETS>) {
-    assert.doesNotThrow(() => RunBudgetSchema.parse(DEFAULT_RUN_BUDGETS[tier]));
-  }
-});
-
 test("§3.9 default model routing table validates", () => {
   assert.doesNotThrow(() => ModelRoutingTableSchema.parse(DEFAULT_MODEL_ROUTING));
 });
 
-test("§3.12 Run parses with a profile + reproducibility metadata", () => {
-  const profile = CompanyProfileSchema.parse({
-    id: "profile_1",
-    raw_text: { value: "We build AI for hospitals.", provenance: "user_stated", confidence: 1 },
-    interview_answers: [],
-  });
-  const run = {
-    id: "run_1",
-    created_at: NOW_ISO,
-    status: "completed",
-    tier: "free",
-    profile,
-    canon_snapshot_version: "canon-2026-08-01",
-    prompt_versions: { extract: "v3", analyze: "v7" },
-    models_used: ["claude-sonnet-4-6"],
-  };
-  assert.doesNotThrow(() => RunSchema.parse(run));
+test("§3.4 Opportunity.url accepts https:// and rejects a javascript: scheme (M8)", () => {
+  assert.equal(
+    OpportunitySchema.safeParse({ ...opportunity, url: "https://www.grants.gov/search-results-detail/123" })
+      .success,
+    true,
+  );
+  assert.equal(
+    OpportunitySchema.safeParse({ ...opportunity, url: "javascript:alert(1)" }).success,
+    false,
+  );
+});
+
+test("CitationSchema.source_url accepts https:// and rejects a javascript: scheme (M8)", () => {
+  assert.equal(
+    CitationSchema.safeParse({ source_url: "https://www.sbir.gov/x" }).success,
+    true,
+  );
+  assert.equal(
+    CitationSchema.safeParse({ source_url: "javascript:alert(1)" }).success,
+    false,
+  );
 });

@@ -59,7 +59,7 @@ export type Provenanced<T> = {
  */
 export const CitationSchema = z.object({
   /** The source page / document, if there is a fetchable URL. */
-  source_url: z.string().url().optional(),
+  source_url: z.string().url({ protocol: /^https?$/ }).optional(),
   /** Human-readable source name ("Grants.gov NOFO HHS-2025-...", "SBA 13 CFR 121"). */
   source_name: z.string().optional(),
   /** ISO-8601 timestamp for when this was retrieved. Freshness (R8.3, §4.4). */

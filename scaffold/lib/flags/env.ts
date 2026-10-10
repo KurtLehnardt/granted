@@ -20,9 +20,6 @@ import type { FlagName } from "./registry";
 export function readRawOverrides(): Record<FlagName, string | undefined> {
   return {
     r1_interview: process.env.NEXT_PUBLIC_FLAG_R1_INTERVIEW,
-    r2_verify: process.env.NEXT_PUBLIC_FLAG_R2_VERIFY,
-    r3_enhance: process.env.NEXT_PUBLIC_FLAG_R3_ENHANCE,
-    r4_progress: process.env.NEXT_PUBLIC_FLAG_R4_PROGRESS,
     r8_eligibility: process.env.NEXT_PUBLIC_FLAG_R8_ELIGIBILITY,
     // Matches the mock-auth drop-in's own env var — see registry.ts's r9_0_mockauth entry.
     r9_0_mockauth: process.env.NEXT_PUBLIC_MOCK_AUTH,

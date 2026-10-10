@@ -60,7 +60,7 @@ export const GroundedAwardRecordSchema = z.object({
   /** The full description / abstract — the awardee's own self-description. */
   abstract: z.string().min(1),
   /** Real, fetchable public source URL (USAspending / NIH RePORTER / NSF award page). */
-  sourceUrl: z.string().url(),
+  sourceUrl: z.string().url({ protocol: /^https?$/ }),
   /** Fiscal / award year, when the source provides it. */
   year: z.number().int().optional(),
   /** Cosine similarity to the persona (rerank score, text-embedding-3-small @512). */
@@ -93,7 +93,7 @@ export const WebCompetitorProfileSchema = z.object({
   /** Company / organization name, verbatim from the web result. */
   company: z.string().min(1),
   /** Real, fetchable public source URL the profile was drawn from. */
-  sourceUrl: z.string().url(),
+  sourceUrl: z.string().url({ protocol: /^https?$/ }),
   /** A short description snippet drawn from the web result — the only evidence. */
   snippet: z.string().min(1),
   /** Which web tool surfaced this profile, for provenance. */

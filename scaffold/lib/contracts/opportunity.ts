@@ -31,7 +31,11 @@ export const OpportunitySourceSchema = z.enum([
   "sbir",
   "assistance-listings",
   "sam-contracts",
-  // State grant sources:
+  // State grant sources (mirrors components/StateSourcesSection.tsx's
+  // STATE_SOURCE_OPTIONS ids and lib/location.ts's SUPPORTED_STATE_SOURCES) --
+  // duplicated by hand, like TOGGLEABLE_STATE_SOURCES in
+  // app/api/corpus/refresh/handler.ts, rather than importing a component or
+  // script file into this schema module.
   "ca-grants",
   "il-grants",
   "nc-grants",
@@ -170,7 +174,7 @@ export const OpportunitySchema = z.object({
   forecasted: z.boolean().optional(),
   industryTags: z.array(z.string()).optional(),
   geography: z.string().optional(),
-  url: z.string().optional(),
+  url: z.string().url({ protocol: /^https?$/ }).optional(),
   embedding: z.array(z.number()).optional(),
 
   // --- §3.4 Canon additions (all optional → additive, cache-safe) ---

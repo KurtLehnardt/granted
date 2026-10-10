@@ -25,9 +25,6 @@
 
 export type FlagName =
   | "r1_interview"
-  | "r2_verify"
-  | "r3_enhance"
-  | "r4_progress"
   | "r8_eligibility"
   | "r9_0_mockauth"
   | "r10_analytics"
@@ -66,24 +63,6 @@ export const FLAG_REGISTRY: Record<FlagName, FlagDefinition> = {
     requirement: "R1",
     description: "Pre-search clarification interview shown before the expensive pipeline runs.",
     envVar: "NEXT_PUBLIC_FLAG_R1_INTERVIEW",
-  },
-  r2_verify: {
-    name: "r2_verify",
-    requirement: "R2",
-    description: "\"Verify these for me\" triage + web-search-backed verification on results.",
-    envVar: "NEXT_PUBLIC_FLAG_R2_VERIFY",
-  },
-  r3_enhance: {
-    name: "r3_enhance",
-    requirement: "R3",
-    description: "\"Enhance my company description\" guided-rewrite modal with live diff.",
-    envVar: "NEXT_PUBLIC_FLAG_R3_ENHANCE",
-  },
-  r4_progress: {
-    name: "r4_progress",
-    requirement: "R4",
-    description: "Event-driven streaming progress UI, replacing the fixed fake progress bar.",
-    envVar: "NEXT_PUBLIC_FLAG_R4_PROGRESS",
   },
   r8_eligibility: {
     name: "r8_eligibility",
@@ -203,10 +182,9 @@ export const FLAG_REGISTRY: Record<FlagName, FlagDefinition> = {
     name: "commercial_ui",
     requirement: "COMM",
     description:
-      "Commercial / demo scaffolding in the UI: the mock Billing section + plan tiers, the 'Maximum/Pro " +
-      "plan' framing and padlocks on the competitor & auto-fill surfaces, and the hackathon-judge demo " +
-      "sign-in toggle. Default OFF so a self-hosted / run-it-locally user is never shown a subscription " +
-      "for something that is free to run; the underlying code stays in place. Flip ON to restore the paid framing.",
+      "Commercial / demo scaffolding in the UI: currently just the hackathon-judge demo sign-in " +
+      "toggle on the login screen. Default OFF so a self-hosted / run-it-locally user sees real " +
+      "sign-in only; the underlying code stays in place. Flip ON to restore the demo toggle.",
     envVar: "NEXT_PUBLIC_FLAG_COMMERCIAL_UI",
   },
   match_filters: {
