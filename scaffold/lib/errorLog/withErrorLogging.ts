@@ -8,6 +8,7 @@
  */
 import { NextResponse } from "next/server";
 import { logError, type LogErrorOptions } from "./server";
+import { describeErrorForLog } from "../llm/errors";
 
 type Log = (area: string, err: unknown, opts?: LogErrorOptions) => string;
 
@@ -55,7 +56,7 @@ export function withErrorLogging<A extends unknown[]>(
       res = await handler(...args);
     } catch (err) {
       const errorId = log(area, err, { status: 500, path });
-      console.error(`${area} failed [${errorId}]:`, err);
+      console.error(`${area} failed [${errorId}]:`, describeErrorForLog(err).message);
       return NextResponse.json({ error: "Something went wrong inside Granted. Please try again.", errorId }, { status: 500 });
     }
     try {

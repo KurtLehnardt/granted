@@ -16,12 +16,23 @@ import { __resetRateLimits } from "@/lib/security/rateLimit";
 const VALID_DESCRIPTION =
   "We build AI-assisted diagnostics for rural clinics and need federal funding.";
 
-function post(body: string): NextRequest {
+// Qualifying loopback headers (lib/corpus/loopback.ts), matching the
+// precedent at app/api/logs/__tests__/handler.test.ts:25.
+const LOCAL = { "x-forwarded-for": "127.0.0.1", host: "localhost:3000", "sec-fetch-site": "same-origin" };
+
+function post(body: string, headers: Record<string, string> = LOCAL): NextRequest {
   return new NextRequest("http://localhost/api/interview", {
     method: "POST",
+    headers,
     body,
   });
 }
+
+test("a request without loopback headers is refused with 403", async () => {
+  __resetRateLimits();
+  const res = await POST(post(JSON.stringify({ description: VALID_DESCRIPTION }), { "x-forwarded-for": "192.168.1.20", host: "192.168.1.5:3000" }));
+  assert.equal(res.status, 403);
+});
 
 test("missing description -> 400", async () => {
   __resetRateLimits();

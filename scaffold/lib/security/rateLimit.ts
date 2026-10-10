@@ -61,10 +61,28 @@ export function rateLimit(
 }
 
 /**
- * Best-effort client identifier from proxy headers. Running locally there is no
- * proxy, so this normally falls back to the shared bucket — which just means the
- * cap is shared, never that it errors. `x-forwarded-for` (client is the FIRST
- * hop) and `x-real-ip` are still honored if a reverse proxy is put in front.
+ * Best-effort client identifier from proxy headers — NOT a security boundary.
+ * Both `x-forwarded-for` and `x-real-ip` are ordinary request headers that any
+ * non-browser client (curl, a script, a bot) can set to any value it likes, so
+ * a raw HTTP client can mint a fresh rate-limit bucket on every request simply
+ * by varying this header, bypassing the cap entirely. This function's purpose
+ * is therefore a politeness/accident guard — it blunts a naive retry loop or a
+ * buggy client, not a deliberate abuser — never an anti-abuse control.
+ *
+ * The control that actually blocks cross-origin, off-machine and DNS-rebinding
+ * abuse is `isLoopbackRequest` (`lib/corpus/loopback.ts`), which is now applied
+ * on every spend route ahead of the rate limit. That check relies on
+ * `x-forwarded-for` too, but Next fills it from the raw socket unless the
+ * client supplies one, and it cross-checks the `host` header and either
+ * `sec-fetch-site` or `origin` — properties a browser cannot forge. A raw
+ * client CAN still forge all of those, but at that point it is simply running
+ * on the same machine, which is the posture this app already trusts.
+ *
+ * The headers are still honored here (instead of collapsing to one constant
+ * key) because running behind a reverse proxy is a legitimate deployment, and
+ * because `npm run dev:lan` deliberately serves several real peers on a
+ * trusted network — bucketing per forwarded IP keeps one noisy peer from
+ * starving the others, which a single global bucket would not.
  */
 export function clientKey(req: Request): string {
   const xff = req.headers.get("x-forwarded-for");

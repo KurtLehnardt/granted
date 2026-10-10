@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { buildOpportunityMap, type StepEvent } from "@/lib/match";
 import type { Match } from "@/lib/types";
 import { rateLimit, clientKey } from "@/lib/security/rateLimit";
@@ -14,8 +15,9 @@ import { getCloudProvider } from "@/lib/llm/providers";
 import type { LlmInfo } from "@/lib/llm/types";
 import { dropExpiredMatches } from "@/lib/corpus/expiry";
 import { dropPastAwardMatches } from "@/lib/corpus/pastAwards";
-import { sanitizedProviderErrorFor4xx } from "@/lib/llm/errors";
+import { describeErrorForLog, sanitizedProviderErrorFor4xx } from "@/lib/llm/errors";
 import { logError, messageOf } from "@/lib/errorLog/server";
+import { isLoopbackRequest } from "@/lib/corpus/loopback";
 
 /**
  * Whether a failed search's specific message (describeSearchError) is a Local
@@ -136,6 +138,15 @@ export async function handleMatchRequest(
   req: Request,
   deps: MatchDeps = REAL_DEPS,
 ): Promise<Response> {
+  // This is a real-money route (model + search spend) — restrict it to this
+  // computer before any other work. isLoopbackRequest checks the FIRST
+  // x-forwarded-for hop and the host header, which a browser can't forge, so
+  // this blocks LAN pages, cross-site pages and DNS rebinding, not just a
+  // literal "localhost" string.
+  if (!isLoopbackRequest(req)) {
+    return NextResponse.json({ error: "Only available from this computer" }, { status: 403 });
+  }
+
   // Best-effort per-IP throttle before any parsing/model work.
   const limit = rateLimit(clientKey(req), { limit: MATCH_RATE_LIMIT, windowMs: MATCH_RATE_WINDOW_MS });
   if (!limit.ok) {
@@ -159,7 +170,11 @@ export async function handleMatchRequest(
   let requestedModel: string | undefined;
   try {
     const body = await req.json();
-    description = body?.description;
+    const descResult = z.string().optional().safeParse(body?.description);
+    if (!descResult.success) {
+      return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+    }
+    description = descResult.data ?? "";
     const cf = body?.companyFacts;
     if (cf && typeof cf === "object") {
       companyFacts = {};
@@ -263,7 +278,7 @@ export async function handleMatchRequest(
         // text, since raw internals shouldn't reach the client.
         // A recognized cause (Ollama down, local model missing, out of credits,
         // bad key) gets a specific message that says where to fix it.
-        console.error("match failed:", err);
+        console.error("match failed:", describeErrorForLog(err).message);
         const local = llm ? llm.local : isLocalLlm();
         const specific = describeSearchError(
           err,

@@ -15,9 +15,11 @@ import { withErrorLogging } from "@/lib/errorLog/withErrorLogging";
  * Mirrors the shape of the other unauthenticated routes (extract-profile /
  * interview): same per-IP soft rate limit, same 400-on-bad-input contract.
  *
- * TODO: wire to a real email store (e.g. a Supabase `leads` table, a
- * transactional-email/ESP list, or a CRM webhook). Until then this endpoint
- * accepts and acknowledges but does not persist the lead.
+ * TODO: wire to a real email store. Supabase has been fully retired from this
+ * codebase, so that is not an option; reasonable choices are a transactional-
+ * email/ESP list (e.g. a Mailchimp/Resend/Postmark audience) or a CRM webhook.
+ * Until then this endpoint accepts and acknowledges but does not persist the
+ * lead.
  */
 
 const LEAD_RATE_LIMIT = Number(process.env.LEAD_RATE_LIMIT) || 20;
@@ -68,9 +70,11 @@ async function postReadinessLead(req: NextRequest) {
 
   // TODO: wire to a real email store. For now we only acknowledge — the lead is
   // NOT persisted anywhere. Log server-side so a manual export is at least
-  // possible during the concierge phase; contains only the email + grade the
-  // user themselves submitted, no derived personal data.
-  console.info("[readiness-lead] captured (not persisted):", { email: trimmed, grade: capturedGrade });
+  // possible during the concierge phase. The email is deliberately excluded
+  // from this log line: this process's stdout is redirected to a tray log file
+  // on disk (not actually ephemeral), so writing the email there would leave a
+  // standing copy of it outside any real store.
+  console.info("[readiness-lead] captured (not persisted)", { grade: capturedGrade });
 
   return NextResponse.json({ ok: true });
 }
