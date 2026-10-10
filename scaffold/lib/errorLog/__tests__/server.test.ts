@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { cleanArea, envFileSecrets, isSecretEnv, logError, messageOf, resetOnceCache, serverSanitizeContext, shortStack } from "../server";
+import { cleanArea, envFileSecrets, FCC_DEFAULT_KEY_FILE, isSecretEnv, logError, messageOf, resetOnceCache, serverSanitizeContext, shortStack } from "../server";
+import { expandHome } from "../../llm/keySource";
 import { sanitize } from "../sanitize";
 import { resetLlmConfigCache } from "../../llm/config";
 import { isErrorId } from "../errorId";
@@ -204,6 +205,29 @@ describe("helpers", () => {
       assert.ok(ctx.secrets?.includes("first-line-token-abc"));
       assert.ok(ctx.secrets?.includes("second-line-token-def"));
       assert.deepEqual(ctx.hosts, [], "a loopback base URL is not private information");
+    });
+
+    test("the key-source file's PATH is redacted too, not just its contents (L5.1)", () => {
+      const keyFile = join(cwd, "secret-provider-key.txt");
+      writeFileSync(keyFile, "first-line-token-abc\n");
+      saveCloud({ providerId: "fcc", baseUrl: "http://127.0.0.1:8082", keySource: { type: "file", path: keyFile } });
+      const ctx = serverSanitizeContext(cwd, {});
+      assert.ok(ctx.secrets?.includes(keyFile), "the raw configured path is a secret");
+      // A realistic ENOENT-style message naming the key file's path must come out clean.
+      const message = `ENOENT: no such file or directory, open '${keyFile}'`;
+      const out = sanitize(message, ctx);
+      assert.doesNotMatch(out, /secret-provider-key\.txt/);
+      assert.match(out, /\[redacted\]/);
+    });
+
+    test("the fcc default key file's PATH is redacted too, raw and home-expanded (L5.1)", () => {
+      const ctx = serverSanitizeContext(cwd, {});
+      assert.ok(ctx.secrets?.includes(FCC_DEFAULT_KEY_FILE), "the raw ~-form path is a secret");
+      assert.ok(ctx.secrets?.includes(expandHome(FCC_DEFAULT_KEY_FILE)), "the home-expanded path is a secret");
+      const message = `ENOENT: no such file or directory, open '${expandHome(FCC_DEFAULT_KEY_FILE)}'`;
+      const out = sanitize(message, ctx);
+      assert.doesNotMatch(out, /proxy_auth_token/);
+      assert.match(out, /\[redacted\]/);
     });
 
     test("the cloud key in use, saved inline", () => {

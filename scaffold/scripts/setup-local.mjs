@@ -27,7 +27,7 @@
  * parser) is exported and unit-tested in scripts/__tests__/setupLocal.test.ts;
  * none of the tests need a TTY or a live Ollama.
  */
-import { readFileSync, writeFileSync, existsSync, copyFileSync, realpathSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, copyFileSync, realpathSync, chmodSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
@@ -566,6 +566,14 @@ async function main() {
   };
   const { text, applied, skipped } = mergeEnvLocal(before, updates);
   writeFileSync(ENV, text); // one atomic-ish write of the fully-merged text
+  // .env.local holds API keys, so it must not be world-readable. writeFileSync's `mode` option is
+  // only honored when the file is CREATED, so it would silently do nothing on an already-existing
+  // file (the common case here, since this write always runs after any copy/create above); and
+  // copyFileSync's third argument is a copy-behavior FLAGS bitmask (e.g. COPYFILE_EXCL), not a
+  // permissions mode, so passing a mode there would do something else entirely. chmodSync after
+  // the write is the only thing that is correct on every path: freshly copied from .env.example,
+  // freshly created empty, or already existing from a previous run.
+  chmodSync(ENV, 0o600);
   for (const { key, value } of applied) console.log(`  ${c.g("✓")} set ${key}=${value}`);
   for (const { key, existing } of skipped) {
     console.log(c.y(`  • kept existing ${key}=${existing} ${c.dim("(edit .env.local by hand to change it)")}`));

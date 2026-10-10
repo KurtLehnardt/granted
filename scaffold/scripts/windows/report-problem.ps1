@@ -45,14 +45,15 @@ $GrantedSanitizeRulesJson = @'
     {"name":"groq-key","pattern":"\\bgsk_[A-Za-z0-9]{12,}","flags":"","replacement":"[redacted-key]"},
     {"name":"xai-key","pattern":"\\bxai-[A-Za-z0-9]{20,}","flags":"","replacement":"[redacted-key]"},
     {"name":"huggingface-token","pattern":"\\bhf_[A-Za-z0-9]{20,}","flags":"","replacement":"[redacted-key]"},
+    {"name":"fireworks-key","pattern":"\\b(?:fw|fpk)_[A-Za-z0-9]{20,}","flags":"","replacement":"[redacted-key]"},
     {"name":"github-token","pattern":"\\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})","flags":"","replacement":"[redacted-key]"},
     {"name":"bearer-token","pattern":"(\\bbearer\\s+)[A-Za-z0-9._~+/=\\-]{6,}","flags":"i","replacement":"$1[redacted]"},
     {"name":"basic-auth-header","pattern":"(\\bbasic\\s+)[A-Za-z0-9+/=]{12,}","flags":"i","replacement":"$1[redacted]"},
     {"name":"authorization-header","pattern":"(\\b(?:proxy-)?authorization[\"']?\\s*[:=]\\s*[\"']?(?:(?:token|apikey|api-key|key|bearer|basic|digest)\\s+)?)(?!(?:token|apikey|api-key|key|bearer|basic|digest)(?:\\s|$))[^\\s\"'&,;}\\[]{4,}","flags":"i","replacement":"$1[redacted]"},
     {"name":"url-credentials","pattern":"(\\b[a-z][a-z0-9+.\\-]{0,30}://)[^/\\s:@\"'<>]{1,256}:[^/\\s@\"'<>]{1,256}@","flags":"i","replacement":"$1[redacted]@"},
     {"name":"key-query-param","pattern":"([?&;](?:key|api_key|apikey|api-key|access_token|token|auth|sig|signature|password|secret)=)[^&\\s\"'#<>]+","flags":"i","replacement":"$1[redacted]"},
-    {"name":"key-header-or-field","pattern":"(\\b(?:x-api-key|x-goog-api-key|api[_\\-]?key|api[_\\-]?secret|access[_\\-]?token|refresh[_\\-]?token|auth[_\\-]?token|id[_\\-]?token|client[_\\-]?secret|token|secret|password|passwd)[\"']?\\s*[:=]\\s*[\"']?)[^\\s\"'&,;}\\[]{4,}","flags":"i","replacement":"$1[redacted]"},
-    {"name":"env-secret-assignment","pattern":"(\\b[A-Z0-9_]{0,60}(?:_KEY|_TOKEN|_SECRET|_PASSWORD|_PASS)\\s*=\\s*)[^\\s\"';,&]+","flags":"","replacement":"$1[redacted]"},
+    {"name":"key-header-or-field","pattern":"(\\b(?:x-api-key|x-goog-api-key|[A-Z0-9_]{0,60}API[_\\-]?KEY|api[_\\-]?secret|access[_\\-]?token|refresh[_\\-]?token|auth[_\\-]?token|id[_\\-]?token|client[_\\-]?secret|token|secret|password|passwd)[\"']?\\s*[:=]\\s*[\"']?)[^\\s\"'&,;}\\[]{4,}","flags":"i","replacement":"$1[redacted]"},
+    {"name":"env-secret-assignment","pattern":"(\\b[A-Z0-9_]{0,60}(?:_KEY|_TOKEN|_SECRET|_PASSWORD|_PASS)\\s*=\\s*[\"']?)[^\\s\"';,&]+","flags":"","replacement":"$1[redacted]"},
     {"name":"email","pattern":"[A-Za-z0-9._%+\\-]{1,64}@(?:[A-Za-z0-9\\-]{1,63}\\.){1,8}[A-Za-z]{2,24}\\b","flags":"","replacement":"[email]"},
     {"name":"private-network-url-host","pattern":"(\\b[a-z][a-z0-9+.\\-]{0,30}://)[A-Za-z0-9\\-.]{1,200}\\.(?:local|lan|internal|intranet|corp|home|localdomain)\\b","flags":"i","replacement":"$1[private-host]"},
     {"name":"private-ipv4","pattern":"\\b(?:10(?:\\.\\d{1,3}){3}|192\\.168(?:\\.\\d{1,3}){2}|172\\.(?:1[6-9]|2\\d|3[01])(?:\\.\\d{1,3}){2})\\b","flags":"","replacement":"[private-host]"},
@@ -210,12 +211,20 @@ function Get-GrantedSanitizeContext([string]$ScaffoldDir) {
         if ($fromEnv) { $secrets += $fromEnv }
         foreach ($e in $entries) { if ($e[0] -eq $ks.name) { $secrets += $e[1] } }
       }
-      if ($ks.type -eq "file" -and $ks.path) { $secrets += @(Get-KeyFileLines ([string]$ks.path)) }
+      if ($ks.type -eq "file" -and $ks.path) {
+        $secrets += @(Get-KeyFileLines ([string]$ks.path))
+        # The key file's PATH can itself be identifying (e.g. in an ENOENT message); redact both
+        # the raw configured path and its home-expanded form (same as keyFileLines() callers in server.ts).
+        $secrets += [string]$ks.path
+        $secrets += (Expand-HomePath ([string]$ks.path))
+      }
     }
     if ($c.cloud -and $c.cloud.baseUrl) { $urls += [string]$c.cloud.baseUrl }
     if ($c.anthropicApiKey) { $secrets += [string]$c.anthropicApiKey }
   }
   $secrets += @(Get-KeyFileLines $FccDefaultKeyFile)
+  $secrets += $FccDefaultKeyFile
+  $secrets += (Expand-HomePath $FccDefaultKeyFile)
   return @{ secrets = $secrets; hosts = @(Get-PrivateHosts $urls) }
 }
 

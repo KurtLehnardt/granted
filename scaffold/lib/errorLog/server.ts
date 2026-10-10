@@ -107,12 +107,18 @@ export function serverSanitizeContext(cwd: string = process.cwd(), env: Record<s
       if (resolved) secrets.push(resolved);
       if (cfg.keySource.type === "inline") secrets.push(cfg.keySource.key);
       if (cfg.keySource.type === "env" && env[cfg.keySource.name]) secrets.push(env[cfg.keySource.name]!);
-      if (cfg.keySource.type === "file") secrets.push(...keyFileLines(cfg.keySource.path));
+      if (cfg.keySource.type === "file") {
+        secrets.push(...keyFileLines(cfg.keySource.path));
+        // The key file's PATH can itself be identifying (e.g. inside an ENOENT message), not just
+        // its contents: redact both the raw configured path and its home-expanded form.
+        secrets.push(cfg.keySource.path, expandHome(cfg.keySource.path));
+      }
       if (cfg.baseUrl) urls.push(cfg.baseUrl);
     }
     if (file.anthropicApiKey) secrets.push(file.anthropicApiKey);
   }, undefined);
   secrets.push(...keyFileLines(FCC_DEFAULT_KEY_FILE));
+  secrets.push(FCC_DEFAULT_KEY_FILE, expandHome(FCC_DEFAULT_KEY_FILE));
   return {
     home: safe(() => os.homedir(), null),
     user: safe(() => os.userInfo().username, null) ?? env["USERNAME"] ?? env["USER"] ?? null,
