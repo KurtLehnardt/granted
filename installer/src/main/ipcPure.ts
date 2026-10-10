@@ -17,11 +17,15 @@ import type { InstallStatusEvent, InstallVersionPlan, OpenIn } from "../shared/i
 
 /** The regex-extraction half of checkVersionedTool. */
 export function parseVersionFromOutput(stdout: string): { version: string | null; major: number | null } {
-  const match = stdout.match(/(\d+)\.(\d+)\.(\d+)/);
+  // Anchored at the start of the trimmed string, with an optional known prefix
+  // ("git version " for git's banner; node's own `--version` output starts
+  // directly with "v") — so a version-shaped number appearing later in noisy
+  // stdout is never matched instead of the real one.
+  const match = stdout.trim().match(/^(?:git version\s+)?v?((\d+)\.(\d+)\.(\d+))/);
   if (!match) {
     return { version: stdout.trim() || null, major: null };
   }
-  return { version: match[0], major: Number.parseInt(match[1], 10) };
+  return { version: match[1], major: Number.parseInt(match[2], 10) };
 }
 
 /**
@@ -221,6 +225,13 @@ export const SCORING_KEY = "OPENAI_API_KEY or ANTHROPIC_API_KEY";
  * already set; this form does show those fields). A blank field keeps the
  * existing value. `missing` lists required keys still unset afterwards, so
  * the caller can refuse to start an app that can't work yet.
+ *
+ * Validation runs against the TRIMMED value (surrounding whitespace from a
+ * copy-paste is routinely trimmed, not rejected), but a `\r` or `\n` left
+ * inside that trimmed value is always rejected, for every field — including
+ * EXA_API_KEY, which has no format check of its own — because writing it
+ * verbatim into .env.local would let it inject extra lines into that file. A
+ * field marked invalid for either reason is never written.
  */
 export function applyApiKeys(
   text: string,
@@ -230,12 +241,21 @@ export function applyApiKeys(
   // providers.ts) is rejected here, with its name — not saved, only to fail
   // at the first search as "No cloud provider is configured".
   const invalid: string[] = [];
-  if (keys.OPENAI_API_KEY.trim() && !isOpenAiKeyFormat(keys.OPENAI_API_KEY.trim())) invalid.push("OPENAI_API_KEY");
-  if (keys.ANTHROPIC_API_KEY.trim() && !isAnthropicKeyFormat(keys.ANTHROPIC_API_KEY.trim())) invalid.push("ANTHROPIC_API_KEY");
-  let out = text;
+  const trimmed: Record<string, string> = {};
   for (const [key, raw] of Object.entries(keys)) {
     const value = raw.trim();
-    if (value !== "") out = upsertEnv(out, key, value);
+    trimmed[key] = value;
+    if (value !== "" && /[\r\n]/.test(value)) invalid.push(key);
+  }
+  if (!invalid.includes("OPENAI_API_KEY") && trimmed.OPENAI_API_KEY && !isOpenAiKeyFormat(trimmed.OPENAI_API_KEY)) {
+    invalid.push("OPENAI_API_KEY");
+  }
+  if (!invalid.includes("ANTHROPIC_API_KEY") && trimmed.ANTHROPIC_API_KEY && !isAnthropicKeyFormat(trimmed.ANTHROPIC_API_KEY)) {
+    invalid.push("ANTHROPIC_API_KEY");
+  }
+  let out = text;
+  for (const [key, value] of Object.entries(trimmed)) {
+    if (value !== "" && !invalid.includes(key)) out = upsertEnv(out, key, value);
   }
   // Search needs no key: it runs on Granted's built-in model on this computer
   // (an OpenAI key, when present, is used for search instead, as before). What
