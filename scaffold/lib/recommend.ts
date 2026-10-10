@@ -81,6 +81,17 @@ export function recommendFor(input: RecommendInput): RecommendationResult {
   const ratio = criteriaMetRatio(input.criteria);
   const floor = RECOMMEND_FLOOR[input.kind] ?? RECOMMEND_FLOOR.grant;
   const { met, total } = metCounts(input.criteria);
+  // H6 — `criteria: []` (total === 0) is NOT a negative signal. It happens
+  // legitimately on the score-only two-pass path (by design — Pass A never
+  // produces criteria) and whenever every criterion entry was dropped as
+  // malformed (lib/claude.ts's `coerceCriteria`). Either way it means "we
+  // have no criteria information," not "the criteria say this is a bad
+  // fit." Without this guard, `ratio` is 0 for an empty array, which always
+  // clears below `CRITERIA_MIN_ANY` and reports a high-scoring opportunity
+  // with no criteria data at all as `do_not_recommend` — a confident wrong
+  // answer. `hasCriteriaSignal` gates the criteria-ratio branches below so a
+  // missing signal degrades to an honest `verify` instead.
+  const hasCriteriaSignal = total > 0;
 
   // 1. Do-not-recommend: below the fit floor, too few criteria met, or a
   //    USER-STATED hard mismatch (advisory caveat, never a model exclusion).
@@ -100,7 +111,7 @@ export function recommendFor(input: RecommendInput): RecommendationResult {
       basis: "This scores below our fit bar for this kind of program — an application is unlikely to be productive.",
     };
   }
-  if (ratio < CRITERIA_MIN_ANY) {
+  if (hasCriteriaSignal && ratio < CRITERIA_MIN_ANY) {
     return {
       recommendation: "do_not_recommend",
       label: "Not a fit — we don't recommend applying",
@@ -109,7 +120,7 @@ export function recommendFor(input: RecommendInput): RecommendationResult {
   }
 
   // 2. Recommend: strong on BOTH score and criteria, no stated caveat.
-  if (input.adjustedScore >= floor && ratio >= CRITERIA_MIN_RECOMMEND) {
+  if (hasCriteriaSignal && input.adjustedScore >= floor && ratio >= CRITERIA_MIN_RECOMMEND) {
     return {
       recommendation: "recommend",
       label: "Strong fit — worth pursuing",
@@ -117,7 +128,18 @@ export function recommendFor(input: RecommendInput): RecommendationResult {
     };
   }
 
-  // 3. Verify: the honest middle — a real but partial or uncertain fit.
+  // 3. No criteria signal at all (and not already caught by a stated
+  //    disqualifier or the score floor above): an honest "verify," not a
+  //    confident negative — see the H6 note on `hasCriteriaSignal` above.
+  if (!hasCriteriaSignal) {
+    return {
+      recommendation: "verify",
+      label: "Marginal — verify before investing time",
+      basis: "No detailed program criteria were available for this match — verify fit directly before investing time.",
+    };
+  }
+
+  // 4. Verify: the honest middle — a real but partial or uncertain fit.
   return {
     recommendation: "verify",
     label: "Marginal — verify before investing time",

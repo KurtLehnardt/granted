@@ -9,6 +9,7 @@ import {
 } from "../contracts/companyProfile";
 import { DEFAULT_MODEL_ROUTING } from "../contracts/modelRouting";
 import { loadPrompt, recordUsage, type PromptUsage } from "../prompts";
+import { wrapUntrusted } from "../security/untrustedInput";
 
 /**
  * INT-01 — R1 pre-search interview: question GENERATION.
@@ -401,8 +402,11 @@ export async function generateQuestions(
         model,
         temperature: 0.2, // routing is a near-deterministic task; keep it stable
         max_tokens: 1200,
-        system: `${systemPrompt}\n\nRespond with a single JSON object and nothing else.`,
-        messages: [{ role: "user", content: `COMPANY DESCRIPTION:\n${text}` }],
+        system: systemPrompt,
+        // §5.5 — the user-supplied company description is untrusted input;
+        // wrap it in the shared envelope (H4.3) same as every other untrusted
+        // field this app sends to a model.
+        messages: [{ role: "user", content: `COMPANY DESCRIPTION:\n${wrapUntrusted(text)}` }],
       },
       { signal: opts.signal },
     );
