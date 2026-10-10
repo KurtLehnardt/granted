@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useEffect, useId, useRef, useState } from "react";
-import { ipcRenderer } from "electron";
 import {
   getAutoUpdateCorpus,
   getManageOllama,
@@ -101,9 +100,10 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
       if (nudgeTimerRef.current) clearTimeout(nudgeTimerRef.current);
     };
   }, []);
-  useEffect(() => {
-    ipcRenderer.invoke('settings:setManageOllama', manageOllama);
-  }, [manageOllama]);
+  // This toggle currently only persists a localStorage preference, and nothing reads it yet.
+  // It used to call an Electron IPC channel on every change, but that channel was unreachable
+  // from this app (the scaffold is served over HTTP, not loaded in an Electron renderer), so
+  // that call has been removed.
 
   async function fetchCorpusStatus() {
     try {
@@ -360,7 +360,6 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
               setSavedAt(null);
               setManageOllamaState(e.target.checked);
               setManageOllama(e.target.checked); // update localStorage
-              ipcRenderer.invoke('settings:setManageOllama', e.target.checked);
             }}
           />
           Automatically manage Ollama service

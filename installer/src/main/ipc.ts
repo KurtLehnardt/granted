@@ -3,9 +3,21 @@ import type { WebContents } from "electron";
 import { execFile, spawn, ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 
-// Ollama management: track the child process and whether we should manage it
+// Ollama management: track the child process and whether we should manage it.
+// Nothing in the app currently starts Ollama, because the renderer-facing IPC channel that
+// would have done so was unreachable from the scaffold UI and has been removed. This shutdown
+// hook is kept for a planned follow-up that will wire the user's saved preference to real
+// Ollama lifecycle management.
 export let ollamaChild: ChildProcess | null = null;
 export let manageOllama = true;
+
+/** Kills the Ollama child process this app started, if any. See the comment above. */
+export function stopOllamaIfStarted(): void {
+  if (ollamaChild) {
+    ollamaChild.kill();
+    ollamaChild = null;
+  }
+}
 import { existsSync, mkdirSync, openSync, rmdirSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
@@ -118,27 +130,6 @@ async function checkVersionedTool(cmd: string, args: string[]): Promise<ToolChec
 // (see mergeRegistryPath, in ./ipcPure, for the actual merge/dedupe logic
 // and its real-bug history).
 const ORIGINAL_PATH = process.env["PATH"] ?? "";
-
-// Ollama management: check if Ollama is already running and reachable.
-// Returns true if Ollama is running and responding to API calls.
-async function isOllamaReachable(): Promise<boolean> {
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 2000); // 2 second timeout
-
-    const response = await fetch("http://localhost:11434/api/version", {
-      signal: controller.signal,
-      method: "GET",
-      headers: { "Content-Type": "application/json" }
-    });
-
-    clearTimeout(timeoutId);
-    return response.ok;
-  } catch (err) {
-    // Ignore errors - if Ollama is not reachable, we'll return false
-    return false;
-  }
-}
 
 async function refreshWindowsPathEnv(): Promise<void> {
   try {
@@ -1258,43 +1249,24 @@ export function registerIpcHandlers(): void {
       ? saveOpenIn(settingsPath(), openIn)
       : { ok: false, message: "Unknown place to open Granted." },
   );
-  ipcMain.handle("granted:save-api-keys", (_event, keys: ApiKeysInput) => saveApiKeys(scaffoldDir(), keys));
+  // The IPC payload's shape is only a compile-time guarantee on the preload side — a renderer
+  // is never fully trusted, so its runtime shape is checked here before it reaches saveApiKeys.
+  ipcMain.handle("granted:save-api-keys", (_event, keys: ApiKeysInput) => {
+    if (
+      typeof keys?.openaiApiKey !== "string" ||
+      typeof keys?.anthropicApiKey !== "string" ||
+      typeof keys?.exaApiKey !== "string"
+    ) {
+      return { ok: false, message: "Invalid request." };
+    }
+    return saveApiKeys(scaffoldDir(), keys);
+  });
   ipcMain.handle("granted:run-local-setup", (event) => runLocalSetup(event.sender));
   ipcMain.handle("granted:start", (event) => startGranted(event.sender));
   ipcMain.handle("granted:create-shortcuts", (_event, choice: ShortcutChoice) => createShortcuts(choice));
   ipcMain.handle("granted:create-launcher", (_event, choice: LauncherChoice) =>
     createLauncher({ addToDock: choice?.addToDock === true }),
   );
-  // Ollama management IPC handlers
-  ipcMain.handle('ollama:start-if-needed', async () => {
-    // Only start if management is enabled and Ollama is not already reachable
-    if (!manageOllama || await isOllamaReachable()) {
-      return; // Ollama is already running or management is disabled
-    }
-
-    try {
-      // Start Ollama as a detached process (so it continues after Granted exits)
-      ollamaChild = spawn('ollama', ['serve'], {
-        detached: true,
-        stdio: 'ignore',
-      });
-      ollamaChild.unref(); // Prevent the child process from keeping the Node.js event loop active
-    } catch (err) {
-      console.error('Failed to start Ollama:', err);
-    }
-  });
-
-  ipcMain.handle('ollama:get-started-flag', () => {
-    return !!ollamaChild;
-  });
-
-  ipcMain.handle('ollama:stop-if-we-started', () => {
-    if (ollamaChild) {
-      ollamaChild.kill();
-      ollamaChild = null;
-    }
-  });
-
   ipcMain.on("app:quit", (event) => BrowserWindow.fromWebContents(event.sender)?.close());
   // "Report this problem" under an error: a pre-filled, sanitized GitHub issue in the user's browser.
   ipcMain.handle("app:report-problem", async (_event, message: unknown, where: unknown) => {
@@ -1302,11 +1274,5 @@ export function registerIpcHandlers(): void {
     return (await openInBrowser(url))
       ? { ok: true, message: "Opened a problem report in your browser. Review it, then press Submit on GitHub." }
       : { ok: false, message: "Couldn't open your browser for the problem report." };
-  });
-
-  // Settings management for Ollama auto-management
-  ipcMain.handle('settings:getManageOllama', () => manageOllama);
-  ipcMain.handle('settings:setManageOllama', (_event, value) => {
-    manageOllama = value;
   });
 }

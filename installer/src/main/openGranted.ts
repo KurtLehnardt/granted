@@ -142,10 +142,15 @@ export async function saveApiKeys(scaffoldDir: string, keys: ApiKeysInput): Prom
       EXA_API_KEY: keys.exaApiKey,
     });
     if (invalid.length > 0) {
+      // applyApiKeys reports a field as invalid both for a bad key shape and for an embedded
+      // line break, with no way to tell which from here — so each message below covers both,
+      // rather than naming a specific reason that might be wrong.
       const problems = invalid.map((k) =>
         k === "OPENAI_API_KEY"
-          ? "That OpenAI key doesn't look right — OpenAI keys start with sk- and are at least 20 characters."
-          : "That Claude key doesn't look right — Anthropic keys start with sk-ant- and are at least 20 characters.",
+          ? "That OpenAI key doesn't look right — OpenAI keys start with sk- and are at least 20 characters, with no line breaks."
+          : k === "ANTHROPIC_API_KEY"
+            ? "That Claude key doesn't look right — Anthropic keys start with sk-ant- and are at least 20 characters, with no line breaks."
+            : "That Exa key doesn't look right — a key must be a single line, with no line breaks.",
       );
       return { ok: false, message: `${problems.join(" ")} Check for a missing part of the paste.` };
     }
