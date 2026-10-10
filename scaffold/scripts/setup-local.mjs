@@ -599,7 +599,8 @@ async function main() {
   console.log(`  ${c.dim("Chat model:")}      ${c.b(chosenModel)}`);
   console.log(`  ${c.dim("Search:")}          ${c.b("Built-in, on this computer")} ${c.dim("(nomic-embed-text-v1.5)")}`);
   console.log(`  ${c.dim("Config written:")}  scaffold/.env.local`);
-  console.log(`\n  ${c.b("Now run:")} ${c.g("npm run dev")}   ${c.dim("→ http://localhost:3000")}`);
+  console.log(`\n  ${c.b("Now run:")} ${c.g("npm run build")} ${c.dim("(the flags just written are baked in here)")}`);
+  console.log(`  ${c.b("then:")}    ${c.g("npm run start")}   ${c.dim("→ http://localhost:3000")}`);
   console.log(
     c.dim(
       "  Local scoring is slower than hosted Claude (a single GPU serves batches serially).\n" +

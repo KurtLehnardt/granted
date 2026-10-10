@@ -101,9 +101,22 @@ describe("uninstall.ps1: the Installed apps entry, and uninstalling", { skip: (p
     for (const f of readdirSync(WINDOWS_SCRIPTS)) copyFileSync(join(WINDOWS_SCRIPTS, f), join(windows, f));
     writeFileSync(
       join(scaffold, "package.json"),
-      JSON.stringify({ name: opts.packageName ?? "granted", version: "9.9.9", private: true, scripts: { dev: "node fake-dev.js" } }),
+      JSON.stringify({
+        name: opts.packageName ?? "granted",
+        version: "9.9.9",
+        private: true,
+        // build + start, not dev: the tray builds when there is no current
+        // production build and then starts that build (see granted-tray.ps1).
+        scripts: { dev: "node fake-dev.js", build: "node fake-build.js", start: "node fake-dev.js" },
+      }),
     );
     writeFileSync(join(scaffold, "fake-dev.js"), FAKE_SERVER);
+    // Stand-in for `next build`: writes the .next/BUILD_ID the tray treats as
+    // "a production build is present".
+    writeFileSync(
+      join(scaffold, "fake-build.js"),
+      ['const fs = require("node:fs");', 'fs.mkdirSync(".next", { recursive: true });', 'fs.writeFileSync(".next/BUILD_ID", "fake-build");'].join("\n"),
+    );
     writeFileSync(join(scaffold, ".env.local"), "OPENAI_API_KEY=sk-uninstall-test-0000000000\nLLM_API_KEY=sk-only-here-0000000000\n");
     mkdirSync(join(scaffold, "data", "local"), { recursive: true });
     writeFileSync(join(scaffold, "data", "local", "llm-config.json"), JSON.stringify({ cloud: { apiKey: "sk-in-settings-0000000000" } }));

@@ -318,7 +318,7 @@ export function buildTaskScript(opts: {
   statusPath: string;
   command: string;
   failureMessage: string;
-  /** Extra environment variables for the command (e.g. PORT for `npm run dev`). */
+  /** Extra environment variables for the command (e.g. PORT for `npm run start`). */
   env?: Record<string, string>;
 }): string {
   const envLines = Object.entries(opts.env ?? {}).map(([key, value]) => {
@@ -853,13 +853,93 @@ export function newTaskStatusPath(task: string): string {
 }
 
 /**
- * The port Granted's `npm run dev` serves on: 3000 (Next's default, what the
+ * The port Granted's `npm run start` serves on: 3000 (Next's default, what the
  * README documents) unless GRANTED_PORT overrides it — which lets the
  * end-to-end tests run on a machine where a real Granted is already up.
  */
 export function grantedPort(envValue: string | undefined): number {
   const n = Number(envValue);
   return Number.isInteger(n) && n > 0 && n < 65536 ? n : 3000;
+}
+
+// ---------------------------------------------------------------------------
+// Starting Granted = the production build, never a dev server
+//
+// Granted is served by `npm run start` (`next start`), which serves the build
+// in scaffold/.next. `npm run dev` is not used anywhere a user can reach:
+// it compiles each page on first request (so a mistake reaches them as Next's
+// red overlay) and its HMR needs 'unsafe-eval', which the app's CSP no longer
+// grants (see scaffold/next.config.mjs).
+//
+// So every start has to make sure a current build exists first. The install
+// scripts build as part of installing; these helpers are the same decision and
+// the same build-then-start chain for the installer's own "Open Granted"
+// window, and the trays (scaffold/scripts/{windows,macos}/granted-tray.*) each
+// carry it for themselves.
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether `npm run build` has to run before `npm run start`, from the mtimes
+ * of scaffold/.next/BUILD_ID and scaffold/.env.local (null = the file isn't
+ * there).
+ *
+ * BUILD_ID is the marker for "a production build is present", and a reliable
+ * one — both halves verified against Next 14.2 rather than assumed:
+ *
+ *   * `next dev` never writes BUILD_ID, so a .next left behind by someone
+ *     running `npm run dev` by hand can't be mistaken for a production build
+ *     (`next start` would refuse to serve it either way).
+ *   * a `next build` that FAILS leaves no BUILD_ID: it clears the folder
+ *     before compiling. A failed build therefore can't read as a usable one.
+ *
+ * It must also be newer than .env.local: Next inlines NEXT_PUBLIC_* flags into
+ * the client bundle at build time, so a flag written after the last build (by
+ * `npm run setup`, by this installer's own key-saving step, or by hand) only
+ * takes effect once it is rebuilt.
+ */
+export function needsProductionBuild(opts: { buildIdMtimeMs: number | null; envLocalMtimeMs: number | null }): boolean {
+  if (opts.buildIdMtimeMs === null) return true;
+  if (opts.envLocalMtimeMs === null) return false;
+  return opts.envLocalMtimeMs > opts.buildIdMtimeMs;
+}
+
+/**
+ * What buildTaskScript runs in the "Granted" console window on Windows.
+ *
+ * With a build needed, the build's exit code is checked explicitly and
+ * `npm.cmd run start` runs only if it was 0 — a failed build must never fall
+ * through to a `next start` with nothing to serve ("Could not find a
+ * production build"), which would bury the real error under a second one.
+ * $LASTEXITCODE is left holding the failing build's code, so buildTaskScript's
+ * own trailing check still reports the window as failed.
+ *
+ * npm.cmd explicitly, not `npm`: in PowerShell that can resolve to npm.ps1,
+ * which an AllSigned execution policy blocks.
+ */
+export function windowsStartGrantedCommand(needsBuild: boolean): string {
+  if (!needsBuild) return "npm.cmd run start";
+  return [
+    'Write-Host "Building Granted (a minute or two) -- this happens after an install, an update, or a settings change." -ForegroundColor Cyan',
+    "npm.cmd run build",
+    "if ($LASTEXITCODE -eq 0) {",
+    "  npm.cmd run start",
+    "} else {",
+    '  Write-Host "`n  [x] Granted couldn\'t be built, so it wasn\'t started. The error is above." -ForegroundColor Red',
+    "}",
+  ].join("\r\n");
+}
+
+/**
+ * The macOS equivalent, for launchMacScaffoldTask's bare detached spawn (the
+ * fallback for an install too old to have scripts/macos/granted-tray.sh).
+ *
+ * There is no shell in that spawn, so a build has to bring its own: `&&` means
+ * a failed build never starts the server, and `exec` keeps the server as the
+ * process whose exit the task watches, rather than a child of a lingering sh.
+ */
+export function macStartGrantedCommand(needsBuild: boolean): { command: string; args: string[] } {
+  if (!needsBuild) return { command: "npm", args: ["run", "start"] };
+  return { command: "/bin/sh", args: ["-c", "npm run build && exec npm run start"] };
 }
 
 /**

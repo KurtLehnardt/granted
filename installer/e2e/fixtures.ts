@@ -1,7 +1,8 @@
 /**
  * Shared setup for the end-to-end tests: a fake Granted install whose
- * `npm run dev` / `npm run setup:local` are tiny stand-ins (so a test takes
- * seconds, not a real Next.js compile or a multi-GB model pull), the real
+ * `npm run build` / `npm run start` / `npm run setup:local` are tiny stand-ins
+ * (so a test takes seconds, not a real Next.js compile or a multi-GB model
+ * pull), the real
  * built installer app launched via Playwright's Electron support, and
  * cleanup of the console windows the app opens.
  */
@@ -28,7 +29,7 @@ export const ENV_EXAMPLE = [
   "",
 ].join("\n");
 
-// Stand-in for `next dev -H 127.0.0.1`, which serves on $PORT (the
+// Stand-in for `next start -H 127.0.0.1`, which serves on $PORT (the
 // installer sets it) — so this also proves the port is passed through.
 const FAKE_DEV_SERVER = `
 const port = Number(process.env.PORT);
@@ -36,6 +37,16 @@ if (!port) { console.error("fake dev server: PORT not set"); process.exit(1); }
 require("node:http")
   .createServer((_req, res) => { res.writeHead(200, { "Content-Type": "text/html" }); res.end(${JSON.stringify(GRANTED_HTML)}); })
   .listen(port, "127.0.0.1", () => console.log("fake Granted listening on 127.0.0.1:" + port));
+`;
+
+// Stand-in for `next build`: writes the .next/BUILD_ID that every launcher
+// (and ipcPure.ts's needsProductionBuild) treats as "a production build is
+// present", so the real build-then-start flow is exercised in seconds.
+const FAKE_BUILD = `
+const fs = require("node:fs");
+fs.mkdirSync(".next", { recursive: true });
+fs.writeFileSync(".next/BUILD_ID", "fake-build");
+console.log("fake build: wrote .next/BUILD_ID");
 `;
 
 // Stand-in for scripts/setup-local.mjs: writes what the real one writes on
@@ -111,13 +122,25 @@ export function makeFakeInstall(opts: { withWindowsScripts?: boolean; withMacScr
   writeFileSync(
     join(scaffoldDir, "package.json"),
     JSON.stringify(
-      { name: "fake-granted", private: true, scripts: { dev: "node fake-dev.js", "setup:local": "node fake-setup-local.js" } },
+      {
+        name: "fake-granted",
+        private: true,
+        // build + start, not dev: every launcher builds when there is no
+        // current production build and then serves that build.
+        scripts: {
+          dev: "node fake-dev.js",
+          build: "node fake-build.js",
+          start: "node fake-dev.js",
+          "setup:local": "node fake-setup-local.js",
+        },
+      },
       null,
       2,
     ),
   );
   writeFileSync(join(scaffoldDir, ".env.example"), ENV_EXAMPLE);
   writeFileSync(join(scaffoldDir, "fake-dev.js"), FAKE_DEV_SERVER);
+  writeFileSync(join(scaffoldDir, "fake-build.js"), FAKE_BUILD);
   writeFileSync(join(scaffoldDir, "fake-setup-local.js"), FAKE_SETUP_LOCAL);
   const browserLog = join(root, "browser.log");
   const fakeBrowser = join(root, process.platform === "win32" ? "fake-browser.cmd" : "fake-browser.sh");

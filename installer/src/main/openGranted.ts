@@ -1,7 +1,7 @@
 /**
  * The file-system and network half of "Open Granted" (the screen shown once
  * the install finishes): reading/writing scaffold/.env.local, probing
- * whether Granted is answering, and waiting for `npm run dev` to come up.
+ * whether Granted is answering, and waiting for `npm run start` to come up.
  *
  * Kept free of any `electron` import, like ipcPure.ts and for the same
  * reason — a plain Node test runner can't import a module that imports

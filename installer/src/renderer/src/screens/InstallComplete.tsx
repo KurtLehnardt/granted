@@ -13,7 +13,8 @@ import ReportProblem from "../ReportProblem";
 /**
  * Shown once the install finishes. Offers to do the README's "Next steps"
  * for the user — configure .env.local (an API key for scoring, or the fully-local
- * Ollama setup), start `npm run dev`, and open Granted (in its own window or
+ * Ollama setup), start `npm run start` (rebuilding first when the install's
+ * production build isn't current), and open Granted (in its own window or
  * a browser tab) — instead of
  * leaving them to type those commands into the console.
  */
@@ -376,10 +377,15 @@ export default function InstallComplete(): React.JSX.Element {
           {shortcutPlaces.length === 0 && !launcherMade && (
             <p>To open Granted later, run these in {isMac ? "Terminal" : "PowerShell"}:</p>
           )}
+          {/* `npm run build` then `npm run start`, not `npm run dev`: Granted
+              is served from a production build (the install made one). The
+              build is repeated here because setup writes .env.local, and Next
+              bakes its NEXT_PUBLIC_* flags in at build time. */}
           <code className="command">{`cd ${isMac ? `"${installDir}/scaffold"` : `"${installDir}\\scaffold"`}
 npm run setup                  # an OpenAI or Claude key for scoring (each optional), or
 npm run setup:local -- --yes   # fully local via Ollama, no API keys
-npm run dev                    # then open http://localhost:3000`}</code>
+npm run build                  # after changing .env.local
+npm run start                  # then open http://localhost:3000`}</code>
           <div className="actions spaced">
             <button type="button" className="primary" onClick={() => window.api.quit()}>
               Close installer

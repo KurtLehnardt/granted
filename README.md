@@ -10,7 +10,7 @@ Run it with your own API keys or a fully local model — see **Run it yourself**
 
 # Run it yourself
 
-`npm run dev` listens only on your machine; `npm run dev:lan` opts in to exposing it to your local network.
+`npm run build` then `npm run start` is how Granted runs: a production build, served on `127.0.0.1` only — the same thing the installers, the menu-bar icon and the Windows tray start for you. `npm run dev` is the development server (hot reload); it needs `'unsafe-eval'`, which the app's Content-Security-Policy deliberately no longer grants, so expect CSP warnings in the console there. `npm run dev:lan` opts a dev server in to your local network.
 
 Every OS below ends up running the exact same `npm` commands — the setup scripts detect your platform automatically. Only the prerequisite installs (Node, git, Ollama) differ, so pick yours:
 
@@ -22,7 +22,7 @@ Every OS below ends up running the exact same `npm` commands — the setup scrip
 
 **4. Run it in the background, from a launcher (optional)**
 
-Instead of keeping a Terminal open for `npm run dev`, Granted can run hidden in the background with an icon in the menu bar. The GUI installer offers this: its "Installation complete" screen has an **Add to Dock** box, and "Open Granted" starts it this way. To add the launcher by hand:
+Instead of keeping a Terminal open for `npm run start`, Granted can run hidden in the background with an icon in the menu bar. The GUI installer offers this: its "Installation complete" screen has an **Add to Dock** box, and "Open Granted" starts it this way. To add the launcher by hand:
 ```bash
 bash scripts/macos/applications-launcher.sh install --add-to-dock
 ```
@@ -78,7 +78,8 @@ No `winget`? Grab [Node 22+](https://nodejs.org) and [git](https://git-scm.com/d
 **2. Search your own company — hosted (one key for scoring: Claude or OpenAI)**
 ```powershell
 npm run setup      # interactive: writes .env.local, collects your keys
-npm run dev
+npm run build      # again after any .env.local change: NEXT_PUBLIC_* flags are baked in here
+npm run start
 ```
 Or by hand: `Copy-Item .env.example .env.local` (PowerShell) or `cp .env.example .env.local` (Git Bash), then edit `scaffold/.env.local` and set `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` for the scoring. Search itself needs no key — see **What you need** below.
 
@@ -88,14 +89,15 @@ Or by hand: `Copy-Item .env.example .env.local` (PowerShell) or `cp .env.example
 ```powershell
 # No Ollama yet? setup:local installs it via winget (or get it at https://ollama.com/download).
 npm run setup:local -- --yes        # picks a model sized for your RAM/VRAM and pulls it
-npm run dev
+npm run build                       # again after any .env.local change
+npm run start
 ```
 
 #### Windows run in the background
 
 **4. Run it in the background, from a shortcut (optional)**
 
-Instead of keeping a terminal open for `npm run dev`, Granted can run hidden in the background with an icon by the clock. The GUI installer offers this. Its "Installation complete" screen has **Desktop** and **Start menu** shortcut boxes, and "Open Granted" starts it this way. To add the shortcuts by hand:
+Instead of keeping a terminal open for `npm run start`, Granted can run hidden in the background with an icon by the clock. The GUI installer offers this. Its "Installation complete" screen has **Desktop** and **Start menu** shortcut boxes, and "Open Granted" starts it this way. To add the shortcuts by hand:
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\shortcuts.ps1 -Desktop -StartMenu
 ```
@@ -150,7 +152,8 @@ npm install
 **2. cloud models (one key for scoring: Claude or OpenAI)**
 ```bash
 npm run setup      # interactive: writes .env.local, collects your keys
-npm run dev
+npm run build      # again after any .env.local change: NEXT_PUBLIC_* flags are baked in here
+npm run start
 ```
 Or by hand: `cp .env.example .env.local`, then edit `scaffold/.env.local` and set `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` for the scoring. Search itself needs no key — see **What you need** below.
 
@@ -160,7 +163,8 @@ Or by hand: `cp .env.example .env.local`, then edit `scaffold/.env.local` and se
 ```bash
 brew install ollama                 # already done if install-macos.sh found Homebrew; or https://ollama.com/download
 npm run setup:local -- --yes        # picks a model sized for your RAM and pulls it
-npm run dev
+npm run build                       # again after any .env.local change
+npm run start
 ```
 
 > **On macOS 13 or older?** Ollama's `.app`/`.dmg` and its Homebrew formula are built for **macOS 14+**. On an older Mac the download page hands you an app that won't launch, and Homebrew has dropped those releases (no bottles), so `brew install ollama` fails too. The release's **CLI tarball is a universal binary that does run there** — `install-macos.sh` picks it automatically, or install it by hand:
@@ -203,7 +207,8 @@ Both install Node 22, which is also what the one-shot script installs — see **
 **2. Search your own company — hosted (one key for scoring: Claude or OpenAI)**
 ```bash
 npm run setup      # interactive: writes .env.local, collects your keys
-npm run dev
+npm run build      # again after any .env.local change: NEXT_PUBLIC_* flags are baked in here
+npm run start
 ```
 Or by hand: `cp .env.example .env.local`, then edit `scaffold/.env.local` and set `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` for the scoring. Search itself needs no key — see **What you need** below.
 
@@ -213,7 +218,8 @@ Or by hand: `cp .env.example .env.local`, then edit `scaffold/.env.local` and se
 ```bash
 curl -fsSL https://ollama.com/install.sh | sh
 npm run setup:local -- --yes        # picks a model sized for your RAM and pulls it
-npm run dev
+npm run build                       # again after any .env.local change
+npm run start
 ```
 Verified end to end via `install-linux.sh` on a fresh Amazon Linux 2023 box (2 vCPU, 8GB RAM, no GPU — the smallest realistic case): auto-picked `llama3.2:1b` and completed a full novel-company search (21 candidates, fully local) in **18 minutes 58 seconds**. The same flow on Ubuntu, same hardware class, ran comparably (20m43s). A machine with a GPU or more cores will be dramatically faster — the macOS and Windows numbers above are the same engine, just more hardware.
 
@@ -230,8 +236,9 @@ takes the pattern literally and exits without running a single test:
 Could not find '/…/scaffold/lib/**/__tests__/**/*.test.ts'
 ```
 
-Nothing about the app itself requires 22 — `npm install`, `npm run typecheck`
-and `npm run dev` are all fine on 20, which is why `engines` still allows it.
+Nothing about the app itself requires 22 — `npm install`, `npm run typecheck`,
+`npm run build` and `npm run start` are all fine on 20, which is why `engines`
+still allows it.
 CI runs the suite on Node 22 and 24.
 
 ## What you need (and where to get it)
@@ -288,7 +295,7 @@ It's a real option for privacy or zero-cost runs, just not the fast path.
 
 ## Feature flags (turn on the good stuff)
 
-Everything risky ships **default-OFF** so a fresh clone is safe and boring. Flip these in `.env.local` (they're `NEXT_PUBLIC_*`, so **restart `npm run dev` after changing them**):
+Everything risky ships **default-OFF** so a fresh clone is safe and boring. Flip these in `.env.local` (they're `NEXT_PUBLIC_*`, which Next bakes into the browser bundle at build time, so **re-run `npm run build` after changing them**, then start again). Started from the menu-bar icon, the Windows tray or the installer, that is automatic: each of them rebuilds whenever `.env.local` is newer than the last build.
 
 | Flag | What it turns on |
 |---|---|
@@ -334,15 +341,15 @@ Results **stream**. Progress and grounded evidence appear in seconds rather than
 - **macOS says Granted Setup "was blocked" and nothing opens** → expected: the installer isn't signed by an Apple Developer account. Go to **System Settings → Privacy & Security → Open Anyway** (full steps under **Install on macOS**). If macOS instead calls the app **damaged**, the download didn't finish — check it against `SHA256SUMS.txt` on the release and download it again.
 - **The installer's Terminal window closed before the install finished (macOS)** → the wizard notices straight away and says so. Click the button again; re-running the install is safe, and it picks up where a half-finished one left off.
 - **No Granted icon in the menu bar (macOS)** → the icon needs the Xcode Command Line Tools to build its helper: `xcode-select --install`. Granted still runs in the background without it; see **Install on macOS** above.
-- **`No cloud provider is configured`** → scoring needs one provider: add `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` to `scaffold/.env.local` (then restart `npm run dev`), pick one in Settings → Model, or switch to Local.
+- **`No cloud provider is configured`** → scoring needs one provider: add `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` to `scaffold/.env.local` (then restart the server — a key is read at startup, so no rebuild is needed), pick one in Settings → Model, or switch to Local.
 - **"Search is running in keyword-only mode: couldn't download the search model (…)"** → run `npm run model:fetch` in `scaffold/` to see the full error. Behind a proxy or firewall, set `GRANTED_MODEL_URL` to a mirror (Node's `fetch` ignores `HTTPS_PROXY`).
 - **"Search is running in keyword-only mode: the search model couldn't start because the Microsoft Visual C++ runtime is missing on this computer"** → install it from https://aka.ms/vs/17/release/vc_redist.x64.exe (or run the Granted installer again), then restart Granted.
 - **"Embedding dimension mismatch"** → `.env.local` points `EMBEDDINGS_*` at a model the corpus wasn't embedded with: re-embed (`npm run data:embed:local`) or remove those settings to use the built-in model.
 - **Anthropic 400 "credit balance too low"** → top up at console.anthropic.com; every search spends credits.
-- **A flag change did nothing** → `NEXT_PUBLIC_*` vars are read at build/start; restart the dev server.
+- **A flag change did nothing** → `NEXT_PUBLIC_*` vars are compiled into the browser bundle by `next build`, so a restart alone can't pick one up: re-run `npm run build`, then start again. (The menu-bar icon, the Windows tray and the installer rebuild by themselves when `.env.local` is newer than the build.)
 - **`npm test` prints `Could not find '…/**/*.test.ts'` and runs nothing** → you're on Node 20. The test runner only learned to expand globs in Node 22; upgrade to 22+ (see **Which Node version**). Running the app is unaffected.
-- **Port 3000 in use** → Next picks the next free port; watch the `npm run dev` output for the URL. If `localhost:3000` shows a different app (on Windows, an app listening on all interfaces doesn't block the `127.0.0.1` bind), pick a port: `npm run dev -- -p 3001`.
-- **Can't reach it from another device or a cloud VM** → `npm run dev` only listens on `127.0.0.1`. From a remote box, tunnel instead: `ssh -L 3000:127.0.0.1:3000 you@host`, then open `http://localhost:3000`. Use `npm run dev:lan` only on a network you trust.
+- **Port 3000 in use** → `npm run start` does not go looking for a free port the way `npm run dev` does: it stops with `Error: listen EADDRINUSE … 127.0.0.1:3000`. Close whatever has the port, or pick another: `npm run start -- -p 3001` (`PORT=3001` works too). If `localhost:3000` shows a different app, note that on Windows an app listening on all interfaces doesn't block the `127.0.0.1` bind.
+- **Can't reach it from another device or a cloud VM** → `npm run start` (like `npm run dev`) only listens on `127.0.0.1`. From a remote box, tunnel instead: `ssh -L 3000:127.0.0.1:3000 you@host`, then open `http://localhost:3000`. Use `npm run dev:lan` only on a network you trust.
 
 ---
 

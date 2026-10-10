@@ -1,7 +1,8 @@
 /**
  * Integration: the REAL scaffold/scripts/windows/granted-tray.ps1 and
  * shortcuts.ps1, run by a real powershell.exe against a fake Granted
- * install whose `npm run dev` is a tiny Node server — so this proves the
+ * install whose `npm run start` is a tiny Node server (and whose `npm run
+ * build` just writes .next/BUILD_ID) — so this proves the
  * hidden background server, status reporting, single instance, -Stop, the
  * failure paths and the .lnk files, without a real Next.js build.
  * Windows only (on CI: the installer-windows job).
@@ -59,15 +60,38 @@ describe("granted-tray.ps1 and shortcuts.ps1, run for real", { skip: (process.pl
   let trayScript: string;
   const started: ChildProcess[] = [];
 
-  /** A fake install: package.json whose `dev` runs fake-dev.js, plus the real scripts/windows/*. */
-  async function makeScaffold(name: string, devScript: string): Promise<string> {
+  /**
+   * A fake install: package.json whose `start` runs fake-dev.js and whose
+   * `build` writes .next/BUILD_ID (what Test-ProductionBuildNeeded looks for),
+   * plus the real scripts/windows/*. It comes pre-built by default — the state
+   * an install script leaves behind — so most cases here start the server
+   * directly; `prebuilt: false` leaves the build to the tray, which is what a
+   * first start (or a start after an .env.local change) really does.
+   */
+  async function makeScaffold(name: string, devScript: string, options: { prebuilt?: boolean; buildScript?: string } = {}): Promise<string> {
     const dir = join(root, name, "scaffold");
     mkdirSync(join(dir, "scripts", "windows"), { recursive: true });
     for (const f of readdirSync(WINDOWS_SCRIPTS)) copyFileSync(join(WINDOWS_SCRIPTS, f), join(dir, "scripts", "windows", f));
-    await writeFile(join(dir, "package.json"), JSON.stringify({ name: "fake", private: true, scripts: { dev: "node fake-dev.js" } }));
+    await writeFile(
+      join(dir, "package.json"),
+      JSON.stringify({ name: "fake", private: true, scripts: { dev: "node fake-dev.js", build: "node fake-build.js", start: "node fake-dev.js" } }),
+    );
     await writeFile(join(dir, "fake-dev.js"), devScript);
+    await writeFile(join(dir, "fake-build.js"), options.buildScript ?? FAKE_BUILD);
+    if (options.prebuilt !== false) {
+      mkdirSync(join(dir, ".next"), { recursive: true });
+      await writeFile(join(dir, ".next", "BUILD_ID"), "prebuilt");
+    }
     return dir;
   }
+
+const FAKE_BUILD = [
+  'const fs = require("node:fs");',
+  'fs.mkdirSync(".next", { recursive: true });',
+  'fs.writeFileSync(".next/BUILD_ID", "fake-build");',
+  'console.log("fake build: wrote .next/BUILD_ID");',
+  "",
+].join("\n");
 
   // Logs one "REQ" line per request, so a test can tell whether the tray keeps probing.
   const FAKE_SERVER = `require("node:http").createServer((q, r) => { console.log("REQ " + q.url); r.end(${JSON.stringify(GRANTED_HTML)}); }).listen(Number(process.env.PORT), "127.0.0.1", () => console.log("fake Granted up on " + process.env.PORT));`;
@@ -241,6 +265,45 @@ describe("granted-tray.ps1 and shortcuts.ps1, run for real", { skip: (process.pl
     assert.equal(status?.state, "error");
     assert.match(status?.message ?? "", /stopped before it finished starting/);
     assert.match(status?.message ?? "", /Cannot find module 'next'/);
+    assert.equal(await stopTray(broken, port), 0);
+    await exited(tray);
+  });
+
+  test("no production build yet: it builds first, then serves that build", async () => {
+    const port = takePort();
+    // What an install leaves behind only once it has built. Without .next/BUILD_ID
+    // `next start` would exit with "Could not find a production build", so the
+    // tray has to run `npm run build` before it starts anything.
+    const unbuilt = await makeScaffold("unbuilt", FAKE_SERVER, { prebuilt: false });
+    const statusPath = join(root, "status-unbuilt.json");
+    const tray = startTray(unbuilt, port, ["-StatusPath", statusPath]);
+
+    assert.equal(await until(() => probeGranted(`http://127.0.0.1:${port}/`, 2000), (p) => p === "granted", 60_000), "granted");
+    assert.ok(existsSync(join(unbuilt, ".next", "BUILD_ID")), "the build ran");
+    const log = readFileSync(logPath(port), "utf8");
+    assert.match(log, /fake build: wrote \.next\/BUILD_ID/, "the build's output goes to the server log");
+    assert.match(log, new RegExp(`fake Granted up on ${port}`), "and the server started after it");
+
+    assert.equal(await stopTray(unbuilt, port), 0);
+    await exited(tray);
+  });
+
+  test("a build that fails never starts the server, and is reported with the build's own error", async () => {
+    const port = takePort();
+    const broken = await makeScaffold("broken-build", FAKE_SERVER, {
+      prebuilt: false,
+      buildScript: `console.error("Error: build failed on purpose"); process.exit(1);`,
+    });
+    const statusPath = join(root, "status-broken-build.json");
+    const tray = startTray(broken, port, ["-StatusPath", statusPath]);
+
+    const status = await until(() => readTaskStatus(statusPath), (s) => s?.state === "error", 60_000);
+    assert.equal(status?.state, "error");
+    assert.match(status?.message ?? "", /stopped before it finished starting/);
+    assert.match(status?.message ?? "", /build failed on purpose/, "the build's error is what the user is shown");
+    assert.equal(await probeGranted(`http://127.0.0.1:${port}/`, 1000), "down", "nothing was started on a failed build");
+    assert.equal(existsSync(join(broken, ".next", "BUILD_ID")), false, "and no build is left to look current next time");
+
     assert.equal(await stopTray(broken, port), 0);
     await exited(tray);
   });

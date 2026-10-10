@@ -1,7 +1,11 @@
 # Granted -- run the app in the background on Windows, with a tray icon.
 #
-# Starts `npm run dev` for this scaffold as a hidden process (no console
-# window), puts a Granted icon in the notification area (Open Granted /
+# Starts `npm run start` for this scaffold as a hidden process (no console
+# window) -- `next start`, serving the production build in .next, which this
+# script builds first when there isn't a current one (see
+# Test-ProductionBuildNeeded); never `npm run dev`, which would compile pages
+# on demand in the user's face and needs a looser CSP to do it.
+# It puts a Granted icon in the notification area (Open Granted /
 # status / Show log / Report a problem / Restart / Quit), and opens Granted once it answers --
 # in its own window (Edge/Chrome app mode) unless the user prefers a browser
 # tab (see open-granted.ps1). Only runs while you've opened it -- nothing starts at sign-in.
@@ -35,7 +39,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $Url = "http://localhost:$Port"
-$ProbeUrl = "http://127.0.0.1:$Port/"   # `next dev -H 127.0.0.1` binds IPv4 only
+$ProbeUrl = "http://127.0.0.1:$Port/"   # `next start -H 127.0.0.1` binds IPv4 only
 $MutexName = "Local\GrantedTray-$Port"
 $QuitEventName = "Local\GrantedTray-Quit-$Port"
 $RestartEventName = "Local\GrantedTray-Restart-$Port"
@@ -49,6 +53,11 @@ $KeepLogFiles = 3
 $IconPath = Join-Path $PSScriptRoot "granted.ico"
 $OpenScript = Join-Path $PSScriptRoot "open-granted.ps1"
 $ReportScript = Join-Path $PSScriptRoot "report-problem.ps1"
+# What Test-ProductionBuildNeeded looks at: `next build` writes .next\BUILD_ID,
+# and NEXT_PUBLIC_* flags from .env.local are baked into the client bundle at
+# build time, so a .env.local newer than the build means the build is stale.
+$BuildIdPath = Join-Path $ScaffoldDir ".next\BUILD_ID"
+$EnvLocalPath = Join-Path $ScaffoldDir ".env.local"
 
 # --- -Stop / -Restart: signal a running tray and leave ----------------------
 if ($Stop -or $Restart) {
@@ -190,6 +199,39 @@ function Invoke-LogRotation {
   } catch { }
 }
 
+# Is there a current production build for `next start` to serve?
+#
+# .next\BUILD_ID is the marker, and a reliable one -- both halves verified
+# against Next 14.2 rather than assumed:
+#
+#   * `next dev` never writes BUILD_ID, so a .next left behind by someone
+#     running `npm run dev` in a terminal cannot be mistaken for a production
+#     build (`next start` would refuse to serve it).
+#   * a `next build` that FAILS leaves no BUILD_ID either: it clears the folder
+#     before it compiles. So a failed build can't read as a usable one next time.
+#
+# It must also be newer than .env.local: Next inlines NEXT_PUBLIC_* flags into
+# the client bundle at build time, so a flag that `npm run setup`, the GUI
+# installer or the user wrote after the last build only takes effect once it is
+# rebuilt. (That is also what makes the menu's Restart do the right thing after
+# an .env.local edit.) Non-fatal by design: if either timestamp can't be read,
+# say a build is needed -- building when it wasn't necessary costs a minute,
+# while skipping one that was costs the user a stale or unservable app.
+function Test-ProductionBuildNeeded {
+  try {
+    if (-not (Test-Path -LiteralPath $BuildIdPath)) { return $true }
+    if (-not (Test-Path -LiteralPath $EnvLocalPath)) { return $false }
+    # -Force: Get-Item skips items with the hidden attribute without it, and a
+    # dot-file is exactly the sort of thing that can carry one (every dot-file
+    # does on a Unix PowerShell, which is where this was first caught).
+    $builtAt = (Get-Item -LiteralPath $BuildIdPath -Force -ErrorAction Stop).LastWriteTimeUtc
+    $envLocalAt = (Get-Item -LiteralPath $EnvLocalPath -Force -ErrorAction Stop).LastWriteTimeUtc
+    return ($envLocalAt -gt $builtAt)
+  } catch {
+    return $true
+  }
+}
+
 function Start-GrantedServer {
   New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
   Invoke-LogRotation
@@ -199,7 +241,23 @@ function Start-GrantedServer {
   # npm.cmd explicitly: `npm` in PowerShell can resolve to npm.ps1, which an
   # AllSigned execution policy blocks. Output goes to the log via cmd's own
   # redirection, so there are no pipes for this script to keep draining.
-  $psi.Arguments = "/d /s /c `"npm.cmd run dev > `"$LogPath`" 2>&1`""
+  #
+  # When a build is needed it is chained with cmd's `&&`, so `npm.cmd run
+  # start` runs ONLY if the build succeeded -- a failed build never falls
+  # through to a `next start` with nothing (or something stale) to serve. The
+  # chain's non-zero exit then reaches the tray as the server having stopped
+  # before it ever answered, which Report-EarlyCrash reports with the last
+  # error line from this very log (the build's own error). Each command
+  # redirects separately on purpose: in `a && b > log`, cmd applies the
+  # redirection to b alone, so the build's output would be lost.
+  $toLog = "> `"$LogPath`" 2>&1"
+  $appendLog = ">> `"$LogPath`" 2>&1"
+  $run = if (Test-ProductionBuildNeeded) {
+    "npm.cmd run build $toLog && npm.cmd run start $appendLog"
+  } else {
+    "npm.cmd run start $toLog"
+  }
+  $psi.Arguments = "/d /s /c `"$run`""
   $psi.WorkingDirectory = $ScaffoldDir
   $psi.UseShellExecute = $false
   $psi.CreateNoWindow = $true
@@ -265,7 +323,10 @@ function Get-LastLogLine {
 }
 
 # Reports a failure to the installer (if it's watching) the first time the
-# server dies before it ever answered (once per start).
+# server dies before it ever answered (once per start). This is also where a
+# failed `npm run build` lands: Start-GrantedServer chains build and start with
+# `&&`, so a build failure exits the whole cmd before anything listens, and the
+# last error line Get-LastLogLine picks out of the log is the build's own.
 function Report-EarlyCrash {
   if ($script:EverReady -or $script:ReportedFailure) { return }
   $script:ReportedFailure = $true

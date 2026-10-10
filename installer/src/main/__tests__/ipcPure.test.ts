@@ -30,7 +30,9 @@ import {
   withOpenInSetting,
   looksLikeGranted,
   macLauncherCommand,
+  macStartGrantedCommand,
   mergeRegistryPath,
+  needsProductionBuild,
   newInstallStatusPath,
   parseInstallStatusJson,
   parseLauncherOutput,
@@ -42,6 +44,7 @@ import {
   shSingleQuoted,
   shouldReattach,
   startProcessCommand,
+  windowsStartGrantedCommand,
   STATUS_LOCK_LINE,
   statusLockPath,
   TASK_WINDOW_CLOSED_MESSAGE,
@@ -411,7 +414,7 @@ describe("buildTaskScript", () => {
     title: "Granted",
     cwd: "C:\\Users\\O'Brien\\granted\\scaffold",
     statusPath: "C:\\Temp\\$x\\s.json",
-    command: "npm.cmd run dev",
+    command: "npm.cmd run start",
     failureMessage: "It didn't work.",
   });
 
@@ -434,7 +437,7 @@ describe("buildTaskScript", () => {
 
   test("reports running before the command and done/error from its exit code after", () => {
     const running = script.indexOf('Write-Status "running"');
-    const command = script.indexOf("npm.cmd run dev");
+    const command = script.indexOf("npm.cmd run start");
     const exitCheck = script.indexOf("if ($LASTEXITCODE -eq 0)");
     assert.ok(running > -1 && running < command && command < exitCheck);
   });
@@ -711,13 +714,13 @@ describe("buildTaskScript env", () => {
       title: "t",
       cwd: "C:\\x",
       statusPath: "C:\\s.json",
-      command: "npm.cmd run dev",
+      command: "npm.cmd run start",
       failureMessage: "f",
       env: { PORT: "3000", ODD: "it's $x" },
     });
     assert.match(script, /^\$env:PORT = '3000'$/m);
     assert.match(script, /^\$env:ODD = 'it''s \$x'$/m);
-    assert.ok(script.indexOf("$env:PORT") < script.indexOf("npm.cmd run dev"));
+    assert.ok(script.indexOf("$env:PORT") < script.indexOf("npm.cmd run start"));
   });
 
   test("refuses a variable name that isn't a plain identifier (it's interpolated unquoted)", () => {
@@ -905,5 +908,50 @@ describe("macStatusLockPath", () => {
   test("a directory suffix, not install-windows.ps1's file suffix — must match install-macos.sh's STATUS_LOCK_DIR", () => {
     assert.equal(macStatusLockPath("/tmp/s.json"), "/tmp/s.json.lock.d");
     assert.notEqual(macStatusLockPath("/tmp/s.json"), statusLockPath("/tmp/s.json"));
+  });
+});
+
+describe("needsProductionBuild", () => {
+  test("no BUILD_ID at all: build (nothing for `next start` to serve)", () => {
+    assert.equal(needsProductionBuild({ buildIdMtimeMs: null, envLocalMtimeMs: null }), true);
+    assert.equal(needsProductionBuild({ buildIdMtimeMs: null, envLocalMtimeMs: 1000 }), true);
+  });
+
+  test("a build and no .env.local: start it as it is", () => {
+    assert.equal(needsProductionBuild({ buildIdMtimeMs: 1000, envLocalMtimeMs: null }), false);
+  });
+
+  test(".env.local newer than the build: rebuild (NEXT_PUBLIC_* flags are baked in at build time)", () => {
+    assert.equal(needsProductionBuild({ buildIdMtimeMs: 1000, envLocalMtimeMs: 1001 }), true);
+  });
+
+  test(".env.local older than, or as old as, the build: start it as it is", () => {
+    assert.equal(needsProductionBuild({ buildIdMtimeMs: 1000, envLocalMtimeMs: 999 }), false);
+    assert.equal(needsProductionBuild({ buildIdMtimeMs: 1000, envLocalMtimeMs: 1000 }), false);
+  });
+});
+
+describe("windowsStartGrantedCommand / macStartGrantedCommand", () => {
+  test("with a current build, it starts the build and nothing else — never `npm run dev`", () => {
+    assert.equal(windowsStartGrantedCommand(false), "npm.cmd run start");
+    assert.deepEqual(macStartGrantedCommand(false), { command: "npm", args: ["run", "start"] });
+  });
+
+  test("without one, it builds first and starts ONLY if the build succeeded", () => {
+    const win = windowsStartGrantedCommand(true);
+    assert.ok(win.indexOf("npm.cmd run build") < win.indexOf("if ($LASTEXITCODE -eq 0) {"), "the build's exit code is what is checked");
+    assert.ok(win.indexOf("if ($LASTEXITCODE -eq 0) {") < win.indexOf("  npm.cmd run start"), "the start is inside that check");
+    assert.match(win, /couldn't be built/, "and a failed build says so in the window");
+
+    const mac = macStartGrantedCommand(true);
+    assert.equal(mac.command, "/bin/sh");
+    assert.deepEqual(mac.args, ["-c", "npm run build && exec npm run start"]);
+  });
+
+  test("neither ever runs a dev server", () => {
+    for (const needsBuild of [true, false]) {
+      assert.doesNotMatch(windowsStartGrantedCommand(needsBuild), /run dev/);
+      assert.doesNotMatch(macStartGrantedCommand(needsBuild).args.join(" "), /run dev/);
+    }
   });
 });

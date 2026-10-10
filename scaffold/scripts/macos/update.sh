@@ -12,8 +12,10 @@
 # update path as re-running a newer installer: it stops Granted (the menu-bar
 # helper and the server under its LaunchAgent, which is why this cannot run
 # inside that server), moves this install to the release (never backwards,
-# never over local changes, never someone's own checkout), runs npm ci -- and
-# if that fails half-way, puts the previous version back. Then it starts
+# never over local changes, never someone's own checkout), runs npm ci and
+# builds the new code (`npm run build` -- Granted is served from that build, so
+# new code is not live until it is rebuilt) -- and if that fails half-way, puts
+# the previous version back (re-running npm ci and the build for it). Then it starts
 # Granted in the background again, on the same port, and the open page reloads
 # once the new version answers.
 #
@@ -436,9 +438,19 @@ else
   NOW_HEAD="$(git -C "$INSTALL_DIR" rev-parse HEAD 2>/dev/null || true)"
   if [ -n "$PREV_HEAD" ] && [ -n "$NOW_HEAD" ] && [ "$NOW_HEAD" != "$PREV_HEAD" ]; then
     if git -C "$INSTALL_DIR" -c advice.detachedHead=false checkout --quiet "$PREV_HEAD" >> "$LOG_FILE" 2>&1; then
-      if [ -n "$NPM_BIN" ] && ( cd -- "$SCAFFOLD_DIR" && "$NPM_BIN" ci --no-audit --no-fund ) >> "$LOG_FILE.restore" 2>&1; then
-        # Only once the restore's own npm ci succeeded: a half-restored install
-        # is not a version that was "put back".
+      # npm ci AND npm run build. The build matters as much as the modules
+      # here: Granted is served from scaffold/.next by `npm run start`, and a
+      # half-way failure can have left the NEW release's build there (the
+      # install script builds right after npm ci). Restoring the old code
+      # without rebuilding would leave the tray starting the new version's
+      # build against the old version's code -- it would even look current to
+      # granted-tray.sh's needs_build, since BUILD_ID would be newer than
+      # .env.local. Rebuilding is what makes the two agree again.
+      if [ -n "$NPM_BIN" ] \
+        && ( cd -- "$SCAFFOLD_DIR" && "$NPM_BIN" ci --no-audit --no-fund ) >> "$LOG_FILE.restore" 2>&1 \
+        && ( cd -- "$SCAFFOLD_DIR" && "$NPM_BIN" run build ) >> "$LOG_FILE.restore" 2>&1; then
+        # Only once the restore's own npm ci and build succeeded: a
+        # half-restored install is not a version that was "put back".
         RESTORED=" Granted v$FROM was put back."
       fi
     fi

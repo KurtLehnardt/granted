@@ -161,7 +161,7 @@ export interface ActionResult {
 /**
  * Pushed from main → renderer when a long-running "Open Granted" step
  * finishes: the fully-local setup (`npm run setup:local -- --yes`, which can
- * take half an hour) or starting the app itself (`npm run dev`, then waiting
+ * take half an hour) or starting the app itself (`npm run start`, then waiting
  * for it to answer before opening the browser).
  */
 export interface TaskStatusEvent {

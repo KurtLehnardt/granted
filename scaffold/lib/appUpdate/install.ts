@@ -20,7 +20,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync
 import { homedir, tmpdir } from "node:os";
 import path, { dirname, join } from "node:path";
 
-/** The scaffold folder the server runs in (`npm run dev` starts there). */
+/** The scaffold folder the server runs in (`npm run start` starts there). */
 export function scaffoldDir(): string {
   return process.cwd();
 }

@@ -13,14 +13,16 @@
 # instead, so it's never competing with anything for stdin. Don't revert this.
 #
 # Installs git + Node.js 22+ if missing, clones the repo, runs `npm ci`
-# (installs exactly what's pinned in package-lock.json, and never rewrites it),
-# and (optionally) installs Ollama for a fully local run. Safe to re-run: skips
+# (installs exactly what's pinned in package-lock.json, and never rewrites it)
+# and `npm run build` (the production build Granted is served from), and
+# (optionally) installs Ollama for a fully local run. Safe to re-run: skips
 # anything already present/done (npm ci does remove and reinstall node_modules
-# each time, which is expected).
+# each time, and the build runs each time, which is expected).
 #
 # After this finishes, `cd granted/scaffold` and run `npm run setup` (an
 # OpenAI or Claude key for scoring; search needs no key) or `npm run
-# setup:local -- --yes` (fully local via Ollama), then `npm run dev`.
+# setup:local -- --yes` (fully local via Ollama), then `npm run build` (setup
+# can change build-time NEXT_PUBLIC_* flags) and `npm run start`.
 #
 # Set GRANTED_REF to a release tag (v1.2.3) to install that release instead
 # of main.
@@ -484,6 +486,31 @@ log "Installing npm dependencies..."
 npm ci
 ok "dependencies installed"
 
+# 4a) The production build Granted is actually served from. Nothing starts the
+# app with `npm run dev` any more: the menu-bar tray (scripts/macos/granted-tray.sh),
+# the GUI installer's "Open Granted" and the self-updater all run `npm run start`
+# (`next start`), which serves what `npm run build` produced here. Two reasons
+# it is built now rather than at first start:
+#
+#   * A build error stops the install with a message, instead of reaching the
+#     user as Next's red error overlay in the browser once they open Granted.
+#   * `next start` has nothing to serve without it, so a first start would
+#     have to build anyway -- slower, and with the output buried in a log.
+#
+# Fatal, like npm ci above: an install with no build is an install that cannot
+# run. A `next build` that fails leaves NO .next/BUILD_ID behind (it clears the
+# folder before compiling -- verified against Next 14.2), and BUILD_ID is
+# exactly what the launchers test for, so a failed build here can never be
+# mistaken later for a usable one.
+#
+# It needs the network, like the clone and npm ci before it: app/layout.tsx
+# uses next/font/google, so `next build` fetches the three font families and
+# self-hosts them (`next dev` fetches them on first render instead -- the
+# dependency is not new, only earlier and louder).
+log "Building Granted (a minute or two)..."
+npm run build || die "Granted couldn't be built -- see the output above for the underlying error."
+ok "built"
+
 # The built-in search model (about 275 MB), so search works offline and needs
 # no API key. Idempotent: verifies what's already there and downloads only
 # what's missing. Never fatal: if it can't download now, Granted fetches the
@@ -553,7 +580,13 @@ else
   echo "  cd $TARGET_DIR/scaffold"
   echo "  npm run setup                  # an OpenAI or Claude key for scoring (search needs none), or"
   echo "  npm run setup:local -- --yes   # fully local via Ollama, no API keys"
-  echo "  npm run dev                    # -> http://localhost:3000"
+  # Built again after setup on purpose: setup writes .env.local, and Next bakes
+  # its NEXT_PUBLIC_* flags into the client bundle at build time, so a flag set
+  # after this install's build only takes effect once it is rebuilt. (The tray
+  # and the installer do this for themselves -- they rebuild whenever .env.local
+  # is newer than the build.)
+  echo "  npm run build                  # after changing .env.local"
+  echo "  npm run start                  # -> http://localhost:3000"
   if [ "$MACOS_MAJOR" -gt 0 ] && [ "$MACOS_MAJOR" -lt "$OLLAMA_MIN_MACOS" ]; then
     echo
     echo "  Going local on this macOS? Start the daemon first, in another terminal:"

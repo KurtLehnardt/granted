@@ -5,7 +5,7 @@
  * can't break the exact four things the judges will type.
  *
  * Run this AFTER the app works, and re-run whenever matching logic changes.
- * Requires `npm run dev` in another terminal.
+ * Requires a running server in another terminal (`npm run build && npm run start`, or `npm run dev`).
  */
 import "./_loadEnvLocal.mjs"; // honor scaffold/.env.local when run as plain `node`
 import { writeFile } from "node:fs/promises";
