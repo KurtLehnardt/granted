@@ -208,6 +208,57 @@ if (Have "git") {
     $gitInstaller = "$env:TEMP\git-installer.exe"
     Log "Downloading Git for Windows ($($gitRelease.tag_name))..."
     Invoke-WebRequest -Uri $gitUrl -OutFile $gitInstaller -UseBasicParsing
+
+    # Gate 1 (primary), checksum from the release notes: git-for-windows'
+    # GitHub release body is upstream markdown prose, not a stable API
+    # contract, listing a "Filename | SHA-256" table for its own assets --
+    # already in hand as $gitRelease.body from the API call above, so this
+    # costs no extra request. If the table doesn't contain a row for this
+    # exact asset (format changed, or it's simply missing), Warn and fall
+    # through to gate 2 below rather than Die -- a hard failure here would
+    # brick this installer for every Windows user the day git-for-windows
+    # reformats its release notes.
+    $gitAssetNameEscaped = [regex]::Escape($gitAsset.name)
+    $gitRowRegex = "^\s*$gitAssetNameEscaped\s*\|\s*([0-9a-fA-F]{64})\s*$"
+    $gitExpectedHash = $null
+    foreach ($line in ($gitRelease.body -split '\r?\n')) {
+      if ($line -match $gitRowRegex) {
+        $gitExpectedHash = $Matches[1]
+        break
+      }
+    }
+    if (-not $gitExpectedHash) {
+      Warn "git-for-windows' release notes didn't publish a SHA-256 checksum for $($gitAsset.name), so the download couldn't be verified against one. Falling back to the Authenticode signature check."
+    } else {
+      $gitActualHash = (Get-FileHash -LiteralPath $gitInstaller -Algorithm SHA256).Hash
+      if ($gitActualHash -ine $gitExpectedHash) {
+        Remove-Item -LiteralPath $gitInstaller -ErrorAction SilentlyContinue
+        Die "git installer checksum mismatch -- expected $gitExpectedHash, got $gitActualHash. The download may be corrupted or tampered with; re-run to retry."
+      }
+      Ok "git installer checksum verified"
+    }
+
+    # Gate 2 (secondary, always runs regardless of gate 1): the installer
+    # must carry a valid Authenticode signature chaining to a trusted root,
+    # proving it hasn't been tampered with since it was signed. Deliberately
+    # NOT pinning the signer certificate's Subject to a string naming
+    # git-for-windows specifically, the way scaffold/lib/llm/ollamaJobs.ts's
+    # isTrustedOllamaSignature() pins "ollama" in the subject: the real
+    # subject string for git-for-windows' current signing certificate could
+    # not be confirmed from an authoritative source at the time this was
+    # written, and pinning an invented, merely plausible-looking subject
+    # would be worse than not pinning at all. Whoever tightens this later
+    # should pin the real subject once it's actually been confirmed by
+    # inspecting a genuine signed release -- doing so would additionally
+    # prove the binary came from git-for-windows specifically, not just from
+    # some trusted-root signer, which this check alone does not.
+    $gitSig = Get-AuthenticodeSignature -LiteralPath $gitInstaller
+    if ($gitSig.Status -ne 'Valid') {
+      Remove-Item -LiteralPath $gitInstaller -ErrorAction SilentlyContinue
+      Die "git installer isn't validly signed (Authenticode status: $($gitSig.Status)). The download may be corrupted or tampered with; re-run to retry."
+    }
+    Ok "git installer signature verified"
+
     Log "Running installer silently..."
     # /CURRENTUSER installs per-user -- unlike Node's .msi below, git-for-
     # windows' Inno Setup installer supports this, so it works without
@@ -249,10 +300,38 @@ if (-not $nodeOk) {
     # above -- a pinned version goes stale.
     $nodeRelease = (Invoke-RestMethod -Uri "https://nodejs.org/dist/index.json") | Where-Object { $_.version -match "^v$NodeMajorMin\." } | Select-Object -First 1
     if (-not $nodeRelease) { Die "couldn't find a v$NodeMajorMin release in nodejs.org's release index." }
-    $nodeUrl = "https://nodejs.org/dist/$($nodeRelease.version)/node-$($nodeRelease.version)-x64.msi"
+    $nodeMsiName = "node-$($nodeRelease.version)-x64.msi"
+    $nodeUrl = "https://nodejs.org/dist/$($nodeRelease.version)/$nodeMsiName"
     $nodeInstaller = "$env:TEMP\node-installer.msi"
     Log "Downloading Node.js ($($nodeRelease.version))..."
     Invoke-WebRequest -Uri $nodeUrl -OutFile $nodeInstaller -UseBasicParsing
+
+    # nodejs.org publishes SHASUMS256.txt in the same dist/<version>/
+    # directory as every artifact it ships, listing each one's SHA-256 as
+    # "<64 lowercase hex>  <filename>". Verify the downloaded .msi against it
+    # before running anything -- the winget path above this doesn't need
+    # this, since winget verifies its own packages.
+    $nodeShasums = Invoke-RestMethod -Uri "https://nodejs.org/dist/$($nodeRelease.version)/SHASUMS256.txt"
+    $nodeMsiNameEscaped = [regex]::Escape($nodeMsiName)
+    $nodeRowRegex = "^([0-9a-fA-F]{64})\s+$nodeMsiNameEscaped$"
+    $nodeExpectedHash = $null
+    foreach ($line in ($nodeShasums -split '\r?\n')) {
+      if ($line -match $nodeRowRegex) {
+        $nodeExpectedHash = $Matches[1]
+        break
+      }
+    }
+    if (-not $nodeExpectedHash) {
+      Remove-Item -LiteralPath $nodeInstaller -ErrorAction SilentlyContinue
+      Die "couldn't find a checksum for $nodeMsiName in nodejs.org's SHASUMS256.txt -- not installing an unverified Node.js installer."
+    }
+    $nodeActualHash = (Get-FileHash -LiteralPath $nodeInstaller -Algorithm SHA256).Hash
+    if ($nodeActualHash -ine $nodeExpectedHash) {
+      Remove-Item -LiteralPath $nodeInstaller -ErrorAction SilentlyContinue
+      Die "node installer checksum mismatch -- expected $nodeExpectedHash, got $nodeActualHash. The download may be corrupted or tampered with; re-run to retry."
+    }
+    Ok "node installer checksum verified"
+
     Log "Running installer silently..."
     Start-Process -FilePath "msiexec.exe" -ArgumentList "/i", "`"$nodeInstaller`"", "/qn", "/norestart" -Wait
     Remove-Item $nodeInstaller -ErrorAction SilentlyContinue
