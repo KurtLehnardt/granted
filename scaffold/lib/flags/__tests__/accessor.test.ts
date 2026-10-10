@@ -54,8 +54,8 @@ describe("isFlagEnabled — env override", () => {
 
   for (const truthy of ["1", "true", "on", "yes", "TRUE", " True "]) {
     test(`recognizes ${JSON.stringify(truthy)} as on`, () => {
-      process.env[FLAG_REGISTRY.r2_verify.envVar] = truthy;
-      assert.equal(isFlagEnabled("r2_verify"), true);
+      process.env[FLAG_REGISTRY.d5_alerts.envVar] = truthy;
+      assert.equal(isFlagEnabled("d5_alerts"), true);
     });
   }
 
@@ -63,14 +63,14 @@ describe("isFlagEnabled — env override", () => {
     test(`recognizes ${JSON.stringify(falsy)} as off`, () => {
       // Flip default false -> true is not meaningful here since default is already false; prove
       // an explicit "off" override still resolves to off (i.e. it's read, not just ignored).
-      process.env[FLAG_REGISTRY.r3_enhance.envVar] = falsy;
-      assert.equal(isFlagEnabled("r3_enhance"), false);
+      process.env[FLAG_REGISTRY.d4_opportunity_graph.envVar] = falsy;
+      assert.equal(isFlagEnabled("d4_opportunity_graph"), false);
     });
   }
 
   test("an unrecognized override value falls back to the default instead of throwing or guessing", () => {
-    process.env[FLAG_REGISTRY.r4_progress.envVar] = "banana";
-    assert.equal(isFlagEnabled("r4_progress"), FLAG_DEFAULT);
+    process.env[FLAG_REGISTRY.d3_funding_strategy.envVar] = "banana";
+    assert.equal(isFlagEnabled("d3_funding_strategy"), FLAG_DEFAULT);
   });
 
   test("r9_0_mockauth reads the mock-auth drop-in's own env var (NEXT_PUBLIC_MOCK_AUTH)", () => {
@@ -112,15 +112,15 @@ describe("getAllFlags", () => {
   });
 
   test("reflects env overrides", () => {
-    process.env[FLAG_REGISTRY.r2_verify.envVar] = "true";
+    process.env[FLAG_REGISTRY.c1b_type_groups.envVar] = "true";
     const all = getAllFlags();
-    assert.equal(all.r2_verify, true);
+    assert.equal(all.c1b_type_groups, true);
     assert.equal(all.r1_interview, false);
   });
 
   test("reflects config overrides", () => {
-    const all = getAllFlags({ r3_enhance: "true" });
-    assert.equal(all.r3_enhance, true);
+    const all = getAllFlags({ b2_enriched_ranking: "true" });
+    assert.equal(all.b2_enriched_ranking, true);
     assert.equal(all.r1_interview, false);
   });
 });

@@ -100,6 +100,16 @@ describe("CompetitorAnalysisSchema — grounding invariant", () => {
     bad.records[0].sourceUrl = "not-a-url";
     assert.equal(CompetitorAnalysisSchema.safeParse(bad).success, false);
   });
+
+  test("accepts an https:// record sourceUrl and rejects a javascript: scheme (M8)", () => {
+    const good = groundedFixture();
+    good.records[0].sourceUrl = "https://www.usaspending.gov/award/CONT_AWD_EP135000141";
+    assert.equal(CompetitorAnalysisSchema.safeParse(good).success, true);
+
+    const bad = groundedFixture();
+    bad.records[0].sourceUrl = "javascript:alert(1)";
+    assert.equal(CompetitorAnalysisSchema.safeParse(bad).success, false);
+  });
 });
 
 /**
@@ -170,5 +180,15 @@ describe("CompetitorAnalysisSchema — live brief (web profiles + opportunities)
     // Extra keys are stripped by zod, so the parse still succeeds WITHOUT an amount.
     const parsed = parseCompetitorAnalysis(bad);
     assert.equal((parsed.webProfiles?.[0] as Record<string, unknown>).amount, undefined);
+  });
+
+  test("accepts an https:// web-profile sourceUrl and rejects a javascript: scheme (M8)", () => {
+    const good = liveFixture();
+    good.webProfiles[0].sourceUrl = "https://example.com/acme-qms";
+    assert.equal(CompetitorAnalysisSchema.safeParse(good).success, true);
+
+    const bad = liveFixture();
+    bad.webProfiles[0].sourceUrl = "javascript:alert(1)";
+    assert.equal(CompetitorAnalysisSchema.safeParse(bad).success, false);
   });
 });
