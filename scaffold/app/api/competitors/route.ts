@@ -5,6 +5,19 @@ import { analyzeCompetitors, InsufficientEvidenceError } from "@/lib/competitors
 import type { CompetitorStreamEvent } from "@/lib/contracts/competitorAnalysis";
 import { withErrorLogging } from "@/lib/errorLog/withErrorLogging";
 import { logError } from "@/lib/errorLog/server";
+import { isLoopbackRequest } from "@/lib/corpus/loopback";
+import { rateLimit, clientKey } from "@/lib/security/rateLimit";
+
+/**
+ * Input bounds for this unauthenticated route (security review MEDIUM —
+ * denial-of-wallet). Env-overridable. The rate limit is deliberately tighter
+ * than /api/interview's (40/min): this is the most expensive and slowest
+ * route in the app — a keyless retrieval fan-out plus one cloud synthesis,
+ * with a budget of 110s for cloud and 1,800s for local.
+ */
+const MAX_DESCRIPTION_LENGTH = Number(process.env.MAX_DESCRIPTION_LENGTH) || 8_000;
+const COMPETITOR_RATE_LIMIT = Number(process.env.COMPETITOR_RATE_LIMIT) || 10;
+const COMPETITOR_RATE_WINDOW_MS = Number(process.env.COMPETITOR_RATE_WINDOW_MS) || 60_000;
 
 /**
  * R5-deep — live "competitor & grant intelligence" market brief.
@@ -73,6 +86,23 @@ function deriveKeywords(description: string): string[] {
 }
 
 async function postCompetitors(req: NextRequest) {
+  // This is the most expensive, slowest route in the app (a cloud synthesis
+  // call) — restrict it to this computer before any other work.
+  if (!isLoopbackRequest(req)) {
+    return NextResponse.json(
+      { ok: false, reason: "forbidden", message: "Only available from this computer." },
+      { status: 403 },
+    );
+  }
+
+  const limit = rateLimit(clientKey(req), { limit: COMPETITOR_RATE_LIMIT, windowMs: COMPETITOR_RATE_WINDOW_MS });
+  if (!limit.ok) {
+    return NextResponse.json(
+      { ok: false, reason: "rate_limited", message: "You're requesting a lot in a short window — please wait a moment and try again." },
+      { status: 429, headers: { "Retry-After": String(Math.ceil(limit.retryAfterMs / 1000)) } },
+    );
+  }
+
   let body: any;
   try {
     body = await req.json();
@@ -88,6 +118,16 @@ async function postCompetitors(req: NextRequest) {
       { status: 400 },
     );
   }
+  if (description.length > MAX_DESCRIPTION_LENGTH) {
+    return NextResponse.json(
+      {
+        ok: false,
+        reason: "bad_request",
+        message: `That description is too long (max ${MAX_DESCRIPTION_LENGTH.toLocaleString()} characters). Trim it to the essentials and try again.`,
+      },
+      { status: 400 },
+    );
+  }
 
   const providedKeywords: string[] = Array.isArray(body?.keywords)
     ? body.keywords.filter((k: unknown): k is string => typeof k === "string" && k.trim().length > 0).slice(0, 8)
@@ -95,7 +135,10 @@ async function postCompetitors(req: NextRequest) {
   const keywords = providedKeywords.length ? providedKeywords : deriveKeywords(description);
   const opportunity =
     body?.opportunity && typeof body.opportunity === "object"
-      ? { program: body.opportunity.program, agency: body.opportunity.agency }
+      ? {
+          ...(typeof body.opportunity.program === "string" ? { program: body.opportunity.program.trim().slice(0, 500) } : {}),
+          ...(typeof body.opportunity.agency === "string" ? { agency: body.opportunity.agency.trim().slice(0, 500) } : {}),
+        }
       : undefined;
 
   const meter = createCostMeter();

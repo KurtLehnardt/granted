@@ -20,10 +20,14 @@ afterEach(() => {
   globalThis.fetch = realFetch;
 });
 
+// Qualifying loopback headers (lib/corpus/loopback.ts), matching the
+// precedent at app/api/logs/__tests__/handler.test.ts:25.
+const LOCAL = { "x-forwarded-for": "127.0.0.1", host: "localhost:3000", "sec-fetch-site": "same-origin" };
+
 function post(body: unknown): Request {
   return new Request("http://localhost/api/match", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { ...LOCAL, "content-type": "application/json" },
     body: JSON.stringify(body),
   });
 }

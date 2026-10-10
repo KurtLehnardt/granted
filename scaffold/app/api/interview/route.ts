@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { generateQuestions, type InterviewQuestion } from "@/lib/interview/generateQuestions";
 import { rateLimit, clientKey } from "@/lib/security/rateLimit";
 import { withErrorLogging } from "@/lib/errorLog/withErrorLogging";
 import { logError } from "@/lib/errorLog/server";
+import { isLoopbackRequest } from "@/lib/corpus/loopback";
 
 /**
  * Input bounds for the unauthenticated interview endpoint (security review
@@ -34,6 +36,13 @@ function badRequest(error: string) {
 }
 
 async function postInterview(req: NextRequest) {
+  // This drives real model spend — restrict it to this computer before any
+  // other work. A 403, not badRequest's 400: this is "not allowed from here,"
+  // not a malformed request.
+  if (!isLoopbackRequest(req)) {
+    return NextResponse.json({ error: "Only available from this computer" }, { status: 403 });
+  }
+
   const limit = rateLimit(clientKey(req), { limit: INTERVIEW_RATE_LIMIT, windowMs: INTERVIEW_RATE_WINDOW_MS });
   if (!limit.ok) {
     // Still a 200-shaped contract for the client's happy path would be wrong
@@ -48,7 +57,11 @@ async function postInterview(req: NextRequest) {
   let description: string;
   try {
     const body = await req.json();
-    description = body?.description;
+    const descResult = z.string().optional().safeParse(body?.description);
+    if (!descResult.success) {
+      return badRequest("Invalid request body.");
+    }
+    description = descResult.data ?? "";
   } catch {
     return badRequest("Invalid request body.");
   }

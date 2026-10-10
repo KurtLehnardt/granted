@@ -21,10 +21,14 @@ beforeEach(() => __resetRateLimits());
 const VALID_DESCRIPTION =
   "We build AI-assisted diagnostics for rural clinics and need federal funding.";
 
-function post(body: string): Request {
+// Qualifying loopback headers (lib/corpus/loopback.ts), matching the
+// precedent at app/api/logs/__tests__/handler.test.ts:25.
+const LOCAL = { "x-forwarded-for": "127.0.0.1", host: "localhost:3000", "sec-fetch-site": "same-origin" };
+
+function post(body: string, headers: Record<string, string> = LOCAL): Request {
   return new Request("http://localhost/api/match", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { ...headers, "content-type": "application/json" },
     body,
   });
 }
@@ -55,6 +59,16 @@ const fakeMap = {
   matches: [],
   agencyIntelligence: [],
 } as unknown as OpportunityMap;
+
+test("a request without loopback headers is refused with 403, before any model work", async () => {
+  let built = false;
+  const res = await handleMatchRequest(
+    post(JSON.stringify({ description: VALID_DESCRIPTION }), { "x-forwarded-for": "192.168.1.20", host: "192.168.1.5:3000" }),
+    { cached: () => undefined, buildOpportunityMap: async () => { built = true; return fakeMap; } },
+  );
+  assert.equal(res.status, 403);
+  assert.equal(built, false);
+});
 
 test("missing description → 400 JSON, not a stream", async () => {
   const res = await handleMatchRequest(post(JSON.stringify({})), {

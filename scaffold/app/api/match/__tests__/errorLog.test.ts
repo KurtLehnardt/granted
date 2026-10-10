@@ -32,8 +32,12 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
+// Qualifying loopback headers (lib/corpus/loopback.ts), matching the
+// precedent at app/api/logs/__tests__/handler.test.ts:25.
+const LOCAL = { "x-forwarded-for": "127.0.0.1", host: "localhost:3000", "sec-fetch-site": "same-origin" };
+
 async function errorLine(deps: MatchDeps): Promise<{ error: string; errorId?: string; guidance?: boolean }> {
-  const req = new Request("http://localhost/api/match", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ description: DESCRIPTION }) });
+  const req = new Request("http://localhost/api/match", { method: "POST", headers: { ...LOCAL, "content-type": "application/json" }, body: JSON.stringify({ description: DESCRIPTION }) });
   const res = await handleMatchRequest(req, deps);
   const text = await res.text();
   return text.split("\n").filter(Boolean).map((l) => JSON.parse(l)).find((l) => l.type === "error");

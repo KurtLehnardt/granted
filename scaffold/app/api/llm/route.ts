@@ -4,6 +4,7 @@ import { getOllamaStatus } from "@/lib/llm/ollamaStatus";
 import { resolveCloudConfig, resolveCloudApiKey, publicKeySource, isEnvCloudConfig } from "@/lib/llm/config";
 import { buildSearchStatus } from "@/lib/embeddings/searchStatus";
 import { withErrorLogging } from "@/lib/errorLog/withErrorLogging";
+import { isLoopbackRequest } from "@/lib/corpus/loopback";
 
 // Next 14 would otherwise prerender this at build time, freezing the backend/model list.
 export const dynamic = "force-dynamic";
@@ -29,7 +30,16 @@ function buildCloudBlock(cfg: NonNullable<ReturnType<typeof resolveCloudConfig>>
   };
 }
 
-async function getLlmStatus() {
+async function getLlmStatus(req: Request) {
+  // Unlike /api/match, /api/interview and /api/competitors, this is a
+  // read-only GET status endpoint that never calls an LLM — this guard is NOT
+  // about preventing spend. The risk here is a minor information leak: the
+  // response exposes a key hint (last 4 chars), the key-file's resolved path,
+  // and the provider name, none of which should be visible off this machine.
+  if (!isLoopbackRequest(req)) {
+    return NextResponse.json({ error: "Only available from this computer" }, { status: 403 });
+  }
+
   const cfg = resolveCloudConfig();
   const cloud = cfg ? buildCloudBlock(cfg) : undefined;
   // The "Search" line: which embeddings search uses and the built-in model's download state

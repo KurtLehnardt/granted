@@ -22,6 +22,14 @@ const savedModel = process.env.LOCAL_LLM_MODEL;
 const savedKey = process.env.ANTHROPIC_API_KEY;
 const realFetch = globalThis.fetch;
 
+// Qualifying loopback headers (lib/corpus/loopback.ts), matching the
+// precedent at app/api/logs/__tests__/handler.test.ts:25.
+const LOCAL = { "x-forwarded-for": "127.0.0.1", host: "localhost:3000", "sec-fetch-site": "same-origin" };
+
+function req(headers: Record<string, string> = LOCAL): Request {
+  return new Request("http://localhost/api/llm", { headers });
+}
+
 function removeConfigFile() {
   try {
     fs.unlinkSync(CONFIG_PATH);
@@ -47,13 +55,18 @@ describe("GET /api/llm", () => {
     assert.equal(dynamic, "force-dynamic");
   });
 
+  test("a request without loopback headers is refused with 403", async () => {
+    const res = await GET(req({ "x-forwarded-for": "192.168.1.20", host: "192.168.1.5:3000" }));
+    assert.equal(res.status, 403);
+  });
+
   test("hosted (env ANTHROPIC_API_KEY, #210 back-compat) -> cloud/anthropic, key hint, no key value", async () => {
     delete process.env.LLM_PROVIDER;
     process.env.ANTHROPIC_API_KEY = "sk-ant-abcd1234efgh5678";
     let fetched = false;
     globalThis.fetch = (async () => { fetched = true; return { ok: true, json: async () => ({}) }; }) as unknown as typeof fetch;
 
-    const res = await GET();
+    const res = await GET(req());
     const j = await res.json();
     assert.equal(j.local, false);
     assert.equal(j.provider, "cloud");
@@ -76,7 +89,7 @@ describe("GET /api/llm", () => {
     delete process.env.SEARCH_EMBEDDINGS;
     process.env.ANTHROPIC_API_KEY = "sk-ant-abcd1234efgh5678";
     try {
-      const j = await (await GET()).json();
+      const j = await (await GET(req())).json();
       assert.equal(j.cloud.providerId, "anthropic");
       assert.equal(j.search.space, "builtin");
       assert.equal(j.search.label, "Built-in, on this computer");
@@ -94,7 +107,7 @@ describe("GET /api/llm", () => {
     delete process.env.LLM_PROVIDER;
     delete process.env.ANTHROPIC_API_KEY;
 
-    const res = await GET();
+    const res = await GET(req());
     const j = await res.json();
     assert.equal(j.local, false);
     assert.equal(j.cloud, undefined);
@@ -104,7 +117,7 @@ describe("GET /api/llm", () => {
     delete process.env.LLM_PROVIDER;
     process.env.ANTHROPIC_API_KEY = "sk-ant-...";
 
-    const res = await GET();
+    const res = await GET(req());
     const j = await res.json();
     assert.equal(j.cloud, undefined);
   });
@@ -116,7 +129,7 @@ describe("GET /api/llm", () => {
       cloud: { providerId: "openai", model: "gpt-4o", keySource: { type: "inline", key: "sk-savedopenaikey0000" } },
     });
 
-    const res = await GET();
+    const res = await GET(req());
     const j = await res.json();
     assert.equal(j.provider, "cloud");
     assert.equal(j.cloud.providerId, "openai");
@@ -133,7 +146,7 @@ describe("GET /api/llm", () => {
       provider: "cloud",
       cloud: { providerId: "other", baseUrl: "https://my-proxy.example.com/v1", keySource: { type: "inline", key: "any-fine-key-value" } },
     });
-    const res = await GET();
+    const res = await GET(req());
     const j = await res.json();
     assert.equal(j.cloud.baseUrl, "https://my-proxy.example.com/v1");
   });
@@ -142,7 +155,7 @@ describe("GET /api/llm", () => {
     delete process.env.LLM_PROVIDER;
     delete process.env.GRANTED_ROUTE_TEST_UNSET;
     writeLlmConfig({ provider: "cloud", cloud: { providerId: "groq", keySource: { type: "env", name: "GRANTED_ROUTE_TEST_UNSET" } } });
-    const res = await GET();
+    const res = await GET(req());
     const j = await res.json();
     assert.equal(j.cloud.hasKey, false);
     assert.equal(j.cloud.keyHint, undefined);
@@ -156,7 +169,7 @@ describe("GET /api/llm", () => {
     });
     globalThis.fetch = (async () => ({ ok: true, json: async () => ({ models: [] }) })) as unknown as typeof fetch;
 
-    const res = await GET();
+    const res = await GET(req());
     const j = await res.json();
     assert.equal(j.local, true);
     assert.equal(j.cloud.providerId, "openai");
@@ -167,7 +180,7 @@ describe("GET /api/llm", () => {
     process.env.LLM_PROVIDER = "ollama";
     globalThis.fetch = (async () => ({ ok: true, json: async () => ({ models: [] }) })) as unknown as typeof fetch;
 
-    const res = await GET();
+    const res = await GET(req());
     const j = await res.json();
     assert.equal(j.cloud, undefined);
   });
@@ -179,7 +192,7 @@ describe("GET /api/llm", () => {
       cloud: { providerId: "openai", keySource: { type: "inline", key: "sk-savedopenaikey0000" } },
     });
 
-    const res = await GET();
+    const res = await GET(req());
     const j = await res.json();
     assert.equal(j.cloud.model, undefined);
   });
@@ -197,7 +210,7 @@ describe("GET /api/llm", () => {
       }),
     })) as unknown as typeof fetch;
 
-    const res = await GET();
+    const res = await GET(req());
     const j = await res.json();
     assert.equal(j.local, true);
     assert.equal(j.model, "gemma3:12b");
