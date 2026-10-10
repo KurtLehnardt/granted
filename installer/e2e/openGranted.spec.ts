@@ -1,6 +1,6 @@
 /**
  * End-to-end: the built installer app, driven through its real UI, opening
- * real console windows that run a fake Granted install's `npm run dev` /
+ * real console windows that run a fake Granted install's build-then-start /
  * `npm run setup:local`. Windows only — the "Installation complete" screen
  * follows on from Windows's install-status reporting, the only platform
  * that has it.

@@ -2,7 +2,7 @@
  * End-to-end: the built installer app on macOS, driven through its real UI,
  * reaching "Installation complete" (the install-status event win32 already
  * covers in openGranted.spec.ts, now also real on darwin) and then running
- * a FAKE Granted install's `npm run dev` / `npm run setup:local` for real —
+ * a FAKE Granted install's `npm run build`/`npm run start` / `npm run setup:local` for real —
  * both macOS paths: the plain detached launchMacScaffoldTask one (an install
  * with no scripts/macos) and, for an install that has it, the real
  * granted-tray.sh background one, where launchd runs the server under a
