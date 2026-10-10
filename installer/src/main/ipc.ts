@@ -2,22 +2,6 @@ import { app, BrowserWindow, clipboard, ipcMain, shell } from "electron";
 import type { WebContents } from "electron";
 import { execFile, spawn, ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-
-// Ollama management: track the child process and whether we should manage it.
-// Nothing in the app currently starts Ollama, because the renderer-facing IPC channel that
-// would have done so was unreachable from the scaffold UI and has been removed. This shutdown
-// hook is kept for a planned follow-up that will wire the user's saved preference to real
-// Ollama lifecycle management.
-export let ollamaChild: ChildProcess | null = null;
-export let manageOllama = true;
-
-/** Kills the Ollama child process this app started, if any. See the comment above. */
-export function stopOllamaIfStarted(): void {
-  if (ollamaChild) {
-    ollamaChild.kill();
-    ollamaChild = null;
-  }
-}
 import { existsSync, mkdirSync, openSync, rmdirSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
@@ -81,6 +65,22 @@ import {
 } from "../shared/ipc";
 
 const execFileAsync = promisify(execFile);
+
+// Ollama management: track the child process and whether we should manage it.
+// Nothing in the app currently starts Ollama, because the renderer-facing IPC channel that
+// would have done so was unreachable from the scaffold UI and has been removed. This shutdown
+// hook is kept for a planned follow-up that will wire the user's saved preference to real
+// Ollama lifecycle management.
+export let ollamaChild: ChildProcess | null = null;
+export let manageOllama = true;
+
+/** Kills the Ollama child process this app started, if any. See the comment above. */
+export function stopOllamaIfStarted(): void {
+  if (ollamaChild) {
+    ollamaChild.kill();
+    ollamaChild = null;
+  }
+}
 
 /**
  * Runs `<cmd> --version` via array-arg execFile (never a shell string), and
