@@ -1,6 +1,6 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { priceUsage, PRICE_TABLE, PRICING_AS_OF } from "../pricing";
+import { priceUsage, PRICE_TABLE, PRICING_AS_OF, CACHE_WRITE_MULTIPLIER, CACHE_READ_MULTIPLIER } from "../pricing";
 
 /**
  * R4b — pricing.ts: pure arithmetic against the documented PRICE_TABLE, plus
@@ -11,6 +11,20 @@ describe("PRICE_TABLE — shape", () => {
   test("keyed by the exact two model ids in live use", () => {
     assert.ok(PRICE_TABLE["claude-sonnet-4-6"], "claude-sonnet-4-6 must be priced");
     assert.ok(PRICE_TABLE["text-embedding-3-small"], "text-embedding-3-small must be priced");
+  });
+
+  test("gpt-4o-mini (the 'openai' preset's default model) is priced", () => {
+    const p = PRICE_TABLE["gpt-4o-mini"];
+    assert.ok(p, "gpt-4o-mini must be priced");
+    assert.equal(typeof p.inputPerToken, "number");
+    assert.ok(p.inputPerToken > 0);
+    assert.equal(typeof p.outputPerToken, "number");
+    assert.ok((p.outputPerToken ?? 0) > 0);
+  });
+
+  test("gemini-2.0-flash and llama-3.3-70b-versatile remain unverified and absent (unpriced-$0 fallback applies)", () => {
+    assert.equal(PRICE_TABLE["gemini-2.0-flash"], undefined);
+    assert.equal(PRICE_TABLE["llama-3.3-70b-versatile"], undefined);
   });
 
   test("PRICING_AS_OF is a non-empty date-ish string", () => {
@@ -68,6 +82,50 @@ describe("priceUsage() — known models", () => {
     const result = priceUsage("claude-sonnet-4-6", 0, 0);
     assert.equal(result.costUsd, 0);
     assert.equal(result.unpriced, false);
+  });
+});
+
+describe("priceUsage() — prompt-caching tokens (lib/claude.ts's three cache_control call sites)", () => {
+  test("a 3-argument call is unchanged from before caching was priced", () => {
+    const result = priceUsage("claude-sonnet-4-6", 1000, 500);
+    const p = PRICE_TABLE["claude-sonnet-4-6"];
+    const expected = 1000 * p.inputPerToken + 500 * (p.outputPerToken ?? 0);
+    assert.equal(result.unpriced, false);
+    assert.ok(Math.abs(result.costUsd - expected) < 1e-12);
+  });
+
+  test("CACHE_WRITE_MULTIPLIER and CACHE_READ_MULTIPLIER are the documented 1.25x / 0.1x", () => {
+    assert.equal(CACHE_WRITE_MULTIPLIER, 1.25);
+    assert.equal(CACHE_READ_MULTIPLIER, 0.1);
+  });
+
+  test("cache-creation tokens are priced at CACHE_WRITE_MULTIPLIER times the model's input rate", () => {
+    const p = PRICE_TABLE["claude-sonnet-4-6"];
+    const withCache = priceUsage("claude-sonnet-4-6", 1000, 500, 400, 0);
+    const withoutCache = priceUsage("claude-sonnet-4-6", 1000, 500, 0, 0);
+    const expectedCacheCost = 400 * p.inputPerToken * CACHE_WRITE_MULTIPLIER;
+    assert.ok(Math.abs(withCache.costUsd - withoutCache.costUsd - expectedCacheCost) < 1e-12);
+  });
+
+  test("cache-read tokens are priced at CACHE_READ_MULTIPLIER times the model's input rate", () => {
+    const p = PRICE_TABLE["claude-sonnet-4-6"];
+    const withCache = priceUsage("claude-sonnet-4-6", 1000, 500, 0, 300);
+    const withoutCache = priceUsage("claude-sonnet-4-6", 1000, 500, 0, 0);
+    const expectedCacheCost = 300 * p.inputPerToken * CACHE_READ_MULTIPLIER;
+    assert.ok(Math.abs(withCache.costUsd - withoutCache.costUsd - expectedCacheCost) < 1e-12);
+  });
+
+  test("omitted cache args default to 0, matching an explicit 0,0 call", () => {
+    const omitted = priceUsage("claude-sonnet-4-6", 1000, 500);
+    const explicitZero = priceUsage("claude-sonnet-4-6", 1000, 500, 0, 0);
+    assert.equal(omitted.costUsd, explicitZero.costUsd);
+  });
+
+  test("non-finite cache token counts (NaN) never produce a non-finite cost", () => {
+    const result = priceUsage("claude-sonnet-4-6", 1000, 500, NaN, NaN);
+    assert.equal(Number.isFinite(result.costUsd), true);
+    const withoutCache = priceUsage("claude-sonnet-4-6", 1000, 500, 0, 0);
+    assert.equal(result.costUsd, withoutCache.costUsd);
   });
 });
 

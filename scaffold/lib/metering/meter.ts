@@ -48,8 +48,11 @@ export interface MeterRecordInput {
   inputTokens: number;
   outputTokens: number;
   /**
-   * Present only when prompt caching is active (it isn't, yet — see the
-   * comment on `StageCost` below). Informational only.
+   * Prompt caching IS active: `lib/claude.ts` sets `cache_control: { type:
+   * "ephemeral" }` on its `system` block at three live call sites, so these
+   * fields are populated with real, non-zero counts on real traffic. They
+   * are not purely informational any more — see `StageCost` below for how
+   * they feed into `costUsd` via `lib/metering/pricing.ts`'s `priceUsage()`.
    */
   cacheCreationInputTokens?: number;
   cacheReadInputTokens?: number;
@@ -74,11 +77,15 @@ export interface StageCost {
   outputTokens: number;
   /**
    * Cache token counts, summed across every `record()` call for this stage,
-   * IF any call reported them. Nothing in this app uses prompt caching yet,
-   * so these are expected to be `undefined` today — future-proofing for
-   * R10.3's "cache hit/miss" (per the R4b task spec). Deliberately NOT part
-   * of `costUsd`: `lib/metering/pricing.ts` has no cache-token rate, and
-   * inventing one here would silently mismeter a feature that isn't in use.
+   * IF any call reported them. Prompt caching IS in use today — `lib/claude.ts`
+   * sets `cache_control: { type: "ephemeral" }` on its `system` block at
+   * three live call sites — so these are expected to be non-zero for any
+   * stage that goes through one of those calls. They ARE now part of
+   * `costUsd`: `lib/metering/pricing.ts`'s `priceUsage()` prices each
+   * cache-creation token at `CACHE_WRITE_MULTIPLIER` (1.25x, the 5-minute-TTL
+   * rate — the only TTL any call site uses today) and each cache-read token
+   * at `CACHE_READ_MULTIPLIER` (0.1x), both multiplied against the model's
+   * own base input rate.
    */
   cacheCreationInputTokens?: number;
   cacheReadInputTokens?: number;
@@ -192,7 +199,10 @@ export function createCostMeter(): CostMeter {
       }
 
       // Built-in and self-hosted embeddings are free whatever their token counts.
-      const { costUsd } = provider === "builtin" || provider === "custom" ? { costUsd: 0 } : priceUsage(model, inputTokens, outputTokens);
+      const { costUsd } =
+        provider === "builtin" || provider === "custom"
+          ? { costUsd: 0 }
+          : priceUsage(model, inputTokens, outputTokens, cacheCreation, cacheRead);
       existing.costUsd += costUsd;
 
       stages.set(stageName, existing);

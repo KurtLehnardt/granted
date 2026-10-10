@@ -1,7 +1,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { createCostMeter } from "../meter";
-import { PRICE_TABLE, PRICING_AS_OF } from "../pricing";
+import { PRICE_TABLE, PRICING_AS_OF, CACHE_WRITE_MULTIPLIER, CACHE_READ_MULTIPLIER } from "../pricing";
 
 /**
  * R4b — meter.ts: aggregation correctness, and the "never breaks a search"
@@ -185,8 +185,8 @@ describe("CostMeter — record() multi-call stage aggregation (candidate_analysi
   });
 });
 
-describe("CostMeter — cache token fields (informational only, future-proofing)", () => {
-  test("cache fields are summed when present but not folded into costUsd", () => {
+describe("CostMeter — cache token fields (prompt caching is in active use)", () => {
+  test("cache fields are summed AND folded into costUsd at the documented multipliers", () => {
     const meter = createCostMeter();
     meter.record({
       stage: "profile_extraction",
@@ -202,8 +202,12 @@ describe("CostMeter — cache token fields (informational only, future-proofing)
     assert.equal(stage.cacheCreationInputTokens, 40);
     assert.equal(stage.cacheReadInputTokens, 10);
     const p = PRICE_TABLE["claude-sonnet-4-6"];
-    const expectedCost = 100 * p.inputPerToken + 50 * (p.outputPerToken ?? 0);
-    assert.ok(Math.abs(stage.costUsd - expectedCost) < 1e-12, "cache tokens must not affect costUsd");
+    const expectedCost =
+      100 * p.inputPerToken +
+      50 * (p.outputPerToken ?? 0) +
+      40 * p.inputPerToken * CACHE_WRITE_MULTIPLIER +
+      10 * p.inputPerToken * CACHE_READ_MULTIPLIER;
+    assert.ok(Math.abs(stage.costUsd - expectedCost) < 1e-12, "cache tokens must be priced into costUsd");
   });
 
   test("cache fields stay undefined when absent (today's real-world case)", () => {
