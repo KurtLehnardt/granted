@@ -41,6 +41,11 @@ $QuitEventName = "Local\GrantedTray-Quit-$Port"
 $RestartEventName = "Local\GrantedTray-Restart-$Port"
 $LogDir = Join-Path $env:LOCALAPPDATA "Granted\logs"
 $LogPath = Join-Path $LogDir "server-$Port.log"
+# Same cap and generation count as scaffold/lib/errorLog/store.ts's
+# MAX_LOG_BYTES / KEEP_LOG_FILES, so all three log-rotation implementations
+# in this repo agree.
+$MaxLogBytes = 1000000
+$KeepLogFiles = 3
 $IconPath = Join-Path $PSScriptRoot "granted.ico"
 $OpenScript = Join-Path $PSScriptRoot "open-granted.ps1"
 $ReportScript = Join-Path $PSScriptRoot "report-problem.ps1"
@@ -141,8 +146,53 @@ $script:Server = $null
 $script:EverReady = $false
 $script:ReportedFailure = $false
 
+# The path for one rotation generation: 0 is the live file, 1 and 2 are
+# "server-$Port.1.log" and "server-$Port.2.log" -- the same generation
+# naming scheme as scaffold/lib/errorLog/store.ts's logFileName, so the two
+# implementations agree.
+function Get-GrantedLogGeneration([int]$Index) {
+  if ($Index -eq 0) { return $LogPath }
+  return Join-Path $LogDir "server-$Port.$Index.log"
+}
+
+# Log rotation happens only here: immediately before the point where the
+# server's stdout/stderr handle on $LogPath is about to be opened. That is
+# both the initial start and the existing user-triggered Restart menu item,
+# because Restart-GrantedServer calls Stop-GrantedServer and then this same
+# Start-GrantedServer -- one call site covers both. Rotation deliberately
+# does NOT happen mid-session, for example from the tray's 2-second
+# $timer.add_Tick, because the log handle is held open for the entire life
+# of the server process: rotating it while the server is running would mean
+# restarting a server the user did not ask to restart, which is a visible
+# interruption of whatever they were doing in exchange for bounding a
+# slow-moving dev-server log file. That mid-session restart path also cannot
+# be exercised end to end on the machine that wrote this change, so it would
+# have shipped effectively unverified. The accepted tradeoff: a single
+# session that runs for a very long time can still grow one log file past
+# the cap, and that is left unresolved until the next start or Restart. The
+# whole function is wrapped in try/catch and is fully non-fatal by design --
+# a tray that fails to start because log rotation failed would be a far
+# worse bug than an oversized log file. (Chose the "Invoke" verb, not
+# "Rotate" -- which is not on PowerShell's approved-verb list -- and not
+# "Move", which the pre-existing $LogPath.previous rename below already
+# uses for something else.)
+function Invoke-LogRotation {
+  try {
+    if (-not (Test-Path -LiteralPath $LogPath)) { return }
+    if ((Get-Item -LiteralPath $LogPath -ErrorAction Stop).Length -lt $MaxLogBytes) { return }
+    Remove-Item -LiteralPath (Get-GrantedLogGeneration ($KeepLogFiles - 1)) -Force -ErrorAction SilentlyContinue
+    for ($i = $KeepLogFiles - 2; $i -ge 0; $i--) {
+      $src = Get-GrantedLogGeneration $i
+      if (Test-Path -LiteralPath $src) {
+        Move-Item -LiteralPath $src -Destination (Get-GrantedLogGeneration ($i + 1)) -Force -ErrorAction SilentlyContinue
+      }
+    }
+  } catch { }
+}
+
 function Start-GrantedServer {
   New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
+  Invoke-LogRotation
   if (Test-Path $LogPath) { Move-Item -Force $LogPath "$LogPath.previous" -ErrorAction SilentlyContinue }
   $psi = New-Object System.Diagnostics.ProcessStartInfo
   $psi.FileName = $env:ComSpec
