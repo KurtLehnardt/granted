@@ -170,19 +170,32 @@ export function markStateEnablePromptDeclined(sourceId: string): void {
 /** Ollama management: whether Granted should start/stop Ollama automatically */
 const MANAGE_OLLAMA_KEY = "granted:manageOllama";
 
+/** There are three distinguishable states for this preference: never configured
+ *  (the key has never been written), explicitly on (stored value "1"), and
+ *  explicitly off (stored value "0"). The default is true, so both "never
+ *  configured" and "explicitly on" return true here; only the explicit-off
+ *  value returns false. If localStorage is unavailable, fall back to the
+ *  same true default. */
 export function getManageOllama(): boolean {
   try {
-    return window.localStorage.getItem(MANAGE_OLLAMA_KEY) === "1";
+    const raw = window.localStorage.getItem(MANAGE_OLLAMA_KEY);
+    if (raw === null) return true;
+    return raw !== "0";
   } catch {
     // Default to true: manage Ollama by default
     return true;
   }
 }
 
+/** Writes an explicit "0" for false instead of removing the key. Removing the
+ *  key on false would make "explicitly off" indistinguishable from "never
+ *  configured" — and since getManageOllama() defaults a never-configured key
+ *  to true, that would make a user's deliberate "off" silently flip back to
+ *  on the next time this is read. Writing "0" keeps the three states
+ *  (never configured, explicitly on, explicitly off) distinct. */
 export function setManageOllama(value: boolean): void {
   try {
-    if (value) window.localStorage.setItem(MANAGE_OLLAMA_KEY, "1");
-    else window.localStorage.removeItem(MANAGE_OLLAMA_KEY);
+    window.localStorage.setItem(MANAGE_OLLAMA_KEY, value ? "1" : "0");
   } catch {
     /* localStorage unavailable — nothing to persist */
   }

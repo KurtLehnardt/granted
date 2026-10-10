@@ -1,0 +1,96 @@
+name: scaffold-e2e
+
+# Runs the scaffold's Playwright end-to-end suite (`npm run e2e`) against a
+# real production build of the app.
+#
+# Scheduled daily plus workflow_dispatch, deliberately NOT on pull_request or
+# push: Playwright needs browser binaries and a built Next.js app, a much
+# bigger runtime budget than ci.yml's fast typecheck+unit-test check (see
+# ci.yml's own header comment for that reasoning). Keeping this off
+# pull_request/push also means it can never become a required check by
+# accident — adding it to branch protection's required checks is a
+# repository-settings action handled separately, not something this file
+# controls, and it should NOT be added there.
+#
+# The scaffold's "e2e" script (package.json) is bare `playwright test` — unlike
+# the installer's equivalent, it does not chain a build step first.
+# playwright.config.ts's webServer falls back to `npm run start` when no dev
+# server is already listening on E2E_BASE_URL (true here, since nothing else
+# is running on this runner), and `next start` fails immediately with "Could
+# not find a production build" unless `next build` already ran. So this job
+# runs `npm run build` explicitly before `npm run e2e`.
+#
+# Built with no .env.local and no extra env vars, matching ci.yml's hermetic
+# philosophy. The suite is already designed to self-skip its flag-gated cases
+# (interview, sidebar sections, buckets, auto-fill, billing — see
+# playwright.config.ts's header comment) against a plain default build.
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # One run at a time is enough for a nightly job; cancelling a superseded
+  # scheduled run (e.g. after a workflow_dispatch) is safe, same reasoning as ci.yml.
+  group: scaffold-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: scaffold
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: scaffold/package-lock.json
+
+      # `npm ci` (not `install`), same as ci.yml, so a drifted lockfile fails
+      # the build instead of being silently rewritten. ONNXRUNTIME_NODE_INSTALL=skip
+      # for the same reason as ci.yml: onnxruntime-node would otherwise download
+      # its CUDA add-on on linux/x64, several hundred MB nothing here uses.
+      - name: Install dependencies
+        run: npm ci
+        env:
+          ONNXRUNTIME_NODE_INSTALL: skip
+
+      # playwright.config.ts only declares a "chromium" project, so that is
+      # the only browser this suite needs.
+      - name: Install Playwright's chromium
+        run: npx playwright install --with-deps chromium
+
+      # Required: the "e2e" script is bare `playwright test` with no build
+      # step of its own, and playwright.config.ts's webServer runs `npm run
+      # start` (next start) when no dev server is already up. Without this
+      # step, `next start` fails immediately with "Could not find a
+      # production build".
+      - name: Build
+        run: npm run build
+
+      - name: End-to-end tests
+        run: npm run e2e
+
+      # The repo gitignores Playwright's own output (/test-results/,
+      # /playwright-report/, /blob-report/ — see scaffold/.gitignore), so
+      # capture it here on failure instead of losing it.
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: |
+            scaffold/playwright-report/
+            scaffold/test-results/
+          retention-days: 7
