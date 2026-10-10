@@ -116,6 +116,11 @@ esac
 
 PLIST_PATH="$LAUNCH_AGENTS_DIR/$LABEL.plist"
 LOG_FILE="$LOG_DIR/server-$PORT.log"
+# Same cap and generation count as scaffold/lib/errorLog/store.ts's
+# MAX_LOG_BYTES / KEEP_LOG_FILES, so all three log-rotation implementations
+# in this repo agree.
+MAX_LOG_BYTES=1000000
+KEEP_LOG_FILES=3
 HELPER_PID_FILE="$SUPPORT_DIR/menubar-$PORT.pid"
 URL="http://localhost:$PORT"
 # `npm run dev` is `next dev -H 127.0.0.1`, which binds IPv4 only -- probe
@@ -269,7 +274,53 @@ load_agent() {
   agent_loaded
 }
 
+# The path for one rotation generation: 0 is the live file, 1 and 2 are
+# "server-$PORT.1.log" and "server-$PORT.2.log" -- the same generation
+# naming scheme as scaffold/lib/errorLog/store.ts's logFileName and
+# scripts/windows/granted-tray.ps1's Get-GrantedLogGeneration, so all three
+# implementations agree.
+granted_log_generation() {
+  if [ "$1" -eq 0 ]; then printf '%s' "$LOG_FILE"; else printf '%s/server-%s.%s.log' "$LOG_DIR" "$PORT" "$1"; fi
+}
+
+# Log rotation happens only here: immediately before the LaunchAgent is
+# bootstrapped and kickstarted, i.e. before launchd is about to open its
+# StandardOutPath/StandardErrorPath handle on $LOG_FILE. start_server is the
+# one function both cmd_start and cmd_restart call, so this single call site
+# covers both the initial start and the existing user-triggered `restart`.
+# Rotation deliberately does NOT happen mid-session -- for example from
+# cmd_status, which the menu-bar helper polls regularly -- because launchd
+# holds that log handle open for the entire life of the agent: rotating it
+# while the server is running would mean forcing a restart of a server the
+# user did not ask to restart, which is a visible interruption of whatever
+# they were doing in exchange for bounding a slow-moving dev-server log
+# file. That mid-session restart path also cannot be exercised end to end
+# on the machine that wrote this change, so it would have shipped
+# effectively unverified. The accepted tradeoff: a single session that runs
+# for a very long time can still grow one log file past the cap, and that is
+# left unresolved until the next start or restart. The whole function is
+# guarded so it can never abort the script under `set -euo pipefail` -- a
+# tray that fails to start because log rotation failed would be a far worse
+# bug than an oversized log file.
+rotate_granted_log() {
+  local size i src dst
+  [ -f "$LOG_FILE" ] || return 0
+  size="$(stat -f%z -- "$LOG_FILE" 2>/dev/null)" || return 0
+  case "$size" in ''|*[!0-9]*) return 0 ;; esac
+  [ "$size" -ge "$MAX_LOG_BYTES" ] || return 0
+  rm -f -- "$(granted_log_generation $((KEEP_LOG_FILES - 1)))" 2>/dev/null || true
+  i=$((KEEP_LOG_FILES - 2))
+  while [ "$i" -ge 0 ]; do
+    src="$(granted_log_generation "$i")"
+    dst="$(granted_log_generation $((i + 1)))"
+    if [ -f "$src" ]; then mv -f -- "$src" "$dst" 2>/dev/null || true; fi
+    i=$((i - 1))
+  done
+  return 0
+}
+
 start_server() {
+  rotate_granted_log || true
   load_agent || return 1
   launchctl kickstart "$DOMAIN/$LABEL" >/dev/null 2>&1
 }
