@@ -7,14 +7,17 @@ import type { PromptEntry } from "./types";
  * Each template below was extracted programmatically from the original
  * inline string in `lib/claude.ts` (via the TypeScript compiler API, reading
  * the cooked string value of the template-literal node) and re-emitted here
- * with `JSON.stringify` — never re-typed by hand — so the migration carries
- * zero risk of transcription drift. `V1_BASELINE_HASHES` below records the
- * sha256 of each original string as it stood in `lib/claude.ts` prior to
- * migration; the registry's own content hash for each entry must equal it
- * forever, or the migration was not byte-identical.
+ * with `JSON.stringify` — never re-typed by hand — so the migration carried
+ * zero risk of transcription drift at the time it happened.
  *
  * Do not hand-edit any `*_V1_TEMPLATE` constant. A text change is a new
  * prompt version — add a new entry, do not mutate this one.
+ *
+ * Prompt-registry drift (any template's text changing without a version
+ * bump) is guarded live by `npm run check:prompts`, not by a baseline hash
+ * recorded here (M3.4 — a now-removed `V1_BASELINE_HASHES` constant made
+ * this claim but had no consumer and was already stale for 2 of its 3
+ * entries, so it was deleted rather than retrofitted).
  */
 
 function definePrompt(id: string, version: string, template: string): PromptEntry {
@@ -104,7 +107,7 @@ RULES THAT MATTER MORE THAN COVERAGE:
  * substantially compresses the run-to-run score spread (the 35–72 swings that
  * made a match's tier a coin flip). The narrative rules and rule 1's
  * no-definitive-eligibility guarantee are unchanged. A new prompt version (v3),
- * so it does not touch V1_BASELINE_HASHES or the shipped v2.
+ * so it leaves the shipped v2 untouched.
  */
 const EXPLAIN_MATCHES_ANCHORED_V3_TEMPLATE = `You assess fit between a startup and federal funding opportunities.
 
@@ -178,10 +181,9 @@ const EXPLAIN_WEAK_FIELD_V1_TEMPLATE = "A startup has no strong federal grant ma
  * expensive search — the v2 core insight (R1). The consuming module is
  * `lib/interview/generateQuestions.ts`.
  *
- * This is a new prompt, so it is NOT in `V1_BASELINE_HASHES` (that set is the
- * historical anchor for the three prompts migrated verbatim out of
- * `lib/claude.ts`). Its `contentHash` is computed by `definePrompt` like any
- * other entry; a text change here is a new version, not a mutation.
+ * This is a new prompt, not one migrated out of `lib/claude.ts`. Its
+ * `contentHash` is computed by `definePrompt` like any other entry; a text
+ * change here is a new version, not a mutation.
  */
 const GENERATE_INTERVIEW_QUESTIONS_V1_TEMPLATE = `You generate the pre-search interview for fundFinder, a federal-funding matcher.
 
@@ -312,6 +314,20 @@ Return ONLY a JSON object — no preamble, no markdown fences — of exactly thi
 Aim for 3-5 questions when the description leaves gates or routing open; return fewer (down to zero) when it does not. Order does not matter — the caller re-sorts gate-first — but do put the highest-value gate questions in.`;
 
 /**
+ * M3.1 (check:prompts gate) — `lib/interview/generateQuestions.ts` used to
+ * append "Respond with a single JSON object and nothing else." to the v2
+ * template directly at its call site, as an inline `system` template
+ * literal — exactly the pattern `npm run check:prompts` exists to catch
+ * (every static system prompt must live in this registry, not inline at a
+ * call site). Built by interpolating `GENERATE_INTERVIEW_QUESTIONS_V2_TEMPLATE`
+ * rather than retyping it, so the v2 and v3 text cannot drift apart; the only
+ * new content is the appended sentence.
+ */
+const GENERATE_INTERVIEW_QUESTIONS_V3_TEMPLATE = `${GENERATE_INTERVIEW_QUESTIONS_V2_TEMPLATE}
+
+Respond with a single JSON object and nothing else.`;
+
+/**
  * R5-deep (competitor_analysis, modelRouting.ts → claude-sonnet-4-6). The single
  * grounded synthesis over REAL retrieved federal award records (+ optional
  * private-company web profiles) that powers the live `/api/competitors` market
@@ -325,8 +341,8 @@ Aim for 3-5 questions when the description leaves gates or routing open; return 
  * so it stays clear of the C2 banned-phrasings the `check:prompts` gate scans
  * every `*_TEMPLATE` for.
  *
- * Authored here (new prompt), so it is NOT in `V1_BASELINE_HASHES`. Its
- * `contentHash` is computed by `definePrompt`; a text change is a new version.
+ * Authored here, not migrated from `lib/claude.ts`. Its `contentHash` is
+ * computed by `definePrompt`; a text change is a new version.
  */
 const COMPETITOR_ANALYSIS_V1_TEMPLATE = `You analyze REAL public federal award records to give a company a grounded competitor & positioning market brief. You must never fabricate.
 
@@ -369,10 +385,9 @@ OUTPUT: strict JSON only (no prose, no markdown fences), of exactly this shape:
  * number) so a promoted candidate lands in the same tier band it would have
  * under the single pass.
  *
- * Authored here (new prompt), so it is NOT in `V1_BASELINE_HASHES` (that set is
- * the historical anchor for the three prompts migrated verbatim out of
- * `lib/claude.ts`). Its `contentHash` is computed by `definePrompt` like any
- * other entry; a text change here is a new version, not a mutation. It must stay
+ * Authored here, not migrated from `lib/claude.ts`. Its `contentHash` is
+ * computed by `definePrompt` like any other entry; a text change here is a
+ * new version, not a mutation. It must stay
  * free of BANNED_PHRASES (scripts/banned-phrases.mjs) like every template — a
  * score-only prompt asserts no eligibility, so this holds by construction.
  */
@@ -433,19 +448,7 @@ export const PROMPT_REGISTRY: Record<string, PromptEntry> = {
   explainWeakField: definePrompt("explainWeakField", "v1", EXPLAIN_WEAK_FIELD_V1_TEMPLATE),
   generateInterviewQuestions: definePrompt(
     "generateInterviewQuestions",
-    "v2",
-    GENERATE_INTERVIEW_QUESTIONS_V2_TEMPLATE,
+    "v3",
+    GENERATE_INTERVIEW_QUESTIONS_V3_TEMPLATE,
   ),
-};
-
-/**
- * sha256 of each v1 prompt's exact text as it existed inline in
- * `lib/claude.ts` before migration into this registry (captured
- * programmatically, not hand-computed). Do not update these to match future
- * edits — they are the historical v1 anchor, not a moving target.
- */
-export const V1_BASELINE_HASHES: Record<string, string> = {
-  extractProfile: "d3723293ca2e2acb0482c1c9173f82a929e30fa87b56d3edfc1abcecac229523",
-  explainMatches: "494995270db87314b871f6013e2183538e7eb85ffc59b04c2c0a8958ff067d3f",
-  explainWeakField: "479b875026ff7c1f115f77d2be990d620f2ede7b2fa94ede0007669eb21acded",
 };

@@ -1,6 +1,8 @@
 import { makeLlmClient, isLocalLlm } from "../llm/client";
 import { embedBatch, cosine } from "../embed";
 import { loadPrompt } from "../prompts";
+import { recordUsage } from "../claude";
+import { wrapUntrusted } from "../security/untrustedInput";
 import type { CostMeter } from "../metering/meter";
 import { retrieveAwards, type RawAwardRecord } from "./retrieve";
 import { searchWebCompetitors, type RawWebProfile, type WebSearchResult } from "./web";
@@ -221,27 +223,32 @@ async function synthesize(
       messages: [
         {
           role: "user",
+          // §5.5 — each untrusted segment is wrapped INDIVIDUALLY (H4.4): the
+          // persona/description/opportunity block, the award-evidence JSON,
+          // and the web-evidence JSON are all untrusted (user-supplied or
+          // fetched from the award corpus / web search). The surrounding
+          // trusted instruction labels ("COMPANY:", "AWARD RECORDS…", "WEB
+          // PROFILES…") stay OUTSIDE the envelope — wrapping the whole
+          // message at once would also wrap those trusted instructions
+          // inside the "treat this as data" envelope.
           content:
-            `COMPANY:\n${input.persona} — ${input.personaDescription}${opp}\n\n` +
+            `COMPANY:\n${wrapUntrusted(`${input.persona} — ${input.personaDescription}${opp}`)}\n\n` +
             `AWARD RECORDS (real federal awards — cite these by id; the ONLY ids "competitors" may use):\n` +
-            `${JSON.stringify(awardEvidence, null, 2)}\n\n` +
+            `${wrapUntrusted(JSON.stringify(awardEvidence, null, 2))}\n\n` +
             `WEB PROFILES (private companies with NO federal award — recommendations/opportunities may cite these by id):\n` +
-            `${webEvidence.length ? JSON.stringify(webEvidence, null, 2) : "(none)"}`,
+            `${webEvidence.length ? wrapUntrusted(JSON.stringify(webEvidence, null, 2)) : "(none)"}`,
         },
       ],
     },
     { signal: input.signal },
   );
-  // R4b — record usage the instant the call resolves, before parseJson can throw.
-  const usage = msg.usage;
-  input.meter?.record({
-    stage: "competitor_analysis",
-    provider: "anthropic",
-    model: MODEL,
-    inputTokens: usage?.input_tokens ?? 0,
-    outputTokens: usage?.output_tokens ?? 0,
-    latencyMs: performance.now() - t0,
-  });
+  // R4b — record usage the instant the call resolves, before parseJson can
+  // throw. M2 item 1 — routed through lib/claude.ts's shared `recordUsage`
+  // instead of hand-rolling this block: the hand-rolled version hardcoded
+  // `provider: "anthropic"`, which was wrong whenever the configured provider
+  // is not Anthropic. `recordUsage` derives the actually-configured
+  // provider/model itself (see `usageAttribution` in lib/claude.ts).
+  recordUsage(input.meter, "competitor_analysis", msg.usage, performance.now() - t0, MODEL);
 
   const text = msg.content.filter((c) => c.type === "text").map((c: any) => c.text).join("");
   return parseJson<RawSynthesis>(text);

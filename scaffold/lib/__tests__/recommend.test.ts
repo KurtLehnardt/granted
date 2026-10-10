@@ -63,6 +63,22 @@ describe("recommendFor — aggressive thresholds", () => {
     assert.equal(r.recommendation, "do_not_recommend");
     assert.match(r.basis, /confirm.*program officer/i);
   });
+
+  // H6 — `criteria: []` (total === 0) is a MISSING signal, not a negative
+  // one. It happens legitimately on the score-only two-pass path. A high
+  // score with no criteria data at all must never read as a confident
+  // "the criteria say this is a bad fit."
+  test("high score + no criteria data (criteria: []) → verify, NOT do_not_recommend (H6)", () => {
+    const r = recommendFor({ adjustedScore: 80, kind: "grant", criteria: [] });
+    assert.equal(r.recommendation, "verify");
+    assert.match(r.basis, /no detailed program criteria/i);
+  });
+
+  test("low score + no criteria data (criteria: []) → do_not_recommend still wins on score alone (H6)", () => {
+    const r = recommendFor({ adjustedScore: 10, kind: "grant", criteria: [] });
+    assert.equal(r.recommendation, "do_not_recommend");
+    assert.match(r.label, /don't recommend applying/i);
+  });
 });
 
 describe("per-type floors — non-grants held higher", () => {
