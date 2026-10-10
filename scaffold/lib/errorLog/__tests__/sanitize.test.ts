@@ -14,6 +14,8 @@ describe("sanitize: API keys and tokens", () => {
     ["Groq key", "gsk_abcdefghijklmnopqrstuvwxyz123456", "[redacted-key]"],
     ["xAI key", "xai-abcdefghijklmnopqrstuvwxyz0123", "[redacted-key]"],
     ["Hugging Face token", "hf_abcdefghijklmnopqrstuvwxyz0123", "[redacted-key]"],
+    ["Fireworks AI key, fw_ prefix", "fw_abcdefghijklmnopqrstuvwxyz0123", "[redacted-key]"],
+    ["Fireworks AI key, fpk_ prefix", "fpk_abcdefghijklmnopqrstuvwxyz0123", "[redacted-key]"],
     ["GitHub token", "token ghp_abcdefghijklmnopqrstuvwxyz0123456789", "token [redacted-key]"],
     ["GitHub fine-grained token", "github_pat_11ABCDEFG0123456789_abcdefghijklmnop", "[redacted-key]"],
     ["Bearer token", "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.e30.abc-def_ghi", "Authorization: Bearer [redacted]"],
@@ -46,6 +48,44 @@ describe("sanitize: API keys and tokens", () => {
   test("several secrets on one line all go", () => {
     const out = s("a sk-ant-AAAAAAAAAAAAAAAA b AIzaSyA1234567890abcdefghijk c gsk_abcdefghijklmnop12");
     assert.equal(out, "a [redacted-key] b [redacted-key] c [redacted-key]");
+  });
+});
+
+describe("sanitize: H5 regex fixes (key-header-or-field underscore boundary, env-secret-assignment quoted values)", () => {
+  test("key-header-or-field now matches an ANTHROPIC_API_KEY-style name (the \\b after '_' bug)", () => {
+    // Isolated from the provider-prefix rules: a generic value with no recognized key
+    // shape, and a colon (not '='), so only key-header-or-field can be responsible.
+    // Before the fix, \b never fires between '_' and 'A' in "_API_KEY", so this rule
+    // silently matched nothing and the opaque value was left in the clear.
+    const out = s("ANTHROPIC_API_KEY: plainOpaqueSecretValue1234");
+    assert.equal(out, "ANTHROPIC_API_KEY: [redacted]");
+    assert.doesNotMatch(out, /plainOpaqueSecretValue1234/);
+  });
+
+  test("the required minimum: ANTHROPIC_API_KEY: sk-ant-... as a header/field form", () => {
+    const out = s("ANTHROPIC_API_KEY: sk-ant-api03-AbCdEfGhIjKlMnOpQrSt1234");
+    assert.doesNotMatch(out, /sk-ant-api03-AbCdEfGhIjKlMnOpQrSt1234/);
+    assert.match(out, /\[redacted(-key)?\]/);
+  });
+
+  test("env-secret-assignment now matches a quoted value (the opening-quote bug)", () => {
+    // Deliberately NOT an "*_API_KEY" name: key-header-or-field's own fixed alternative
+    // (above) would also catch that shape (it already handles quotes itself), which
+    // would mask whether THIS rule's fix is doing anything. "_TOKEN" isn't one of
+    // key-header-or-field's underscore-bug-fixed alternatives, so only
+    // env-secret-assignment can be responsible for removing this value. Before the fix,
+    // the value character class excluded the opening quote, so the match died right
+    // there and the whole assignment -- quotes, secret and all -- was left untouched.
+    assert.equal(s('WIDGET_SECRET_TOKEN="plainOpaqueSecretValue1234"'), 'WIDGET_SECRET_TOKEN="[redacted]"');
+  });
+
+  test("env-secret-assignment: the unquoted form keeps working (regression)", () => {
+    assert.equal(s("WIDGET_SECRET_TOKEN=plainOpaqueSecretValue1234"), "WIDGET_SECRET_TOKEN=[redacted]");
+  });
+
+  test("the required minimum: OPENAI_API_KEY, quoted and unquoted", () => {
+    assert.equal(s('OPENAI_API_KEY="sk-proj-AbCdEfGhIjKlMnOpQrSt1234"'), 'OPENAI_API_KEY="[redacted]"');
+    assert.equal(s("OPENAI_API_KEY=sk-proj-AbCdEfGhIjKlMnOpQrSt1234"), "OPENAI_API_KEY=[redacted]");
   });
 });
 

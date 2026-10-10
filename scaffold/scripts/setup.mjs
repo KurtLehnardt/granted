@@ -11,7 +11,7 @@
  * key back to the screen. It does NOT touch any cloud account; the README covers
  * the Supabase / Google-OAuth steps that genuinely require a dashboard.
  */
-import { readFileSync, writeFileSync, existsSync, copyFileSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, copyFileSync, chmodSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -154,6 +154,14 @@ text = await collectKey(text, "EXA_API_KEY", "Exa (optional — live web competi
 });
 
 writeFileSync(ENV, text);
+// .env.local holds API keys, so it must not be world-readable. writeFileSync's `mode` option is
+// only honored when the file is CREATED, so it would silently do nothing on an already-existing
+// file (the common case here, since this write always runs after the copy/exists branch above);
+// and copyFileSync's third argument is a copy-behavior FLAGS bitmask (e.g. COPYFILE_EXCL), not a
+// permissions mode, so passing a mode there would do something else entirely. chmodSync after the
+// write is the only thing that is correct on every path: freshly copied from .env.example, or
+// already existing from a previous run.
+chmodSync(ENV, 0o600);
 console.log(`\n${c.g("✓")} Saved .env.local`);
 
 // 2) Dependencies.
@@ -212,7 +220,6 @@ console.log(`\n  ${c.b("Optional, when you want them")} ${c.dim("(see README):")
 console.log(`  • Run fully on a local model    → ${c.g("npm run setup:local")} ${c.dim("(guided Ollama setup — no API keys, offline)")}`);
 console.log(`  • Live competitor web results  → add ${c.g("EXA_API_KEY")} + set ${c.g("NEXT_PUBLIC_FLAG_R5_DEEP_ANALYSIS=true")}`);
 console.log(`  • The honest "don't apply" layer → set ${c.g("NEXT_PUBLIC_FLAG_DISCERNMENT_LAYER=true")}`);
-console.log(`  • Real Google sign-in           → a Supabase project + Google OAuth (README: "Real sign-in")`);
 console.log("");
 
 // Clean, deterministic exit (no lingering readline handles on any platform).
