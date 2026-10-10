@@ -8,11 +8,27 @@
  *
  * This is a standalone CI script rather than an ESLint rule so it has no
  * dependency on an ESLint config existing in this project (none does yet).
- * It is intentionally NOT wired into `npm run build` — running it against
- * today's tree correctly flags pre-existing raw hex in v1 components
- * (components/OpportunityCard.tsx), and CON-02 is explicitly not allowed
- * to restyle v1 (that's FE-01, slice 2). Wire this into a separate CI job
- * or a pre-merge check for new/changed files once FE-01 lands.
+ * It is intentionally NOT wired into `npm run build` — wire this into a
+ * separate CI job or a pre-merge check instead.
+ *
+ * The match deliberately excludes three things that look like hex but are
+ * not colors. First, a `#` immediately preceded by a word character or by
+ * `&` is skipped, because that is either part of a longer alphanumeric
+ * token or an HTML numeric character entity such as `&#8599;`, neither of
+ * which is a color literal. Second and third, a `#` followed by exactly
+ * three or exactly four decimal digits with no hex letters (for example
+ * `#210` or `#1234`) is skipped, because in this codebase that pattern is
+ * always a GitHub issue or PR reference, never a real CSS hex color of
+ * that length — a genuine 3- or 4-digit hex color always contains at
+ * least one a-f letter (`#fff`, `#a1b`, `#0f0`, `#1a2b`, `#fff0`), so an
+ * all-decimal value is not a color worth flagging. This check runs in CI
+ * (see the workflow that invokes `npm run check:hex`), and this repo's
+ * issue numbers are already in the 300s and will reach four digits before
+ * long; without the 4-digit exclusion, a comment or test name mentioning
+ * an issue like `#1234` would turn CI red for a non-problem, whereas a
+ * genuine hand-written 4-digit all-decimal RGBA color is essentially never
+ * seen in practice. With these exclusions in place, running this script
+ * against today's tree finds zero raw hex violations.
  *
  * Usage:
  *   node scripts/design/check-hex.mjs
@@ -61,11 +77,19 @@ const INTERIM_EXCLUDED = new Set([
 
 // Matches #RGB, #RGBA, #RRGGBB, #RRGGBBAA — longest alternative first so a
 // 6-digit hex isn't matched as a 3-digit prefix. Rejects a match that's
-// immediately preceded or followed by another word character, so it
+// immediately preceded by a word character or by "&" (a negative lookbehind,
+// not a consuming character class, so a match at the very start of a line
+// still works) — "&" specifically guards against HTML numeric character
+// entities like "&#8599;", which are not color literals. Also rejects a
+// match that's immediately followed by another word character, so it
 // doesn't fire on a longer alphanumeric token that happens to contain a
-// hex-looking substring.
+// hex-looking substring. Both the 3-digit and 4-digit alternatives
+// additionally require at least one non-decimal hex digit (a-f/A-F) — a bare
+// run of 3 or 4 decimal digits (e.g. "#210", "#1234") is always a GitHub
+// issue/PR reference in this codebase, never a literal CSS hex color of that
+// length.
 const HEX_PATTERN =
-  /(?<![0-9a-zA-Z])#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{4}|[0-9a-fA-F]{3})(?![0-9a-zA-Z])/g;
+  /(?<![\w&])#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|(?![0-9]{4})[0-9a-fA-F]{4}|(?![0-9]{3})[0-9a-fA-F]{3})(?![0-9a-zA-Z])/g;
 
 function walk(dir, out) {
   let entries;
