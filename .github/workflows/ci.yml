@@ -75,6 +75,22 @@ jobs:
       - name: Unit tests
         run: npm test
 
+      # Two repository-consistency gates. Both existed as npm scripts but were
+      # never wired into CI, and both had accumulated violations by the time
+      # they were first run here; they are added only now that each passes on
+      # a clean tree, because adding a failing gate would just make CI red.
+      #
+      # check:prompts keeps prompt text in lib/prompts/registry.ts instead of
+      # inline template literals, so a prompt change is reviewable in one
+      # place and carries a version number. check:hex keeps raw hex colours
+      # out of components/ and app/ in favour of the design tokens in
+      # lib/design/tokens.ts (a line may opt out with a "// hex-ok" comment).
+      - name: Prompt registry check
+        run: npm run check:prompts
+
+      - name: Design token check
+        run: npm run check:hex
+
   # The GUI installer (installer/) is its own npm project. Its unit +
   # integration tests are hermetic (temp folders, a 127.0.0.1 HTTP server,
   # no keys); the ones that drive a real powershell.exe skip themselves off
