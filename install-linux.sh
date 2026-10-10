@@ -13,14 +13,17 @@
 # read string argument instead, so it's never competing with anything for
 # stdin. Don't revert this.
 #
-# Installs git + Node.js 22+ if missing (apt/dnf/yum), clones the repo, and
-# runs `npm ci` (installs exactly what's pinned in package-lock.json, and never
-# rewrites it). Safe to re-run: skips anything already present/done (npm ci does
-# remove and reinstall node_modules each time, which is expected).
+# Installs git + Node.js 22+ if missing (apt/dnf/yum), clones the repo, and runs
+# `npm ci` (installs exactly what's pinned in package-lock.json, and never
+# rewrites it) and `npm run build` (the production build Granted is served
+# from). Safe to re-run: skips anything already present/done (npm ci does
+# remove and reinstall node_modules each time, and the build runs each time,
+# which is expected).
 #
 # After this finishes, `cd granted/scaffold` and run `npm run setup` (an
 # OpenAI or Claude key for scoring; search needs no key) or `npm run
-# setup:local -- --yes` (fully local via Ollama), then `npm run dev`.
+# setup:local -- --yes` (fully local via Ollama), then `npm run build` (setup
+# can change build-time NEXT_PUBLIC_* flags) and `npm run start`.
 set -euo pipefail
 set -o errtrace
 
@@ -314,6 +317,24 @@ export ONNXRUNTIME_NODE_INSTALL=skip
 npm ci
 ok "dependencies installed"
 
+# 6) The production build Granted is served from. `npm run start` (`next start`)
+# serves what this produces; nothing runs `npm run dev` any more. Built here
+# rather than at first start so a build error stops the install with a message
+# instead of reaching the user as Next's error overlay in the browser.
+#
+# Fatal, like npm ci above: an install with no build is an install that cannot
+# run. A `next build` that fails leaves NO .next/BUILD_ID behind (it clears the
+# folder before compiling -- verified against Next 14.2), so a failed build
+# here can never be mistaken later for a usable one.
+#
+# It needs the network, like the clone and npm ci before it: app/layout.tsx
+# uses next/font/google, so `next build` fetches the three font families and
+# self-hosts them (`next dev` fetches them on first render instead -- the
+# dependency is not new, only earlier and louder).
+log "Building Granted (a minute or two)..."
+npm run build || die "Granted couldn't be built -- see the output above for the underlying error."
+ok "built"
+
 # The built-in search model (about 275 MB), so search works offline and needs
 # no API key. Idempotent: verifies what's already there and downloads only
 # what's missing. Never fatal: if it can't download now, Granted fetches the
@@ -331,4 +352,8 @@ log "Done. Next steps:"
 echo "  cd $TARGET_DIR/scaffold"
 echo "  npm run setup                  # an OpenAI or Claude key for scoring (search needs none), or"
 echo "  npm run setup:local -- --yes   # fully local via Ollama, no API keys"
-echo "  npm run dev                    # -> http://localhost:3000"
+# Built again after setup on purpose: setup writes .env.local, and Next bakes its
+# NEXT_PUBLIC_* flags into the client bundle at build time, so a flag set after
+# this install's build only takes effect once it is rebuilt.
+echo "  npm run build                  # after changing .env.local"
+echo "  npm run start                  # -> http://localhost:3000"

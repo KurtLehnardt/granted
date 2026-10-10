@@ -1,7 +1,8 @@
 /**
  * Integration: the REAL scaffold/scripts/macos/granted-tray.sh and the REAL
  * Swift menu-bar helper — Granted running in the background on macOS — against
- * a fake Granted install whose `npm run dev` is a tiny Node server, so this
+ * a fake Granted install whose `npm run build`/`npm run start` are tiny
+ * stand-ins (the start one a Node server), so this
  * proves the whole LaunchAgent lifecycle (write the plist, bootstrap,
  * kickstart, stop, bootout), the hidden server, the log location and the
  * status reporting without a real Next.js build. The macOS counterpart of
@@ -22,7 +23,7 @@
 import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { execFile, execFileSync, spawn } from "node:child_process";
-import { existsSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -169,7 +170,8 @@ interface FakeInstallOptions {
 }
 
 /**
- * A fake Granted install whose `npm run dev` is a tiny Node server, with the
+ * A fake Granted install whose `npm run start` is a tiny Node server (and whose
+ * `npm run build` just writes .next/BUILD_ID), with the
  * real tray script in it, pointed entirely at throwaway paths and a throwaway
  * LaunchAgent label. `cleanup` stops anything running, kills any menu-bar
  * helper this install started, boots the label out directly as well (whatever
@@ -190,7 +192,13 @@ async function setUpFakeInstall(options: FakeInstallOptions = {}): Promise<FakeI
   await writeFile(join(scaffold, "scripts", "macos", "open-granted.sh"), readFileSync(OPEN_SCRIPT, "utf8"), "utf8");
   await writeFile(
     join(scaffold, "package.json"),
-    JSON.stringify({ name: "fake-granted", private: true, scripts: { dev: "node fake-dev.js" } }),
+    JSON.stringify({
+      name: "fake-granted",
+      private: true,
+      // build + start, not dev: the tray builds when there is no current
+      // production build and then starts that build (see granted-tray.sh).
+      scripts: { dev: "node fake-dev.js", build: "node fake-build.js", start: "node fake-dev.js" },
+    }),
     "utf8",
   );
   await writeFile(
@@ -212,6 +220,20 @@ async function setUpFakeInstall(options: FakeInstallOptions = {}): Promise<FakeI
       'require("node:http")',
       `  .createServer((_req, res) => { res.writeHead(200, { "Content-Type": "text/html" }); res.end(${JSON.stringify(GRANTED_HTML)}); })`,
       '  .listen(port, "127.0.0.1", () => console.log("fake Granted listening on 127.0.0.1:" + port));',
+    ].join("\n"),
+    "utf8",
+  );
+  await writeFile(
+    join(scaffold, "fake-build.js"),
+    // Stand-in for `next build`: writes the .next/BUILD_ID that granted-tray.sh's
+    // needs_build (and its Windows and installer counterparts) treat as "a
+    // production build is present", so the real build-then-start flow is
+    // exercised without a real Next.js compile.
+    [
+      'const fs = require("node:fs");',
+      'fs.mkdirSync(".next", { recursive: true });',
+      'fs.writeFileSync(".next/BUILD_ID", "fake-build");',
+      'console.log("fake build: wrote .next/BUILD_ID");',
     ].join("\n"),
     "utf8",
   );
@@ -365,12 +387,12 @@ describe(
         env: { ...process.env, ...env, GRANTED_NPM: "/usr/local/bin/npm" },
       });
       assert.match(stdout, new RegExp(`<key>Label</key>\\s*\\n\\s*<string>${label}</string>`));
-      assert.match(stdout, /<string>\/usr\/local\/bin\/npm<\/string>\s*\n\s*<string>run<\/string>\s*\n\s*<string>dev<\/string>/);
+      assert.match(stdout, /<string>\/usr\/local\/bin\/npm<\/string>\s*\n\s*<string>run<\/string>\s*\n\s*<string>start<\/string>/);
       assert.ok(stdout.includes(`<string>${scaffold}</string>`), "WorkingDirectory is this install's scaffold folder");
       assert.ok(stdout.includes(`<string>${join(root, "logs", `server-${PORT}.log`)}</string>`), "stdout and stderr go to the server log");
       assert.match(stdout, /<key>PORT<\/key>\s*\n\s*<string>3977<\/string>/);
       // launchd's own PATH (/usr/bin:/bin:/usr/sbin:/sbin) has no Homebrew in
-      // it, so the plist must carry a real one or `npm run dev` can't find node.
+      // it, so the plist must carry a real one or `npm run start` can't find node.
       assert.match(stdout, /<key>PATH<\/key>/);
       // And it must be valid plist XML as far as the system is concerned.
       const plist = join(root, "check.plist");
@@ -379,8 +401,13 @@ describe(
     });
 
     test("start: the server runs hidden under the LaunchAgent, answers on the port, and logs to ~/Library/Logs/Granted's stand-in", async () => {
+      assert.equal(existsSync(join(scaffold, ".next", "BUILD_ID")), false, "this install has no production build yet");
       await tray("start");
       assert.ok(agentLoaded(), "the agent is loaded");
+      // The build ran first, into the same log, because `npm run start` has
+      // nothing to serve without it (ensure_build / needs_build).
+      assert.ok(existsSync(join(scaffold, ".next", "BUILD_ID")), "it built before starting the LaunchAgent");
+      assert.match(readFileSync(join(root, "logs", `server-${PORT}.log`), "utf8"), /fake build: wrote \.next\/BUILD_ID/);
       assert.equal(await until(() => probeGranted(`http://127.0.0.1:${PORT}/`, 3000), (p) => p === "granted"), "granted");
       // Hidden: nothing of this is attached to a terminal — it is launchd's
       // child, with its output in the log file.
@@ -439,6 +466,56 @@ describe(
         assert.match(readFileSync(join(root, "logs", `server-${PORT}.log`), "utf8"), /failing on purpose/);
       } finally {
         rmSync(join(scaffold, "fail"), { force: true });
+        await tray("stop").catch(() => undefined);
+      }
+    });
+
+    test("an .env.local newer than the build is rebuilt on the next start (NEXT_PUBLIC_* flags are baked in)", async () => {
+      // What `npm run setup`, the installer's key-saving step, or a hand edit
+      // leaves behind: a build that predates .env.local. Next compiles
+      // NEXT_PUBLIC_* flags into the browser bundle, so starting the old build
+      // would quietly ignore the new flag -- needs_build has to notice.
+      await tray("stop").catch(() => undefined);
+      const buildId = join(scaffold, ".next", "BUILD_ID");
+      assert.ok(existsSync(buildId), "an earlier test left a build here");
+      const before = readFileSync(buildId, "utf8");
+      writeFileSync(join(scaffold, ".env.local"), "NEXT_PUBLIC_FLAG_R5_DEEP_ANALYSIS=true\n", "utf8");
+      const built = new Date(Date.now() - 60_000);
+      utimesSync(buildId, built, built);
+
+      await tray("start");
+      assert.equal(await until(() => probeGranted(`http://127.0.0.1:${PORT}/`, 3000), (p) => p === "granted"), "granted");
+      assert.ok(statSync(buildId).mtimeMs > built.getTime(), "it built again before starting");
+      assert.equal(readFileSync(buildId, "utf8"), before, "(the stand-in build writes the same marker)");
+      await tray("stop").catch(() => undefined);
+
+      // And with the build now newer than .env.local, the next start skips it.
+      const after = statSync(buildId).mtimeMs;
+      await tray("start");
+      assert.equal(await until(() => probeGranted(`http://127.0.0.1:${PORT}/`, 3000), (p) => p === "granted"), "granted");
+      assert.equal(statSync(buildId).mtimeMs, after, "no rebuild when the build is already current");
+      await tray("stop").catch(() => undefined);
+    });
+
+    test("a build that fails doesn't start anything, and says so in the status file", async () => {
+      // No current build, and a `npm run build` that fails: `next start` would
+      // print "Could not find a production build" and exit, so nothing may be
+      // started at all -- and the user must be told it was the build.
+      const buildScript = join(scaffold, "fake-build.js");
+      const good = readFileSync(buildScript, "utf8");
+      rmSync(join(scaffold, ".next"), { recursive: true, force: true });
+      await writeFile(buildScript, 'console.error("fake build: failing on purpose"); process.exit(1);', "utf8");
+      try {
+        await assert.rejects(() => tray("start"), "start reports a failure");
+        assert.equal(agentLoaded(), false, "no LaunchAgent was bootstrapped");
+        assert.equal(await probeGranted(`http://127.0.0.1:${PORT}/`, 2000), "down", "and nothing is listening");
+        const status = await readStatusFile(statusPath);
+        assert.equal(status?.state, "error");
+        assert.match(status?.message ?? "", /couldn't be built/);
+        assert.match(readFileSync(join(root, "logs", `server-${PORT}.log`), "utf8"), /failing on purpose/);
+        assert.equal(existsSync(join(scaffold, ".next", "BUILD_ID")), false, "no build is left to look current next time");
+      } finally {
+        await writeFile(buildScript, good, "utf8");
         await tray("stop").catch(() => undefined);
       }
     });

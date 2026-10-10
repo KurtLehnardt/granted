@@ -213,8 +213,9 @@ console.log(
       : "  Search runs on this computer with the built-in model. No key needed.",
   ),
 );
-console.log(`  ${c.b("1.")} Start the app:      ${c.g("npm run dev")}   ${c.dim("→ http://localhost:3000")}`);
-console.log(`  ${c.b("2.")} Describe a company in the box and run a search. That's the whole core app.`);
+console.log(`  ${c.b("1.")} Build it:           ${c.g("npm run build")}  ${c.dim("(the NEXT_PUBLIC_* flags above are baked in here)")}`);
+console.log(`  ${c.b("2.")} Start the app:      ${c.g("npm run start")}  ${c.dim("→ http://localhost:3000")}`);
+console.log(`  ${c.b("3.")} Describe a company in the box and run a search. That's the whole core app.`);
 console.log(c.dim("     (The 4,698-opportunity corpus ships committed — no data pipeline needed to start.)"));
 console.log(`\n  ${c.b("Optional, when you want them")} ${c.dim("(see README):")}`);
 console.log(`  • Run fully on a local model    → ${c.g("npm run setup:local")} ${c.dim("(guided Ollama setup — no API keys, offline)")}`);

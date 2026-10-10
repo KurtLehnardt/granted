@@ -31,6 +31,18 @@ const REPO_ROOT = resolve(process.cwd(), "..");
 const INSTALL_SCRIPT = join(REPO_ROOT, "install-macos.sh");
 const PORT = 3978;
 const GRANTED_HTML = "<title>Granted — federal funding intelligence for everyone</title>";
+// Stand-in for `next build`: writes the .next/BUILD_ID that every launcher
+// (and installer/src/main/ipcPure.ts's needsProductionBuild) treats as "a
+// production build is present", so the real build-then-start flow is
+// exercised without a real Next.js compile.
+const FAKE_BUILD = [
+  'const fs = require("node:fs");',
+  'fs.mkdirSync(".next", { recursive: true });',
+  'fs.writeFileSync(".next/BUILD_ID", "fake-build");',
+  'console.log("fake build: wrote .next/BUILD_ID");',
+  "",
+].join("\n");
+
 
 const git = (cwd: string, ...args: string[]): string =>
   execFileSync("git", ["-c", "user.name=test", "-c", "user.email=test@example.com", "-c", "advice.detachedHead=false", ...args], {
@@ -47,15 +59,22 @@ describe(
     const started: ChildProcess[] = [];
     let seq = 0;
 
-    /** Commits scaffold at `version` (a runnable fake: `npm run dev` serves Granted's page on $PORT), optionally tagging it. */
+    /** Commits scaffold at `version` (a runnable fake: `npm run build` then `npm run start` serves Granted's page on $PORT), optionally tagging it. */
     function commitVersion(source: string, version: string, tag: string | null, extraFile?: string): void {
       const scaffold = join(source, "scaffold");
-      writeFileSync(join(scaffold, "package.json"), JSON.stringify({ name: "granted", version, private: true, scripts: { dev: "node server.js" } }, null, 2));
+      writeFileSync(
+        join(scaffold, "package.json"),
+        JSON.stringify({ name: "granted", version, private: true, scripts: { dev: "node server.js", build: "node build.js", start: "node server.js" } }, null, 2),
+      );
       writeFileSync(
         join(scaffold, "package-lock.json"),
         JSON.stringify({ name: "granted", version, lockfileVersion: 3, requires: true, packages: { "": { name: "granted", version } } }, null, 2),
       );
       writeFileSync(join(scaffold, "server.js"), `require("node:http").createServer((q, r) => r.end(${JSON.stringify(GRANTED_HTML)})).listen(Number(process.env.PORT), "127.0.0.1");`);
+      writeFileSync(join(scaffold, "build.js"), FAKE_BUILD);
+      // The real repo gitignores the build output; the fake must too, or the
+      // rollback tests' "nothing left modified" check trips over .next/.
+      writeFileSync(join(scaffold, ".gitignore"), "/.next/\n");
       if (extraFile) writeFileSync(join(scaffold, extraFile), extraFile);
       git(source, "add", "-A");
       git(source, "commit", "-q", "-m", `version ${version}`);

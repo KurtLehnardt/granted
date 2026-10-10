@@ -109,7 +109,14 @@ async function setUpFakeInstall(): Promise<FakeInstall> {
   await writeFile(join(scaffold, "scripts", "windows", "granted.ico"), readFileSync(ICO));
   await writeFile(
     join(scaffold, "package.json"),
-    JSON.stringify({ name: "fake-granted", private: true, version: "9.8.7", scripts: { dev: "node fake-dev.js" } }),
+    JSON.stringify({
+      name: "fake-granted",
+      private: true,
+      version: "9.8.7",
+      // build + start, not dev: the tray builds when there is no current
+      // production build and then starts that build (see granted-tray.sh).
+      scripts: { dev: "node fake-dev.js", build: "node fake-build.js", start: "node fake-dev.js" },
+    }),
     "utf8",
   );
   await writeFile(
@@ -120,6 +127,20 @@ async function setUpFakeInstall(): Promise<FakeInstall> {
       'require("node:http")',
       `  .createServer((_req, res) => { res.writeHead(200, { "Content-Type": "text/html" }); res.end(${JSON.stringify(GRANTED_HTML)}); })`,
       '  .listen(port, "127.0.0.1", () => console.log("fake Granted listening on 127.0.0.1:" + port));',
+    ].join("\n"),
+    "utf8",
+  );
+  await writeFile(
+    join(scaffold, "fake-build.js"),
+    // Stand-in for `next build`: writes the .next/BUILD_ID that granted-tray.sh's
+    // needs_build (and its Windows and installer counterparts) treat as "a
+    // production build is present", so the real build-then-start flow is
+    // exercised without a real Next.js compile.
+    [
+      'const fs = require("node:fs");',
+      'fs.mkdirSync(".next", { recursive: true });',
+      'fs.writeFileSync(".next/BUILD_ID", "fake-build");',
+      'console.log("fake build: wrote .next/BUILD_ID");',
     ].join("\n"),
     "utf8",
   );

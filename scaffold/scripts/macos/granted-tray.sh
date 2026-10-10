@@ -5,7 +5,11 @@
 # there what one PowerShell script does on Windows:
 #
 #   * launchd runs the server. A per-user LaunchAgent (label
-#     com.granted.server, plist in ~/Library/LaunchAgents) runs `npm run dev`
+#     com.granted.server, plist in ~/Library/LaunchAgents) runs `npm run start`
+#     -- `next start`, serving the production build in scaffold/.next, which
+#     this script makes sure exists first (see ensure_build below); never
+#     `npm run dev`, which would compile pages on demand in the user's face
+#     and needs a looser CSP to do it --
 #     with no window and no terminal, logging to ~/Library/Logs/Granted. The
 #     plist is deliberately written with RunAtLoad false and no KeepAlive, so
 #     it never starts Granted at login: it is bootstrapped and kickstarted
@@ -123,9 +127,17 @@ MAX_LOG_BYTES=1000000
 KEEP_LOG_FILES=3
 HELPER_PID_FILE="$SUPPORT_DIR/menubar-$PORT.pid"
 URL="http://localhost:$PORT"
-# `npm run dev` is `next dev -H 127.0.0.1`, which binds IPv4 only -- probe
+# `npm run start` is `next start -H 127.0.0.1`, which binds IPv4 only -- probe
 # that, not "localhost", which can resolve to ::1 first.
 PROBE_URL="http://127.0.0.1:$PORT/"
+# What ensure_build looks at: `next build` writes .next/BUILD_ID, and
+# NEXT_PUBLIC_* flags from .env.local are baked into the client bundle at
+# build time, so a .env.local newer than the build means the build is stale.
+BUILD_ID_FILE="$SCAFFOLD_DIR/.next/BUILD_ID"
+ENV_LOCAL_FILE="$SCAFFOLD_DIR/.env.local"
+# start_server's exit status when `npm run build` failed, as opposed to
+# launchd refusing to run the job -- two different things to tell the user.
+BUILD_FAILED_STATUS=3
 
 # --- status reporting (install-macos.sh's write_status, verbatim shape) -----
 # `pid` is omitted on purpose: this script exits as soon as it has started
@@ -209,7 +221,7 @@ emit_plist() {
   <array>
     <string>$(xml_escape "$npm")</string>
     <string>run</string>
-    <string>dev</string>
+    <string>start</string>
   </array>
   <key>WorkingDirectory</key>
   <string>$(xml_escape "$SCAFFOLD_DIR")</string>
@@ -319,10 +331,72 @@ rotate_granted_log() {
   return 0
 }
 
+# --- the production build --------------------------------------------------
+# The LaunchAgent runs `npm run start`, which serves the production build in
+# scaffold/.next. So there has to BE one, and it has to be newer than
+# .env.local: Next inlines NEXT_PUBLIC_* flags into the client bundle at build
+# time, so a flag that `npm run setup`, the GUI installer or the user wrote
+# after the last build only takes effect once it is rebuilt. (That is also
+# what makes the menu's Restart do the right thing after an .env.local edit.)
+#
+# .next/BUILD_ID is the marker, and a reliable one -- both halves verified
+# against Next 14.2 rather than assumed:
+#
+#   * `next dev` never writes BUILD_ID, so a .next left behind by someone
+#     running `npm run dev` in a terminal cannot be mistaken for a production
+#     build (`next start` would refuse to serve it).
+#   * a `next build` that FAILS leaves no BUILD_ID either: it clears the
+#     folder before it compiles. So a failed build can't read as a usable one
+#     on the next start.
+needs_build() {
+  [ -f "$BUILD_ID_FILE" ] || return 0
+  if [ -f "$ENV_LOCAL_FILE" ] && [ "$ENV_LOCAL_FILE" -nt "$BUILD_ID_FILE" ]; then return 0; fi
+  return 1
+}
+
+# Builds when needs_build says to, with the output going to the same log the
+# server writes to -- so the menu's "Show log" shows a build failure too, and
+# report-problem has it. Returns non-zero if the build failed, and the caller
+# then does NOT start the server: `next start` without a build prints "Could
+# not find a production build in the '.next' directory" and exits, which would
+# reach the user as a bare crash with no explanation.
+ensure_build() {
+  local npm
+  needs_build || return 0
+  mkdir -p -- "$LOG_DIR" 2>/dev/null || true
+  npm="$(npm_bin)"
+  [ -n "$npm" ] || { note "npm not found on PATH -- can't build Granted"; return 1; }
+  note "building Granted in $SCAFFOLD_DIR (first start after an install, an update or an .env.local change)"
+  printf '[granted-tray %s] npm run build\n' "$(date '+%Y-%m-%d %H:%M:%S')" >> "$LOG_FILE" 2>/dev/null || true
+  if ! ( cd -- "$SCAFFOLD_DIR" && "$npm" run build ) >> "$LOG_FILE" 2>&1; then
+    note "npm run build failed -- see $LOG_FILE"
+    return 1
+  fi
+  note "built"
+  return 0
+}
+
 start_server() {
   rotate_granted_log || true
+  # Before load_agent, not after: a build takes a minute, and launchd must not
+  # be kickstarted into a `next start` that has nothing to serve.
+  ensure_build || return "$BUILD_FAILED_STATUS"
   load_agent || return 1
   launchctl kickstart "$DOMAIN/$LABEL" >/dev/null 2>&1
+}
+
+# start_server, with its failures turned into the status file's wording. Used
+# by both cmd_start and cmd_restart so a failed build reads the same either way.
+start_server_or_report() {
+  local rc=0
+  start_server || rc=$?
+  [ "$rc" = "0" ] && return 0
+  if [ "$rc" = "$BUILD_FAILED_STATUS" ]; then
+    write_status "error" "Granted couldn't be built, so it didn't start. Details are in $LOG_FILE"
+  else
+    write_status "error" "Granted's background service couldn't be started. Details are in $LOG_FILE"
+  fi
+  return 1
 }
 
 # How long each of stop_server's two waits runs: first for the launchd job to
@@ -631,12 +705,13 @@ cmd_start() {
   # Rotate the log, so a failed start's output isn't buried under the last run's.
   [ -f "$LOG_FILE" ] && mv -f "$LOG_FILE" "$LOG_FILE.previous" 2>/dev/null || true
   write_status "running" ""
-  start_server || { write_status "error" "Granted's background service couldn't be started. Details are in $LOG_FILE"; return 1; }
+  start_server_or_report || return 1
   note "started $LABEL on port $PORT (log: $LOG_FILE)"
   start_helper || true
   if [ "$OPEN_BROWSER" = "1" ]; then
-    # Wait for Granted to answer before opening a browser at it (the first
-    # `next dev` compile takes a while); give up quietly after five minutes.
+    # Wait for Granted to answer before opening a browser at it (`next start`
+    # answers in a moment, but a start that had to build first takes a
+    # minute or two); give up quietly after five minutes.
     local deadline
     deadline=$(( $(date +%s) + 300 ))
     while [ "$(date +%s)" -lt "$deadline" ]; do
@@ -669,7 +744,7 @@ cmd_stop() {
 cmd_restart() {
   stop_server
   write_status "running" ""
-  start_server
+  start_server_or_report
 }
 
 cmd_status() {

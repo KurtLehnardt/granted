@@ -159,4 +159,4 @@ await writeFile(
 
 console.log(`\n→ ${done} programs embedded with ${MODEL} @ ${BASE_URL}`);
 console.log(`→ ${OUT_DIR}/corpus-meta.json stamped builtAt=${builtAt}`);
-console.log("Next: npm run dev — then npm run data:precompute once it works");
+console.log("Next: npm run build && npm run start — then npm run data:precompute once it works");

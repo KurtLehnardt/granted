@@ -1,17 +1,48 @@
 /** @type {import('next').NextConfig} */
 
 /**
- * Defense-in-depth security headers (security review LOW). There is no XSS sink
- * today (LLM output is JSON-parsed + React-escaped, no dangerouslySetInnerHTML),
- * but the app renders model-generated strings, so a CSP is a valuable second
- * line, and clickjacking protection matters on the authed surfaces.
+ * Defense-in-depth security headers (security review LOW). Model output is
+ * JSON-parsed and React-escaped, and the app's single dangerouslySetInnerHTML
+ * is app/welcome/page.tsx's JSON-LD block — a JSON.stringify of a constant
+ * object, with no user or model input anywhere near it. So there is no known
+ * XSS sink, but the app does render model-generated strings, which makes a CSP
+ * a valuable second line, and clickjacking protection matters on the authed
+ * surfaces.
  *
- * The CSP is deliberately protective on the axes that don't risk the app
- * (frame-ancestors/object-src/base-uri) while staying permissive where a strict
- * value would break Next.js (inline hydration bootstrap, dev HMR eval), Tailwind
- * (inline styles), Google avatar images, and the Supabase auth XHR. Tighten
- * script-src to a nonce/hash policy in a follow-up if the inline surface is
- * fully enumerated.
+ * The CSP is protective on the axes that don't risk the app
+ * (frame-ancestors/object-src/base-uri) and stays permissive only where a
+ * strict value would break Next.js (its inline hydration bootstrap) or
+ * Tailwind (inline styles). Two deliberate choices beyond that:
+ *
+ *   * NO 'unsafe-eval'. Only `next dev`'s HMR/error-overlay machinery needs
+ *     eval, and end users are never served a dev server: every install
+ *     script, both trays and the installer run `npm run build` and then
+ *     `npm run start`. Running `npm run dev` by hand therefore logs CSP
+ *     violations from the dev overlay — a development-only cost, taken
+ *     knowingly, so that what ships is the tighter policy.
+ *
+ *     One thing in the production bundle does touch `new Function`, and it
+ *     was measured in a real Chromium against this policy rather than
+ *     assumed: Zod 4 probes for eval with `new F("")` (util.ts's
+ *     `allowsEval`) to decide whether to JIT-compile object validators. The
+ *     probe is inside a try/catch, so the block is swallowed and
+ *     `$ZodObjectJIT` falls back to its ordinary parse path — nothing
+ *     breaks, nothing is logged to the console (verified: the full e2e
+ *     journey suite passes against a production build under this exact
+ *     policy), and the only cost is the fast path on client-side contract
+ *     parsing, which is microseconds next to the model call that produced
+ *     the data. It does file one `securitypolicyviolation` report per page
+ *     load; `z.config({ jitless: true })` before the first schema is built
+ *     is how to silence that if a report-uri is ever added.
+ *   * connect-src is 'self' only. Every fetch in app/ and components/ goes to
+ *     this app's own /api/* routes (checked across both trees). The calls that
+ *     do leave the machine — Anthropic, OpenAI, Ollama, Exa — are made by
+ *     those route handlers on the server, where CSP doesn't apply. The old
+ *     `https:` here was for a Supabase auth XHR, and Supabase has since been
+ *     removed from the codebase entirely.
+ *
+ * img-src still allows https: for remote avatar images. Tighten script-src to
+ * a nonce/hash policy in a follow-up if the inline surface is fully enumerated.
  */
 const csp = [
   "default-src 'self'",
@@ -22,8 +53,8 @@ const csp = [
   "img-src 'self' data: https:",
   "font-src 'self' data:",
   "style-src 'self' 'unsafe-inline'",
-  "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
-  "connect-src 'self' https:",
+  "script-src 'self' 'unsafe-inline'",
+  "connect-src 'self'",
 ].join("; ");
 
 const securityHeaders = [

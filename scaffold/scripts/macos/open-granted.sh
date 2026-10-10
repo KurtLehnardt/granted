@@ -93,7 +93,7 @@ done
 # be in the base system, parses JSON by its own rules -- close, but not the
 # same program, which is exactly the drift the Windows script's own comment
 # warns about.) Node is always present in a Granted install: the server it
-# opens is `npm run dev`.
+# opens is `npm run start`.
 node_bin() {
   if [ -n "${GRANTED_NODE:-}" ]; then printf '%s' "$GRANTED_NODE"; return 0; fi
   command -v node 2>/dev/null || true

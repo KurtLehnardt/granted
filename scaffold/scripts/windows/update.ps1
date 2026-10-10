@@ -9,8 +9,11 @@
 # same update path as running a newer Granted-Setup .exe: it stops Granted
 # (the tray and its server, which is why this can't run inside the server),
 # moves this install to the release (never backwards, never over local
-# changes), runs npm ci and refreshes the Installed apps entry -- and if that
-# fails half-way, puts the previous version back. Then it starts
+# changes), runs npm ci, builds the new code (`npm run build` -- Granted is
+# served from that build, so new code is not live until it is rebuilt) and
+# refreshes the Installed apps entry -- and if that
+# fails half-way, puts the previous version back (re-running npm ci and the
+# build for it). Then it starts
 # Granted in the background again (the tray), and the open page reloads once
 # the new version answers.
 #
@@ -142,6 +145,16 @@ if ($p.ExitCode -eq 0 -and $result -and $result.state -eq "done") {
   $msg = $msg -replace ' -- see the output above for the underlying error\.?', '.'
   # Failed half-way (say npm ci, after the switch to the new release): put the
   # previous version back, so Granted still starts.
+  #
+  # npm ci AND npm run build. The build matters as much as the modules here:
+  # Granted is served from scaffold\.next by `npm run start`, and a half-way
+  # failure can have left the NEW release's build there (the install script
+  # builds right after npm ci). Restoring the old code without rebuilding would
+  # leave the tray starting the new version's build against the old version's
+  # code -- it would even look current to granted-tray.ps1's
+  # Test-ProductionBuildNeeded, since BUILD_ID would be newer than .env.local.
+  # Rebuilding is what makes the two agree again, and only then was the
+  # previous version really "put back".
   $restored = ""
   if ($previousHead -and (Invoke-Git "rev-parse HEAD").out -ne $previousHead) {
     $back = Invoke-Git "-c advice.detachedHead=false checkout --quiet $previousHead"
@@ -149,7 +162,12 @@ if ($p.ExitCode -eq 0 -and $result -and $result.state -eq "done") {
       $npm = Start-Process -FilePath $env:ComSpec -ArgumentList "/d /c npm.cmd ci --no-audit --no-fund" `
         -WorkingDirectory $Scaffold -RedirectStandardOutput "$LogPath.restore" -RedirectStandardError "$LogPath.restore.err" `
         -WindowStyle Hidden -Wait -PassThru
-      if ($npm.ExitCode -eq 0) { $restored = " Granted v$From was put back." }
+      if ($npm.ExitCode -eq 0) {
+        $rebuild = Start-Process -FilePath $env:ComSpec -ArgumentList "/d /c npm.cmd run build" `
+          -WorkingDirectory $Scaffold -RedirectStandardOutput "$LogPath.rebuild" -RedirectStandardError "$LogPath.rebuild.err" `
+          -WindowStyle Hidden -Wait -PassThru
+        if ($rebuild.ExitCode -eq 0) { $restored = " Granted v$From was put back." }
+      }
     }
   }
   if (-not $msg.TrimEnd().EndsWith(".")) { $msg = "$($msg.TrimEnd())." }

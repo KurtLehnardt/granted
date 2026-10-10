@@ -2,7 +2,7 @@ import { app, BrowserWindow, clipboard, ipcMain, shell } from "electron";
 import type { WebContents } from "electron";
 import { execFile, spawn, ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, openSync, rmdirSync } from "node:fs";
+import { existsSync, mkdirSync, openSync, rmdirSync, statSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -15,9 +15,11 @@ import {
   grantedPort,
   grantedSettingsPath,
   macLauncherCommand,
+  macStartGrantedCommand,
   macStatusLockPath,
   macTrayLaunchCommand,
   mergeRegistryPath,
+  needsProductionBuild,
   newInstallStatusPath,
   newTaskStatusPath,
   parseLauncherOutput,
@@ -31,6 +33,7 @@ import {
   shouldReattach,
   startProcessCommand,
   trayLaunchCommand,
+  windowsStartGrantedCommand,
   type StatusFile,
 } from "./ipcPure";
 import {
@@ -596,7 +599,9 @@ async function openInstallTerminal(sender: WebContents, checkForUpdates: boolean
 // ---------------------------------------------------------------------------
 // "Open Granted" — after a successful install, do the README's next steps
 // for the user: configure .env.local (their API keys, or the fully-local
-// Ollama setup), start `npm run dev`, and open the browser once it answers.
+// Ollama setup), start `npm run start` — building first if the install's
+// build isn't current, see needsProductionBuild — and open the browser once
+// it answers.
 // Windows only, like the install-status reporting it follows on from: it's
 // the only platform whose install reports completion, so it's the only one
 // that ever reaches this screen. The file/network logic lives in
@@ -605,11 +610,14 @@ async function openInstallTerminal(sender: WebContents, checkForUpdates: boolean
 
 const GRANTED_PORT = grantedPort(process.env["GRANTED_PORT"]);
 const GRANTED_URL = `http://localhost:${GRANTED_PORT}`;
-// `npm run dev` binds 127.0.0.1 specifically (`next dev -H 127.0.0.1`), so
+// `npm run start` binds 127.0.0.1 specifically (`next start -H 127.0.0.1`), so
 // probe that rather than "localhost", which can resolve to ::1 first.
 const GRANTED_PROBE_URL = `http://127.0.0.1:${GRANTED_PORT}/`;
 const LOCAL_SETUP_TIMEOUT_MS = 2 * 60 * 60_000; // model pull: "a few minutes to a half hour", more on slow links
-const APP_START_TIMEOUT_MS = 5 * 60_000; // first `next dev` compile of the home page
+// `next start` answers in well under a second; the five minutes are for the
+// start that has to run `npm run build` first (after an install, an update or
+// a settings change), which is a minute or two on a slow machine.
+const APP_START_TIMEOUT_MS = 5 * 60_000;
 const PROBE_TIMEOUT_MS = 60_000;
 // Long enough that a Granted busy compiling its first request reads as
 // "busy" rather than "down" — "down" starts a second server.
@@ -633,6 +641,24 @@ function scaffoldDir(): string {
 
 function settingsPath(): string {
   return grantedSettingsPath(process.env, homedir());
+}
+
+/**
+ * needsProductionBuild for this install: the mtimes of scaffold/.next/BUILD_ID
+ * and scaffold/.env.local, or null for a file that isn't there. A stat that
+ * fails for any other reason is treated as "not there", which errs towards
+ * building — a minute wasted at worst, against starting a stale or unservable
+ * app if it were the other way round.
+ */
+function scaffoldNeedsBuild(): boolean {
+  const mtime = (...parts: string[]): number | null => {
+    try {
+      return statSync(join(scaffoldDir(), ...parts)).mtimeMs;
+    } catch {
+      return null;
+    }
+  };
+  return needsProductionBuild({ buildIdMtimeMs: mtime(".next", "BUILD_ID"), envLocalMtimeMs: mtime(".env.local") });
 }
 
 /** Writes a buildTaskScript .ps1 and runs it in its own console window in scaffold/. */
@@ -1038,7 +1064,7 @@ async function startGranted(sender: WebContents): Promise<StartResult> {
         ? await launchScaffoldTask({
             task: "start-app",
             title: "Granted - keep this window open while you use Granted",
-            command: "npm.cmd run dev",
+            command: windowsStartGrantedCommand(scaffoldNeedsBuild()),
             failureMessage: "Granted stopped. The error is shown above in this window.",
             // Next.js reads PORT; set it explicitly so the server is always where
             // the probe looks, whatever PORT the user's environment has.
@@ -1046,8 +1072,7 @@ async function startGranted(sender: WebContents): Promise<StartResult> {
           })
         : await launchMacScaffoldTask({
             task: "start-app",
-            command: "npm",
-            args: ["run", "dev"],
+            ...macStartGrantedCommand(scaffoldNeedsBuild()),
             failureMessage: "Granted stopped.",
             env: { PORT: String(GRANTED_PORT) },
           });
@@ -1070,11 +1095,12 @@ function macTrayScriptPath(): string {
 
 /**
  * Starts Granted in the background on macOS: scripts/macos/granted-tray.sh
- * runs `npm run dev` under a per-user LaunchAgent (no window, no terminal,
- * logging to ~/Library/Logs/Granted) and puts a menu-bar icon up — Open /
+ * builds the app if there isn't a current production build and then runs
+ * `npm run start` under a per-user LaunchAgent (no window, no terminal,
+ * logging to ~/Library/Logs/Granted), and puts a menu-bar icon up — Open /
  * status / Open in its own window / Show log / Restart / Quit, the same menu
  * as the Windows tray. The counterpart of launchTray() above, and the
- * replacement for launchMacScaffoldTask's bare detached `npm run dev` for any
+ * replacement for launchMacScaffoldTask's bare detached start for any
  * install that has the script.
  *
  * Nothing here duplicates launchMacScaffoldTask's status mechanism: the
@@ -1100,9 +1126,13 @@ async function launchMacTray(): Promise<string> {
   });
   rememberLaunch("start-app", statusPath);
   try {
-    // Long enough for the first `swift build` of the menu-bar helper on a
-    // cold machine (seconds, not minutes) plus launchd's own start.
-    await execFileAsync(file, args, { cwd: scaffoldDir(), timeout: 5 * 60_000 });
+    // Long enough for the script's own `npm run build` when the install's
+    // build isn't current (a minute or two, and the dominant cost here), plus
+    // the first `swift build` of the menu-bar helper on a cold machine
+    // (seconds, not minutes), plus launchd's own start. Ten minutes rather
+    // than five for the same reason the build is why: this timeout kills the
+    // script, and killing it mid-build leaves no one to start the server.
+    await execFileAsync(file, args, { cwd: scaffoldDir(), timeout: 10 * 60_000 });
   } catch (err) {
     console.error("granted-tray.sh start failed:", err);
   }
@@ -1110,7 +1140,8 @@ async function launchMacTray(): Promise<string> {
 }
 
 /**
- * Starts Granted in the background: granted-tray.ps1 runs `npm run dev`
+ * Starts Granted in the background: granted-tray.ps1 builds the app if there
+ * isn't a current production build, runs `npm run start`
  * hidden and shows a tray icon (Open / status / Show log / Restart / Quit),
  * so there's no console window to keep open. It reports through a status
  * file like the other windows (pid + lock), so a tray quit before Granted
