@@ -168,6 +168,8 @@ function taskkill(pid: number, force: boolean): void {
 
 let wrapper: ChildProcess | undefined;
 let wrapperExited = false;
+/** The exit code the wrapper passed on from the app it ran (SetErrorLevel $0). */
+let wrapperCode: number | null = null;
 let browser: Browser | undefined;
 let releases: Server | undefined;
 let install: FakeInstall | undefined;
@@ -184,6 +186,8 @@ test.afterEach(() => {
   // leave a GUI app or 100 MB of %TEMP% behind for the next run to trip on.
   if (wrapper?.pid && !wrapperExited) taskkill(wrapper.pid, true);
   wrapper = undefined;
+  wrapperExited = false;
+  wrapperCode = null;
   for (const dir of extractDir ? [extractDir] : extractedAppDirs()) {
     for (const p of appProcesses()) {
       if (p.path.toLowerCase().startsWith(dir.toLowerCase())) taskkill(p.pid, true);
@@ -228,13 +232,16 @@ test("the published portable .exe extracts the app, runs it, and installs its ow
   // Plain spawn, not _electron.launch: this is an NSIS self-extractor, and
   // Playwright can only speak to the Electron process a layer below it.
   wrapper = spawn(portable!, [`--remote-debugging-port=${cdpPort}`], { env, stdio: "ignore", windowsHide: true });
-  wrapper.on("exit", () => {
+  wrapper.on("exit", (code) => {
     wrapperExited = true;
+    wrapperCode = code;
   });
   const wrapperPid = await waitFor("the portable .exe to start", 30_000, () => wrapper?.pid);
+  console.log(`portable exe: ${portable} (pid ${wrapperPid}), CDP port ${cdpPort}`);
 
   // 1. It really does extract the app, to its own folder under %TEMP%.
   extractDir = await waitFor(`the portable .exe to extract ${APP_EXE} under ${tmpdir()}`, 180_000, () => extractedAppDirs()[0]);
+  console.log(`extracted to: ${extractDir}`);
 
   // 2. It runs THAT copy, as its own child, and stays alive as its parent
   //    (ExecWait) — the behaviour that makes attaching, rather than
@@ -242,6 +249,7 @@ test("the published portable .exe extracts the app, runs it, and installs its ow
   const app = await waitFor("the extracted app to be running as the wrapper's child", 120_000, () =>
     appProcesses().find((p) => p.parent === wrapperPid),
   );
+  console.log(`app running as pid ${app.pid}, child of ${app.parent}, from ${app.path}`);
   expect(app.path.toLowerCase().startsWith(extractDir.toLowerCase()), `${app.path} should be inside ${extractDir}`).toBe(true);
   expect(wrapperExited, "the wrapper waits on the app (ExecWait), so it must still be running").toBe(false);
 
@@ -280,6 +288,11 @@ test("the published portable .exe extracts the app, runs it, and installs its ow
   taskkill(app.pid, false);
   await waitFor("the app to exit", 90_000, () => !appProcesses().some((p) => p.pid === app.pid));
   await waitFor("the wrapper to exit once the app it waits on has", 90_000, () => wrapperExited);
+  // The app's own exit code, passed on by the wrapper (SetErrorLevel $0) —
+  // so a user's shortcut or script sees the installer's result, not the
+  // extractor's.
+  expect(wrapperCode, "the wrapper passes on the app's exit code").toBe(0);
   await waitFor("the wrapper to delete its extraction folder", 90_000, () => !existsSync(extractDir!));
+  console.log(`closed cleanly; wrapper exited ${wrapperCode} and removed ${extractDir}`);
   extractDir = undefined;
 });

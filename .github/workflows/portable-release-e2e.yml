@@ -95,4 +95,4 @@ jobs:
       - name: Smoke-test the downloaded portable .exe
         env:
           GRANTED_EXPECT_TAG: ${{ inputs.tag || 'v1.0.4' }}
-        run: npx playwright test e2e/portable-release.spec.ts
+        run: npx playwright test e2e/portable-release.spec.ts --repeat-each=2
