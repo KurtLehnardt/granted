@@ -70,7 +70,7 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ inputs.tag }}
+          TAG: ${{ inputs.tag || 'v1.0.4' }}
         run: |
           New-Item -ItemType Directory -Force asset | Out-Null
           gh release download $env:TAG --repo "$env:GITHUB_REPOSITORY" --pattern "Granted-Setup-*.exe" --pattern "SHA256SUMS.txt" --dir asset
@@ -94,5 +94,5 @@ jobs:
 
       - name: Smoke-test the downloaded portable .exe
         env:
-          GRANTED_EXPECT_TAG: ${{ inputs.tag }}
+          GRANTED_EXPECT_TAG: ${{ inputs.tag || 'v1.0.4' }}
         run: npx playwright test e2e/portable-release.spec.ts
