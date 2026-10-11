@@ -238,6 +238,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: write
     env:
       TAG: ${{ github.ref_name }}
     steps:
@@ -284,3 +285,17 @@ jobs:
           EOF
           sed -i 's/^          //' release-notes.md
           gh release create "$TAG" "release/${exe}" "release/${dmg}" release/SHA256SUMS.txt --title "Granted ${TAG}" --notes-file release-notes.md --generate-notes --verify-tag
+
+      # portable-release-e2e.yml checks the thing a user actually downloads
+      # (the published exe, post-extraction), not the unpacked build folder
+      # this job's own smoke test above already covers -- see that workflow's
+      # header for why those are different things. Fire-and-forget: the
+      # release is already live by this point and this check can't un-publish
+      # it, it's a post-publish real-world signal, not a gate. Runs on a free
+      # GitHub-hosted windows-latest runner only -- this does NOT touch any
+      # paid cloud infrastructure, on purpose.
+      - name: Trigger the real-asset install check (portable-release-e2e)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh workflow run portable-release-e2e.yml --ref main -f tag="$TAG"
