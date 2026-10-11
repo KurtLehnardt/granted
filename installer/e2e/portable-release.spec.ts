@@ -158,9 +158,10 @@ async function waitFor<T>(what: string, timeoutMs: number, probe: () => T | unde
   }
 }
 
-function taskkill(pid: number, force: boolean): void {
+/** The last resort for cleanup: the whole process tree, no questions asked. */
+function taskkill(pid: number): void {
   try {
-    execFileSync("taskkill.exe", force ? ["/PID", String(pid), "/T", "/F"] : ["/PID", String(pid)], { stdio: "ignore", windowsHide: true });
+    execFileSync("taskkill.exe", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
   } catch {
     /* already gone */
   }
@@ -184,13 +185,13 @@ test.afterEach(() => {
   // waits on it) running. Kill the tree, then anything still running out of
   // the extraction folder, then delete it: a release smoke test must not
   // leave a GUI app or 100 MB of %TEMP% behind for the next run to trip on.
-  if (wrapper?.pid && !wrapperExited) taskkill(wrapper.pid, true);
+  if (wrapper?.pid && !wrapperExited) taskkill(wrapper.pid);
   wrapper = undefined;
   wrapperExited = false;
   wrapperCode = null;
   for (const dir of extractDir ? [extractDir] : extractedAppDirs()) {
     for (const p of appProcesses()) {
-      if (p.path.toLowerCase().startsWith(dir.toLowerCase())) taskkill(p.pid, true);
+      if (p.path.toLowerCase().startsWith(dir.toLowerCase())) taskkill(p.pid);
     }
     rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 500 });
   }
@@ -278,14 +279,23 @@ test("the published portable .exe extracts the app, runs it, and installs its ow
   await expect(note).toHaveText(`Granted ${expectTag} (this installer's version) will be installed.`);
 
   // 4. Closing the app leaves nothing behind: the wrapper's ExecWait returns
-  //    and it deletes its extraction folder. Closed the way a user closes it
-  //    (taskkill without /F is a WM_CLOSE to the window, so Electron shuts
-  //    its own child processes down) rather than killed, because a killed
-  //    app's children can still be holding files when NSIS tries to delete
-  //    them.
+  //    and it deletes its extraction folder. Closed through the installer's
+  //    own Close button (window.api.quit(), the `app:quit` IPC that closes
+  //    the window, which quits the app) rather than killed, for two reasons:
+  //    a killed app's children can still be holding files when NSIS tries to
+  //    delete them, and an app shut down by the thing a user actually clicks
+  //    is the shutdown worth testing. A WM_CLOSE from taskkill was the first
+  //    attempt and is NOT equivalent: it needs a window on an interactive
+  //    desktop, so it does nothing when this runs as a service (an EC2 SSM
+  //    command, say), while the IPC works in any session.
+  //
+  //    The evaluate itself usually rejects — the window it is talking to is
+  //    gone before the call can answer — which is the point of it. It goes
+  //    through globalThis because this file is typechecked with the Node
+  //    libs, which have no `window`.
+  await page.evaluate(() => (globalThis as unknown as { api: { quit: () => void } }).api.quit()).catch(() => {});
   await browser.close().catch(() => {});
   browser = undefined;
-  taskkill(app.pid, false);
   await waitFor("the app to exit", 90_000, () => !appProcesses().some((p) => p.pid === app.pid));
   await waitFor("the wrapper to exit once the app it waits on has", 90_000, () => wrapperExited);
   // The app's own exit code, passed on by the wrapper (SetErrorLevel $0) —
