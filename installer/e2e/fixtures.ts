@@ -324,7 +324,7 @@ export function stopTestLaunchAgent(install: FakeInstall): void {
 }
 
 /** Runs a PowerShell snippet (via -EncodedCommand, so no shell-quoting games) and returns stdout. */
-function powershell(script: string): string {
+export function powershell(script: string): string {
   const encoded = Buffer.from(`$ProgressPreference = 'SilentlyContinue'\n${script}`, "utf16le").toString("base64");
   return execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-EncodedCommand", encoded], {
     encoding: "utf8",
