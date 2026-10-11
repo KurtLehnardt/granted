@@ -1,0 +1,93 @@
+name: portable-release-e2e
+
+# Validates a PUBLISHED release asset, not a build: it downloads the real
+# `Granted-Setup-x.y.z.exe` from a GitHub release, checks its SHA-256 against
+# the published SHA256SUMS.txt, and runs installer/e2e/portable-release.spec.ts
+# against that exact file on a clean Windows runner.
+#
+# Why this exists as its own workflow. Both ci.yml and release.yml already
+# smoke-test "the packaged installer", but they point GRANTED_PACKAGED_EXE at
+# `installer\dist\win-unpacked\Granted Setup.exe` — the unpacked folder their
+# OWN build step just produced. Nobody downloads that folder. The release
+# asset is a `portable` target: a silent NSIS self-extractor that unpacks the
+# app to %TEMP% and runs it as a child process (see the spec's header for the
+# template it compiles). That wrapper layer was never covered, and it is the
+# layer that breaks a download — a run of packaged.spec.ts against the real
+# 1.0.4 asset just times out, because Playwright ends up talking to the
+# extractor instead of to Electron.
+#
+# Manual (workflow_dispatch) on purpose: it is a check on an artifact that
+# already exists, run after a release or whenever a download is suspect, and
+# it depends on the network and on a 100 MB download — not the sort of thing
+# to make a required status check on every pull request.
+#
+#   gh workflow run portable-release-e2e.yml -f tag=v1.0.4
+#
+# The counterpart on the release side is to run this after publishing a new
+# release; it takes the tag, so nothing here is specific to one version.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "The published release tag to validate (e.g. v1.0.4)"
+        required: true
+        default: v1.0.4
+
+permissions:
+  contents: read
+
+jobs:
+  portable-exe:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: installer
+    steps:
+      # The repository, for the spec itself and for the fake-install fixture
+      # it builds out of scaffold/scripts/windows. Nothing from the tree is
+      # under test here: the thing under test is the downloaded file.
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: installer/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download the published Windows asset and its checksums
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          New-Item -ItemType Directory -Force asset | Out-Null
+          gh release download $env:TAG --repo "$env:GITHUB_REPOSITORY" --pattern "Granted-Setup-*.exe" --pattern "SHA256SUMS.txt" --dir asset
+          Get-ChildItem asset | Format-Table Name, Length
+
+      # A download that does not match the published checksum is not the
+      # release, and running it would prove nothing about the release.
+      - name: Verify the SHA-256 against the published checksum
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem asset/Granted-Setup-*.exe | Select-Object -First 1
+          $line = Select-String -Path asset/SHA256SUMS.txt -SimpleMatch $exe.Name | Select-Object -First 1
+          if (-not $line) { throw "SHA256SUMS.txt has no line for $($exe.Name)" }
+          $expected = $line.Line.Split()[0].ToLowerInvariant()
+          $actual = (Get-FileHash $exe.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Host "file     $($exe.Name) ($($exe.Length) bytes)"
+          Write-Host "expected $expected"
+          Write-Host "actual   $actual"
+          if ($expected -ne $actual) { throw "checksum mismatch: the downloaded asset is not the published one" }
+          "GRANTED_PORTABLE_EXE=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Smoke-test the downloaded portable .exe
+        env:
+          GRANTED_EXPECT_TAG: ${{ inputs.tag }}
+        run: npx playwright test e2e/portable-release.spec.ts
