@@ -200,8 +200,7 @@ export default function OpportunityCard({
  * Instant cards — a retrieved-but-unscored candidate. No score, no tier, no
  * narrative yet: just the program identity plus an em dash and an
  * "Analyzing, score may change" accessible label (role="status") in place of
- * the match percentage. Deliberately shows no number — a fake or placeholder
- * score would be worse than an honest "not yet".
+ * the match percentage.
  */
 function ProvisionalCard({ opportunity, index, preliminaryScore }: { opportunity: Match["opportunity"]; index: number; preliminaryScore?: number }) {
   const articleClass =
@@ -245,10 +244,10 @@ function ProvisionalCard({ opportunity, index, preliminaryScore }: { opportunity
           <AnalyzingRing>
             <div
               role="status"
-              aria-label="Analyzing, score may change"
+              aria-label={`Analyzing${typeof preliminaryScore === "number" && preliminaryScore > 0 ? `, preliminary score ${preliminaryScore}%` : ""}, score may change`}
               className="score-pulse font-display text-[26px] font-bold leading-none tabular-nums text-structure-on-canvas"
             >
-              {preliminaryScore ? (
+              {typeof preliminaryScore === "number" && preliminaryScore > 0 ? (
                 <>
                   {preliminaryScore}
                   <span className="text-[15px] font-medium">%</span>
