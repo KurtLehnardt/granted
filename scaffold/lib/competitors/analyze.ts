@@ -234,7 +234,13 @@ async function synthesize(
   if (input.onEvent) {
     const emit = input.onEvent;
     const stream = client.messages.stream(params, { signal: input.signal });
-    stream.on("text", (text: string) => emit({ type: "synth-chunk", text }));
+    stream.on("text", (text: string) => {
+      try {
+        emit({ type: "synth-chunk", text });
+      } catch {
+        /* client disconnected */
+      }
+    });
     msg = await stream.finalMessage();
   } else {
     msg = await client.messages.create(params, { signal: input.signal });
