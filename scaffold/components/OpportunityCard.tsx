@@ -192,7 +192,7 @@ export default function OpportunityCard({
   const justPromoted = wasProvisional.current && !isProvisional(m);
   wasProvisional.current = isProvisional(m);
 
-  if (isProvisional(m)) return <ProvisionalCard opportunity={m.opportunity} index={index} />;
+  if (isProvisional(m)) return <ProvisionalCard opportunity={m.opportunity} index={index} preliminaryScore={m.preliminaryScore} />;
   return <ScoredOpportunityCard m={m} index={index} startupProfile={startupProfile} justPromoted={justPromoted} />;
 }
 
@@ -203,7 +203,7 @@ export default function OpportunityCard({
  * the match percentage. Deliberately shows no number — a fake or placeholder
  * score would be worse than an honest "not yet".
  */
-function ProvisionalCard({ opportunity, index }: { opportunity: Match["opportunity"]; index: number }) {
+function ProvisionalCard({ opportunity, index, preliminaryScore }: { opportunity: Match["opportunity"]; index: number; preliminaryScore?: number }) {
   const articleClass =
     "relative overflow-hidden rounded-lg bg-canvas-alt text-foreground shadow-card transition-shadow duration-200 ease-out";
   return (
@@ -246,9 +246,16 @@ function ProvisionalCard({ opportunity, index }: { opportunity: Match["opportuni
             <div
               role="status"
               aria-label="Analyzing, score may change"
-              className="font-display text-[26px] font-bold leading-none tabular-nums text-structure-on-canvas"
+              className="score-pulse font-display text-[26px] font-bold leading-none tabular-nums text-structure-on-canvas"
             >
-              &mdash;
+              {preliminaryScore ? (
+                <>
+                  {preliminaryScore}
+                  <span className="text-[15px] font-medium">%</span>
+                </>
+              ) : (
+                <>&mdash;</>
+              )}
             </div>
           </AnalyzingRing>
           <div className="mt-1 font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas">
