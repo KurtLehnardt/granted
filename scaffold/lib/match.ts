@@ -18,6 +18,7 @@ import { CURRENT_OPPORTUNITY_MAP_VERSION } from "./contracts/opportunityMap";
 import { isFlagEnabled, isFlagExplicitlyDisabled } from "./flags";
 import { isLocalLlm } from "./llm/client";
 import { recommendFor, mapVerdict } from "./recommend";
+import { computeCompositeScore } from "./scoring/compositeScore";
 import { getBM25Index, bm25Query } from "./retrieval/bm25";
 import { scoreFloor, strongAndVerifying, agencyIntelFor } from "./summary";
 // F3 — weak-field redirects should name a few REAL Utah/SBA programs, not just
@@ -729,7 +730,29 @@ export async function buildOpportunityMap(
   // signal: mark it streamed as soon as it goes out, so the "resolve every
   // provisional id" reconciliation below never re-sends (or worse, thinks
   // still-pending) an id whose real terminal event the client already got.
-  const previewAssessment = (a: Assessment) => {
+  // Composite score: LLM band + criteria ratio + retrieval cosine. Skipped for
+  // score-only / unscored / zero-criteria assessments (nothing to blend).
+  const simById = new Map(scored.map((s) => [s.o.id, s.sim]));
+  // Pass-A assessments have empty criteria, so they skip compositing and keep
+  // raw LLM scores; Pass-B then replaces them with the composite. The score
+  // jump between passes is intentional.
+  const withComposite = (a: Assessment): Assessment => {
+    if (a.unscored || !a.criteria?.length) return a;
+    // sim < 0.01 = BM25/keyword placeholder (sim: 0), not a real cosine.
+    const rawSim = simById.get(a.id);
+    const sim = rawSim === undefined || rawSim < 0.01 ? undefined : rawSim;
+    let composite = computeCompositeScore(a.score, a.criteria, sim);
+    // Preserve the original LLM score's tier: clamp composite into its range.
+    const tier = tierFromScore(a.score);
+    if (tierFromScore(composite) !== tier) {
+      const lo = tier === "likely" ? 60 : tier === "verify" ? CALIBRATION.scoreFloor : tier === "adjacent" ? 25 : 0;
+      const hi = tier === "likely" ? 100 : tier === "verify" ? 59 : tier === "adjacent" ? CALIBRATION.scoreFloor - 1 : 24;
+      composite = Math.max(lo, Math.min(hi, composite));
+    }
+    return { ...a, score: composite };
+  };
+  const previewAssessment = (rawA: Assessment) => {
+    const a = withComposite(rawA);
     const opp = byId.get(a.id);
     if (!opp) return;
     if (a.final ?? true) streamedFinalIds.add(a.id);
@@ -760,7 +783,7 @@ export async function buildOpportunityMap(
   step({ key: "assemble", label: "Writing your opportunity map", pct: 90 });
 
   const allAssessments: Assessment[] = [
-    ...assessments,
+    ...assessments.map(withComposite),
     ...preExcluded.map(({ o, determination }) => ({
       ...scoreOnlyAssessment(o.id, 0),
       whyIneligible: determination.failed_rules.map((r) => r.description).join(" "),
