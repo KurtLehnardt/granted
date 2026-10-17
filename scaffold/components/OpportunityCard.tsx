@@ -257,9 +257,6 @@ function ProvisionalCard({ opportunity, index, preliminaryScore }: { opportunity
               )}
             </div>
           </AnalyzingRing>
-          <div className="mt-1 font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas">
-            scoring
-          </div>
         </div>
       </div>
     </article>
