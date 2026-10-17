@@ -77,8 +77,9 @@ export interface AnalyzeInput {
    * live "what we found" view while the brief is still being written. Omitted by
    * the demo-capture script and tests, which just want the returned analysis, so
    * this is purely additive: without it, behavior is byte-identical to before.
-   * The synthesized brief itself is NEVER streamed here — it rides the route's
-   * final `result` event only after grounding + schema validation.
+   * Raw synthesis text is streamed as UNVALIDATED `synth-chunk` events for
+   * progressive rendering only; the grounded, schema-validated brief rides the
+   * route's final `result` event, which is the sole source of truth.
    */
   onEvent?: (event: CompetitorStreamEvent) => void;
 }
@@ -215,22 +216,13 @@ async function synthesize(
     : "";
 
   const t0 = performance.now();
-  const msg = await client.messages.create(
-    {
+  const params = {
       model: MODEL,
       max_tokens: 3500,
       system: loadPrompt("competitorAnalysis").template,
       messages: [
         {
           role: "user",
-          // §5.5 — each untrusted segment is wrapped INDIVIDUALLY (H4.4): the
-          // persona/description/opportunity block, the award-evidence JSON,
-          // and the web-evidence JSON are all untrusted (user-supplied or
-          // fetched from the award corpus / web search). The surrounding
-          // trusted instruction labels ("COMPANY:", "AWARD RECORDS…", "WEB
-          // PROFILES…") stay OUTSIDE the envelope — wrapping the whole
-          // message at once would also wrap those trusted instructions
-          // inside the "treat this as data" envelope.
           content:
             `COMPANY:\n${wrapUntrusted(`${input.persona} — ${input.personaDescription}${opp}`)}\n\n` +
             `AWARD RECORDS (real federal awards — cite these by id; the ONLY ids "competitors" may use):\n` +
@@ -239,15 +231,18 @@ async function synthesize(
             `${webEvidence.length ? wrapUntrusted(JSON.stringify(webEvidence, null, 2)) : "(none)"}`,
         },
       ],
-    },
-    { signal: input.signal },
-  );
-  // R4b — record usage the instant the call resolves, before parseJson can
-  // throw. M2 item 1 — routed through lib/claude.ts's shared `recordUsage`
-  // instead of hand-rolling this block: the hand-rolled version hardcoded
-  // `provider: "anthropic"`, which was wrong whenever the configured provider
-  // is not Anthropic. `recordUsage` derives the actually-configured
-  // provider/model itself (see `usageAttribution` in lib/claude.ts).
+  };
+  let msg: import("@anthropic-ai/sdk").Anthropic.Message;
+  if (input.onEvent) {
+    const emit = input.onEvent;
+    const stream = client.messages.stream(params, { signal: input.signal });
+    stream.on("text", (text: string) => {
+      try { emit({ type: "synth-chunk", text }); } catch { /* client disconnected */ }
+    });
+    msg = await stream.finalMessage();
+  } else {
+    msg = await client.messages.create(params, { signal: input.signal });
+  }
   recordUsage(input.meter, "competitor_analysis", msg.usage, performance.now() - t0, MODEL);
 
   const text = msg.content.filter((c) => c.type === "text").map((c: any) => c.text).join("");
@@ -307,7 +302,7 @@ export function buildWebQuery(input: {
  * all the pre-filtering — an ungrounded claim somehow reached validation.
  */
 export async function analyzeCompetitors(input: AnalyzeInput): Promise<CompetitorAnalysis> {
-  const keepTopK = input.keepTopK ?? 8;
+  const keepTopK = input.keepTopK ?? 6;
   const notes: string[] = [];
   const emit = input.onEvent;
   emit?.({ type: "stage", key: "search", label: "Searching federal awards and comparable companies…", pct: 8 });
