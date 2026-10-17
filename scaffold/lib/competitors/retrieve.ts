@@ -139,7 +139,7 @@ async function fetchUsaspending(keywords: string[], perKeyword: number, signal?:
     ["A", "B", "C", "D"],
   ];
   return runBatched(keywords, 120, async (kw) => {
-    const cacheKey = `USAspending:${perKeyword}:${kw}`;
+    const cacheKey = `USAspending:${perKeyword}:${kw.trim().toLowerCase()}`;
     const hit = getCached(cacheKey);
     if (hit) return hit;
     const out: RawAwardRecord[] = [];
@@ -180,65 +180,71 @@ async function fetchUsaspending(keywords: string[], perKeyword: number, signal?:
       }
       await sleep(120);
     }
-    if (!failed) setCache(cacheKey, out);
+    if (!failed && out.length > 0) setCache(cacheKey, out);
     return out;
   });
 }
 
 async function fetchNih(keywords: string[], perKeyword: number, signal?: AbortSignal): Promise<RawAwardRecord[]> {
-  // NIH asks <= 1 req/sec sustained; a short gap is polite enough for a handful.
-  return runBatched(keywords, 350, async (kw) => {
-    const cacheKey = `NIH RePORTER:${perKeyword}:${kw}`;
+  // NIH asks <= 1 req/sec sustained; process serially (one keyword at a time).
+  const out: RawAwardRecord[] = [];
+  for (const kw of keywords) {
+    const cacheKey = `NIH RePORTER:${perKeyword}:${kw.trim().toLowerCase()}`;
     const hit = getCached(cacheKey);
-    if (hit) return hit;
-    const out: RawAwardRecord[] = [];
-    try {
-      const res = await fetchWithTimeout("https://api.reporter.nih.gov/v2/projects/search", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          criteria: {
-            advanced_text_search: { operator: "and", search_field: "projecttitle,abstracttext", search_text: kw },
-          },
-          include_fields: [
-            "ProjectTitle", "Organization", "AwardAmount", "AgencyIcAdmin",
-            "FiscalYear", "AbstractText", "ApplId", "ProjectNum",
-          ],
-          limit: perKeyword,
-          offset: 0,
-        }),
-        signal,
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json: any = await res.json();
-      for (const r of json?.results ?? []) {
-        const abstract = r.abstract_text;
-        if (!abstract || String(abstract).trim().length < MIN_ABSTRACT_CHARS) continue;
-        const applId = r.appl_id;
-        out.push({
-          source: "NIH RePORTER",
-          recipient: r.organization?.org_name || "(unnamed organization)",
-          amount: toAmount(r.award_amount),
-          agency: r.agency_ic_admin?.name || "National Institutes of Health",
-          program: r.project_num || (r.fiscal_year ? `FY${r.fiscal_year}` : undefined),
-          abstract: trimAbstract(abstract),
-          sourceUrl: applId
-            ? `https://reporter.nih.gov/project-details/${encodeURIComponent(applId)}`
-            : "https://reporter.nih.gov/",
-          year: Number.isFinite(Number(r.fiscal_year)) ? Number(r.fiscal_year) : undefined,
+    if (hit) {
+      out.push(...hit);
+    } else {
+      const batch: RawAwardRecord[] = [];
+      try {
+        const res = await fetchWithTimeout("https://api.reporter.nih.gov/v2/projects/search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            criteria: {
+              advanced_text_search: { operator: "and", search_field: "projecttitle,abstracttext", search_text: kw },
+            },
+            include_fields: [
+              "ProjectTitle", "Organization", "AwardAmount", "AgencyIcAdmin",
+              "FiscalYear", "AbstractText", "ApplId", "ProjectNum",
+            ],
+            limit: perKeyword,
+            offset: 0,
+          }),
+          signal,
         });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json: any = await res.json();
+        for (const r of json?.results ?? []) {
+          const abstract = r.abstract_text;
+          if (!abstract || String(abstract).trim().length < MIN_ABSTRACT_CHARS) continue;
+          const applId = r.appl_id;
+          batch.push({
+            source: "NIH RePORTER",
+            recipient: r.organization?.org_name || "(unnamed organization)",
+            amount: toAmount(r.award_amount),
+            agency: r.agency_ic_admin?.name || "National Institutes of Health",
+            program: r.project_num || (r.fiscal_year ? `FY${r.fiscal_year}` : undefined),
+            abstract: trimAbstract(abstract),
+            sourceUrl: applId
+              ? `https://reporter.nih.gov/project-details/${encodeURIComponent(applId)}`
+              : "https://reporter.nih.gov/",
+            year: Number.isFinite(Number(r.fiscal_year)) ? Number(r.fiscal_year) : undefined,
+          });
+        }
+        if (batch.length > 0) setCache(cacheKey, batch);
+        out.push(...batch);
+      } catch {
+        /* skip this keyword */
       }
-      setCache(cacheKey, out);
-    } catch {
-      /* skip this keyword */
     }
-    return out;
-  });
+    await sleep(350);
+  }
+  return out;
 }
 
 async function fetchNsf(keywords: string[], signal?: AbortSignal): Promise<RawAwardRecord[]> {
   return runBatched(keywords, 200, async (kw) => {
-    const cacheKey = `NSF:${kw}`;
+    const cacheKey = `NSF:${kw.trim().toLowerCase()}`;
     const hit = getCached(cacheKey);
     if (hit) return hit;
     const out: RawAwardRecord[] = [];
@@ -265,7 +271,7 @@ async function fetchNsf(keywords: string[], signal?: AbortSignal): Promise<RawAw
           year: Number.isFinite(year) ? year : undefined,
         });
       }
-      setCache(cacheKey, out);
+      if (out.length > 0) setCache(cacheKey, out);
     } catch {
       /* skip this keyword */
     }
