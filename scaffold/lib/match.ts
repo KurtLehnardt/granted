@@ -733,10 +733,24 @@ export async function buildOpportunityMap(
   // Composite score: LLM band + criteria ratio + retrieval cosine. Skipped for
   // score-only / unscored / zero-criteria assessments (nothing to blend).
   const simById = new Map(scored.map((s) => [s.o.id, s.sim]));
-  const withComposite = (a: Assessment): Assessment =>
-    a.unscored || !a.criteria?.length
-      ? a
-      : { ...a, score: computeCompositeScore(a.score, a.criteria, simById.get(a.id)) };
+  // Pass-A assessments have empty criteria, so they skip compositing and keep
+  // raw LLM scores; Pass-B then replaces them with the composite. The score
+  // jump between passes is intentional.
+  const withComposite = (a: Assessment): Assessment => {
+    if (a.unscored || !a.criteria?.length) return a;
+    // sim < 0.01 = BM25/keyword placeholder (sim: 0), not a real cosine.
+    const rawSim = simById.get(a.id);
+    const sim = rawSim === undefined || rawSim < 0.01 ? undefined : rawSim;
+    let composite = computeCompositeScore(a.score, a.criteria, sim);
+    // Preserve the original LLM score's tier: clamp composite into its range.
+    const tier = tierFromScore(a.score);
+    if (tierFromScore(composite) !== tier) {
+      const lo = tier === "likely" ? 60 : tier === "verify" ? CALIBRATION.scoreFloor : tier === "adjacent" ? 25 : 0;
+      const hi = tier === "likely" ? 100 : tier === "verify" ? 59 : tier === "adjacent" ? CALIBRATION.scoreFloor - 1 : 24;
+      composite = Math.max(lo, Math.min(hi, composite));
+    }
+    return { ...a, score: composite };
+  };
   const previewAssessment = (rawA: Assessment) => {
     const a = withComposite(rawA);
     const opp = byId.get(a.id);
