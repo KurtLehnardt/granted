@@ -222,7 +222,7 @@ async function synthesize(
       system: loadPrompt("competitorAnalysis").template,
       messages: [
         {
-          role: "user",
+          role: "user" as const,
           content:
             `COMPANY:\n${wrapUntrusted(`${input.persona} — ${input.personaDescription}${opp}`)}\n\n` +
             `AWARD RECORDS (real federal awards — cite these by id; the ONLY ids "competitors" may use):\n` +
