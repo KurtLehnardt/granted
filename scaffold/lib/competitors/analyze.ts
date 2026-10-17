@@ -75,8 +75,9 @@ export interface AnalyzeInput {
    * live "what we found" view while the brief is still being written. Omitted by
    * the demo-capture script and tests, which just want the returned analysis, so
    * this is purely additive: without it, behavior is byte-identical to before.
-   * The synthesized brief itself is NEVER streamed here — it rides the route's
-   * final `result` event only after grounding + schema validation.
+   * Raw synthesis text is streamed as UNVALIDATED `synth-chunk` events for
+   * progressive rendering only; the grounded, schema-validated brief rides the
+   * route's final `result` event, which is the sole source of truth.
    */
   onEvent?: (event: CompetitorStreamEvent) => void;
 }
@@ -213,14 +214,13 @@ async function synthesize(
     : "";
 
   const t0 = performance.now();
-  const msg = await client.messages.create(
-    {
+  const params = {
       model: MODEL,
       max_tokens: 3500,
       system: loadPrompt("competitorAnalysis").template,
       messages: [
         {
-          role: "user",
+          role: "user" as const,
           content:
             `COMPANY:\n${input.persona} — ${input.personaDescription}${opp}\n\n` +
             `AWARD RECORDS (real federal awards — cite these by id; the ONLY ids "competitors" may use):\n` +
@@ -229,9 +229,16 @@ async function synthesize(
             `${webEvidence.length ? JSON.stringify(webEvidence, null, 2) : "(none)"}`,
         },
       ],
-    },
-    { signal: input.signal },
-  );
+  };
+  let msg: import("@anthropic-ai/sdk").Anthropic.Message;
+  if (input.onEvent) {
+    const emit = input.onEvent;
+    const stream = client.messages.stream(params, { signal: input.signal });
+    stream.on("text", (text: string) => emit({ type: "synth-chunk", text }));
+    msg = await stream.finalMessage();
+  } else {
+    msg = await client.messages.create(params, { signal: input.signal });
+  }
   // R4b — record usage the instant the call resolves, before parseJson can throw.
   const usage = msg.usage;
   input.meter?.record({
@@ -300,7 +307,7 @@ export function buildWebQuery(input: {
  * all the pre-filtering — an ungrounded claim somehow reached validation.
  */
 export async function analyzeCompetitors(input: AnalyzeInput): Promise<CompetitorAnalysis> {
-  const keepTopK = input.keepTopK ?? 8;
+  const keepTopK = input.keepTopK ?? 6;
   const notes: string[] = [];
   const emit = input.onEvent;
   emit?.({ type: "stage", key: "search", label: "Searching federal awards and comparable companies…", pct: 8 });
