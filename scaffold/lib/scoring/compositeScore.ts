@@ -21,11 +21,17 @@ export function computeCompositeScore(
   criteria: { met: boolean }[],
   cosineSimilarity?: number,
 ): number {
-  const band = bandFor(llmScore);
+  // Non-finite: skip compositing. Score 0 = hard no-fit: pass through.
+  if (!Number.isFinite(llmScore)) return llmScore;
+  const score = Math.max(0, Math.min(100, llmScore));
+  if (score === 0) return 0;
+  const band = bandFor(score);
   const total = criteria.length;
   const met = criteria.filter((c) => c.met).length;
   const criteriaRatio = total > 0 ? met / total : 0.5;
-  const cosine = Math.max(0, Math.min(1, cosineSimilarity ?? 0.5));
+  const rawCos =
+    cosineSimilarity === undefined || !Number.isFinite(cosineSimilarity) ? 0.5 : cosineSimilarity;
+  const cosine = Math.max(0, Math.min(1, rawCos));
   const position = criteriaRatio * 0.7 + cosine * 0.3;
   return Math.round(band.min + (band.max - band.min) * position);
 }
