@@ -83,14 +83,67 @@ async function fetchWithTimeout(
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-async function fetchUsaspending(keywords: string[], perKeyword: number, signal?: AbortSignal): Promise<RawAwardRecord[]> {
+/** Max concurrent requests per source (rate-limit ceiling). */
+const KEYWORD_CONCURRENCY = 2;
+
+/**
+ * Run `fn` over keywords in batches of KEYWORD_CONCURRENCY (Promise.allSettled,
+ * so one failure never sinks the batch), sleeping `gapMs` between batches.
+ */
+async function runBatched(
+  keywords: string[],
+  gapMs: number,
+  fn: (kw: string) => Promise<RawAwardRecord[]>,
+): Promise<RawAwardRecord[]> {
   const out: RawAwardRecord[] = [];
+  for (let i = 0; i < keywords.length; i += KEYWORD_CONCURRENCY) {
+    const batch = keywords.slice(i, i + KEYWORD_CONCURRENCY);
+    const settled = await Promise.allSettled(batch.map((kw) => fn(kw)));
+    for (const s of settled) if (s.status === "fulfilled") out.push(...s.value);
+    if (i + KEYWORD_CONCURRENCY < keywords.length) await sleep(gapMs);
+  }
+  return out;
+}
+
+/** Module-level 5-min TTL cache, LRU-capped at 50 entries. Key = `source:keyword`. */
+const CACHE_TTL_MS = 5 * 60 * 1000;
+const CACHE_MAX = 50;
+const cache = new Map<string, { records: RawAwardRecord[]; ts: number }>();
+
+function getCached(key: string): RawAwardRecord[] | null {
+  const entry = cache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.ts > CACHE_TTL_MS) {
+    cache.delete(key);
+    return null;
+  }
+  // refresh recency
+  cache.delete(key);
+  cache.set(key, entry);
+  return entry.records;
+}
+
+function setCache(key: string, records: RawAwardRecord[]) {
+  cache.delete(key);
+  if (cache.size >= CACHE_MAX) {
+    const oldest = cache.keys().next().value;
+    if (oldest) cache.delete(oldest);
+  }
+  cache.set(key, { records, ts: Date.now() });
+}
+
+async function fetchUsaspending(keywords: string[], perKeyword: number, signal?: AbortSignal): Promise<RawAwardRecord[]> {
   // Grants (incl. SBIR/STTR) and contracts must be queried separately (§2 gotcha).
   const TYPE_GROUPS = [
     ["02", "03", "04", "05"],
     ["A", "B", "C", "D"],
   ];
-  for (const kw of keywords) {
+  return runBatched(keywords, 120, async (kw) => {
+    const cacheKey = `USAspending:${perKeyword}:${kw.trim().toLowerCase()}`;
+    const hit = getCached(cacheKey);
+    if (hit) return hit;
+    const out: RawAwardRecord[] = [];
+    let failed = false;
     for (const codes of TYPE_GROUPS) {
       try {
         const res = await fetchWithTimeout("https://api.usaspending.gov/api/v2/search/spending_by_award/", {
@@ -123,64 +176,78 @@ async function fetchUsaspending(keywords: string[], perKeyword: number, signal?:
           });
         }
       } catch {
-        /* per-keyword/group failure is skipped (§4.6) */
+        failed = true; /* per-keyword/group failure is skipped (§4.6) */
       }
       await sleep(120);
     }
-  }
-  return out;
+    if (!failed && out.length > 0) setCache(cacheKey, out);
+    return out;
+  });
 }
 
 async function fetchNih(keywords: string[], perKeyword: number, signal?: AbortSignal): Promise<RawAwardRecord[]> {
+  // NIH asks <= 1 req/sec sustained; process serially (one keyword at a time).
   const out: RawAwardRecord[] = [];
   for (const kw of keywords) {
-    try {
-      const res = await fetchWithTimeout("https://api.reporter.nih.gov/v2/projects/search", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          criteria: {
-            advanced_text_search: { operator: "and", search_field: "projecttitle,abstracttext", search_text: kw },
-          },
-          include_fields: [
-            "ProjectTitle", "Organization", "AwardAmount", "AgencyIcAdmin",
-            "FiscalYear", "AbstractText", "ApplId", "ProjectNum",
-          ],
-          limit: perKeyword,
-          offset: 0,
-        }),
-        signal,
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json: any = await res.json();
-      for (const r of json?.results ?? []) {
-        const abstract = r.abstract_text;
-        if (!abstract || String(abstract).trim().length < MIN_ABSTRACT_CHARS) continue;
-        const applId = r.appl_id;
-        out.push({
-          source: "NIH RePORTER",
-          recipient: r.organization?.org_name || "(unnamed organization)",
-          amount: toAmount(r.award_amount),
-          agency: r.agency_ic_admin?.name || "National Institutes of Health",
-          program: r.project_num || (r.fiscal_year ? `FY${r.fiscal_year}` : undefined),
-          abstract: trimAbstract(abstract),
-          sourceUrl: applId
-            ? `https://reporter.nih.gov/project-details/${encodeURIComponent(applId)}`
-            : "https://reporter.nih.gov/",
-          year: Number.isFinite(Number(r.fiscal_year)) ? Number(r.fiscal_year) : undefined,
+    const cacheKey = `NIH RePORTER:${perKeyword}:${kw.trim().toLowerCase()}`;
+    const hit = getCached(cacheKey);
+    if (hit) {
+      out.push(...hit);
+    } else {
+      const batch: RawAwardRecord[] = [];
+      try {
+        const res = await fetchWithTimeout("https://api.reporter.nih.gov/v2/projects/search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            criteria: {
+              advanced_text_search: { operator: "and", search_field: "projecttitle,abstracttext", search_text: kw },
+            },
+            include_fields: [
+              "ProjectTitle", "Organization", "AwardAmount", "AgencyIcAdmin",
+              "FiscalYear", "AbstractText", "ApplId", "ProjectNum",
+            ],
+            limit: perKeyword,
+            offset: 0,
+          }),
+          signal,
         });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json: any = await res.json();
+        for (const r of json?.results ?? []) {
+          const abstract = r.abstract_text;
+          if (!abstract || String(abstract).trim().length < MIN_ABSTRACT_CHARS) continue;
+          const applId = r.appl_id;
+          batch.push({
+            source: "NIH RePORTER",
+            recipient: r.organization?.org_name || "(unnamed organization)",
+            amount: toAmount(r.award_amount),
+            agency: r.agency_ic_admin?.name || "National Institutes of Health",
+            program: r.project_num || (r.fiscal_year ? `FY${r.fiscal_year}` : undefined),
+            abstract: trimAbstract(abstract),
+            sourceUrl: applId
+              ? `https://reporter.nih.gov/project-details/${encodeURIComponent(applId)}`
+              : "https://reporter.nih.gov/",
+            year: Number.isFinite(Number(r.fiscal_year)) ? Number(r.fiscal_year) : undefined,
+          });
+        }
+        if (batch.length > 0) setCache(cacheKey, batch);
+        out.push(...batch);
+      } catch {
+        /* skip this keyword */
       }
-    } catch {
-      /* skip this keyword */
     }
-    await sleep(350); // NIH asks <= 1 req/sec sustained; a short gap is polite enough for a handful.
+    await sleep(350);
   }
   return out;
 }
 
 async function fetchNsf(keywords: string[], signal?: AbortSignal): Promise<RawAwardRecord[]> {
-  const out: RawAwardRecord[] = [];
-  for (const kw of keywords) {
+  return runBatched(keywords, 200, async (kw) => {
+    const cacheKey = `NSF:${kw.trim().toLowerCase()}`;
+    const hit = getCached(cacheKey);
+    if (hit) return hit;
+    const out: RawAwardRecord[] = [];
     try {
       const url = new URL("https://api.nsf.gov/services/v1/awards.json");
       url.searchParams.set("keyword", kw);
@@ -204,12 +271,12 @@ async function fetchNsf(keywords: string[], signal?: AbortSignal): Promise<RawAw
           year: Number.isFinite(year) ? year : undefined,
         });
       }
+      if (out.length > 0) setCache(cacheKey, out);
     } catch {
       /* skip this keyword */
     }
-    await sleep(200);
-  }
-  return out;
+    return out;
+  });
 }
 
 /** De-duplicate by recipient + first 80 abstract chars (same key as the capture). */
