@@ -1,7 +1,7 @@
 import type { Match, Opportunity } from "@/lib/types";
 
 /** A retrieved-but-not-yet-scored card: no score/tier, rendered with a spinner. */
-export type ProvisionalMatch = { opportunity: Opportunity; provisional: true };
+export type ProvisionalMatch = { opportunity: Opportunity; provisional: true; preliminaryScore?: number };
 
 /** Everything the streamed preview list can hold: a provisional retrieval hit, or a fully scored (Pass A or Pass B) Match. */
 export type PreviewItem = ProvisionalMatch | Match;
