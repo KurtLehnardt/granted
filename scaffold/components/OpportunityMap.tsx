@@ -198,7 +198,7 @@ export default function OpportunityMap({ map }: { map: MapT }) {
             <Cell n={String(highPotential)} label="high-potential opportunities" />
             {funding && <Cell n={funding.n} label={funding.label} />}
             <Cell n={String(agencyIntelligence.length)} label="relevant agencies" />
-            <Cell n={String(closingSoon)} label="closing within 90 days" />
+            <Cell n={String(closingSoon)} label="closing within 2 weeks" />
           </div>
         )}
 

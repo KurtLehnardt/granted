@@ -11,7 +11,6 @@ import {
   FUNDING_STAGES,
   CAPITAL_RAISED_RANGES,
   CAPITAL_REQUIREMENT_RANGES,
-  PRODUCT_MATURITY_LEVELS,
 } from "../companyProfile";
 
 /**
@@ -26,39 +25,32 @@ import {
 
 const REQUIRED_FIELDS = [
   "raw_text",
-  "industry",
-  "technology",
-  "location",
-  "use_of_funds",
 ];
 
 const MATERIAL_FIELDS = [
-  "employee_count",
+  "location",
   "revenue",
   "funding_stage",
   "capital_raised",
-  "rd_activities",
-  "product_maturity",
-  "target_customers",
   "capital_requirement",
 ];
 
-test("exactly the 5 required fields are designated required", () => {
+test("exactly the 1 required field is designated required", () => {
   const required = PROFILE_FIELD_META.filter((m) => m.requirement === "required").map(
     (m) => m.field,
   );
   assert.deepEqual(required.sort(), [...REQUIRED_FIELDS].sort());
 });
 
-test("exactly the 8 optional-but-material fields are designated material", () => {
+test("exactly the 5 optional-but-material fields are designated material", () => {
   const material = PROFILE_FIELD_META.filter((m) => m.requirement === "material").map(
     (m) => m.field,
   );
   assert.deepEqual(material.sort(), [...MATERIAL_FIELDS].sort());
 });
 
-test("MATERIAL_PROFILE_FIELDS = required + material (13 fields), and excludes no interview field", () => {
-  assert.equal(MATERIAL_PROFILE_FIELDS.length, 13);
+test("MATERIAL_PROFILE_FIELDS = required + material (6 fields), and excludes no interview field", () => {
+  assert.equal(MATERIAL_PROFILE_FIELDS.length, 6);
   assert.equal(
     MATERIAL_PROFILE_FIELDS.every((m) => m.requirement !== "optional"),
     true,
@@ -109,14 +101,11 @@ test("select/range fields carry non-empty options; free_text/integer/boolean do 
 
 test("field input types match the intended B1a semantics", () => {
   const byKey = PROFILE_FIELD_META_BY_KEY;
-  assert.equal(byKey.employee_count.inputType, "integer");
   assert.equal(byKey.revenue.inputType, "range_select");
   assert.equal(byKey.funding_stage.inputType, "single_select");
   assert.equal(byKey.capital_raised.inputType, "range_select");
-  assert.equal(byKey.rd_activities.inputType, "boolean_text");
-  assert.equal(byKey.product_maturity.inputType, "single_select");
-  assert.equal(byKey.target_customers.inputType, "free_text");
   assert.equal(byKey.capital_requirement.inputType, "range_select");
+  assert.equal(byKey.location.inputType, "single_select");
   for (const f of REQUIRED_FIELDS) assert.equal(byKey[f].inputType, "free_text");
 });
 
@@ -126,14 +115,12 @@ test("enum option sets are wired to the right fields and have stable, unique val
   assert.equal(byKey.funding_stage.options, FUNDING_STAGES);
   assert.equal(byKey.capital_raised.options, CAPITAL_RAISED_RANGES);
   assert.equal(byKey.capital_requirement.options, CAPITAL_REQUIREMENT_RANGES);
-  assert.equal(byKey.product_maturity.options, PRODUCT_MATURITY_LEVELS);
 
   for (const set of [
     REVENUE_RANGES,
     FUNDING_STAGES,
     CAPITAL_RAISED_RANGES,
     CAPITAL_REQUIREMENT_RANGES,
-    PRODUCT_MATURITY_LEVELS,
   ]) {
     const values = set.map((o) => o.value);
     assert.equal(new Set(values).size, values.length, "option values are unique");

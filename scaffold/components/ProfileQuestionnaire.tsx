@@ -191,8 +191,8 @@ export function isWideField(field: string): boolean {
  */
 export const MATERIAL_FIELD_GROUPS: readonly { heading: string; fields: readonly string[] }[] = [
   {
-    heading: "Company & product",
-    fields: ["employee_count", "product_maturity", "target_customers", "rd_activities"],
+    heading: "Location",
+    fields: ["location"],
   },
   {
     heading: "Financials",
@@ -276,7 +276,7 @@ export function fieldValidationMessage(
 ): string | null {
   if (meta.requirement !== "required") return null;
   if (provided || !touched) return null;
-  return `${meta.label} is required.`;
+  return `This field is required.`;
 }
 
 // ---------------------------------------------------------------------------
@@ -578,10 +578,27 @@ export default function ProfileQuestionnaire({
 
   // ---- field rendering ----
 
+  function FieldHint({ text }: { text?: string }) {
+    if (!text) return null;
+    return (
+      <span className="group/hint relative ml-1.5 inline-block align-middle">
+        <span
+          aria-label={text}
+          className="inline-flex h-4 w-4 cursor-pointer items-center justify-center rounded-full border border-structure-on-canvas text-[10px] leading-none text-structure-on-canvas transition hover:bg-structure hover:text-token-white"
+        >
+          ?
+        </span>
+        <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-56 -translate-x-1/2 rounded border border-structure-on-canvas bg-canvas-alt px-3 py-2 text-left font-body text-[12px] normal-case tracking-normal leading-relaxed text-foreground opacity-0 shadow-md transition-opacity group-hover/hint:opacity-100">
+          {text}
+        </span>
+      </span>
+    );
+  }
+
   function renderField(meta: ProfileFieldMeta, spanClass = "") {
     const required = meta.requirement === "required";
     const wrapClass = spanClass ? `${fieldWrapClass} ${spanClass}` : fieldWrapClass;
-    const requiredMarker = required ? <span className={requiredMarkerClass}>Required</span> : null;
+    const requiredMarker = null;
 
     const value = draftValue(profile, values, meta.field);
 
@@ -590,6 +607,7 @@ export default function ProfileQuestionnaire({
         <div key={meta.field} className={wrapClass}>
           <label htmlFor={`pq-${meta.field}`} className={fieldLabelClass}>
             {meta.label}
+            <FieldHint text={meta.hint} />
             {requiredMarker}
           </label>
           <select
@@ -619,6 +637,7 @@ export default function ProfileQuestionnaire({
         <div key={meta.field} className={wrapClass}>
           <label htmlFor={`pq-${meta.field}`} className={fieldLabelClass}>
             {meta.label}
+            <FieldHint text={meta.hint} />
             {requiredMarker}
           </label>
           <input
@@ -655,6 +674,7 @@ export default function ProfileQuestionnaire({
         <fieldset key={meta.field} className={`${wrapClass} ${fieldsetResetClass}`}>
           <legend className={`${fieldLabelClass} p-0`}>
             {meta.label}
+            <FieldHint text={meta.hint} />
             {requiredMarker}
           </legend>
           <div className="mt-1 flex gap-4">
@@ -701,17 +721,18 @@ export default function ProfileQuestionnaire({
       <div key={meta.field} className={wrapClass}>
         <label htmlFor={`pq-${meta.field}`} className={fieldLabelClass}>
           {meta.label}
+          <FieldHint text={meta.hint} />
           {requiredMarker}
         </label>
         <textarea
           id={`pq-${meta.field}`}
           ref={meta.field === "raw_text" ? rawTextRef : undefined}
-          rows={isBig ? 5 : 2}
+          rows={isBig ? 5 : 1}
           value={value}
           disabled={disabled}
           placeholder={
             isBig
-              ? "Grant matches improve with a paragraph or two long description — what you build, who it's for, your size, and how much you need."
+              ? "Example: We are a 12-person biotech startup developing an AI-powered diagnostic platform that uses computer vision to detect early-stage skin cancer from smartphone photos. We have a working prototype and are seeking $250K in SBIR Phase I funding to run a 500-patient clinical validation study. Our target customers are dermatology clinics and primary care providers."
               : undefined
           }
           aria-required={required}
@@ -804,17 +825,29 @@ export default function ProfileQuestionnaire({
                 aria-controls="pq-material-fields"
                 className={secondaryButtonClass}
               >
-                + Add optional details (improves matches)
+                Add optional details (improves matches)
               </button>
             ) : (
               <div id="pq-material-fields">
-                <h2
-                  ref={materialHeadingRef}
-                  tabIndex={-1}
-                  className={`${sectionHeadingClass} rounded-sm focus:outline-none focus:ring-2 focus:ring-structure-on-canvas`}
-                >
-                  A few more details (optional)
-                </h2>
+                <div className="flex items-center justify-between">
+                  <h2
+                    ref={materialHeadingRef}
+                    tabIndex={-1}
+                    className={`${sectionHeadingClass} rounded-sm focus:outline-none focus:ring-2 focus:ring-structure-on-canvas`}
+                  >
+                    A few more details (optional)
+                  </h2>
+                  <button
+                    type="button"
+                    onClick={() => setShowOptional(false)}
+                    disabled={disabled}
+                    aria-expanded={true}
+                    aria-controls="pq-material-fields"
+                    className={clearLinkClass}
+                  >
+                    Hide
+                  </button>
+                </div>
                 <p className={introClass}>
                   None of these are required — but each one changes which programs match.
                 </p>

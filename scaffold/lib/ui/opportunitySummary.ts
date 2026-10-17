@@ -80,7 +80,7 @@ export function opportunityAvailability(o: OpportunityAvailabilityLike): Opportu
 }
 
 /**
- * Evergreen-safe "closing within `windowDays`" check (default 90, matching
+ * Evergreen-safe "closing within `windowDays`" check (default 14, matching
  * the header stat band). Defense-in-depth, same posture as `fundingCell`'s
  * "$0" guard below: an evergreen/closed record can never read as
  * "closing soon" even if a stray/legacy deadline-shaped value is present on
@@ -95,7 +95,7 @@ export function isClosingSoon(
   const t = Date.parse(o.deadline);
   if (Number.isNaN(t)) return false;
   const now = opts?.now ?? Date.now();
-  const windowMs = (opts?.windowDays ?? 90) * 864e5;
+  const windowMs = (opts?.windowDays ?? 14) * 864e5;
   return t >= now && t <= now + windowMs;
 }
 
@@ -189,7 +189,7 @@ export function fundingCell(shown: FundingMatchLike[]): { n: string; label: stri
   return null; // Never show "$0+".
 }
 
-/** Header stat-band "closing within `windowDays`" count — evergreen-safe via
+/** Header stat-band "closing within 2 weeks" count — evergreen-safe via
  *  `isClosingSoon` above (an evergreen program is never counted). */
 export function closingSoonCount(shown: FundingMatchLike[], opts?: { now?: number; windowDays?: number }): number {
   return shown.filter((m) => m.opportunity && isClosingSoon(m.opportunity, opts)).length;
