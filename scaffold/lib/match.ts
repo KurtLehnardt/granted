@@ -18,6 +18,7 @@ import { CURRENT_OPPORTUNITY_MAP_VERSION } from "./contracts/opportunityMap";
 import { isFlagEnabled, isFlagExplicitlyDisabled } from "./flags";
 import { isLocalLlm } from "./llm/client";
 import { recommendFor, mapVerdict } from "./recommend";
+import { computeCompositeScore } from "./scoring/compositeScore";
 import { getBM25Index, bm25Query } from "./retrieval/bm25";
 import { scoreFloor, strongAndVerifying, agencyIntelFor } from "./summary";
 // F3 — weak-field redirects should name a few REAL Utah/SBA programs, not just
@@ -729,7 +730,15 @@ export async function buildOpportunityMap(
   // signal: mark it streamed as soon as it goes out, so the "resolve every
   // provisional id" reconciliation below never re-sends (or worse, thinks
   // still-pending) an id whose real terminal event the client already got.
-  const previewAssessment = (a: Assessment) => {
+  // Composite score: LLM band + criteria ratio + retrieval cosine. Skipped for
+  // score-only / unscored / zero-criteria assessments (nothing to blend).
+  const simById = new Map(scored.map((s) => [s.o.id, s.sim]));
+  const withComposite = (a: Assessment): Assessment =>
+    a.unscored || !a.criteria?.length
+      ? a
+      : { ...a, score: computeCompositeScore(a.score, a.criteria, simById.get(a.id)) };
+  const previewAssessment = (rawA: Assessment) => {
+    const a = withComposite(rawA);
     const opp = byId.get(a.id);
     if (!opp) return;
     if (a.final ?? true) streamedFinalIds.add(a.id);
@@ -760,7 +769,7 @@ export async function buildOpportunityMap(
   step({ key: "assemble", label: "Writing your opportunity map", pct: 90 });
 
   const allAssessments: Assessment[] = [
-    ...assessments,
+    ...assessments.map(withComposite),
     ...preExcluded.map(({ o, determination }) => ({
       ...scoreOnlyAssessment(o.id, 0),
       whyIneligible: determination.failed_rules.map((r) => r.description).join(" "),
