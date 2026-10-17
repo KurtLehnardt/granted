@@ -266,7 +266,7 @@ export default function IntakeForm({
             // Instant cards: a retrieved-but-unscored candidate, sent well
             // before any LLM scoring call. Same best-effort handling as "match".
             try {
-              if (msg.opportunity) onMatchPreview?.({ opportunity: msg.opportunity, provisional: true });
+              if (msg.opportunity) onMatchPreview?.({ opportunity: msg.opportunity, provisional: true, preliminaryScore: msg.preliminaryScore });
             } catch { /* preview rendering is best-effort */ }
           } else if (msg.type === "result") {
             gotResult = true;

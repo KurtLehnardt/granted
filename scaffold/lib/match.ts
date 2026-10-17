@@ -394,7 +394,7 @@ export async function buildOpportunityMap(
   // INSTANT CARDS — fired for each retrieved candidate immediately after
   // retrieval, well before any LLM scoring call. Optional and best-effort,
   // exactly like `onMatch`: never affects the authoritative returned map.
-  onProvisional?: (o: Opportunity) => void,
+  onProvisional?: (o: Opportunity, preliminaryScore?: number) => void,
 ): Promise<OpportunityMap> {
   // Load the corpus ONCE per search, and embed the query in the embedding space of the
   // corpus actually loaded: one decision, so a query can never be compared with vectors
@@ -595,7 +595,7 @@ export async function buildOpportunityMap(
   const provisionalIds = new Set(provisionalScored.slice(0, PROVISIONAL_PREVIEW_COUNT).map((x) => x.o.id));
   for (const x of provisionalScored) {
     if (!provisionalIds.has(x.o.id)) continue;
-    try { onProvisional?.(x.o); } catch { /* progressive rendering is best-effort */ }
+    try { onProvisional?.(x.o, Math.max(0, Math.min(100, Math.round(x.sim * 100)))); } catch { /* progressive rendering is best-effort */ }
   }
 
   // Only now do we actually need the profile: eligibility screening, the

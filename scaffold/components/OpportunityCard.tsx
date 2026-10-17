@@ -192,7 +192,7 @@ export default function OpportunityCard({
   const justPromoted = wasProvisional.current && !isProvisional(m);
   wasProvisional.current = isProvisional(m);
 
-  if (isProvisional(m)) return <ProvisionalCard opportunity={m.opportunity} index={index} />;
+  if (isProvisional(m)) return <ProvisionalCard opportunity={m.opportunity} index={index} preliminaryScore={m.preliminaryScore} />;
   return <ScoredOpportunityCard m={m} index={index} startupProfile={startupProfile} justPromoted={justPromoted} />;
 }
 
@@ -200,10 +200,9 @@ export default function OpportunityCard({
  * Instant cards — a retrieved-but-unscored candidate. No score, no tier, no
  * narrative yet: just the program identity plus an em dash and an
  * "Analyzing, score may change" accessible label (role="status") in place of
- * the match percentage. Deliberately shows no number — a fake or placeholder
- * score would be worse than an honest "not yet".
+ * the match percentage.
  */
-function ProvisionalCard({ opportunity, index }: { opportunity: Match["opportunity"]; index: number }) {
+function ProvisionalCard({ opportunity, index, preliminaryScore }: { opportunity: Match["opportunity"]; index: number; preliminaryScore?: number }) {
   const articleClass =
     "relative overflow-hidden rounded-lg bg-canvas-alt text-foreground shadow-card transition-shadow duration-200 ease-out";
   return (
@@ -245,10 +244,17 @@ function ProvisionalCard({ opportunity, index }: { opportunity: Match["opportuni
           <AnalyzingRing>
             <div
               role="status"
-              aria-label="Analyzing, score may change"
-              className="font-display text-[26px] font-bold leading-none tabular-nums text-structure-on-canvas"
+              aria-label={`Analyzing${typeof preliminaryScore === "number" && preliminaryScore > 0 ? `, preliminary score ${preliminaryScore}%` : ""}, score may change`}
+              className="score-pulse font-display text-[26px] font-bold leading-none tabular-nums text-structure-on-canvas"
             >
-              &mdash;
+              {typeof preliminaryScore === "number" && preliminaryScore > 0 ? (
+                <>
+                  {preliminaryScore}
+                  <span className="text-[15px] font-medium">%</span>
+                </>
+              ) : (
+                <>&mdash;</>
+              )}
             </div>
           </AnalyzingRing>
           <div className="mt-1 font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas">

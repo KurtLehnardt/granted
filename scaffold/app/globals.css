@@ -130,6 +130,8 @@ body {
 /* ANALYZING ring (match-score badge, §5): slow rotation around the score
  * while it may still change. The global prefers-reduced-motion rule above
  * already disables this wholesale (a static ring, no rotation). */
+.score-pulse { animation: scorePulse 3s ease-in-out infinite; }
+@keyframes scorePulse { 0%, 100% { opacity: 0.7; } 50% { opacity: 0.9; } }
 .analyzing-ring { animation: analyzing-spin 9s linear infinite; transform-origin: 50% 50%; }
 @keyframes analyzing-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
