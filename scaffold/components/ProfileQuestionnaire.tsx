@@ -5,6 +5,7 @@ import { DescriptionStrength } from "./DescriptionStrength";
 import {
   PROFILE_FIELD_META,
   PROFILE_FIELD_META_BY_KEY,
+  US_STATES,
   MATERIAL_PROFILE_FIELDS,
   isFieldProvided,
   CompanyProfileSchema,
@@ -89,18 +90,39 @@ export function buildDescriptionFromProfile(profile: ProfileDraft): string {
   return [rawText, "", "Additional details:", ...lines].join("\n");
 }
 
-/** Map the v1 `StartupProfile` extraction result onto the 13 B1a field keys. */
+/**
+ * Extract a US state code from a free-text location such as "Salt Lake City, UT"
+ * or "Utah". Returns undefined when no state can be identified.
+ */
+export function extractStateCode(location: string): string | undefined {
+  const upper = location.toUpperCase().trim();
+  const stateValues = new Set(US_STATES.map((s) => s.value));
+  if (stateValues.has(upper)) return upper;
+  const codeMatch = /\b([A-Z]{2})\s*$/.exec(upper);
+  if (codeMatch && stateValues.has(codeMatch[1])) return codeMatch[1];
+  // Prefer the longest state name so "West Virginia" wins over "Virginia".
+  const byName = [...US_STATES]
+    .sort((a, b) => b.label.length - a.label.length)
+    .find((s) => upper.includes(s.label.toUpperCase()));
+  return byName?.value;
+}
+
+/**
+ * Map the v1 `StartupProfile` extraction result onto the form's field keys.
+ * Fields that are no longer part of the form (removed from `PROFILE_FIELD_META`)
+ * are dropped, and free-text location is reduced to a US state code.
+ */
 export function mapStartupProfileToValues(sp: StartupProfile): Record<string, string> {
-  const out: Record<string, string> = {};
+  const raw: Record<string, string> = {};
   const put = (field: string, v: string | number | undefined | null) => {
     if (v === undefined || v === null) return;
     const s = String(v).trim();
-    if (s.length > 0) out[field] = s;
+    if (s.length > 0) raw[field] = s;
   };
   put("raw_text", sp.description);
   put("industry", sp.industry);
   put("technology", sp.technology);
-  put("location", sp.location);
+  if (sp.location) put("location", extractStateCode(sp.location));
   put("use_of_funds", sp.useOfFunds);
   if (typeof sp.employees === "number" && Number.isFinite(sp.employees) && sp.employees >= 0) {
     put("employee_count", String(Math.round(sp.employees)));
@@ -112,6 +134,10 @@ export function mapStartupProfileToValues(sp: StartupProfile): Record<string, st
   put("product_maturity", sp.productMaturity);
   put("target_customers", sp.targetCustomers);
   put("capital_requirement", sp.capitalRequirement);
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (PROFILE_FIELD_META_BY_KEY[key]) out[key] = value;
+  }
   return out;
 }
 

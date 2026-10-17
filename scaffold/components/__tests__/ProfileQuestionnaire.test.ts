@@ -8,6 +8,7 @@ import ProfileQuestionnaire, {
   computeLiveProfile,
   buildDescriptionFromProfile,
   mapStartupProfileToValues,
+  extractStateCode,
   computeFieldCell,
   isWideField,
   requiredProgressText,
@@ -18,6 +19,7 @@ import ProfileQuestionnaire, {
   resolveBooleanTextField,
 } from "../ProfileQuestionnaire";
 import { PROFILE_FIELD_META_BY_KEY, MATERIAL_PROFILE_FIELDS, PROFILE_FIELD_META } from "@/lib/contracts/companyProfile";
+import type { ProfileFieldMeta } from "@/lib/contracts/companyProfile";
 import type { StartupProfile } from "@/lib/types";
 
 /**
@@ -42,7 +44,7 @@ function cell<T>(value: T, provenance: "user_stated" | "model_inferred" | "verif
 
 // --- computeGaps -------------------------------------------------------
 
-test("computeGaps: an empty profile reports all 13 required+material fields missing", () => {
+test("computeGaps: an empty profile reports all 6 required+material fields missing", () => {
   const gaps = computeGaps({});
   assert.equal(gaps.length, MATERIAL_PROFILE_FIELDS.length);
 });
@@ -56,10 +58,10 @@ test("computeGaps: a fully-filled profile reports zero gaps", () => {
 });
 
 test("computeGaps: never lists a field that's already provided (never re-ask)", () => {
-  const gaps = computeGaps({ industry: cell("agtech"), location: cell("Ohio") });
-  assert.ok(!gaps.some((g) => g.field === "industry"));
+  const gaps = computeGaps({ funding_stage: cell("seed"), location: cell("OH") });
+  assert.ok(!gaps.some((g) => g.field === "funding_stage"));
   assert.ok(!gaps.some((g) => g.field === "location"));
-  assert.ok(gaps.some((g) => g.field === "technology")); // still missing
+  assert.ok(gaps.some((g) => g.field === "revenue")); // still missing
 });
 
 // --- computeLiveProfile (live-draft-aware gap detection, no blur needed) --
@@ -67,10 +69,6 @@ test("computeGaps: never lists a field that's already provided (never re-ask)", 
 test("computeLiveProfile: an untouched live edit for every required field reports zero required gaps, before any blur", () => {
   const values = {
     raw_text: "We build drones.",
-    industry: "agtech",
-    technology: "computer vision",
-    location: "Columbus, OH",
-    use_of_funds: "hiring",
   };
   const live = computeLiveProfile({}, values);
   const requiredGaps = computeGaps(live).filter((g) => g.requirement === "required");
@@ -78,21 +76,21 @@ test("computeLiveProfile: an untouched live edit for every required field report
 });
 
 test("computeLiveProfile: a live edit overrides the committed profile value", () => {
-  const profile = { industry: cell("agtech") };
-  const live = computeLiveProfile(profile, { industry: "biotech" });
-  assert.equal((live as any).industry.value, "biotech");
+  const profile = { location: cell("OH") };
+  const live = computeLiveProfile(profile, { location: "UT" });
+  assert.equal((live as any).location.value, "UT");
 });
 
 test("computeLiveProfile: a live edit cleared back to blank text removes the committed cell", () => {
-  const profile = { industry: cell("agtech") };
-  const live = computeLiveProfile(profile, { industry: "   " });
-  assert.equal((live as any).industry, undefined);
+  const profile = { location: cell("OH") };
+  const live = computeLiveProfile(profile, { location: "   " });
+  assert.equal((live as any).location, undefined);
 });
 
 test("computeLiveProfile: fields with no live edit fall through to the committed profile untouched", () => {
-  const profile = { industry: cell("agtech") };
+  const profile = { location: cell("OH") };
   const live = computeLiveProfile(profile, {});
-  assert.equal((live as any).industry.value, "agtech");
+  assert.equal((live as any).location.value, "OH");
 });
 
 // --- buildDescriptionFromProfile ----------------------------------------
@@ -105,12 +103,12 @@ test("buildDescriptionFromProfile: raw_text alone with no other fields returns j
 test("buildDescriptionFromProfile: folds in every OTHER provided field as a labeled line", () => {
   const desc = buildDescriptionFromProfile({
     raw_text: cell("We build drones."),
-    industry: cell("agtech"),
-    employee_count: cell(12),
+    location: cell("OH"),
+    funding_stage: cell("seed"),
   });
   assert.ok(desc.startsWith("We build drones."));
-  assert.ok(desc.includes(`${PROFILE_FIELD_META_BY_KEY.industry.label}: agtech`));
-  assert.ok(desc.includes(`${PROFILE_FIELD_META_BY_KEY.employee_count.label}: 12`));
+  assert.ok(desc.includes(`${PROFILE_FIELD_META_BY_KEY.location.label}: OH`));
+  assert.ok(desc.includes(`${PROFILE_FIELD_META_BY_KEY.funding_stage.label}: seed`));
 });
 
 test("buildDescriptionFromProfile: an empty profile returns an empty string, never throws", () => {
@@ -119,34 +117,54 @@ test("buildDescriptionFromProfile: an empty profile returns an empty string, nev
 
 // --- mapStartupProfileToValues ------------------------------------------
 
-test("mapStartupProfileToValues: maps every v1 StartupProfile field onto its B1a key", () => {
+test("mapStartupProfileToValues: maps the v1 StartupProfile fields that are still in the form onto their B1a keys", () => {
   const sp: StartupProfile = {
     description: "We build drones.",
-    industry: "agtech",
-    technology: "computer vision",
     location: "Columbus, OH",
-    employees: 7.6,
     revenue: "$500K ARR",
     fundingStage: "Seed",
     capitalRaised: "$1M",
-    rdActivities: "Yes, ongoing sensor R&D",
-    productMaturity: "MVP",
-    targetCustomers: "Mid-size farms",
     capitalRequirement: "$2M",
   };
   const values = mapStartupProfileToValues(sp);
   assert.equal(values.raw_text, "We build drones.");
-  assert.equal(values.industry, "agtech");
-  assert.equal(values.technology, "computer vision");
-  assert.equal(values.location, "Columbus, OH");
-  assert.equal(values.employee_count, "8"); // rounded
+  assert.equal(values.location, "OH"); // free text reduced to a state code
   assert.equal(values.revenue, "$500K ARR");
   assert.equal(values.funding_stage, "Seed");
   assert.equal(values.capital_raised, "$1M");
-  assert.equal(values.rd_activities, "Yes, ongoing sensor R&D");
-  assert.equal(values.product_maturity, "MVP");
-  assert.equal(values.target_customers, "Mid-size farms");
   assert.equal(values.capital_requirement, "$2M");
+});
+
+test("mapStartupProfileToValues: drops fields that were removed from the form instead of emitting unknown keys", () => {
+  const sp: StartupProfile = {
+    description: "We build drones.",
+    industry: "agtech",
+    technology: "computer vision",
+    useOfFunds: "hiring",
+    employees: 7.6,
+    rdActivities: "Yes, ongoing sensor R&D",
+    productMaturity: "MVP",
+    targetCustomers: "Mid-size farms",
+  };
+  const values = mapStartupProfileToValues(sp);
+  assert.deepEqual(Object.keys(values), ["raw_text"]);
+  for (const key of Object.keys(values)) {
+    assert.ok(PROFILE_FIELD_META_BY_KEY[key], `${key} must be a known form field`);
+  }
+});
+
+test("mapStartupProfileToValues: an unrecognizable location is omitted rather than fabricated", () => {
+  const values = mapStartupProfileToValues({ description: "x", location: "Somewhere else" } as StartupProfile);
+  assert.equal(values.location, undefined);
+});
+
+test("extractStateCode: handles direct codes, state names, and trailing codes", () => {
+  assert.equal(extractStateCode("UT"), "UT");
+  assert.equal(extractStateCode("ut"), "UT");
+  assert.equal(extractStateCode("Utah"), "UT");
+  assert.equal(extractStateCode("Salt Lake City, UT"), "UT");
+  assert.equal(extractStateCode("Charleston, West Virginia"), "WV");
+  assert.equal(extractStateCode("Nowhere"), undefined);
 });
 
 test("mapStartupProfileToValues: absent/blank v1 fields are simply omitted, never fabricated", () => {
@@ -157,33 +175,35 @@ test("mapStartupProfileToValues: absent/blank v1 fields are simply omitted, neve
 // --- computeFieldCell (provenance-guarded write atom) --------------------
 
 test("computeFieldCell: a user_stated write to an empty field succeeds", () => {
-  const meta = PROFILE_FIELD_META_BY_KEY.industry;
-  const result = computeFieldCell(meta, "agtech", "user_stated", undefined);
-  assert.deepEqual(result, { value: "agtech", provenance: "user_stated", confidence: 1 });
+  const meta = PROFILE_FIELD_META_BY_KEY.location;
+  const result = computeFieldCell(meta, "UT", "user_stated", undefined);
+  assert.deepEqual(result, { value: "UT", provenance: "user_stated", confidence: 1 });
 });
 
 test("computeFieldCell: a model_inferred autofill guess NEVER overwrites an existing user_stated fact", () => {
-  const meta = PROFILE_FIELD_META_BY_KEY.industry;
-  const result = computeFieldCell(meta, "biotech (guessed)", "model_inferred", { provenance: "user_stated" });
+  const meta = PROFILE_FIELD_META_BY_KEY.location;
+  const result = computeFieldCell(meta, "CA", "model_inferred", { provenance: "user_stated" });
   assert.equal(result, null);
 });
 
 test("computeFieldCell: a model_inferred guess MAY replace another model_inferred guess", () => {
-  const meta = PROFILE_FIELD_META_BY_KEY.industry;
-  const result = computeFieldCell(meta, "agtech v2", "model_inferred", { provenance: "model_inferred" });
+  const meta = PROFILE_FIELD_META_BY_KEY.location;
+  const result = computeFieldCell(meta, "CA", "model_inferred", { provenance: "model_inferred" });
   assert.ok(result);
-  assert.equal(result?.value, "agtech v2");
+  assert.equal(result?.value, "CA");
 });
 
 test("computeFieldCell: a user_stated edit always wins, even over an existing user_stated value", () => {
-  const meta = PROFILE_FIELD_META_BY_KEY.industry;
-  const result = computeFieldCell(meta, "corrected industry", "user_stated", { provenance: "user_stated" });
+  const meta = PROFILE_FIELD_META_BY_KEY.location;
+  const result = computeFieldCell(meta, "NV", "user_stated", { provenance: "user_stated" });
   assert.ok(result);
-  assert.equal(result?.value, "corrected industry");
+  assert.equal(result?.value, "NV");
 });
 
 test("computeFieldCell: integer fields coerce and round; non-numeric input is rejected", () => {
-  const meta = PROFILE_FIELD_META_BY_KEY.employee_count;
+  // employee_count is no longer in the form's metadata but is still on the
+  // schema, so exercise the integer path with a synthetic meta.
+  const meta = { field: "employee_count", requirement: "material", inputType: "integer", label: "Employees" } as ProfileFieldMeta;
   assert.deepEqual(computeFieldCell(meta, "12.6", "user_stated", undefined), {
     value: 13,
     provenance: "user_stated",
@@ -193,7 +213,7 @@ test("computeFieldCell: integer fields coerce and round; non-numeric input is re
 });
 
 test("computeFieldCell: a blank string never produces a cell", () => {
-  const meta = PROFILE_FIELD_META_BY_KEY.industry;
+  const meta = PROFILE_FIELD_META_BY_KEY.location;
   assert.equal(computeFieldCell(meta, "   ", "user_stated", undefined), null);
 });
 
@@ -205,16 +225,11 @@ test("isWideField: the big description box and the two long-answer fields span b
   assert.equal(isWideField("target_customers"), true);
 });
 
-test("isWideField: compact controls (selects, integer, other free-text) stay half-width", () => {
-  assert.equal(isWideField("industry"), false);
-  assert.equal(isWideField("technology"), false);
+test("isWideField: compact controls (selects, range selects) stay half-width", () => {
   assert.equal(isWideField("location"), false);
-  assert.equal(isWideField("use_of_funds"), false);
-  assert.equal(isWideField("employee_count"), false);
   assert.equal(isWideField("revenue"), false);
   assert.equal(isWideField("funding_stage"), false);
   assert.equal(isWideField("capital_raised"), false);
-  assert.equal(isWideField("product_maturity"), false);
   assert.equal(isWideField("capital_requirement"), false);
 });
 
@@ -270,24 +285,24 @@ test("requiredProgressText: singular field count doesn't say '1 fields'", () => 
 // --- fieldValidationMessage (inline required-field validation) -----------
 
 test("fieldValidationMessage: a required field that's missing and untouched shows nothing (no wall of errors on a fresh form)", () => {
-  const meta = PROFILE_FIELD_META_BY_KEY.industry;
+  const meta = PROFILE_FIELD_META_BY_KEY.raw_text;
   assert.equal(fieldValidationMessage(meta, false, false), null);
 });
 
-test("fieldValidationMessage: a required field that's missing AND touched shows a message naming the field", () => {
-  const meta = PROFILE_FIELD_META_BY_KEY.industry;
+test("fieldValidationMessage: a required field that's missing AND touched shows the generic required message", () => {
+  const meta = PROFILE_FIELD_META_BY_KEY.raw_text;
   const msg = fieldValidationMessage(meta, false, true);
-  assert.equal(msg, "Industry / market is required.");
+  assert.equal(msg, "This field is required.");
 });
 
 test("fieldValidationMessage: a required field that's provided shows nothing, touched or not", () => {
-  const meta = PROFILE_FIELD_META_BY_KEY.industry;
+  const meta = PROFILE_FIELD_META_BY_KEY.raw_text;
   assert.equal(fieldValidationMessage(meta, true, true), null);
   assert.equal(fieldValidationMessage(meta, true, false), null);
 });
 
 test("fieldValidationMessage: a material (optional) field NEVER produces a message, even missing and touched", () => {
-  const meta = PROFILE_FIELD_META_BY_KEY.employee_count;
+  const meta = PROFILE_FIELD_META_BY_KEY.revenue;
   assert.equal(fieldValidationMessage(meta, false, true), null);
   assert.equal(fieldValidationMessage(meta, false, false), null);
 });
@@ -349,17 +364,17 @@ test("ProfileQuestionnaire: 'Find opportunities' isn't disabled and no fetch sta
 // --- draftValue / splitBooleanText / resolveBooleanTextField --------------
 
 test("draftValue: with no live edit yet, falls back to the saved profile cell", () => {
-  const profile = { industry: { value: "agtech", provenance: "user_stated" as const, confidence: 1 } };
-  assert.equal(draftValue(profile, {}, "industry"), "agtech");
+  const profile = { location: { value: "OH", provenance: "user_stated" as const, confidence: 1 } };
+  assert.equal(draftValue(profile, {}, "location"), "OH");
 });
 
 test("draftValue: a live edit in `values` always wins over the saved profile cell", () => {
-  const profile = { industry: { value: "agtech", provenance: "user_stated" as const, confidence: 1 } };
-  assert.equal(draftValue(profile, { industry: "biotech" }, "industry"), "biotech");
+  const profile = { location: { value: "OH", provenance: "user_stated" as const, confidence: 1 } };
+  assert.equal(draftValue(profile, { location: "UT" }, "location"), "UT");
 });
 
 test("draftValue: an unprovided field with no live edit renders as an empty (not undefined) string", () => {
-  assert.equal(draftValue({}, {}, "industry"), "");
+  assert.equal(draftValue({}, {}, "location"), "");
 });
 
 test("splitBooleanText: 'Yes — <detail>' splits into the Yes radio plus the detail text", () => {
