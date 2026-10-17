@@ -532,8 +532,10 @@ export default function ProfileQuestionnaire({
   function clearSaved() {
     setProfile({});
     setValues({});
+    setTouchedFields(new Set());
     setShowOptional(false);
     writeJSON(STORAGE_KEY, {});
+    onDescriptionChange?.("");
     if (clearedTimerRef.current) clearTimeout(clearedTimerRef.current);
     setClearedVisible(true);
     clearedTimerRef.current = setTimeout(() => setClearedVisible(false), 2000);
@@ -551,7 +553,7 @@ export default function ProfileQuestionnaire({
   const fieldLabelClass = "mb-1 block font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas";
 
   const textareaBigClass =
-    "w-full resize-none rounded-sm border border-structure-on-canvas bg-canvas-alt p-4 font-body text-[15px] leading-relaxed text-foreground outline-none focus:border-structure-on-canvas focus:ring-2 focus:ring-structure-on-canvas disabled:cursor-not-allowed disabled:opacity-60";
+    "w-full resize-none rounded-sm border border-structure-on-canvas bg-canvas-alt p-4 font-body text-[15px] leading-relaxed text-foreground placeholder:italic placeholder:text-foreground/40 outline-none focus:border-structure-on-canvas focus:ring-2 focus:ring-structure-on-canvas disabled:cursor-not-allowed disabled:opacity-60";
 
   const textareaSmallClass =
     "w-full resize-none rounded-sm border border-structure-on-canvas bg-canvas-alt px-3 py-2 font-body text-[14px] leading-relaxed text-foreground outline-none focus:ring-2 focus:ring-structure-on-canvas disabled:cursor-not-allowed disabled:opacity-60";
@@ -758,7 +760,7 @@ export default function ProfileQuestionnaire({
           disabled={disabled}
           placeholder={
             isBig
-              ? "Example: We are a 12-person biotech startup developing an AI-powered diagnostic platform that uses computer vision to detect early-stage skin cancer from smartphone photos. We have a working prototype and are seeking $250K in SBIR Phase I funding to run a 500-patient clinical validation study. Our target customers are dermatology clinics and primary care providers."
+              ? "Describe your company, technology, and what you'd use grant funding for…"
               : undefined
           }
           aria-required={required}
