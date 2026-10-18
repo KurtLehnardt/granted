@@ -39,6 +39,7 @@ export type FlagName =
   | "e3_two_pass"
   | "discernment_layer"
   | "dbsf_scorer"
+  | "hybrid_scorer"
   | "commercial_ui"
   | "match_filters";
 
@@ -187,6 +188,15 @@ export const FLAG_REGISTRY: Record<FlagName, FlagDefinition> = {
       "(plus criteria ratio with Beta-Binomial shrinkage when available) replaces the LLM Pass-A/Pass-B " +
       "scorer. Excluded opportunities are capped at 15. No LLM narrative is produced. Default OFF.",
     envVar: "NEXT_PUBLIC_FLAG_DBSF_SCORER",
+  },
+  hybrid_scorer: {
+    name: "hybrid_scorer",
+    requirement: "HYB",
+    description:
+      "Hybrid scoring: DBSF produces deterministic scores immediately, LLM generates narrative " +
+      "explanations asynchronously. Cards show scores first, narrative fills in when ready. " +
+      "Takes priority over dbsf_scorer and e3_two_pass when ON. Default OFF.",
+    envVar: "NEXT_PUBLIC_FLAG_HYBRID_SCORER",
   },
   commercial_ui: {
     name: "commercial_ui",

@@ -436,6 +436,72 @@ RULES THAT DETERMINE THE SCORE:
 
 Output the JSON array only. No criteria, no prose, no explanation — just the id and score for every candidate you were given.`;
 
+/**
+ * HYB (@v1) — NARRATIVE-ONLY prompt for the hybrid scorer (flag `hybrid_scorer`).
+ * The deterministic DBSF scorer has already produced each candidate's score; the
+ * model only EXPLAINS it. Output schema deliberately has NO `score` or `tier`
+ * key, so the model cannot change the number. Narrative rules are carried over
+ * from EXPLAIN_MATCHES_V2_TEMPLATE (whyCare distinct from whyFit, specific
+ * whyIneligible, 4-6 criteria, plain language, advisory-only eligibility).
+ */
+const NARRATE_MATCHES_V1_TEMPLATE = `You explain the fit between a startup and federal funding opportunities. A deterministic scorer has ALREADY scored every candidate; each candidate you receive carries its final "score" (0-100). Your job is to EXPLAIN that score in plain language. You never produce a score or tier of your own.
+
+Return ONLY a JSON array, no preamble, no markdown fences, one entry per candidate:
+[{
+  "id": string,             // echo each candidate's id exactly
+  "criteria": [{"label": string, "met": boolean, "note": string}],
+  "whyCare": string,
+  "whyFit": string,
+  "whyIneligible": string,
+  "whatToVerify": string,
+  "whatToDoNext": string
+}]
+
+Do NOT include "score" or "tier" in the output. The given score is fixed; do not argue with it, restate a different number, or hint at a different ranking.
+
+RULES THAT MATTER MORE THAN COVERAGE:
+
+1. You are NOT determining eligibility. Never state a definitive
+   determination. Use "appears to align", "you may qualify", "verify with the
+   program officer". This is required.
+
+2. CALIBRATE YOUR LANGUAGE TO THE GIVEN SCORE so the narrative agrees with the number the user sees:
+   - Score 55 and above (strong): confident tone. Lead with the specific alignment, and keep concerns concrete but proportionate.
+   - Score 35-54 (partial): cautious tone. Name what lines up AND what is uncertain; make whatToVerify the centerpiece.
+   - Score below 35 (weak): honest about the gaps. Say plainly why the fit is weak, do not talk it up, and make whatToDoNext realistic (including "this may not be worth your time").
+   Never write a glowing explanation for a low score or a dismissive one for a high score.
+
+3. whyCare is a DISTINCT field from whyFit — never just reword whyFit into a
+   second sentence. What it says depends on the candidate's "kind":
+   - For a "grant" or "rd" opportunity, whyCare answers "why you may fit":
+     one sentence naming the specific alignment between this company and this
+     program's funding purpose.
+   - For a "procurement" opportunity, or an "assistance" listing whose real
+     value is government-as-customer rather than a funding match, whyCare
+     answers a different question — "why this matters to you": one sentence
+     on the strategic value of the government as a customer (a revenue
+     channel, a past-performance credential, market validation, a foothold
+     competitors don't have). Do not phrase this one as fit or eligibility.
+   Always exactly one plain-language sentence. Rule 1 applies here too — hedge
+   ("could open the door to"), never assert ("will win you").
+
+4. whyIneligible must contain SPECIFIC, REAL concerns drawn from the actual
+   program and this actual company — never boilerplate, never empty. If you
+   cannot name a concrete concern, say what is still unknown rather than inventing one.
+
+5. Be willing to say no. Fabricating plausible-sounding reasons for a match is the
+   single worst failure mode here. Consumer marketplaces, local service
+   businesses, and companies with no R&D component frequently have no strong
+   federal grant match — say so plainly.
+
+6. criteria: 4-6 checks a program officer would actually apply (US-based small
+   business, active R&D component, technology area alignment, funding amount
+   consistent with program, commercialization potential, eligibility category).
+   Mark met honestly. Unmet criteria are informative, not failures to hide.
+
+7. Write for the user, not a bureaucrat. Plain language. No jargon left
+   untranslated.`;
+
 export const PROMPT_REGISTRY: Record<string, PromptEntry> = {
   extractProfile: definePrompt("extractProfile", "v1", EXTRACT_PROFILE_V1_TEMPLATE),
   competitorAnalysis: definePrompt("competitorAnalysis", "v1", COMPETITOR_ANALYSIS_V1_TEMPLATE),
@@ -443,6 +509,7 @@ export const PROMPT_REGISTRY: Record<string, PromptEntry> = {
   // DISC §3-C — rubric-anchored variants, selected by lib/claude.ts only when the
   // discernment_layer flag is on. New versions; the shipped v2/v1 are untouched.
   explainMatchesAnchored: definePrompt("explainMatchesAnchored", "v3", EXPLAIN_MATCHES_ANCHORED_V3_TEMPLATE),
+  narrateMatches: definePrompt("narrateMatches", "v1", NARRATE_MATCHES_V1_TEMPLATE),
   scoreMatches: definePrompt("scoreMatches", "v1", SCORE_MATCHES_V1_TEMPLATE),
   scoreMatchesAnchored: definePrompt("scoreMatchesAnchored", "v2", SCORE_MATCHES_ANCHORED_V2_TEMPLATE),
   explainWeakField: definePrompt("explainWeakField", "v1", EXPLAIN_WEAK_FIELD_V1_TEMPLATE),

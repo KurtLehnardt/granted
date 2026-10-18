@@ -48,6 +48,7 @@ describe("FLAG_REGISTRY", () => {
       "e3_two_pass",
       "discernment_layer",
       "dbsf_scorer",
+      "hybrid_scorer",
       "commercial_ui",
       "match_filters",
     ];
