@@ -19,6 +19,7 @@ import { isFlagEnabled, isFlagExplicitlyDisabled } from "./flags";
 import { isLocalLlm } from "./llm/client";
 import { recommendFor, mapVerdict } from "./recommend";
 import { computeCompositeScore } from "./scoring/compositeScore";
+import { dbsfScores, type ScoreSignals } from "./scoring/dbsfScorer";
 import { getBM25Index, bm25Query } from "./retrieval/bm25";
 import { scoreFloor, strongAndVerifying, agencyIntelFor } from "./summary";
 // F3 — weak-field redirects should name a few REAL Utah/SBA programs, not just
@@ -758,10 +759,27 @@ export async function buildOpportunityMap(
     if (a.final ?? true) streamedFinalIds.add(a.id);
     try { onMatch?.(baseMatchFromAssessment(a, opp, profile)); } catch { /* progressive rendering is best-effort */ }
   };
+  // DBSF (flag `dbsf_scorer`, default OFF): deterministic scores from cosine + BM25 +
+  // eligibility, no LLM calls. Candidates carry no criteria/narrative in this mode.
+  const dbsfAssessments = (): Assessment[] => {
+    const bm25ById = new Map(bm25Query(bm25Index, queryText).map((h) => [h.id, h.score]));
+    const signals: ScoreSignals[] = toScore.map((x) => {
+      let eligibility: ScoreSignals["eligibility"] = "unknown";
+      try {
+        const bucket = d.screen(companyProfile, toScreenableOpportunity(x.o)).bucket;
+        eligibility = bucket === "conditionally_eligible" ? "conditional" : bucket;
+      } catch { /* screening failed: stay unknown */ }
+      return { cosine: x.sim < 0.01 ? undefined : x.sim, bm25: bm25ById.get(x.o.id) ?? 0, eligibility };
+    });
+    const scores = dbsfScores(signals);
+    return toScore.map((x, i) => scoreOnlyAssessment(x.o.id, scores[i], { final: true }));
+  };
   const assessments: Assessment[] =
     candidatesToScore.length === 0
       ? []
-      : useTwoPass
+      : isFlagEnabled("dbsf_scorer")
+        ? dbsfAssessments().map((a) => { previewAssessment(a); return a; })
+        : useTwoPass
         ? await d.explainMatchesTwoPass(
             profile,
             candidatesToScore,

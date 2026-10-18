@@ -38,6 +38,7 @@ export type FlagName =
   | "r5_deep_analysis"
   | "e3_two_pass"
   | "discernment_layer"
+  | "dbsf_scorer"
   | "commercial_ui"
   | "match_filters";
 
@@ -177,6 +178,15 @@ export const FLAG_REGISTRY: Record<FlagName, FlagDefinition> = {
       "and any USER-STATED disqualifier. Recounts 'high potential' as recommend-only and raises the bar " +
       "per instrument type. Advisory, never an eligibility ruling (R8.4); default OFF until golden-set validated.",
     envVar: "NEXT_PUBLIC_FLAG_DISCERNMENT_LAYER",
+  },
+  dbsf_scorer: {
+    name: "dbsf_scorer",
+    requirement: "DBSF",
+    description:
+      "Deterministic scoring: DBSF-normalized weighted fusion of cosine, BM25 and eligibility " +
+      "(plus criteria ratio with Beta-Binomial shrinkage when available) replaces the LLM Pass-A/Pass-B " +
+      "scorer. Excluded opportunities are capped at 15. No LLM narrative is produced. Default OFF.",
+    envVar: "NEXT_PUBLIC_FLAG_DBSF_SCORER",
   },
   commercial_ui: {
     name: "commercial_ui",
