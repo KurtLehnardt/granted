@@ -3,7 +3,7 @@ import type { EmbeddingSpace } from "./embeddings/spaces";
 import { ensureBuiltinModel, isBuiltinModelPresent } from "./embeddings/builtin";
 import { startBuiltinVectorBackfill } from "./embeddings/backfill";
 import { needsBuiltinBackfill } from "./embeddings/searchStatus";
-import { extractProfile, explainMatches, explainMatchesTwoPass, explainWeakField, type Assessment, type TwoPassProgressDetail } from "./claude";
+import { extractProfile, explainMatches, narrateForHybrid, explainMatchesTwoPass, explainWeakField, type Assessment, type TwoPassProgressDetail } from "./claude";
 import type { Opportunity, OpportunityMap, StartupProfile, Match, Tier, AwardHistory } from "./types";
 import { screen } from "./eligibility/screen";
 import { annotateFreshness } from "./eligibility/freshness";
@@ -12,6 +12,7 @@ import { getCorpusInfo } from "./corpus/store";
 import { dropExpiredOpportunities } from "./corpus/expiry";
 import type { EligibilityDetermination } from "./contracts/eligibilityDetermination";
 import { scoreOnlyAssessment } from "./scoring/twoPass";
+import { mergeHybridResults, mergeNarrativeIntoAssessment } from "./scoring/hybridMerge";
 import awards from "@/data/awards.json";
 import { createCostMeter, type CostMeter } from "./metering/meter";
 import { CURRENT_OPPORTUNITY_MAP_VERSION } from "./contracts/opportunityMap";
@@ -124,6 +125,8 @@ export type BuildDeps = {
   /** E3 — the flag-`e3_two_pass`-ON scorer; same signature as `explainMatches`. */
   explainMatchesTwoPass: typeof explainMatchesTwoPass;
   explainWeakField: typeof explainWeakField;
+  /** Hybrid scorer (flag `hybrid_scorer`): narrative-only LLM call over precomputed DBSF scores. */
+  narrateForHybrid: typeof narrateForHybrid;
   screen: typeof screen;
   corpus: Opportunity[];
   /** The embedding space of an injected corpus (its floor and weak-field threshold). Defaults to CALIBRATION's values. */
@@ -136,6 +139,7 @@ const REAL_DEPS: Omit<BuildDeps, "corpus"> = {
   explainMatches,
   explainMatchesTwoPass,
   explainWeakField,
+  narrateForHybrid,
   screen,
 };
 
@@ -784,9 +788,48 @@ export async function buildOpportunityMap(
     const scores = dbsfScores(signals);
     return toScore.map((x, i) => scoreOnlyAssessment(x.o.id, scores[i], { final: true }));
   };
+  // Hybrid (flag `hybrid_scorer`): DBSF scores stream immediately (`final: false`,
+  // so the card shows its AnalyzingRing), then the LLM narrative is merged in per
+  // batch (`final: true`). Scores are never recomposited — DBSF already blends
+  // every signal — so this path streams directly, bypassing `previewAssessment`.
+  const hybridEnabled = isFlagEnabled("hybrid_scorer");
+  const hybridScore = async (): Promise<Assessment[]> => {
+    const base = dbsfAssessments();
+    const baseById = new Map(base.map((a) => [a.id, a]));
+    const emit = (a: Assessment) => {
+      const opp = byId.get(a.id);
+      if (!opp) return;
+      if (a.final ?? true) streamedFinalIds.add(a.id);
+      try { onMatch?.(baseMatchFromAssessment(a, opp, profile)); } catch { /* progressive rendering is best-effort */ }
+    };
+    for (const a of base) emit({ ...a, final: false });
+    let narratedCount = 0;
+    const narratives = await d.narrateForHybrid(
+      profile,
+      candidatesToScore,
+      base.map((a) => ({ id: a.id, score: a.score })),
+      meter,
+      (batch) => {
+        narratedCount += batch.length;
+        emitScoreProgress(narratedCount);
+        for (const n of batch) {
+          const b = baseById.get(n.id);
+          if (b) emit({ ...mergeNarrativeIntoAssessment(b, n), final: true });
+        }
+      },
+      signal,
+    );
+    signal?.throwIfAborted();
+    // Whatever was never narrated (failed batch / dropped id) settles score-only.
+    const narratedIds = new Set(narratives.map((n) => n.id));
+    for (const a of base) if (!narratedIds.has(a.id)) emit({ ...a, final: true });
+    return mergeHybridResults(base, narratives).map((a) => ({ ...a, final: true }));
+  };
   const assessments: Assessment[] =
     candidatesToScore.length === 0
       ? []
+      : hybridEnabled
+      ? await hybridScore()
       : isFlagEnabled("dbsf_scorer")
         ? (() => {
             const out = dbsfAssessments();
@@ -815,7 +858,7 @@ export async function buildOpportunityMap(
   step({ key: "assemble", label: "Writing your opportunity map", pct: 90 });
 
   const allAssessments: Assessment[] = [
-    ...assessments.map(withComposite),
+    ...assessments.map((a) => (hybridEnabled ? a : withComposite(a))),
     ...preExcluded.map(({ o, determination }) => ({
       ...scoreOnlyAssessment(o.id, 0),
       whyIneligible: determination.failed_rules.map((r) => r.description).join(" "),
