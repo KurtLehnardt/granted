@@ -256,7 +256,7 @@ export async function handleMatchRequest(
             // INSTANT CARDS — fired for each retrieved candidate before any LLM
             // scoring call. No score/tier yet: the client renders a spinner in
             // its place until the real "match" event for the same id arrives.
-            (o) => send({ type: "provisional", provisional: true, opportunity: o }),
+            (o, preliminaryScore) => send({ type: "provisional", provisional: true, opportunity: o, preliminaryScore }),
           ),
         );
         // Log any boundary drift for visibility, but ALWAYS stream the real,

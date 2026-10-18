@@ -300,5 +300,6 @@ export type CompetitorStreamEvent =
       awardStats: AwardStats;
       webProfiles: WebCompetitorProfile[];
     }
+  | { type: "synth-chunk"; text: string }
   | { type: "result"; ok: true; analysis: CompetitorAnalysis }
   | { type: "error"; ok: false; reason: "insufficient_evidence" | "unavailable"; message: string; errorId?: string };

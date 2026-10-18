@@ -186,6 +186,66 @@ export const FUNDING_STAGES: readonly ProfileFieldOption[] = [
   { value: "bootstrapped", label: "Bootstrapped / revenue-funded" },
 ] as const;
 
+/** US states, DC, and territories. */
+export const US_STATES: readonly ProfileFieldOption[] = [
+  { value: "AL", label: "Alabama" },
+  { value: "AK", label: "Alaska" },
+  { value: "AZ", label: "Arizona" },
+  { value: "AR", label: "Arkansas" },
+  { value: "CA", label: "California" },
+  { value: "CO", label: "Colorado" },
+  { value: "CT", label: "Connecticut" },
+  { value: "DE", label: "Delaware" },
+  { value: "DC", label: "District of Columbia" },
+  { value: "FL", label: "Florida" },
+  { value: "GA", label: "Georgia" },
+  { value: "HI", label: "Hawaii" },
+  { value: "ID", label: "Idaho" },
+  { value: "IL", label: "Illinois" },
+  { value: "IN", label: "Indiana" },
+  { value: "IA", label: "Iowa" },
+  { value: "KS", label: "Kansas" },
+  { value: "KY", label: "Kentucky" },
+  { value: "LA", label: "Louisiana" },
+  { value: "ME", label: "Maine" },
+  { value: "MD", label: "Maryland" },
+  { value: "MA", label: "Massachusetts" },
+  { value: "MI", label: "Michigan" },
+  { value: "MN", label: "Minnesota" },
+  { value: "MS", label: "Mississippi" },
+  { value: "MO", label: "Missouri" },
+  { value: "MT", label: "Montana" },
+  { value: "NE", label: "Nebraska" },
+  { value: "NV", label: "Nevada" },
+  { value: "NH", label: "New Hampshire" },
+  { value: "NJ", label: "New Jersey" },
+  { value: "NM", label: "New Mexico" },
+  { value: "NY", label: "New York" },
+  { value: "NC", label: "North Carolina" },
+  { value: "ND", label: "North Dakota" },
+  { value: "OH", label: "Ohio" },
+  { value: "OK", label: "Oklahoma" },
+  { value: "OR", label: "Oregon" },
+  { value: "PA", label: "Pennsylvania" },
+  { value: "RI", label: "Rhode Island" },
+  { value: "SC", label: "South Carolina" },
+  { value: "SD", label: "South Dakota" },
+  { value: "TN", label: "Tennessee" },
+  { value: "TX", label: "Texas" },
+  { value: "UT", label: "Utah" },
+  { value: "VT", label: "Vermont" },
+  { value: "VA", label: "Virginia" },
+  { value: "WA", label: "Washington" },
+  { value: "WV", label: "West Virginia" },
+  { value: "WI", label: "Wisconsin" },
+  { value: "WY", label: "Wyoming" },
+  { value: "PR", label: "Puerto Rico" },
+  { value: "GU", label: "Guam" },
+  { value: "VI", label: "U.S. Virgin Islands" },
+  { value: "AS", label: "American Samoa" },
+  { value: "MP", label: "Northern Mariana Islands" },
+] as const;
+
 /** Product-maturity choices (roughly maps onto TRL but user-facing). */
 export const PRODUCT_MATURITY_LEVELS: readonly ProfileFieldOption[] = [
   { value: "concept", label: "Concept" },
@@ -206,6 +266,8 @@ export interface ProfileFieldMeta {
   inputType: ProfileFieldInputType;
   /** User-facing short label. */
   label: string;
+  /** Tooltip hint explaining what to enter. */
+  hint?: string;
   /** Offered choices for `single_select` / `range_select`; omitted otherwise. */
   options?: readonly ProfileFieldOption[];
 }
@@ -218,22 +280,15 @@ export interface ProfileFieldMeta {
  * `raw_text` is the user's own description.
  */
 export const PROFILE_FIELD_META: readonly ProfileFieldMeta[] = [
-  // --- REQUIRED — the search needs these to route at all. ---
-  { field: "raw_text", requirement: "required", inputType: "free_text", label: "Company description" },
-  { field: "industry", requirement: "required", inputType: "free_text", label: "Industry / market" },
-  { field: "technology", requirement: "required", inputType: "free_text", label: "Core technology" },
-  { field: "location", requirement: "required", inputType: "free_text", label: "Primary US location" },
-  { field: "use_of_funds", requirement: "required", inputType: "free_text", label: "Use of funds" },
+  // --- REQUIRED — the search needs this to route at all. ---
+  { field: "raw_text", requirement: "required", inputType: "free_text", label: "Describe your research or business", hint: "Include your industry, core technology or innovation, what you'd use funding for, team size, target customers, R&D activities, and how far along your product is. The more detail, the better your grant matches." },
 
-  // --- OPTIONAL-but-MATERIAL — each changes which programs match. ---
-  { field: "employee_count", requirement: "material", inputType: "integer", label: "Team size (full-time employees)" },
-  { field: "revenue", requirement: "material", inputType: "range_select", label: "Annual revenue", options: REVENUE_RANGES },
-  { field: "funding_stage", requirement: "material", inputType: "single_select", label: "Funding stage", options: FUNDING_STAGES },
-  { field: "capital_raised", requirement: "material", inputType: "range_select", label: "Capital raised to date", options: CAPITAL_RAISED_RANGES },
-  { field: "rd_activities", requirement: "material", inputType: "boolean_text", label: "R&D activities" },
-  { field: "product_maturity", requirement: "material", inputType: "single_select", label: "Product maturity", options: PRODUCT_MATURITY_LEVELS },
-  { field: "target_customers", requirement: "material", inputType: "free_text", label: "Target customers" },
-  { field: "capital_requirement", requirement: "material", inputType: "range_select", label: "Capital required", options: CAPITAL_REQUIREMENT_RANGES },
+  // --- OPTIONAL — eligibility and filtering fields, not part of the query embedding. ---
+  { field: "location", requirement: "material", inputType: "single_select", label: "Primary US location", options: US_STATES, hint: "Some grants are region-specific." },
+  { field: "revenue", requirement: "material", inputType: "range_select", label: "Annual revenue", options: REVENUE_RANGES, hint: "Some programs target pre-revenue startups; others require revenue history." },
+  { field: "funding_stage", requirement: "material", inputType: "single_select", label: "Funding stage", options: FUNDING_STAGES, hint: "Where you are in fundraising — affects which grant phases you qualify for." },
+  { field: "capital_raised", requirement: "material", inputType: "range_select", label: "Capital raised to date", options: CAPITAL_RAISED_RANGES, hint: "Total outside investment received so far." },
+  { field: "capital_requirement", requirement: "material", inputType: "range_select", label: "Capital required", options: CAPITAL_REQUIREMENT_RANGES, hint: "How much funding you're seeking — helps match to the right grant size." },
 ];
 
 /** Field-key → metadata lookup, derived from `PROFILE_FIELD_META`. */

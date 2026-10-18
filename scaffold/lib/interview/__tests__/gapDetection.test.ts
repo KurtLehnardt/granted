@@ -18,7 +18,7 @@ import type { CompanyProfile } from "../../contracts/companyProfile";
 
 const cell = (value: unknown) => ({ value, provenance: "user_stated" as const, confidence: 1 });
 
-/** A profile that provides every one of the 13 material fields. */
+/** A profile that provides every one of the 6 material fields. */
 function filledProfile(): Partial<CompanyProfile> {
   return {
     id: "p1",
@@ -38,19 +38,12 @@ function filledProfile(): Partial<CompanyProfile> {
   } as Partial<CompanyProfile>;
 }
 
-const ALL_13 = [
+const ALL_MATERIAL = [
   "raw_text",
-  "industry",
-  "technology",
   "location",
-  "use_of_funds",
-  "employee_count",
   "revenue",
   "funding_stage",
   "capital_raised",
-  "rd_activities",
-  "product_maturity",
-  "target_customers",
   "capital_requirement",
 ];
 
@@ -76,9 +69,9 @@ function mkQ(
 
 // --- detectGaps ------------------------------------------------------------
 
-test("detectGaps: an empty profile is missing all 13 material fields, in ask-order", () => {
+test("detectGaps: an empty profile is missing all 6 material fields, in ask-order", () => {
   const gaps = detectGaps({});
-  assert.deepEqual(gaps.map((g) => g.field), ALL_13);
+  assert.deepEqual(gaps.map((g) => g.field), ALL_MATERIAL);
 });
 
 test("detectGaps: a fully-filled profile has ZERO gaps", () => {
@@ -88,25 +81,25 @@ test("detectGaps: a fully-filled profile has ZERO gaps", () => {
 test("detectGaps: a provided field is never a gap; every other material field is", () => {
   const partial: Partial<CompanyProfile> = {
     raw_text: cell("We build drones."),
-    industry: cell("agtech"),
-    location: cell("Reno, NV"),
+    funding_stage: cell("seed"),
+    location: cell("NV"),
   } as Partial<CompanyProfile>;
   const gapFields = detectGaps(partial).map((g) => g.field);
   // provided → not asked
   assert.ok(!gapFields.includes("raw_text"));
-  assert.ok(!gapFields.includes("industry"));
+  assert.ok(!gapFields.includes("funding_stage"));
   assert.ok(!gapFields.includes("location"));
   // everything else → asked
   assert.deepEqual(
     gapFields,
-    ALL_13.filter((f) => !["raw_text", "industry", "location"].includes(f)),
+    ALL_MATERIAL.filter((f) => !["raw_text", "funding_stage", "location"].includes(f)),
   );
 });
 
 test("detectGaps: a blank/empty value counts as a gap (not silently 'provided')", () => {
-  const partial = { industry: cell("   "), revenue: cell("") } as Partial<CompanyProfile>;
+  const partial = { location: cell("   "), revenue: cell("") } as Partial<CompanyProfile>;
   const gapFields = detectGaps(partial).map((g) => g.field);
-  assert.ok(gapFields.includes("industry"));
+  assert.ok(gapFields.includes("location"));
   assert.ok(gapFields.includes("revenue"));
 });
 

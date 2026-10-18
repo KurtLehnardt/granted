@@ -91,12 +91,12 @@ describe("opportunityAvailability", () => {
 describe("isClosingSoon", () => {
   const now = Date.parse("2026-08-16T00:00:00.000Z");
 
-  test("true for a deadline within the window", () => {
-    assert.equal(isClosingSoon({ deadline: "2026-09-01T00:00:00.000Z" }, { now }), true);
+  test("true for a deadline within the 14-day window", () => {
+    assert.equal(isClosingSoon({ deadline: "2026-08-28T00:00:00.000Z" }, { now }), true);
   });
 
-  test("false for a deadline beyond the window", () => {
-    assert.equal(isClosingSoon({ deadline: "2027-06-01T00:00:00.000Z" }, { now }), false);
+  test("false for a deadline beyond the 14-day window", () => {
+    assert.equal(isClosingSoon({ deadline: "2026-09-01T00:00:00.000Z" }, { now }), false);
   });
 
   test("false for a deadline already in the past", () => {
@@ -180,7 +180,7 @@ describe("isDeadlinePassed", () => {
 
   test("mutually exclusive with isClosingSoon: no opportunity is ever both", () => {
     const past = { deadline: "2026-08-14T00:00:00.000Z" };
-    const soon = { deadline: "2026-09-20T00:00:00.000Z" };
+    const soon = { deadline: "2026-09-15T00:00:00.000Z" };
     assert.equal(isDeadlinePassed(past, { now }) && isClosingSoon(past, { now }), false);
     assert.equal(isDeadlinePassed(soon, { now }) && isClosingSoon(soon, { now }), false);
     // The past one is expired-not-soon; the near one is soon-not-expired.
@@ -245,8 +245,8 @@ describe("closingSoonCount", () => {
 
   test("counts only genuinely-dated, non-evergreen matches within the window", () => {
     const shown = [
-      { opportunity: { deadline: "2026-09-01T00:00:00.000Z" } }, // within window
-      { opportunity: { status: "rolling", deadline: "2026-09-01T00:00:00.000Z" } }, // evergreen guard
+      { opportunity: { deadline: "2026-08-28T00:00:00.000Z" } }, // within 14-day window
+      { opportunity: { status: "rolling", deadline: "2026-08-28T00:00:00.000Z" } }, // evergreen guard
       { opportunity: { deadline: "2027-06-01T00:00:00.000Z" } }, // too far out
       { opportunity: {} }, // no deadline
     ];

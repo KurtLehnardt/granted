@@ -5,6 +5,7 @@ import { DescriptionStrength } from "./DescriptionStrength";
 import {
   PROFILE_FIELD_META,
   PROFILE_FIELD_META_BY_KEY,
+  US_STATES,
   MATERIAL_PROFILE_FIELDS,
   isFieldProvided,
   CompanyProfileSchema,
@@ -89,18 +90,39 @@ export function buildDescriptionFromProfile(profile: ProfileDraft): string {
   return [rawText, "", "Additional details:", ...lines].join("\n");
 }
 
-/** Map the v1 `StartupProfile` extraction result onto the 13 B1a field keys. */
+/**
+ * Extract a US state code from a free-text location such as "Salt Lake City, UT"
+ * or "Utah". Returns undefined when no state can be identified.
+ */
+export function extractStateCode(location: string): string | undefined {
+  const upper = location.toUpperCase().trim();
+  const stateValues = new Set(US_STATES.map((s) => s.value));
+  if (stateValues.has(upper)) return upper;
+  const codeMatch = /\b([A-Z]{2})\s*$/.exec(upper);
+  if (codeMatch && stateValues.has(codeMatch[1])) return codeMatch[1];
+  // Prefer the longest state name so "West Virginia" wins over "Virginia".
+  const byName = [...US_STATES]
+    .sort((a, b) => b.label.length - a.label.length)
+    .find((s) => upper.includes(s.label.toUpperCase()));
+  return byName?.value;
+}
+
+/**
+ * Map the v1 `StartupProfile` extraction result onto the form's field keys.
+ * Fields that are no longer part of the form (removed from `PROFILE_FIELD_META`)
+ * are dropped, and free-text location is reduced to a US state code.
+ */
 export function mapStartupProfileToValues(sp: StartupProfile): Record<string, string> {
-  const out: Record<string, string> = {};
+  const raw: Record<string, string> = {};
   const put = (field: string, v: string | number | undefined | null) => {
     if (v === undefined || v === null) return;
     const s = String(v).trim();
-    if (s.length > 0) out[field] = s;
+    if (s.length > 0) raw[field] = s;
   };
   put("raw_text", sp.description);
   put("industry", sp.industry);
   put("technology", sp.technology);
-  put("location", sp.location);
+  if (sp.location) put("location", extractStateCode(sp.location));
   put("use_of_funds", sp.useOfFunds);
   if (typeof sp.employees === "number" && Number.isFinite(sp.employees) && sp.employees >= 0) {
     put("employee_count", String(Math.round(sp.employees)));
@@ -112,6 +134,10 @@ export function mapStartupProfileToValues(sp: StartupProfile): Record<string, st
   put("product_maturity", sp.productMaturity);
   put("target_customers", sp.targetCustomers);
   put("capital_requirement", sp.capitalRequirement);
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (PROFILE_FIELD_META_BY_KEY[key]) out[key] = value;
+  }
   return out;
 }
 
@@ -191,8 +217,8 @@ export function isWideField(field: string): boolean {
  */
 export const MATERIAL_FIELD_GROUPS: readonly { heading: string; fields: readonly string[] }[] = [
   {
-    heading: "Company & product",
-    fields: ["employee_count", "product_maturity", "target_customers", "rd_activities"],
+    heading: "Location",
+    fields: ["location"],
   },
   {
     heading: "Financials",
@@ -276,7 +302,7 @@ export function fieldValidationMessage(
 ): string | null {
   if (meta.requirement !== "required") return null;
   if (provided || !touched) return null;
-  return `${meta.label} is required.`;
+  return `This field is required.`;
 }
 
 // ---------------------------------------------------------------------------
@@ -506,8 +532,10 @@ export default function ProfileQuestionnaire({
   function clearSaved() {
     setProfile({});
     setValues({});
+    setTouchedFields(new Set());
     setShowOptional(false);
     writeJSON(STORAGE_KEY, {});
+    onDescriptionChange?.("");
     if (clearedTimerRef.current) clearTimeout(clearedTimerRef.current);
     setClearedVisible(true);
     clearedTimerRef.current = setTimeout(() => setClearedVisible(false), 2000);
@@ -525,7 +553,7 @@ export default function ProfileQuestionnaire({
   const fieldLabelClass = "mb-1 block font-mono text-[11px] uppercase tracking-eyebrow text-structure-on-canvas";
 
   const textareaBigClass =
-    "w-full resize-none rounded-sm border border-structure-on-canvas bg-canvas-alt p-4 font-body text-[15px] leading-relaxed text-foreground outline-none focus:border-structure-on-canvas focus:ring-2 focus:ring-structure-on-canvas disabled:cursor-not-allowed disabled:opacity-60";
+    "w-full resize-none rounded-sm border border-structure-on-canvas bg-canvas-alt p-4 font-body text-[15px] leading-relaxed text-foreground placeholder:italic placeholder:text-foreground/40 outline-none focus:border-structure-on-canvas focus:ring-2 focus:ring-structure-on-canvas disabled:cursor-not-allowed disabled:opacity-60";
 
   const textareaSmallClass =
     "w-full resize-none rounded-sm border border-structure-on-canvas bg-canvas-alt px-3 py-2 font-body text-[14px] leading-relaxed text-foreground outline-none focus:ring-2 focus:ring-structure-on-canvas disabled:cursor-not-allowed disabled:opacity-60";
@@ -578,10 +606,27 @@ export default function ProfileQuestionnaire({
 
   // ---- field rendering ----
 
+  function FieldHint({ text }: { text?: string }) {
+    if (!text) return null;
+    return (
+      <span className="group/hint relative ml-1.5 inline-block align-middle">
+        <span
+          aria-label={text}
+          className="inline-flex h-4 w-4 cursor-pointer items-center justify-center rounded-full border border-structure-on-canvas text-[10px] leading-none text-structure-on-canvas transition hover:bg-structure hover:text-token-white"
+        >
+          ?
+        </span>
+        <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-56 -translate-x-1/2 rounded border border-structure-on-canvas bg-canvas-alt px-3 py-2 text-left font-body text-[12px] normal-case tracking-normal leading-relaxed text-foreground opacity-0 shadow-md transition-opacity group-hover/hint:opacity-100">
+          {text}
+        </span>
+      </span>
+    );
+  }
+
   function renderField(meta: ProfileFieldMeta, spanClass = "") {
     const required = meta.requirement === "required";
     const wrapClass = spanClass ? `${fieldWrapClass} ${spanClass}` : fieldWrapClass;
-    const requiredMarker = required ? <span className={requiredMarkerClass}>Required</span> : null;
+    const requiredMarker = null;
 
     const value = draftValue(profile, values, meta.field);
 
@@ -590,6 +635,7 @@ export default function ProfileQuestionnaire({
         <div key={meta.field} className={wrapClass}>
           <label htmlFor={`pq-${meta.field}`} className={fieldLabelClass}>
             {meta.label}
+            <FieldHint text={meta.hint} />
             {requiredMarker}
           </label>
           <select
@@ -619,6 +665,7 @@ export default function ProfileQuestionnaire({
         <div key={meta.field} className={wrapClass}>
           <label htmlFor={`pq-${meta.field}`} className={fieldLabelClass}>
             {meta.label}
+            <FieldHint text={meta.hint} />
             {requiredMarker}
           </label>
           <input
@@ -655,6 +702,7 @@ export default function ProfileQuestionnaire({
         <fieldset key={meta.field} className={`${wrapClass} ${fieldsetResetClass}`}>
           <legend className={`${fieldLabelClass} p-0`}>
             {meta.label}
+            <FieldHint text={meta.hint} />
             {requiredMarker}
           </legend>
           <div className="mt-1 flex gap-4">
@@ -701,17 +749,18 @@ export default function ProfileQuestionnaire({
       <div key={meta.field} className={wrapClass}>
         <label htmlFor={`pq-${meta.field}`} className={fieldLabelClass}>
           {meta.label}
+          <FieldHint text={meta.hint} />
           {requiredMarker}
         </label>
         <textarea
           id={`pq-${meta.field}`}
           ref={meta.field === "raw_text" ? rawTextRef : undefined}
-          rows={isBig ? 5 : 2}
+          rows={isBig ? 5 : 1}
           value={value}
           disabled={disabled}
           placeholder={
             isBig
-              ? "Grant matches improve with a paragraph or two long description — what you build, who it's for, your size, and how much you need."
+              ? "Describe your company, technology, and what you'd use grant funding for…"
               : undefined
           }
           aria-required={required}
@@ -804,17 +853,29 @@ export default function ProfileQuestionnaire({
                 aria-controls="pq-material-fields"
                 className={secondaryButtonClass}
               >
-                + Add optional details (improves matches)
+                Add optional details (improves matches)
               </button>
             ) : (
               <div id="pq-material-fields">
-                <h2
-                  ref={materialHeadingRef}
-                  tabIndex={-1}
-                  className={`${sectionHeadingClass} rounded-sm focus:outline-none focus:ring-2 focus:ring-structure-on-canvas`}
-                >
-                  A few more details (optional)
-                </h2>
+                <div className="flex items-center justify-between">
+                  <h2
+                    ref={materialHeadingRef}
+                    tabIndex={-1}
+                    className={`${sectionHeadingClass} rounded-sm focus:outline-none focus:ring-2 focus:ring-structure-on-canvas`}
+                  >
+                    A few more details (optional)
+                  </h2>
+                  <button
+                    type="button"
+                    onClick={() => setShowOptional(false)}
+                    disabled={disabled}
+                    aria-expanded={true}
+                    aria-controls="pq-material-fields"
+                    className={clearLinkClass}
+                  >
+                    Hide
+                  </button>
+                </div>
                 <p className={introClass}>
                   None of these are required — but each one changes which programs match.
                 </p>
