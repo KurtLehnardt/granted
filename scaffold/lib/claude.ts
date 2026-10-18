@@ -20,7 +20,9 @@ import {
   assembleTwoPass,
 } from "./scoring/twoPass";
 
-export const MODEL = "claude-sonnet-4-6";
+import type { NarrativeAssessment } from "./scoring/hybridMerge";
+
+export const MODEL ="claude-sonnet-4-6";
 
 /**
  * Phase 4 — model routing (lib/contracts/modelRouting.ts): `profile_extraction`
@@ -922,6 +924,106 @@ async function narratePassB(
   // promoted candidate to its score-only assessment and the search still returns
   // ranked tiers. So we return whatever succeeded (possibly []).
   return ok.flat().map((a) => ({ ...a, score: clampScore(a.score) }));
+}
+
+/**
+ * Hybrid scorer (flag `hybrid_scorer`) — narrative-only LLM call. The DBSF
+ * scorer already produced each score; the model only EXPLAINS it. Batched and
+ * fault-tolerant like `narratePassB` (split on 413, bounded overload retry,
+ * `Promise.allSettled`). Any `score`/`tier` the model emits is discarded. A
+ * failed batch degrades to no narrative for its candidates (never throws), so
+ * the caller's scores still stand. `onBatchNarrated` fires per settled batch.
+ */
+export async function narrateForHybrid(
+  profile: StartupProfile,
+  candidates: Opportunity[],
+  dbsfScores: Array<{ id: string; score: number }>,
+  meter?: CostMeter,
+  onBatchNarrated?: (narratives: NarrativeAssessment[]) => void,
+  signal?: AbortSignal,
+): Promise<NarrativeAssessment[]> {
+  if (candidates.length === 0) return [];
+  const SYSTEM = loadPrompt("narrateMatches").template;
+  const scoreById = new Map(dbsfScores.map((s) => [s.id, s.score]));
+  const BATCH = Number(process.env.LLM_PASS_B_BATCH_SIZE) || (isLocalLlm() ? 1 : cloudBatchSize(8));
+  const groups: Opportunity[][] = [];
+  for (let i = 0; i < candidates.length; i += BATCH) groups.push(candidates.slice(i, i + BATCH));
+
+  const narrateGroup = async (group: Opportunity[]): Promise<NarrativeAssessment[]> => {
+    const t0 = performance.now();
+    const msg = await withOverloadRetry(
+      () =>
+        twoPassClient().messages.create(
+          {
+            model: MODEL,
+            max_tokens: 8000,
+            temperature: 0,
+            // Same prompt-caching breakpoint as narratePassB; the per-call
+            // wrapUntrusted nonce lives in `messages`, never in `system`.
+            system: [{ type: "text", text: SYSTEM, cache_control: { type: "ephemeral" } }],
+            messages: [
+              {
+                role: "user",
+                content: `COMPANY:\n${wrapUntrusted(JSON.stringify(profile))}\n\nCANDIDATE OPPORTUNITIES:\n${wrapUntrusted(
+                  JSON.stringify(
+                    group.map((c) => ({
+                      id: c.id, program: c.program, agency: c.agency, kind: c.kind,
+                      description: truncateDescriptionForPrompt(c.description, 1200), eligibility: c.eligibility ? truncateDescriptionForPrompt(c.eligibility, 1200) : c.eligibility,
+                      fundingLow: c.fundingLow, fundingHigh: c.fundingHigh, deadline: c.deadline,
+                      // Named `score` to match the narrateMatches prompt ("each candidate carries its final score").
+                      score: scoreById.get(c.id),
+                    })),
+                  ),
+                )}`,
+              },
+            ],
+          },
+          { signal },
+        ),
+      signal,
+    );
+    recordUsage(meter, "hybrid_narrative", msg.usage, performance.now() - t0);
+    const text = msg.content.filter((c) => c.type === "text").map((c: any) => c.text).join("");
+    const allowed = new Set(group.map((c) => c.id));
+    return asArray(parseJson<NarrativeAssessment[] | NarrativeAssessment>(text))
+      .filter((n) => n && typeof n.id === "string" && allowed.has(n.id))
+      .map((n): NarrativeAssessment => ({
+        id: n.id,
+        whyCare: n.whyCare ?? "",
+        whyFit: n.whyFit ?? "",
+        whyIneligible: n.whyIneligible ?? "",
+        whatToVerify: n.whatToVerify ?? "",
+        whatToDoNext: n.whatToDoNext ?? "",
+        criteria: coerceCriteria(n.criteria, n.id).map((c) => ({ label: c.label, met: c.met, note: c.note ?? "" })),
+      }));
+  };
+
+  const fanOutStart = performance.now();
+  const runGroup = (group: Opportunity[]) =>
+    scoreGroupWithSplit(group, narrateGroup, "hybrid_narrative").then(
+      (result) => {
+        try { onBatchNarrated?.(result); } catch { /* progress/preview is best-effort */ }
+        return result;
+      },
+    );
+  let settled: PromiseSettledResult<NarrativeAssessment[]>[];
+  if (isLocalLlm()) {
+    settled = [];
+    for (const group of groups) {
+      try {
+        settled.push({ status: "fulfilled", value: await runGroup(group) });
+      } catch (reason) {
+        settled.push({ status: "rejected", reason } as PromiseRejectedResult);
+      }
+    }
+  } else {
+    settled = await Promise.allSettled(groups.map(runGroup));
+  }
+  meter?.recordStageLatency("hybrid_narrative", performance.now() - fanOutStart);
+  logSkippedBatches("hybrid_narrative", settled, groups);
+  return settled
+    .filter((s): s is PromiseFulfilledResult<NarrativeAssessment[]> => s.status === "fulfilled")
+    .flatMap((s) => s.value);
 }
 
 /** Pass B narrates at most this many promoted candidates, best Pass-A score first. Uncapped on hosted. */
