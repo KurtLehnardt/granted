@@ -192,8 +192,64 @@ export default function OpportunityCard({
   const justPromoted = wasProvisional.current && !isProvisional(m);
   wasProvisional.current = isProvisional(m);
 
-  if (isProvisional(m)) return <ProvisionalCard opportunity={m.opportunity} index={index} preliminaryScore={m.preliminaryScore} />;
-  return <ScoredOpportunityCard m={m} index={index} startupProfile={startupProfile} justPromoted={justPromoted} />;
+  const lastDisplayedScoreRef = useRef<number | undefined>(undefined);
+
+  if (isProvisional(m)) {
+    return (
+      <ProvisionalCard
+        opportunity={m.opportunity}
+        index={index}
+        preliminaryScore={m.preliminaryScore}
+        onDisplayScoreChange={(v) => {
+          lastDisplayedScoreRef.current = v;
+        }}
+      />
+    );
+  }
+  return (
+    <ScoredOpportunityCard
+      m={m}
+      index={index}
+      startupProfile={startupProfile}
+      justPromoted={justPromoted}
+      startScore={justPromoted ? lastDisplayedScoreRef.current : undefined}
+    />
+  );
+}
+
+function useAnimatedScore(opts: { from: number; to: number; mode: "slow" | "fast"; enabled: boolean }): number {
+  const { from, to, mode, enabled } = opts;
+  const [value, setValue] = useState(from);
+
+  useEffect(() => {
+    if (!enabled) return;
+    setValue(from);
+    if (mode === "slow") {
+      let current = from;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const tick = () => {
+        if (current >= to) return;
+        current += 1;
+        setValue(current);
+        if (current < to) timer = setTimeout(tick, 400 + Math.random() * 200);
+      };
+      timer = setTimeout(tick, 400 + Math.random() * 200);
+      return () => clearTimeout(timer);
+    }
+    const duration = 600;
+    const startedAt = performance.now();
+    let raf = 0;
+    const frame = (now: number) => {
+      const t = Math.min((now - startedAt) / duration, 1);
+      const eased = 1 - Math.pow(1 - t, 3);
+      setValue(t >= 1 ? to : Math.round(from + (to - from) * eased));
+      if (t < 1) raf = requestAnimationFrame(frame);
+    };
+    raf = requestAnimationFrame(frame);
+    return () => cancelAnimationFrame(raf);
+  }, [from, to, mode, enabled]);
+
+  return enabled ? value : from;
 }
 
 /**
@@ -202,7 +258,28 @@ export default function OpportunityCard({
  * "Analyzing, score may change" accessible label (role="status") in place of
  * the match percentage.
  */
-function ProvisionalCard({ opportunity, index, preliminaryScore }: { opportunity: Match["opportunity"]; index: number; preliminaryScore?: number }) {
+function ProvisionalCard({
+  opportunity,
+  index,
+  preliminaryScore,
+  onDisplayScoreChange,
+}: {
+  opportunity: Match["opportunity"];
+  index: number;
+  preliminaryScore?: number;
+  onDisplayScoreChange?: (score: number) => void;
+}) {
+  const hasScore = typeof preliminaryScore === "number" && preliminaryScore > 0;
+  const baseScore = hasScore ? preliminaryScore : 0;
+  const displayedValue = useAnimatedScore({
+    from: baseScore,
+    to: Math.min(baseScore + 18, 88),
+    mode: "slow",
+    enabled: hasScore,
+  });
+  useEffect(() => {
+    if (hasScore) onDisplayScoreChange?.(displayedValue);
+  }, [hasScore, displayedValue, onDisplayScoreChange]);
   const articleClass =
     "relative overflow-hidden rounded-lg bg-canvas-alt text-foreground shadow-card transition-shadow duration-200 ease-out";
   return (
@@ -244,12 +321,12 @@ function ProvisionalCard({ opportunity, index, preliminaryScore }: { opportunity
           <AnalyzingRing>
             <div
               role="status"
-              aria-label={`Analyzing${typeof preliminaryScore === "number" && preliminaryScore > 0 ? `, preliminary score ${preliminaryScore}%` : ""}, score may change`}
+              aria-label={`Analyzing${hasScore ? `, preliminary score ${displayedValue}%` : ""}, score may change`}
               className="score-pulse font-display text-[26px] font-bold leading-none tabular-nums text-structure-on-canvas"
             >
-              {typeof preliminaryScore === "number" && preliminaryScore > 0 ? (
+              {hasScore ? (
                 <>
-                  {preliminaryScore}
+                  {displayedValue}
                   <span className="text-[15px] font-medium">%</span>
                 </>
               ) : (
@@ -268,6 +345,7 @@ function ScoredOpportunityCard({
   index,
   startupProfile,
   justPromoted,
+  startScore,
 }: {
   m: Match;
   index: number;
@@ -275,7 +353,17 @@ function ScoredOpportunityCard({
   /** True on the one render where this card replaced a ProvisionalCard for
    *  the same id (see OpportunityCard above). */
   justPromoted?: boolean;
+  /** Last value the provisional card displayed; the score animates from here to `m.score`. */
+  startScore?: number;
 }) {
+  const [animatePromotion] = useState(() => !!justPromoted && startScore != null);
+  const animatedScore = useAnimatedScore({
+    from: startScore ?? m.score,
+    to: m.score,
+    mode: "fast",
+    enabled: animatePromotion,
+  });
+  const shownScore = animatePromotion ? animatedScore : m.score;
   // Expand the first three cards so criteria / ineligibility / history read at a glance.
   const [open, setOpen] = useState(index < 3);
   const isFinal = m.final ?? true;
@@ -546,16 +634,16 @@ function ScoredOpportunityCard({
               <AnalyzingRing fading={fading}>
                 <div
                   role="status"
-                  aria-label={`Analyzing, ${m.score}%, score may change`}
+                  aria-label={`Analyzing, ${shownScore}%, score may change`}
                   className="font-display text-[26px] font-bold leading-none tabular-nums text-foreground"
                 >
-                  {m.score}
+                  {shownScore}
                   <span className="text-[15px] font-medium">%</span>
                 </div>
               </AnalyzingRing>
             ) : (
               <div className="font-display text-[26px] font-bold leading-none tabular-nums text-foreground">
-                {m.score}
+                {shownScore}
                 <span className="text-[15px] font-medium">%</span>
               </div>
             )}
