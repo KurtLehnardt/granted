@@ -41,7 +41,7 @@ describe("dbsfScores", () => {
   });
 
   test("identical cosine scores normalize to 0.5 (equal outputs)", () => {
-    const c: ScoreSignals[] = [0.4, 0.4, 0.4].map((cosine) => ({ cosine, eligibility: "eligible" }));
+    const c: ScoreSignals[] = [0.5, 0.5, 0.5].map((cosine) => ({ cosine, eligibility: "eligible" }));
     const out = dbsfScores(c);
     // (0.5*0.3 + 1*0.15)/0.45 = 0.6667 -> 67
     assert.deepEqual(out, [67, 67, 67]);

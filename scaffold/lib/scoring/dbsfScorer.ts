@@ -9,6 +9,8 @@ export type EligibilityStatus = "eligible" | "conditional" | "unknown" | "exclud
 
 export interface ScoreSignals {
   cosine?: number;
+  /** Raw, un-normalized cosine in [0,1]; anchors the relative DBSF score to an absolute scale. */
+  rawCosine?: number;
   bm25?: number;
   criteriaMet?: number;
   criteriaCount?: number;
@@ -23,6 +25,8 @@ const PRIOR = { alpha: 2, beta: 2 };
 
 /** Beta-Binomial posterior mean of the criteria hit rate. */
 export function shrinkCriteria(met: number, count: number): number {
+  if (!(count >= 0)) throw new RangeError("shrinkCriteria: count must be >= 0");
+  met = Math.max(0, Math.min(count, met));
   return (met + PRIOR.alpha) / (count + PRIOR.alpha + PRIOR.beta);
 }
 
@@ -66,7 +70,13 @@ export function dbsfScores(candidates: ScoreSignals[]): number[] {
       sum += v * w;
       wTotal += w;
     }
-    const score = Math.round((sum / wTotal) * 100);
+    const dbsfScore = (sum / wTotal) * 100;
+    // DBSF is relative to the candidate set (~50 +/- spread); blend with raw cosine so
+    // absolute thresholds (scoreFloor, tier cutoffs) stay meaningful. No cosine: pure DBSF.
+    const anchor = c.rawCosine !== undefined && Number.isFinite(c.rawCosine) ? c.rawCosine * 100 : undefined;
+    const blended = anchor === undefined ? dbsfScore : dbsfScore * 0.6 + anchor * 0.4;
+    const score = Math.max(0, Math.min(100, Math.round(blended)));
+    // Defense in depth: match.ts pre-filters excluded candidates, so this is normally unreachable.
     return c.eligibility === "excluded" ? Math.min(score, EXCLUDED_CAP) : score;
   });
 }

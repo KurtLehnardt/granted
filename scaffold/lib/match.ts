@@ -478,6 +478,13 @@ export async function buildOpportunityMap(
   // — once instantly on the raw description (below), and again once the
   // profile resolves (further down) — so both passes share one implementation.
   const bm25Index = getBM25Index(fullCorpus);
+  // Memoized per query text so retrieval and the DBSF scorer share one BM25 pass.
+  const bm25Cache = new Map<string, ReturnType<typeof bm25Query>>();
+  const bm25Hits_ = (q: string) => {
+    let h = bm25Cache.get(q);
+    if (!h) { h = bm25Query(bm25Index, q); bm25Cache.set(q, h); }
+    return h;
+  };
   const bm25Ids = new Set(d.corpus.map((o) => o.id));
   // `sim`/`rank`/the global top-N cut/the per-type quota mirror main's
   // cosine+quota selection exactly (`rank` folds in the B2 boost, 0 when off).
@@ -488,7 +495,7 @@ export async function buildOpportunityMap(
 
   /** Keyword-only retrieval (no query vector): BM25's top candidateCount, plus the same per-type quota. */
   function retrieveByKeywords(queryText: string) {
-    const hits = bm25Query(bm25Index, queryText).filter((h) => corpusById.has(h.id));
+    const hits = bm25Hits_(queryText).filter((h) => corpusById.has(h.id));
     const ranked = hits.map((h) => ({ o: corpusById.get(h.id)!, sim: 0, rank: h.score }));
     const candidateCount = clampCandidateCount(maxCandidates);
     const selectedIds = new Set(ranked.slice(0, candidateCount).map((x) => x.o.id));
@@ -535,7 +542,7 @@ export async function buildOpportunityMap(
     }
 
     const floorClearedIds = new Set(floorCleared.map((x) => x.o.id));
-    const bm25Hits = bm25Query(bm25Index, queryText).filter((h) => bm25Ids.has(h.id));
+    const bm25Hits = bm25Hits_(queryText).filter((h) => bm25Ids.has(h.id));
     const bm25OnlyIds = new Set<string>();
     // A BM25 pick BELOW the cosine floor — the case the lexical layer exists
     // for. The embedding floor is a similarity heuristic, so a program whose
@@ -676,18 +683,20 @@ export async function buildOpportunityMap(
   // Only a definitive, rule-based `excluded` skips the LLM; every other bucket is still scored.
   const companyProfile = toCompanyProfile(profile, companyFacts);
   const preExcluded: { o: Opportunity; determination: EligibilityDetermination }[] = [];
-  const toScore: typeof scored = [];
+  const toScore: ((typeof scored)[number] & { bucket?: string })[] = [];
   for (const x of scored) {
+    let bucket: string | undefined;
     try {
       const determination = d.screen(companyProfile, toScreenableOpportunity(x.o));
       if (determination.bucket === "excluded") {
         preExcluded.push({ o: x.o, determination });
         continue;
       }
+      bucket = determination.bucket;
     } catch {
       // Screening failed — score it normally; re-screened below.
     }
-    toScore.push(x);
+    toScore.push({ ...x, bucket });
   }
 
   // A pre-excluded candidate never reaches the scorer at all, so — unlike a
@@ -762,14 +771,15 @@ export async function buildOpportunityMap(
   // DBSF (flag `dbsf_scorer`, default OFF): deterministic scores from cosine + BM25 +
   // eligibility, no LLM calls. Candidates carry no criteria/narrative in this mode.
   const dbsfAssessments = (): Assessment[] => {
-    const bm25ById = new Map(bm25Query(bm25Index, queryText).map((h) => [h.id, h.score]));
+    const bm25ById = new Map(bm25Hits_(queryText).map((h) => [h.id, h.score]));
     const signals: ScoreSignals[] = toScore.map((x) => {
-      let eligibility: ScoreSignals["eligibility"] = "unknown";
-      try {
-        const bucket = d.screen(companyProfile, toScreenableOpportunity(x.o)).bucket;
-        eligibility = bucket === "conditionally_eligible" ? "conditional" : bucket;
-      } catch { /* screening failed: stay unknown */ }
-      return { cosine: x.sim < 0.01 ? undefined : x.sim, bm25: bm25ById.get(x.o.id) ?? 0, eligibility };
+      // Bucket carried from the screen() pass above; undefined (screen failed) stays unknown.
+      const eligibility: ScoreSignals["eligibility"] =
+        x.bucket === "conditionally_eligible" ? "conditional"
+        : x.bucket === "eligible" || x.bucket === "excluded" ? x.bucket
+        : "unknown";
+      const cosine = x.sim < 0.01 ? undefined : x.sim;
+      return { cosine, rawCosine: cosine, bm25: bm25ById.get(x.o.id) ?? 0, eligibility };
     });
     const scores = dbsfScores(signals);
     return toScore.map((x, i) => scoreOnlyAssessment(x.o.id, scores[i], { final: true }));
@@ -778,7 +788,11 @@ export async function buildOpportunityMap(
     candidatesToScore.length === 0
       ? []
       : isFlagEnabled("dbsf_scorer")
-        ? dbsfAssessments().map((a) => { previewAssessment(a); return a; })
+        ? (() => {
+            const out = dbsfAssessments();
+            for (const a of out) previewAssessment(a);
+            return out;
+          })()
         : useTwoPass
         ? await d.explainMatchesTwoPass(
             profile,
