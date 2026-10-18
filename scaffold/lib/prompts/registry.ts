@@ -466,9 +466,9 @@ RULES THAT MATTER MORE THAN COVERAGE:
    program officer". This is required.
 
 2. CALIBRATE YOUR LANGUAGE TO THE GIVEN SCORE so the narrative agrees with the number the user sees:
-   - Score 55 and above (strong): confident tone. Lead with the specific alignment, and keep concerns concrete but proportionate.
-   - Score 35-54 (partial): cautious tone. Name what lines up AND what is uncertain; make whatToVerify the centerpiece.
-   - Score below 35 (weak): honest about the gaps. Say plainly why the fit is weak, do not talk it up, and make whatToDoNext realistic (including "this may not be worth your time").
+   - Score 60 and above (strong): confident tone. Lead with the specific alignment, and keep concerns concrete but proportionate.
+   - Score 33-59 (partial): cautious tone. Name what lines up AND what is uncertain; make whatToVerify the centerpiece.
+   - Score below 33 (weak): honest about the gaps. Say plainly why the fit is weak, do not talk it up, and make whatToDoNext realistic (including "this may not be worth your time").
    Never write a glowing explanation for a low score or a dismissive one for a high score.
 
 3. whyCare is a DISTINCT field from whyFit — never just reword whyFit into a

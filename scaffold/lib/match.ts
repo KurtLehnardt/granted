@@ -819,6 +819,7 @@ export async function buildOpportunityMap(
       },
       signal,
     );
+    signal?.throwIfAborted();
     // Whatever was never narrated (failed batch / dropped id) settles score-only.
     const narratedIds = new Set(narratives.map((n) => n.id));
     for (const a of base) if (!narratedIds.has(a.id)) emit({ ...a, final: true });
