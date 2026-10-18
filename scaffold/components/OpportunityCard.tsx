@@ -274,13 +274,17 @@ export default function OpportunityCard({
   // ScoredOpportunityCard, so there's no single DOM node to CSS-transition —
   // track the swap here (the component instance that persists across it) and
   // pass it down so the newly-mounted ring can run its own fade-in-then-out.
-  const wasProvisional = useRef(isProvisional(m));
-  const justPromoted = wasProvisional.current && !isProvisional(m);
-  wasProvisional.current = isProvisional(m);
+  const currentlyProvisional = isProvisional(m);
+  const [prevProvisional, setPrevProvisional] = useState(currentlyProvisional);
+  const [justPromoted, setJustPromoted] = useState(false);
+  if (prevProvisional !== currentlyProvisional) {
+    setPrevProvisional(currentlyProvisional);
+    setJustPromoted(prevProvisional && !currentlyProvisional);
+  }
   const lastProvisionalScore = useRef(0);
   const trackScore = useCallback((v: number) => { lastProvisionalScore.current = v; }, []);
 
-  if (isProvisional(m)) return <ProvisionalCard opportunity={m.opportunity} index={index} preliminaryScore={m.preliminaryScore} onDisplayedScore={trackScore} />;
+  if (currentlyProvisional) return <ProvisionalCard opportunity={m.opportunity} index={index} preliminaryScore={m.preliminaryScore} onDisplayedScore={trackScore} />;
   return <ScoredOpportunityCard m={m} index={index} startupProfile={startupProfile} justPromoted={justPromoted} animateFrom={justPromoted ? lastProvisionalScore.current : undefined} />;
 }
 
