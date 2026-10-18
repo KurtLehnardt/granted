@@ -2,7 +2,7 @@
 // Explicit React import: needed under the plain `tsx`-run node:test runner
 // (this repo's tsconfig `"jsx": "preserve"` falls back to the classic JSX
 // runtime there) — see the same note in components/ApplicationChecklist.tsx.
-import React, { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import React, { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { TIER_LABEL, type Match, type StartupProfile } from "@/lib/types";
 import { isProvisional, type PreviewItem } from "@/lib/ui/previewReducer";
 import type { EligibilityBucket } from "@/lib/contracts/eligibilityDetermination";
@@ -17,6 +17,92 @@ import {
   isDeadlinePassed,
   type OpportunityAvailabilityKind,
 } from "@/lib/ui/opportunitySummary";
+
+/** Weighted random increment: 1–5, skewed heavily toward 1–2. */
+function randomIncrement(): number {
+  const r = Math.random();
+  if (r < 0.35) return 1;
+  if (r < 0.65) return 2;
+  if (r < 0.85) return 3;
+  if (r < 0.95) return 4;
+  return 5;
+}
+
+/**
+ * Organic score drift for the provisional analyzing state. The displayed
+ * number creeps upward from `baseline` with random 1–5 increments, pausing
+ * for 1–3 s every 3–8 s, capped so it never overshoots plausible territory.
+ * Reports every update via `onValue` so the parent can hand off the last
+ * displayed number to the scored card.
+ */
+function useScoreDrift(baseline: number, cap: number, onValue?: (v: number) => void): number {
+  const [value, setValue] = useState(baseline);
+  const valueRef = useRef(baseline);
+  useEffect(() => { setValue(baseline); valueRef.current = baseline; }, [baseline]);
+  useEffect(() => { onValue?.(value); }, [value, onValue]);
+
+  useEffect(() => {
+    if (baseline <= 0) return;
+    let timer: ReturnType<typeof setTimeout>;
+    let cancelled = false;
+
+    function scheduleRun() {
+      if (cancelled) return;
+      const runDuration = 3000 + Math.random() * 5000;
+      const started = Date.now();
+
+      function tick() {
+        if (cancelled) return;
+        if (Date.now() - started > runDuration) {
+          const pause = 1000 + Math.random() * 2000;
+          timer = setTimeout(scheduleRun, pause);
+          return;
+        }
+        const inc = randomIncrement();
+        const next = Math.min(valueRef.current + inc, cap);
+        if (next !== valueRef.current) {
+          valueRef.current = next;
+          setValue(next);
+        }
+        timer = setTimeout(tick, 400 + Math.random() * 600);
+      }
+      tick();
+    }
+    scheduleRun();
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [baseline, cap]);
+
+  return value;
+}
+
+/**
+ * Animate an integer from `from` to `to` over `durationMs` with ease-out.
+ * Used for the rapid snap when the final score arrives.
+ */
+function useCountUp(target: number, durationMs: number): number {
+  const [displayed, setDisplayed] = useState(target);
+  const animRef = useRef<{ from: number; to: number; start: number; raf: number } | null>(null);
+
+  useEffect(() => {
+    if (animRef.current) cancelAnimationFrame(animRef.current.raf);
+    const from = displayed;
+    if (from === target || durationMs <= 0) { setDisplayed(target); return; }
+    const start = performance.now();
+    const anim = { from, to: target, start, raf: 0 };
+    function tick() {
+      const t = Math.min((performance.now() - anim.start) / durationMs, 1);
+      const eased = 1 - Math.pow(1 - t, 3);
+      setDisplayed(Math.round(anim.from + (anim.to - anim.from) * eased));
+      if (t < 1) anim.raf = requestAnimationFrame(tick);
+    }
+    anim.raf = requestAnimationFrame(tick);
+    animRef.current = anim;
+    return () => { if (animRef.current) cancelAnimationFrame(animRef.current.raf); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target, durationMs]);
+
+  return displayed;
+}
 
 /** Friendly labels so we never render "Rd". */
 const KIND_LABEL: Record<string, string> = {
@@ -188,12 +274,18 @@ export default function OpportunityCard({
   // ScoredOpportunityCard, so there's no single DOM node to CSS-transition —
   // track the swap here (the component instance that persists across it) and
   // pass it down so the newly-mounted ring can run its own fade-in-then-out.
-  const wasProvisional = useRef(isProvisional(m));
-  const justPromoted = wasProvisional.current && !isProvisional(m);
-  wasProvisional.current = isProvisional(m);
+  const currentlyProvisional = isProvisional(m);
+  const [prevProvisional, setPrevProvisional] = useState(currentlyProvisional);
+  const [justPromoted, setJustPromoted] = useState(false);
+  if (prevProvisional !== currentlyProvisional) {
+    setPrevProvisional(currentlyProvisional);
+    setJustPromoted(prevProvisional && !currentlyProvisional);
+  }
+  const lastProvisionalScore = useRef(0);
+  const trackScore = useCallback((v: number) => { lastProvisionalScore.current = v; }, []);
 
-  if (isProvisional(m)) return <ProvisionalCard opportunity={m.opportunity} index={index} preliminaryScore={m.preliminaryScore} />;
-  return <ScoredOpportunityCard m={m} index={index} startupProfile={startupProfile} justPromoted={justPromoted} />;
+  if (currentlyProvisional) return <ProvisionalCard opportunity={m.opportunity} index={index} preliminaryScore={m.preliminaryScore} onDisplayedScore={trackScore} />;
+  return <ScoredOpportunityCard m={m} index={index} startupProfile={startupProfile} justPromoted={justPromoted} animateFrom={justPromoted ? lastProvisionalScore.current : undefined} />;
 }
 
 /**
@@ -202,7 +294,11 @@ export default function OpportunityCard({
  * "Analyzing, score may change" accessible label (role="status") in place of
  * the match percentage.
  */
-function ProvisionalCard({ opportunity, index, preliminaryScore }: { opportunity: Match["opportunity"]; index: number; preliminaryScore?: number }) {
+function ProvisionalCard({ opportunity, index, preliminaryScore, onDisplayedScore }: { opportunity: Match["opportunity"]; index: number; preliminaryScore?: number; onDisplayedScore?: (v: number) => void }) {
+  const baseline = typeof preliminaryScore === "number" && preliminaryScore > 0 ? preliminaryScore : 0;
+  const cap = Math.min(baseline + 20, 92);
+  const displayed = useScoreDrift(baseline, cap, onDisplayedScore);
+
   const articleClass =
     "relative overflow-hidden rounded-lg bg-canvas-alt text-foreground shadow-card transition-shadow duration-200 ease-out";
   return (
@@ -244,12 +340,12 @@ function ProvisionalCard({ opportunity, index, preliminaryScore }: { opportunity
           <AnalyzingRing>
             <div
               role="status"
-              aria-label={`Analyzing${typeof preliminaryScore === "number" && preliminaryScore > 0 ? `, preliminary score ${preliminaryScore}%` : ""}, score may change`}
+              aria-label={`Analyzing${displayed > 0 ? `, preliminary score ${displayed}%` : ""}, score may change`}
               className="score-pulse font-display text-[26px] font-bold leading-none tabular-nums text-structure-on-canvas"
             >
-              {typeof preliminaryScore === "number" && preliminaryScore > 0 ? (
+              {displayed > 0 ? (
                 <>
-                  {preliminaryScore}
+                  {displayed}
                   <span className="text-[15px] font-medium">%</span>
                 </>
               ) : (
@@ -268,6 +364,7 @@ function ScoredOpportunityCard({
   index,
   startupProfile,
   justPromoted,
+  animateFrom,
 }: {
   m: Match;
   index: number;
@@ -275,7 +372,10 @@ function ScoredOpportunityCard({
   /** True on the one render where this card replaced a ProvisionalCard for
    *  the same id (see OpportunityCard above). */
   justPromoted?: boolean;
+  animateFrom?: number;
 }) {
+  const [scoreStart] = useState(() => animateFrom ?? m.score);
+  const displayedScore = useCountUp(m.score, scoreStart !== m.score ? 600 : 0);
   // Expand the first three cards so criteria / ineligibility / history read at a glance.
   const [open, setOpen] = useState(index < 3);
   const isFinal = m.final ?? true;
@@ -546,16 +646,16 @@ function ScoredOpportunityCard({
               <AnalyzingRing fading={fading}>
                 <div
                   role="status"
-                  aria-label={`Analyzing, ${m.score}%, score may change`}
+                  aria-label={`Analyzing, ${displayedScore}%, score may change`}
                   className="font-display text-[26px] font-bold leading-none tabular-nums text-foreground"
                 >
-                  {m.score}
+                  {displayedScore}
                   <span className="text-[15px] font-medium">%</span>
                 </div>
               </AnalyzingRing>
             ) : (
               <div className="font-display text-[26px] font-bold leading-none tabular-nums text-foreground">
-                {m.score}
+                {displayedScore}
                 <span className="text-[15px] font-medium">%</span>
               </div>
             )}
