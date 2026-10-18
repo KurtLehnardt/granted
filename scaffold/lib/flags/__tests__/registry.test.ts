@@ -47,6 +47,7 @@ describe("FLAG_REGISTRY", () => {
       "r5_deep_analysis",
       "e3_two_pass",
       "discernment_layer",
+      "dbsf_scorer",
       "commercial_ui",
       "match_filters",
     ];
