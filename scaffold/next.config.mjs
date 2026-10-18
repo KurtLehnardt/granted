@@ -14,12 +14,11 @@
  * strict value would break Next.js (its inline hydration bootstrap) or
  * Tailwind (inline styles). Two deliberate choices beyond that:
  *
- *   * NO 'unsafe-eval'. Only `next dev`'s HMR/error-overlay machinery needs
- *     eval, and end users are never served a dev server: every install
- *     script, both trays and the installer run `npm run build` and then
- *     `npm run start`. Running `npm run dev` by hand therefore logs CSP
- *     violations from the dev overlay — a development-only cost, taken
- *     knowingly, so that what ships is the tighter policy.
+ *   * 'unsafe-eval' is added to script-src ONLY in development mode
+ *     (NODE_ENV === "development") so that Next.js's HMR, error overlay,
+ *     and React hydration work correctly during local development. In
+ *     production builds (npm run build + npm run start), the directive is
+ *     absent and end users receive the stricter policy.
  *
  *     One thing in the production bundle does touch `new Function`, and it
  *     was measured in a real Chromium against this policy rather than
