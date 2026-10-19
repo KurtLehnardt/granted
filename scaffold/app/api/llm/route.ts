@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { isLocalLlm } from "@/lib/llm/client";
 import { getOllamaStatus } from "@/lib/llm/ollamaStatus";
-import { resolveCloudConfig, resolveCloudApiKey, publicKeySource, isEnvCloudConfig } from "@/lib/llm/config";
+import { resolveCloudConfig, resolveCloudApiKey, publicKeySource, isEnvCloudConfig, resolveOperationMode } from "@/lib/llm/config";
 import { buildSearchStatus } from "@/lib/embeddings/searchStatus";
 import { withErrorLogging } from "@/lib/errorLog/withErrorLogging";
 import { isLoopbackRequest } from "@/lib/corpus/loopback";
@@ -45,12 +45,14 @@ async function getLlmStatus(req: Request) {
   // The "Search" line: which embeddings search uses and the built-in model's download state
   // (lib/embeddings/searchStatus.ts), built once per request.
   const search = buildSearchStatus();
+  const operationMode = resolveOperationMode();
 
   if (isLocalLlm()) {
     // Settings → Model → Local: installed / running / models / what to download (lib/llm/ollamaStatus.ts).
     const ollama = await getOllamaStatus();
     return NextResponse.json({
       local: true,
+      operationMode,
       provider: "ollama" as const,
       model: ollama.defaultModel, // what "Default" actually runs: an installed model when there is one
       models: ollama.chatModels,
@@ -61,11 +63,12 @@ async function getLlmStatus(req: Request) {
   }
 
   if (!cfg) {
-    return NextResponse.json({ local: false, provider: "cloud" as const, search });
+    return NextResponse.json({ local: false, operationMode, provider: "cloud" as const, search });
   }
 
   return NextResponse.json({
     local: false,
+    operationMode,
     provider: "cloud" as const,
     search,
     cloud,
