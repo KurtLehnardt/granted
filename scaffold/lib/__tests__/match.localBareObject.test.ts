@@ -72,6 +72,10 @@ test("local bare-object scoring response: onMatch still fires per candidate and 
 
   let call = 0;
   globalThis.fetch = (async (_url: string, init: any) => {
+    // Local mode probes Ollama's /api/tags before scoring; answer it as a running Ollama.
+    if (String(_url).endsWith("/api/tags")) {
+      return new Response(JSON.stringify({ models: [{ name: "gemma4:latest" }] }), { status: 200 });
+    }
     const body = JSON.parse(init.body);
     const userContent: string = body.messages.find((m: any) => m.role === "user")?.content ?? "";
     const id = corpus.find((c) => userContent.includes(`"${c.id}"`))?.id ?? `unknown-${call}`;

@@ -31,12 +31,20 @@ export function isValidAnthropicKey(key: string): boolean {
   return key.length >= MIN_KEY_LENGTH && key.length <= MAX_KEY_LENGTH && KEY_PATTERN.test(key);
 }
 
+export type OperationMode = "local" | "cloud" | "hybrid";
+
+export function isOperationMode(v: unknown): v is OperationMode {
+  return v === "local" || v === "cloud" || v === "hybrid";
+}
+
 export interface LlmConfigFile {
   // "anthropic" is accepted on read only (the #210 shape); the file is never written with it again.
   provider?: ProviderName | "anthropic";
   cloud?: CloudConfig;
   /** Legacy #210 shape: a bare saved Anthropic key. Still read and written for back-compat. */
   anthropicApiKey?: string;
+  /** Explicit operation mode chosen in Settings. When absent, resolveOperationMode() infers it. */
+  operationMode?: OperationMode;
 }
 
 // Lazy so tests can isolate via GRANTED_LLM_CONFIG_PATH; under node:test with no override, treat the file as absent (never leak a real saved key into tests).
@@ -81,6 +89,7 @@ function parseConfig(text: string): LlmConfigFile {
   if (typeof parsed?.anthropicApiKey === "string" && parsed.anthropicApiKey.length > 0) {
     config.anthropicApiKey = parsed.anthropicApiKey;
   }
+  if (isOperationMode(parsed?.operationMode)) config.operationMode = parsed.operationMode;
   return config;
 }
 
@@ -157,6 +166,44 @@ export function resolveProvider(): ProviderName {
   // #210 back-compat: unset or "anthropic" -> hosted; any other value (ollama/openai/local) -> the OpenAI-compat shim.
   if (envProvider === "" || envProvider === "anthropic") return "cloud";
   return "ollama";
+}
+
+/**
+ * The operation mode: the saved `operationMode` when set, else inferred from
+ * current state. Ollama with no cloud keys is "local"; any cloud key (env, or a
+ * saved cloud config) is "cloud"; otherwise "cloud".
+ */
+export function resolveOperationMode(): OperationMode {
+  return operationModeSignal() ?? "cloud";
+}
+
+function hasAnyCloudKey(file: LlmConfigFile): boolean {
+  return (
+    Boolean((process.env.ANTHROPIC_API_KEY || "").trim()) ||
+    Boolean((process.env.OPENAI_API_KEY || "").trim()) ||
+    Boolean(file.anthropicApiKey) ||
+    Boolean(file.cloud?.keySource)
+  );
+}
+
+/** The saved mode, else one inferred from positive signals (Ollama and no keys, or a cloud key); undefined when there is no signal at all. */
+function operationModeSignal(): OperationMode | undefined {
+  const file = readLlmConfig();
+  if (file.operationMode) return file.operationMode;
+  const hasCloudKey = hasAnyCloudKey(file);
+  if (hasCloudKey) return "cloud";
+  if (resolveProvider() === "ollama") return "local";
+  return undefined;
+}
+
+/**
+ * True only on a positive signal for fully local operation: a saved "local"
+ * mode, or Ollama selected with no cloud keys. Unlike resolveOperationMode()
+ * (which defaults to "local" for display), an unconfigured install is not
+ * treated as fully local, so existing cloud-default behavior is untouched.
+ */
+export function isFullyLocal(): boolean {
+  return operationModeSignal() === "local";
 }
 
 /**

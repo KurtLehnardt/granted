@@ -20,6 +20,9 @@ let resolveAnthropicKeySource: typeof import("../config").resolveAnthropicKeySou
 let isValidAnthropicKey: typeof import("../config").isValidAnthropicKey;
 let resetLlmConfigCache: typeof import("../config").resetLlmConfigCache;
 let isEnvCloudConfig: typeof import("../config").isEnvCloudConfig;
+let resolveOperationMode: typeof import("../config").resolveOperationMode;
+let isOperationMode: typeof import("../config").isOperationMode;
+let isFullyLocal: typeof import("../config").isFullyLocal;
 let isLocalLlm: typeof import("../client").isLocalLlm;
 
 before(async () => {
@@ -37,6 +40,9 @@ before(async () => {
     isValidAnthropicKey,
     resetLlmConfigCache,
     isEnvCloudConfig,
+    resolveOperationMode,
+    isOperationMode,
+    isFullyLocal,
   } = config);
   ({ isLocalLlm } = client);
 });
@@ -325,5 +331,105 @@ describe("llm/config — cloud key sources", () => {
     const resolved = resolveCloudApiKey();
     assert.equal(resolved.key, undefined);
     assert.match(resolved.error ?? "", /MY_UNSET_TEST_KEY.*isn't set/);
+  });
+});
+
+describe("operationMode", () => {
+  function clearSignals() {
+    removeConfigFile();
+    delete process.env.LLM_PROVIDER;
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+  }
+
+  for (const mode of ["local", "cloud", "hybrid"] as const) {
+    test(`resolveOperationMode() returns "${mode}" when the config file says so`, () => {
+      clearSignals();
+      fs.writeFileSync(CONFIG_PATH, JSON.stringify({ operationMode: mode }));
+      resetLlmConfigCache();
+      assert.equal(resolveOperationMode(), mode);
+    });
+  }
+
+  test("a saved mode wins over inference from env keys", () => {
+    clearSignals();
+    process.env.ANTHROPIC_API_KEY = "sk-ant-test0000000000000000";
+    writeLlmConfig({ operationMode: "local" });
+    assert.equal(resolveOperationMode(), "local");
+  });
+
+  test("an invalid saved mode is ignored on read", () => {
+    clearSignals();
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify({ operationMode: "bogus" }));
+    resetLlmConfigCache();
+    assert.equal(readLlmConfig().operationMode, undefined);
+  });
+
+  test("infers cloud when no mode is set but ANTHROPIC_API_KEY is present", () => {
+    clearSignals();
+    process.env.ANTHROPIC_API_KEY = "sk-ant-test0000000000000000";
+    assert.equal(resolveOperationMode(), "cloud");
+  });
+
+  test("infers local when no mode is set, the provider is ollama and there are no cloud keys", () => {
+    clearSignals();
+    process.env.LLM_PROVIDER = "ollama";
+    assert.equal(resolveOperationMode(), "local");
+  });
+
+  test("isOperationMode() accepts the three modes and rejects everything else", () => {
+    for (const m of ["local", "cloud", "hybrid"]) assert.equal(isOperationMode(m), true);
+    for (const m of ["", "Local", "offline", "anthropic", null, undefined, 1, {}]) assert.equal(isOperationMode(m), false);
+  });
+
+  test("isFullyLocal() is true for an explicit local mode", () => {
+    clearSignals();
+    writeLlmConfig({ operationMode: "local" });
+    assert.equal(isFullyLocal(), true);
+  });
+
+  test("isFullyLocal() is true when local is inferred (ollama, no cloud keys)", () => {
+    clearSignals();
+    process.env.LLM_PROVIDER = "ollama";
+    assert.equal(isFullyLocal(), true);
+  });
+
+  test("isFullyLocal() is false for explicit cloud and hybrid modes", () => {
+    clearSignals();
+    process.env.LLM_PROVIDER = "ollama";
+    writeLlmConfig({ operationMode: "cloud" });
+    assert.equal(isFullyLocal(), false);
+    writeLlmConfig({ operationMode: "hybrid" });
+    assert.equal(isFullyLocal(), false);
+  });
+
+  test("isFullyLocal() is false when ollama is selected but a cloud key is present", () => {
+    clearSignals();
+    process.env.LLM_PROVIDER = "ollama";
+    process.env.OPENAI_API_KEY = "sk-proj-test0000000000000000";
+    assert.equal(isFullyLocal(), false);
+  });
+
+  test("isFullyLocal() is false on an unconfigured install (no signal at all)", () => {
+    clearSignals();
+    assert.equal(isFullyLocal(), false);
+  });
+
+  test("writeLlmConfig() persists operationMode and it round-trips through readLlmConfig()", () => {
+    clearSignals();
+    for (const mode of ["hybrid", "cloud", "local"] as const) {
+      const written = writeLlmConfig({ operationMode: mode });
+      assert.equal(written.operationMode, mode);
+      assert.equal(JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8")).operationMode, mode);
+      resetLlmConfigCache();
+      assert.equal(readLlmConfig().operationMode, mode);
+    }
+  });
+
+  test("writing another field keeps the saved operationMode", () => {
+    clearSignals();
+    writeLlmConfig({ operationMode: "hybrid" });
+    writeLlmConfig({ provider: "ollama" });
+    assert.equal(readLlmConfig().operationMode, "hybrid");
   });
 });

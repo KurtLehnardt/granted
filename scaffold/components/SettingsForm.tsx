@@ -19,6 +19,8 @@ import { stageLabel } from "@/lib/corpus/refreshProgress";
 import type { RefreshProgress } from "@/lib/corpus/refreshStatus";
 import { useReplayWelcomeGuide } from "@/components/WelcomeGuide";
 import ModelSection from "@/components/ModelSection";
+import OperationModeSection from "@/components/OperationModeSection";
+import type { OperationMode } from "@/lib/llm/config";
 import StateSourcesSection from "@/components/StateSourcesSection";
 import AppUpdateSection from "@/components/AppUpdateSection";
 import ProblemsSection from "@/components/ProblemsSection";
@@ -85,6 +87,10 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
   const [corpusStatus, setCorpusStatus] = useState<CorpusStatus | null>(null);
   const [stopPending, setStopPending] = useState(false);
   const [nudgeRefresh, setNudgeRefresh] = useState(false);
+  // Null until GET /api/llm answers; the Operation mode section only renders once it is known.
+  const [operationMode, setOperationMode] = useState<OperationMode | null>(null);
+  const [modeSaving, setModeSaving] = useState(false);
+  const [modeError, setModeError] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const nudgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -114,7 +120,42 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
     }
   }
 
+  async function fetchOperationMode() {
+    try {
+      const res = await fetch("/api/llm");
+      if (res.ok) {
+        const json = await res.json();
+        if (json?.operationMode) setOperationMode(json.operationMode);
+      }
+    } catch {
+      /* offline / unreachable — the section stays hidden */
+    }
+  }
+
+  async function handleModeChange(next: OperationMode) {
+    setModeSaving(true);
+    setModeError(null);
+    try {
+      const res = await fetch("/api/llm/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ operationMode: next }),
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        setModeError(json?.error ?? `HTTP ${res.status}`);
+        return;
+      }
+      await fetchOperationMode();
+    } catch {
+      setModeError("Couldn't reach the server. Try again.");
+    } finally {
+      setModeSaving(false);
+    }
+  }
+
   useEffect(() => {
+    fetchOperationMode();
     fetchCorpusStatus();
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
@@ -241,6 +282,17 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
         </button>
       </div>
 
+      {operationMode && (
+        <>
+          <OperationModeSection currentMode={operationMode} onModeChange={handleModeChange} disabled={modeSaving} />
+          {modeError && (
+            <p className="mt-2 rounded-r-sm border-l-2 border-error bg-canvas-alt px-3 py-2 font-body text-[12px] text-foreground">
+              {modeError}
+            </p>
+          )}
+        </>
+      )}
+
       <div className={fieldWrapClass}>
         <label className={legendClass} htmlFor={depthId}>
           Search depth
@@ -265,7 +317,8 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
         </p>
       </div>
 
-      <ModelSection />
+      {/* key: remount on a mode switch so the section refetches the provider the server just saved. */}
+      <ModelSection key={operationMode ?? "unknown"} operationMode={operationMode ?? undefined} />
 
       <div className={fieldWrapClass}>
         <span className={legendClass}>Cached grant data</span>
