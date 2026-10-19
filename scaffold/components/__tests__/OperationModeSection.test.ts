@@ -54,7 +54,7 @@ describe("OperationModeSection", () => {
   ] as const) {
     test(`highlights only the selected option (${mode})`, () => {
       const html = render({ currentMode: mode });
-      const pressed = [...html.matchAll(/<button[^>]*aria-pressed="true"[^>]*>([^<]*)</g)].map((m) => m[1]);
+      const pressed = Array.from(html.matchAll(/<button[^>]*aria-pressed="true"[^>]*>([^<]*)</g)).map((m) => m[1]);
       assert.deepEqual(pressed, [label]);
       assert.equal((html.match(/aria-pressed="false"/g) ?? []).length, 2);
       assert.equal((html.match(/bg-structure text-token-white/g) ?? []).length, 1);
