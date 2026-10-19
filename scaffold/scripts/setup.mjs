@@ -210,8 +210,15 @@ console.log(`\n${c.g("✓")} Saved .env.local`);
 const dataLocalDir = join(SCAFFOLD, "data", "local");
 mkdirSync(dataLocalDir, { recursive: true });
 const configPath = join(dataLocalDir, "llm-config.json");
-const configContent = JSON.stringify({ operationMode: llmConfigMode }, null, 2);
-writeFileSync(configPath, configContent);
+let existingConfig = {};
+try {
+  existingConfig = JSON.parse(readFileSync(configPath, "utf8"));
+} catch {
+  // No readable existing config; start fresh.
+}
+const merged = { ...existingConfig, operationMode: llmConfigMode };
+if (modeChoice === "1") merged.provider = "ollama";
+writeFileSync(configPath, JSON.stringify(merged, null, 2));
 console.log(`${c.g("✓")} Saved llm-config.json with mode: ${llmConfigMode}`);
 
 // 2) Dependencies.

@@ -1033,14 +1033,30 @@ export async function buildOpportunityMap(
 }
 
 /** True when the local LLM backend is selected and something answers at the Ollama host. Never throws. */
+let ollamaCache: { available: boolean; ts: number } | null = null;
+const OLLAMA_CACHE_TTL_MS = 30_000;
+const OLLAMA_PROBE_TIMEOUT_MS = 3_000;
+
 async function localLlmAvailable(): Promise<boolean> {
   if (!isLocalLlm()) return false;
+  if (ollamaCache && Date.now() - ollamaCache.ts < OLLAMA_CACHE_TTL_MS) return ollamaCache.available;
+  let available = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const status = await getOllamaStatus();
-    return status.running;
+    const status = await Promise.race([
+      getOllamaStatus(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("Ollama probe timed out")), OLLAMA_PROBE_TIMEOUT_MS);
+      }),
+    ]);
+    available = status.running;
   } catch {
-    return false;
+    available = false;
+  } finally {
+    if (timer) clearTimeout(timer);
   }
+  ollamaCache = { available, ts: Date.now() };
+  return available;
 }
 
 async function weakField(

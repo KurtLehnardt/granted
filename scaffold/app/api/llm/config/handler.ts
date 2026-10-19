@@ -73,7 +73,11 @@ export async function handleLlmConfigPost(
   const operationMode = rawMode as LlmConfigFile["operationMode"];
 
   // Local mode always runs the local backend, whatever provider the caller sent.
-  const provider: unknown = operationMode === "local" ? "ollama" : body?.provider;
+  // When only operationMode is sent, infer the provider from the saved config.
+  const provider: unknown =
+    operationMode === "local"
+      ? "ollama"
+      : body?.provider ?? (operationMode ? d.readLlmConfig().provider ?? "cloud" : undefined);
   if (provider !== "ollama" && provider !== "cloud") {
     return NextResponse.json({ error: 'provider must be "ollama" or "cloud".' }, { status: 400 });
   }

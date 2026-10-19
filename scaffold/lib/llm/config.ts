@@ -171,17 +171,18 @@ export function resolveProvider(): ProviderName {
 /**
  * The operation mode: the saved `operationMode` when set, else inferred from
  * current state. Ollama with no cloud keys is "local"; any cloud key (env, or a
- * saved cloud config) is "cloud"; otherwise "local".
+ * saved cloud config) is "cloud"; otherwise "cloud".
  */
 export function resolveOperationMode(): OperationMode {
-  return operationModeSignal() ?? "local";
+  return operationModeSignal() ?? "cloud";
 }
 
 function hasAnyCloudKey(file: LlmConfigFile): boolean {
   return (
     Boolean((process.env.ANTHROPIC_API_KEY || "").trim()) ||
     Boolean((process.env.OPENAI_API_KEY || "").trim()) ||
-    Boolean(file.cloud ?? file.anthropicApiKey)
+    Boolean(file.anthropicApiKey) ||
+    Boolean(file.cloud?.keySource)
   );
 }
 
