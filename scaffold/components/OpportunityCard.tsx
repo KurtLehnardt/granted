@@ -457,7 +457,7 @@ function ScoredOpportunityCard({
   // determination the engine didn't make (R8.4).
   const rawIneligible = m.whyIneligible?.trim()
     ? m.whyIneligible
-    : "No disqualifying factors surfaced from your description, but eligibility still turns on the program's formal requirements. Confirm size standards, required registrations, and topic scope with the program officer before applying.";
+    : "No disqualifying factors found in your description, but eligibility still depends on the program's formal requirements. Confirm size standards, required registrations, and topic scope with the program officer before applying.";
   const ineligible = reconcileCardNarrative(rawIneligible, bucket);
 
   const nextSteps = m.whatToDoNext?.trim();
