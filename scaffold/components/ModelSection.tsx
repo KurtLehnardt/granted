@@ -10,6 +10,7 @@ import { CLOUD_PROVIDERS, isSameCloudTarget, type CloudProviderId } from "@/lib/
 import type { SearchStatus } from "@/lib/embeddings/searchStatus";
 import LocalSearchStatus from "@/components/LocalSearchStatus";
 import LocalModelPanel from "@/components/LocalModelPanel";
+import type { OperationMode } from "@/lib/llm/config";
 
 export type KeySourceType = "inline" | "env" | "file";
 export type PublicKeySource = { type: "inline" } | { type: "env"; name: string } | { type: "file"; path: string };
@@ -102,7 +103,16 @@ export function draftOnProviderSwitch(
 // network); otherwise fetches GET /api/llm on mount. Selecting "Cloud" only
 // reveals the panel — the switch is committed by Save, and only with a
 // resolvable, format-valid key (POST /api/llm/config, loopback-only).
-export default function ModelSection({ initialInfo }: { initialInfo?: LlmProviderInfo }) {
+//
+// `operationMode` (Settings' Operation mode) narrows this: "local" shows only the Ollama panel,
+// "cloud" only the cloud panel, and "hybrid"/undefined keep the full Local/Cloud switch.
+export default function ModelSection({
+  initialInfo,
+  operationMode,
+}: {
+  initialInfo?: LlmProviderInfo;
+  operationMode?: OperationMode;
+}) {
   const uid = useId();
   const providerSelectId = `${uid}-provider`;
   const baseUrlId = `${uid}-base-url`;
@@ -344,8 +354,11 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
   // which panel is open for editing — a revealed-but-unsaved Cloud panel, or
   // a failed Save, must not make this look switched.
   const activeProvider = info?.provider ?? "ollama";
+  const modeLocksProvider = operationMode === "local" || operationMode === "cloud";
+  const panelProvider: "ollama" | "cloud" =
+    operationMode === "local" ? "ollama" : operationMode === "cloud" ? "cloud" : uiProvider;
   const activeCloudLabel = CLOUD_PROVIDERS.find((p) => p.id === info?.cloud?.providerId)?.label;
-  const modelRequired = uiProvider === "cloud" && providerId !== "anthropic" && !preset?.defaultModel;
+  const modelRequired = panelProvider === "cloud" && providerId !== "anthropic" && !preset?.defaultModel;
   const canReuseSavedKey =
     Boolean(info?.cloud?.hasKey) && info?.cloud?.keySource.type === "inline" && isSameCloudTarget(info.cloud, providerId, baseUrl);
 
@@ -360,6 +373,8 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
   return (
     <div className={fieldWrapClass} data-testid="model-section">
       <span className={legendClass}>Model</span>
+      {!modeLocksProvider && (
+      <>
       <div className="mt-2 flex gap-2" role="group" aria-label="LLM provider">
         <button
           type="button"
@@ -383,8 +398,21 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
       <p className="mt-1.5 font-body text-[12px] text-foreground opacity-70" data-testid="active-provider">
         Active: {activeProvider === "cloud" ? `Cloud${activeCloudLabel ? ` (${activeCloudLabel})` : ""}` : "Local"}
       </p>
+      </>
+      )}
 
-      {uiProvider === "ollama" && (
+      {operationMode === "local" && (
+        <p className="mt-2 font-body text-[12px] text-foreground opacity-80" data-testid="local-mode-note">
+          Scoring uses your local model. Without Ollama, deterministic matching is used automatically.
+        </p>
+      )}
+      {operationMode === "local" && info?.cloud?.hasKey && (
+        <p className="mt-1.5 font-body text-[12px] text-foreground opacity-60" data-testid="cloud-keys-detected">
+          Cloud API keys detected. Switch to Cloud or Hybrid mode to use them.
+        </p>
+      )}
+
+      {panelProvider === "ollama" && (
         <div data-testid="model-panel-local" className="mt-3">
           <LocalModelPanel
             initialStatus={info?.ollama}
@@ -397,7 +425,7 @@ export default function ModelSection({ initialInfo }: { initialInfo?: LlmProvide
         </div>
       )}
 
-      {uiProvider === "cloud" && (
+      {panelProvider === "cloud" && (
         <div data-testid="model-panel-cloud" className="mt-3">
           {keySourceStatusLine() && (
             <p className={`${labelTextClass} mb-2`} data-testid="cloud-key-status">
