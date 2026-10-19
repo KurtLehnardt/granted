@@ -42,7 +42,7 @@ export function selectShownMatches(matches: Match[]): { real: Match[]; excluded:
   const ranked = rest
     .filter((m) => !m.unscored)
     .sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
-  const real = ranked.filter((m) => m.tier !== "none").slice(0, CARD_CAP);
+  const real = ranked.filter((m) => m.tier === "likely").slice(0, CARD_CAP);
   const realIds = new Set(real.map((m) => m.opportunity.id));
   const weaker = [
     ...ranked.filter((m) => !realIds.has(m.opportunity.id)),
@@ -101,7 +101,7 @@ export default function OpportunityMap({ map }: { map: MapT }) {
   const shown = [...shownReal, ...excludedShown];
 
   // Header stats derived from real fits only — keeps them honest and consistent.
-  const highPotential = shownReal.filter((m) => m.tier === "likely" || m.tier === "verify").length;
+  const highPotential = shownReal.length;
   // Evergreen-safe (F1): a rolling/continuous/standing program is never
   // counted here, even if a stray deadline-shaped value is present on the
   // record — see closingSoonCount/isClosingSoon in lib/ui/opportunitySummary.
@@ -195,7 +195,7 @@ export default function OpportunityMap({ map }: { map: MapT }) {
             "0 / $0" band above it would read as a failed query, so we drop it. */}
         {!w && (
           <div className={statGridClass}>
-            <Cell n={String(highPotential)} label="high-potential opportunities" />
+            <Cell n={String(highPotential)} label="strong matches" />
             {funding && <Cell n={funding.n} label={funding.label} />}
             <Cell n={String(agencyIntelligence.length)} label="relevant agencies" />
             <Cell n={String(closingSoon)} label="closing within 2 weeks" />
