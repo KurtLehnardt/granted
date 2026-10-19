@@ -1,4 +1,4 @@
-import { resolveProvider, resolveOperationMode, type ProviderName } from "../llm/config";
+import { resolveProvider, isFullyLocal, type ProviderName } from "../llm/config";
 import { SPACES, parseSearchEmbeddingsSetting, resolveSpaceId } from "../../scripts/lib/spaces.mjs";
 
 /**
@@ -60,7 +60,7 @@ export function resolveSearchSpace(input: SpaceInputs): ResolvedSpace {
 export function currentSpaceInputs(): SpaceInputs {
   return {
     // Fully local mode never reaches a cloud embeddings API, whatever SEARCH_EMBEDDINGS says.
-    setting: resolveOperationMode() === "local" ? "builtin" : process.env.SEARCH_EMBEDDINGS,
+    setting: isFullyLocal() ? "builtin" : process.env.SEARCH_EMBEDDINGS,
     provider: resolveProvider(),
     openAiKey: process.env.EMBEDDINGS_API_KEY || process.env.OPENAI_API_KEY,
     embeddingsBaseUrl: process.env.EMBEDDINGS_BASE_URL,

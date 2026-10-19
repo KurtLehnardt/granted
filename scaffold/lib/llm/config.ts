@@ -174,15 +174,35 @@ export function resolveProvider(): ProviderName {
  * saved cloud config) is "cloud"; otherwise "local".
  */
 export function resolveOperationMode(): OperationMode {
-  const file = readLlmConfig();
-  if (file.operationMode) return file.operationMode;
-  const hasCloudKey =
+  return operationModeSignal() ?? "local";
+}
+
+function hasAnyCloudKey(file: LlmConfigFile): boolean {
+  return (
     Boolean((process.env.ANTHROPIC_API_KEY || "").trim()) ||
     Boolean((process.env.OPENAI_API_KEY || "").trim()) ||
-    Boolean(file.cloud ?? file.anthropicApiKey);
-  if (resolveProvider() === "ollama" && !hasCloudKey) return "local";
+    Boolean(file.cloud ?? file.anthropicApiKey)
+  );
+}
+
+/** The saved mode, else one inferred from positive signals (Ollama and no keys, or a cloud key); undefined when there is no signal at all. */
+function operationModeSignal(): OperationMode | undefined {
+  const file = readLlmConfig();
+  if (file.operationMode) return file.operationMode;
+  const hasCloudKey = hasAnyCloudKey(file);
   if (hasCloudKey) return "cloud";
-  return "local";
+  if (resolveProvider() === "ollama") return "local";
+  return undefined;
+}
+
+/**
+ * True only on a positive signal for fully local operation: a saved "local"
+ * mode, or Ollama selected with no cloud keys. Unlike resolveOperationMode()
+ * (which defaults to "local" for display), an unconfigured install is not
+ * treated as fully local, so existing cloud-default behavior is untouched.
+ */
+export function isFullyLocal(): boolean {
+  return operationModeSignal() === "local";
 }
 
 /**
