@@ -11,7 +11,7 @@
  * key back to the screen. It does NOT touch any cloud account; the README covers
  * the Supabase / Google-OAuth steps that genuinely require a dashboard.
  */
-import { readFileSync, writeFileSync, existsSync, copyFileSync, chmodSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, copyFileSync, chmodSync, mkdirSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -100,6 +100,20 @@ async function ask(query, { hidden = false } = {}) {
   return line.trim();
 }
 
+async function selectOperationMode() {
+  console.log(`\n${c.b("How do you want to run Granted?")}`);
+  console.log(`\n  ${c.g("1. Fully Local (recommended)")} — no API keys, runs on your machine`);
+  console.log(`  2. Cloud — uses Anthropic or OpenAI API keys`);
+  console.log(`  3. Hybrid — local search + cloud scoring`);
+  const choice = await ask(`\n  Choose 1, 2, or 3 ${c.dim("[1]")} `);
+  const selected = choice === "" ? "1" : choice.trim();
+  if (!["1", "2", "3"].includes(selected)) {
+    console.log(c.y("  Invalid choice. Defaulting to Fully Local."));
+    return "1";
+  }
+  return selected;
+}
+
 async function collectKey(text, key, label, { required, help }) {
   const existing = currentValue(text, key);
   if (existing && !existing.startsWith("sk-...") && existing !== "sk-ant-...") {
@@ -133,25 +147,53 @@ if (!existsSync(ENV)) {
 
 let text = readFileSync(ENV, "utf8");
 
+// Ask about operation mode before API keys.
+const modeChoice = await selectOperationMode();
+let operationMode = "cloud"; // default
+let llmConfigMode = "cloud";
+
+if (modeChoice === "1") {
+  // Fully Local mode.
+  operationMode = "local";
+  llmConfigMode = "local";
+  text = upsert(text, "LLM_PROVIDER", "ollama");
+  text = upsert(text, "SEARCH_EMBEDDINGS", "builtin");
+  console.log(`\n${c.g("✓")} Configured for Fully Local mode.`);
+  console.log(c.dim("  You'll need Ollama installed. Run this after setup completes:"));
+  console.log(c.dim("  https://ollama.ai — then: ollama pull gemma4 (or qwen2.5, llama3.1, …)"));
+} else if (modeChoice === "3") {
+  // Hybrid mode.
+  operationMode = "hybrid";
+  llmConfigMode = "hybrid";
+  text = upsert(text, "SEARCH_EMBEDDINGS", "builtin");
+  console.log(`\n${c.g("✓")} Configured for Hybrid mode (local search + cloud scoring).`);
+}
+
 heading("API keys");
 console.log(c.dim("Pasted keys are hidden and written straight to .env.local (gitignored)."));
-// Every key is optional. Search runs on the built-in model with no key (or on
-// OpenAI's embeddings when an OpenAI key is present, as before). Scoring needs one
-// provider: an Anthropic key (Claude), an OpenAI key, another provider set in
-// Settings → Model, or a local model (npm run setup:local). See lib/llm/config.ts
-// resolveCloudConfig and lib/embeddings/spaces.ts.
-text = await collectKey(text, "ANTHROPIC_API_KEY", "Anthropic (Claude, for scoring and explanations)", {
-  required: false,
-  help: "https://console.anthropic.com/settings/keys. One scoring key is enough: this one or OpenAI's.",
-});
-text = await collectKey(text, "OPENAI_API_KEY", "OpenAI (scoring if you skip Claude; search uses its embeddings when set)", {
-  required: false,
-  help: "https://platform.openai.com/api-keys. Not needed for search: without it, search runs on this computer.",
-});
-text = await collectKey(text, "EXA_API_KEY", "Exa (optional — live web competitors)", {
-  required: false,
-  help: "https://dashboard.exa.ai — only needed for the deep competitor analysis' web results.",
-});
+
+// Only ask for keys if not in fully-local mode.
+if (modeChoice !== "1") {
+  // Every key is optional. Search runs on the built-in model with no key (or on
+  // OpenAI's embeddings when an OpenAI key is present, as before). Scoring needs one
+  // provider: an Anthropic key (Claude), an OpenAI key, another provider set in
+  // Settings → Model, or a local model (npm run setup:local). See lib/llm/config.ts
+  // resolveCloudConfig and lib/embeddings/spaces.ts.
+  text = await collectKey(text, "ANTHROPIC_API_KEY", "Anthropic (Claude, for scoring and explanations)", {
+    required: false,
+    help: "https://console.anthropic.com/settings/keys. One scoring key is enough: this one or OpenAI's.",
+  });
+  text = await collectKey(text, "OPENAI_API_KEY", "OpenAI (scoring if you skip Claude; search uses its embeddings when set)", {
+    required: false,
+    help: "https://platform.openai.com/api-keys. Not needed for search: without it, search runs on this computer.",
+  });
+  text = await collectKey(text, "EXA_API_KEY", "Exa (optional — live web competitors)", {
+    required: false,
+    help: "https://dashboard.exa.ai — only needed for the deep competitor analysis' web results.",
+  });
+} else {
+  console.log(c.dim("  Skipping API key prompts for Fully Local mode."));
+}
 
 writeFileSync(ENV, text);
 // .env.local holds API keys, so it must not be world-readable. writeFileSync's `mode` option is
@@ -163,6 +205,14 @@ writeFileSync(ENV, text);
 // already existing from a previous run.
 chmodSync(ENV, 0o600);
 console.log(`\n${c.g("✓")} Saved .env.local`);
+
+// Write operation mode to data/local/llm-config.json.
+const dataLocalDir = join(SCAFFOLD, "data", "local");
+mkdirSync(dataLocalDir, { recursive: true });
+const configPath = join(dataLocalDir, "llm-config.json");
+const configContent = JSON.stringify({ operationMode: llmConfigMode }, null, 2);
+writeFileSync(configPath, configContent);
+console.log(`${c.g("✓")} Saved llm-config.json with mode: ${llmConfigMode}`);
 
 // 2) Dependencies.
 heading("Dependencies");
