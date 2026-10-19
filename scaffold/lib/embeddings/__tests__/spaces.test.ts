@@ -1,6 +1,10 @@
-import { test, describe } from "node:test";
+import { test, describe, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { EMBEDDING_SPACES, getSpace, resolveSearchSpace } from "../spaces";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { EMBEDDING_SPACES, getSpace, resolveSearchSpace, currentSpaceInputs } from "../spaces";
+import { writeLlmConfig, resetLlmConfigCache } from "../../llm/config";
 import { CALIBRATION } from "../../match";
 import { customEmbedderFromEnv } from "../../../scripts/lib/spaces.mjs";
 
@@ -98,5 +102,57 @@ describe("a non-default OpenAI model or size is the custom space, at runtime and
     assert.equal(customEmbedderFromEnv({ EMBEDDINGS_MODEL: "text-embedding-3-large" }), "EMBEDDINGS_MODEL is set");
     assert.equal(customEmbedderFromEnv({ EMBEDDINGS_BASE_URL: "http://localhost:11434/v1" }), "EMBEDDINGS_BASE_URL is set");
     assert.equal(customEmbedderFromEnv({}), null);
+  });
+});
+
+describe("currentSpaceInputs — operation mode override", () => {
+  // isFullyLocal() reads the real config module, so drive it through a saved
+  // mode in an isolated config file rather than a module mock.
+  const CONFIG_PATH = path.join(os.tmpdir(), `granted-spaces-mode-test-${process.pid}.json`);
+  const saved = {
+    path: process.env.GRANTED_LLM_CONFIG_PATH,
+    setting: process.env.SEARCH_EMBEDDINGS,
+  };
+
+  beforeEach(() => {
+    process.env.GRANTED_LLM_CONFIG_PATH = CONFIG_PATH;
+    fs.rmSync(CONFIG_PATH, { force: true });
+    resetLlmConfigCache();
+  });
+
+  afterEach(() => {
+    fs.rmSync(CONFIG_PATH, { force: true });
+    resetLlmConfigCache();
+    if (saved.path === undefined) delete process.env.GRANTED_LLM_CONFIG_PATH;
+    else process.env.GRANTED_LLM_CONFIG_PATH = saved.path;
+    if (saved.setting === undefined) delete process.env.SEARCH_EMBEDDINGS;
+    else process.env.SEARCH_EMBEDDINGS = saved.setting;
+  });
+
+  test("local mode forces the builtin setting regardless of SEARCH_EMBEDDINGS", () => {
+    writeLlmConfig({ operationMode: "local" });
+    for (const value of ["openai", "auto", "builtin", undefined]) {
+      if (value === undefined) delete process.env.SEARCH_EMBEDDINGS;
+      else process.env.SEARCH_EMBEDDINGS = value;
+      assert.equal(currentSpaceInputs().setting, "builtin");
+    }
+  });
+
+  test("cloud mode respects SEARCH_EMBEDDINGS", () => {
+    writeLlmConfig({ operationMode: "cloud" });
+    process.env.SEARCH_EMBEDDINGS = "openai";
+    assert.equal(currentSpaceInputs().setting, "openai");
+  });
+
+  test("hybrid mode respects SEARCH_EMBEDDINGS", () => {
+    writeLlmConfig({ operationMode: "hybrid" });
+    process.env.SEARCH_EMBEDDINGS = "openai";
+    assert.equal(currentSpaceInputs().setting, "openai");
+  });
+
+  test("a non-local mode with SEARCH_EMBEDDINGS unset leaves the setting undefined", () => {
+    writeLlmConfig({ operationMode: "cloud" });
+    delete process.env.SEARCH_EMBEDDINGS;
+    assert.equal(currentSpaceInputs().setting, undefined);
   });
 });
