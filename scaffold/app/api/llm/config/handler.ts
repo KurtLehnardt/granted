@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { isLoopbackRequest } from "@/lib/corpus/loopback";
-import { readLlmConfig, writeLlmConfig, publicKeySource, resolveCloudConfig, type LlmConfigFile } from "@/lib/llm/config";
+import { readLlmConfig, writeLlmConfig, publicKeySource, resolveCloudConfig, isOperationMode, type LlmConfigFile } from "@/lib/llm/config";
 import { validateCloudConfig } from "@/lib/llm/validateCloudConfig";
 import { buildSearchStatus, type SearchStatus } from "@/lib/embeddings/searchStatus";
 import { startBuiltinModelDownload } from "@/lib/embeddings/builtin";
@@ -66,7 +66,14 @@ export async function handleLlmConfigPost(
     return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
   }
 
-  const provider: unknown = body?.provider;
+  const rawMode: unknown = body?.operationMode;
+  if (rawMode !== undefined && !isOperationMode(rawMode)) {
+    return NextResponse.json({ error: 'operationMode must be "local", "cloud" or "hybrid".' }, { status: 400 });
+  }
+  const operationMode = rawMode as LlmConfigFile["operationMode"];
+
+  // Local mode always runs the local backend, whatever provider the caller sent.
+  const provider: unknown = operationMode === "local" ? "ollama" : body?.provider;
   if (provider !== "ollama" && provider !== "cloud") {
     return NextResponse.json({ error: 'provider must be "ollama" or "cloud".' }, { status: 400 });
   }
@@ -74,19 +81,26 @@ export async function handleLlmConfigPost(
   if (provider === "ollama") {
     const patch: LlmConfigFile = { provider: "ollama", anthropicApiKey: undefined };
     if (body?.clearCloud === true) patch.cloud = undefined;
+    if (operationMode) patch.operationMode = operationMode;
     const saved = d.writeLlmConfig(patch);
     const search = prepareBuiltinSearch(d);
-    return NextResponse.json({ provider: saved.provider ?? "ollama", ...(search ? { search } : {}) });
+    return NextResponse.json({ provider: saved.provider ?? "ollama", ...(saved.operationMode ? { operationMode: saved.operationMode } : {}), ...(search ? { search } : {}) });
   }
 
   const { config, error } = validateCloudConfig(body?.cloud ?? {}, resolveCloudConfig(d.readLlmConfig()));
   if (error) return NextResponse.json({ error }, { status: 400 });
 
   // A fresh cloud save always supersedes #210's legacy plaintext field.
-  const saved = d.writeLlmConfig({ provider: "cloud", cloud: config, anthropicApiKey: undefined });
+  const saved = d.writeLlmConfig({
+    provider: "cloud",
+    cloud: config,
+    anthropicApiKey: undefined,
+    ...(operationMode ? { operationMode } : {}),
+  });
   const savedCloud = saved.cloud!;
   return NextResponse.json({
     provider: "cloud",
+    ...(saved.operationMode ? { operationMode: saved.operationMode } : {}),
     cloud: {
       providerId: savedCloud.providerId,
       ...(savedCloud.baseUrl ? { baseUrl: savedCloud.baseUrl } : {}),
