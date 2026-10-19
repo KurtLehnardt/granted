@@ -18,11 +18,13 @@ import type { Opportunity, StartupProfile } from "../types";
 const QUERY_VEC = [1, 0];
 const FLAG_ENV = "NEXT_PUBLIC_FLAG_E3_TWO_PASS";
 const savedProvider = process.env.LLM_PROVIDER;
+const savedFetch = globalThis.fetch;
 
 afterEach(() => {
   delete process.env[FLAG_ENV];
   if (savedProvider === undefined) delete process.env.LLM_PROVIDER;
   else process.env.LLM_PROVIDER = savedProvider;
+  globalThis.fetch = savedFetch;
 });
 
 function opp(id: string): Opportunity {
@@ -122,6 +124,10 @@ test("preDone counts toward pct but the score-progress detail excludes it", asyn
 test("local: NEXT_PUBLIC_FLAG_E3_TWO_PASS unset defaults to two-pass", async () => {
   process.env.LLM_PROVIDER = "ollama";
   delete process.env[FLAG_ENV];
+  globalThis.fetch = (async (url: string, init?: any) => {
+    if (String(url).endsWith("/api/tags")) return new Response(JSON.stringify({ models: [{ name: "gemma4:latest" }] }), { status: 200 });
+    return savedFetch(url, init);
+  }) as typeof fetch;
   const spy = { single: 0, two: 0 };
   const d = baseDeps();
   d.explainMatches = async (...args) => {
@@ -143,6 +149,10 @@ test("local: NEXT_PUBLIC_FLAG_E3_TWO_PASS unset defaults to two-pass", async () 
 test("local: NEXT_PUBLIC_FLAG_E3_TWO_PASS=false forces single-pass", async () => {
   process.env.LLM_PROVIDER = "ollama";
   process.env[FLAG_ENV] = "false";
+  globalThis.fetch = (async (url: string, init?: any) => {
+    if (String(url).endsWith("/api/tags")) return new Response(JSON.stringify({ models: [{ name: "gemma4:latest" }] }), { status: 200 });
+    return savedFetch(url, init);
+  }) as typeof fetch;
   const spy = { single: 0, two: 0 };
   const d = baseDeps();
   d.explainMatches = async (...args) => {
