@@ -18,6 +18,8 @@ import { createCostMeter, type CostMeter } from "./metering/meter";
 import { CURRENT_OPPORTUNITY_MAP_VERSION } from "./contracts/opportunityMap";
 import { isFlagEnabled, isFlagExplicitlyDisabled } from "./flags";
 import { isLocalLlm } from "./llm/client";
+import { resolveOperationMode } from "./llm/config";
+import { getOllamaStatus } from "./llm/ollamaStatus";
 import { recommendFor, mapVerdict } from "./recommend";
 import { computeCompositeScore } from "./scoring/compositeScore";
 import { dbsfScores, type ScoreSignals } from "./scoring/dbsfScorer";
@@ -792,7 +794,11 @@ export async function buildOpportunityMap(
   // so the card shows its AnalyzingRing), then the LLM narrative is merged in per
   // batch (`final: true`). Scores are never recomposited — DBSF already blends
   // every signal — so this path streams directly, bypassing `previewAssessment`.
-  const hybridEnabled = isFlagEnabled("hybrid_scorer");
+  // Fully local mode without a reachable Ollama: no LLM can score, so fall back to
+  // deterministic DBSF scoring, as if `dbsf_scorer` were on. Additive to the flags.
+  const localFallbackDbsf =
+    candidatesToScore.length > 0 && resolveOperationMode() === "local" && !(await localLlmAvailable());
+  const hybridEnabled = isFlagEnabled("hybrid_scorer") && !localFallbackDbsf;
   const hybridScore = async (): Promise<Assessment[]> => {
     const base = dbsfAssessments();
     const baseById = new Map(base.map((a) => [a.id, a]));
@@ -830,7 +836,7 @@ export async function buildOpportunityMap(
       ? []
       : hybridEnabled
       ? await hybridScore()
-      : isFlagEnabled("dbsf_scorer")
+      : isFlagEnabled("dbsf_scorer") || localFallbackDbsf
         ? (() => {
             const out = dbsfAssessments();
             for (const a of out) previewAssessment(a);
@@ -1024,6 +1030,17 @@ export async function buildOpportunityMap(
   };
   finalizeCost(meter, result);
   return result;
+}
+
+/** True when the local LLM backend is selected and Ollama answers with at least one chat model. Never throws. */
+async function localLlmAvailable(): Promise<boolean> {
+  if (!isLocalLlm()) return false;
+  try {
+    const status = await getOllamaStatus();
+    return status.isOllama && status.chatModels.length > 0;
+  } catch {
+    return false;
+  }
 }
 
 async function weakField(
