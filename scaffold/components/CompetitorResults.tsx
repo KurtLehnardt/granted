@@ -282,7 +282,7 @@ export default function CompetitorResults({ raw }: { raw: unknown }) {
             Gaps to exploit
           </h3>
           <p className="mt-1 font-body text-[12px] leading-relaxed text-foreground">
-            Whitespace the funded landscape suggests — each cites the evidence it draws from.
+            Whitespace the funded record suggests — each cites the evidence it draws from.
           </p>
           <ol className="mt-4 space-y-4">
             {data.analysis.opportunities.map((op, i) => (

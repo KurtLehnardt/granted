@@ -377,7 +377,7 @@ function ResultView({ result, onEdit }: { result: ReadinessResult; onEdit: () =>
       {/* Highest-leverage fix. */}
       {topFix && (
         <section className="rounded-lg border-l-2 border-structure-on-canvas bg-canvas-alt px-5 py-4">
-          <p className={`${EYEBROW} mb-1.5`}>Your highest-leverage fix</p>
+          <p className={`${EYEBROW} mb-1.5`}>Your most impactful fix</p>
           <p className="font-display text-[15px] font-semibold leading-snug text-foreground">{topFix.label}</p>
           <p className="mt-1 text-pretty font-body text-[14px] leading-relaxed text-foreground">{topFix.action}</p>
         </section>

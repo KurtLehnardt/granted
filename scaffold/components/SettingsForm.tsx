@@ -313,7 +313,7 @@ export default function SettingsForm({ onClose }: { onClose?: () => void }) {
         </select>
         <p className="mt-1.5 font-body text-[12px] text-foreground opacity-80">
           How many opportunities the model scores each search. Fewer is faster — helpful on a slow
-          local model — but may surface fewer matches.
+          local model — but may find fewer matches.
         </p>
       </div>
 
